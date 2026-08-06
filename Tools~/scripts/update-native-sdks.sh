@@ -36,6 +36,7 @@ namespace Bugsee
     public static class BugseePackageVersion
     {
         public const string Version = "${BUGSEE_PACKAGE_VERSION}";
+        public const string Build = "$(git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null || echo dev)";
         public const string AndroidSdkVersion = "${ANDROID_SDK_VERSION}";
         public const string IosSdkSource = "${IOS_SDK_SOURCE}";
     }

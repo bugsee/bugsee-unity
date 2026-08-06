@@ -6,6 +6,7 @@ namespace Bugsee
     public static class BugseePackageVersion
     {
         public const string Version = "0.1.0";
+        public const string Build = "dev";
         public const string AndroidSdkVersion = "7.0.4";
         public const string IosSdkSource = "local-nextgen";
     }

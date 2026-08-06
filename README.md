@@ -52,7 +52,16 @@ Documentation~/    # Package docs shown in Package Manager
 
 ## Status
 
-Scaffold only — C# API and sample project will be ported from the legacy Unity SDK next.
+Android-first implementation in progress:
+
+- Contracts (Options, Lifecycle, Reporting, Exchange, Appearance, Feedback)
+- Public `Bugsee` facade mirroring Android 7.x
+- Android bridge: launch/options mapping, `BugseeWrapper` registration, report handler, lifecycle, feedback extension
+- Network/log/breadcrumb **filters**: API present; full field mapping still expanding
+- iOS bridge: deferred until Android path is solid
+- Frame capturer (DirectBuffers): next
+
+See [DESIGN.md](DESIGN.md) for the full plan.
 
 ## License
 
