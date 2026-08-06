@@ -21,6 +21,9 @@ namespace Bugsee.Platform.Android
         BugseeWrapperProxy _wrapper;
         ReportHandlerProxy _reportHandlerProxy;
         LifecycleListenerProxy _lifecycleProxy;
+        EventFilterProxy<INetworkEvent> _networkFilterProxy;
+        EventFilterProxy<ILogEvent> _logFilterProxy;
+        EventFilterProxy<IBreadcrumb> _breadcrumbFilterProxy;
         AndroidFeedback _feedback;
         AndroidAppearance _appearance;
 
@@ -93,10 +96,21 @@ namespace Bugsee.Platform.Android
         public void Log(string message, LogLevel level)
         {
             using (var clazz = new AndroidJavaClass("com.bugsee.library.contracts.options.LogLevel"))
-            using (var def = clazz.CallStatic<AndroidJavaObject>("fromRawValue", (byte)LogLevel.Info))
-            using (var ll = clazz.CallStatic<AndroidJavaObject>("fromRawValue", (byte)level, def))
             {
-                _bugsee.CallStatic("log", message, ll);
+                var def = clazz.CallStatic<AndroidJavaObject>("fromRawValue", (sbyte)LogLevel.Info);
+                var ll = clazz.CallStatic<AndroidJavaObject>("fromRawValue", (sbyte)level, def);
+                try
+                {
+                    _bugsee.CallStatic("log", message, ll);
+                }
+                finally
+                {
+                    if (def != null && ll != null && def.GetRawObject() != ll.GetRawObject())
+                        def.Dispose();
+                    else if (def != null && ll == null)
+                        def.Dispose();
+                    ll?.Dispose();
+                }
             }
         }
 
@@ -178,7 +192,11 @@ namespace Bugsee.Platform.Android
         public void SetAttribute(string key, object value) =>
             _bugsee.CallStatic("setAttribute", key, Box(value));
 
-        public object GetAttribute(string key) => _bugsee.CallStatic<AndroidJavaObject>("getAttribute", key);
+        public object GetAttribute(string key)
+        {
+            using (var value = _bugsee.CallStatic<AndroidJavaObject>("getAttribute", key))
+                return AndroidJavaConverters.Unbox(value);
+        }
 
         public void ClearAttribute(string key) => _bugsee.CallStatic("clearAttribute", key);
 
@@ -216,40 +234,59 @@ namespace Bugsee.Platform.Android
 
         public void SetNetworkEventFilter(EventFilter<INetworkEvent> filter)
         {
-            // Full NetworkEvent wrap comes next; for now install passthrough unless null.
             if (filter == null)
             {
+                _networkFilterProxy?.SetFilter(null);
                 _bugsee.CallStatic("setNetworkEventFilter", (AndroidJavaObject)null);
+                _networkFilterProxy = null;
                 return;
             }
 
-            Debug.LogWarning("[Bugsee] Network event filter is registered; detailed field mapping is still being expanded.");
-            // Keep events by default until full wrapper lands.
-            _bugsee.CallStatic("setNetworkEventFilter", (AndroidJavaObject)null);
+            if (_networkFilterProxy == null)
+            {
+                _networkFilterProxy = new EventFilterProxy<INetworkEvent>(
+                    native => new AndroidNetworkEvent(native));
+                _bugsee.CallStatic("setNetworkEventFilter", _networkFilterProxy);
+            }
+            _networkFilterProxy.SetFilter(filter);
         }
 
         public void SetLogEventFilter(EventFilter<ILogEvent> filter)
         {
             if (filter == null)
             {
+                _logFilterProxy?.SetFilter(null);
                 _bugsee.CallStatic("setLogEventFilter", (AndroidJavaObject)null);
+                _logFilterProxy = null;
                 return;
             }
 
-            Debug.LogWarning("[Bugsee] Log event filter is registered; detailed field mapping is still being expanded.");
-            _bugsee.CallStatic("setLogEventFilter", (AndroidJavaObject)null);
+            if (_logFilterProxy == null)
+            {
+                _logFilterProxy = new EventFilterProxy<ILogEvent>(
+                    native => new AndroidLogEvent(native));
+                _bugsee.CallStatic("setLogEventFilter", _logFilterProxy);
+            }
+            _logFilterProxy.SetFilter(filter);
         }
 
         public void SetBreadcrumbFilter(EventFilter<IBreadcrumb> filter)
         {
             if (filter == null)
             {
+                _breadcrumbFilterProxy?.SetFilter(null);
                 _bugsee.CallStatic("setBreadcrumbFilter", (AndroidJavaObject)null);
+                _breadcrumbFilterProxy = null;
                 return;
             }
 
-            Debug.LogWarning("[Bugsee] Breadcrumb filter is registered; detailed field mapping is still being expanded.");
-            _bugsee.CallStatic("setBreadcrumbFilter", (AndroidJavaObject)null);
+            if (_breadcrumbFilterProxy == null)
+            {
+                _breadcrumbFilterProxy = new EventFilterProxy<IBreadcrumb>(
+                    native => new AndroidBreadcrumb(native));
+                _bugsee.CallStatic("setBreadcrumbFilter", _breadcrumbFilterProxy);
+            }
+            _breadcrumbFilterProxy.SetFilter(filter);
         }
 
         public void SetReportHandler(IReportHandler handler)
@@ -296,17 +333,7 @@ namespace Bugsee.Platform.Android
             return list;
         }
 
-        static AndroidJavaObject Box(object value)
-        {
-            if (value == null) return null;
-            if (value is string s) return new AndroidJavaObject("java.lang.String", s);
-            if (value is bool b) return new AndroidJavaObject("java.lang.Boolean", b);
-            if (value is int i) return new AndroidJavaObject("java.lang.Integer", i);
-            if (value is long l) return new AndroidJavaObject("java.lang.Long", l);
-            if (value is float f) return new AndroidJavaObject("java.lang.Float", f);
-            if (value is double d) return new AndroidJavaObject("java.lang.Double", d);
-            return new AndroidJavaObject("java.lang.String", value.ToString());
-        }
+        static AndroidJavaObject Box(object value) => AndroidJavaConverters.Box(value);
     }
 
     sealed class AndroidAppearance : IAppearance
@@ -359,7 +386,11 @@ namespace Bugsee.Platform.Android
         public string GetString(string propertyName) =>
             _appearance.Call<string>("getString", propertyName);
 
-        public IReadOnlyDictionary<string, object> ToMap() => new Dictionary<string, object>();
+        public IReadOnlyDictionary<string, object> ToMap()
+        {
+            using (var map = _appearance.Call<AndroidJavaObject>("toMap"))
+                return AndroidJavaConverters.MapToDictionary(map);
+        }
     }
 
     sealed class AndroidFeedback : IFeedback

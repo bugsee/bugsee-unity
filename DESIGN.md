@@ -93,10 +93,9 @@ Runtime/
 │   │   ├── AndroidReport.cs
 │   │   └── AndroidExchangeFactory.cs
 │   ├── iOS/
-│   │   ├── IosBridge.cs                  # nextgen / SPM (fill after Android)
-│   │   └── NativeBindings.cs
+│   │   └── IOSBridge.cs                  # Throws NotSupported until nextgen bridge lands
 │   └── Editor/
-│       └── EditorBridge.cs
+│       └── EditorBridge.cs               # Editor / unsupported no-op
 │
 ├── Capture/
 │   └── BugseeFrameCapturer.cs            # VideoMode.DirectBuffers → getVideoFrameConsumer()

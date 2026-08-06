@@ -1,5 +1,7 @@
 #if UNITY_ANDROID && !UNITY_EDITOR
+using System;
 using System.Collections.Generic;
+using System.Text;
 using Bugsee.Contracts.Options;
 using Bugsee.Contracts.Reporting;
 using UnityEngine;
@@ -70,15 +72,16 @@ namespace Bugsee.Platform.Android
 
         public IReadOnlyDictionary<string, object> Attributes => new Dictionary<string, object>();
 
-        public object GetAttribute(string name) => _report.Call<AndroidJavaObject>("getAttribute", name);
+        public object GetAttribute(string name)
+        {
+            using (var value = _report.Call<AndroidJavaObject>("getAttribute", name))
+                return AndroidJavaConverters.Unbox(value);
+        }
 
         public void SetAttribute(string name, object value)
         {
-            // Best-effort: strings and boxed primitives.
-            if (value is string s) _report.Call("setAttribute", name, new AndroidJavaObject("java.lang.String", s));
-            else if (value is int i) _report.Call("setAttribute", name, new AndroidJavaObject("java.lang.Integer", i));
-            else if (value is bool b) _report.Call("setAttribute", name, new AndroidJavaObject("java.lang.Boolean", b));
-            else if (value != null) _report.Call("setAttribute", name, new AndroidJavaObject("java.lang.String", value.ToString()));
+            using (var boxed = AndroidJavaConverters.Box(value))
+                _report.Call("setAttribute", name, boxed);
         }
 
         public void RemoveAttribute(string name) => _report.Call("removeAttribute", name);
@@ -144,8 +147,8 @@ namespace Bugsee.Platform.Android
 
         public string Filename
         {
-            get => _attachment.Call<string>("getFilename");
-            set => _attachment.Call("setFilename", value);
+            get => _attachment.Call<string>("getFileName", (string)null);
+            set => _attachment.Call("setFileName", value);
         }
 
         public string MimeType
@@ -156,14 +159,31 @@ namespace Bugsee.Platform.Android
 
         public void SetData(byte[] data)
         {
-            if (data == null) return;
-            // setData(byte[]) on Attachment — pass via AndroidJNI helper
-            var javaBytes = AndroidJNIHelper.ConvertToJNIArray(data);
-            // CallObjectMethod path is awkward; use AndroidJavaObject with sbyte[] when possible.
-            _attachment.Call("setData", data);
+            if (data == null || data.Length == 0) return;
+
+            using (var stream = _attachment.Call<AndroidJavaObject>("openStream"))
+            {
+                if (stream == null)
+                    throw new InvalidOperationException("Attachment.openStream() returned null.");
+
+                try
+                {
+                    var signed = AndroidJavaConverters.ToSBytes(data);
+                    stream.Call("write", signed);
+                    stream.Call("flush");
+                }
+                finally
+                {
+                    stream.Call("close");
+                }
+            }
         }
 
-        public void SetData(string text) => _attachment.Call("setData", text);
+        public void SetData(string text)
+        {
+            if (text == null) return;
+            SetData(Encoding.UTF8.GetBytes(text));
+        }
     }
 }
 #endif

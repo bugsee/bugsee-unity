@@ -7,22 +7,19 @@ using UnityEngine;
 
 namespace Bugsee.Platform.Android
 {
+    /// <summary>
+    /// Proxies Java <c>EventFilter&lt;T&gt;</c>. Managed wrappers mutate the native
+    /// event in place; returning null drops the event.
+    /// </summary>
     sealed class EventFilterProxy<TNative> : AndroidJavaProxy where TNative : class
     {
-        readonly string _javaInterface;
         readonly Func<AndroidJavaObject, TNative> _wrap;
-        readonly Action<TNative, AndroidJavaObject> _applyBack;
         EventFilter<TNative> _filter;
 
-        public EventFilterProxy(
-            string javaEventFilterInterface,
-            Func<AndroidJavaObject, TNative> wrap,
-            Action<TNative, AndroidJavaObject> applyBack)
-            : base(javaEventFilterInterface)
+        public EventFilterProxy(Func<AndroidJavaObject, TNative> wrap)
+            : base("com.bugsee.library.contracts.exchange.EventFilter")
         {
-            _javaInterface = javaEventFilterInterface;
             _wrap = wrap;
-            _applyBack = applyBack;
         }
 
         public void SetFilter(EventFilter<TNative> filter) => _filter = filter;
@@ -38,21 +35,13 @@ namespace Bugsee.Platform.Android
             }
 
             // Filters may touch managed state — run on main thread, then complete.
-            // Completing off-thread is fine for the SDK; we keep ordering by posting work.
             MainThreadDispatcher.Run(() =>
             {
                 try
                 {
                     var managed = _wrap(data);
                     var result = filter(managed);
-                    if (result == null)
-                    {
-                        callback?.Call("run", (AndroidJavaObject)null);
-                        return;
-                    }
-
-                    _applyBack?.Invoke(result, data);
-                    callback?.Call("run", data);
+                    callback?.Call("run", result == null ? (AndroidJavaObject)null : data);
                 }
                 catch (Exception ex)
                 {
@@ -141,10 +130,15 @@ namespace Bugsee.Platform.Android
 
         public void onEvent(string eventType, AndroidJavaObject data)
         {
-            // Fan-out through the public facade (event + app listener).
-            Bugsee.Internal.MainThreadDispatcher.Run(() =>
+            // Unbox on the calling (often background) thread so we don't retain
+            // a Java local ref across the main-thread hop.
+            object managedData = null;
+            try { managedData = AndroidJavaConverters.UnboxLifecycleData(data); }
+            catch (Exception ex) { Debug.LogException(ex); }
+
+            MainThreadDispatcher.Run(() =>
             {
-                try { Bugsee.Bugsee.HandleNativeLifecycle(eventType, null); }
+                try { Bugsee.Bugsee.HandleNativeLifecycle(eventType, managedData); }
                 catch (Exception ex) { Debug.LogException(ex); }
             });
         }

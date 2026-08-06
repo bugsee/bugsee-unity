@@ -74,18 +74,32 @@ namespace Bugsee.Platform.Android
         static AndroidJavaObject EnumFromInt(string className, string method, int value, int defaultValue)
         {
             using (var clazz = new AndroidJavaClass(className))
-            using (var def = clazz.CallStatic<AndroidJavaObject>(method, defaultValue))
             {
-                return clazz.CallStatic<AndroidJavaObject>(method, value, def);
+                // Do not dispose `def` with `using`: fromIntValue may return the
+                // same fallback instance for unknown values (use-after-dispose).
+                var def = clazz.CallStatic<AndroidJavaObject>(method, defaultValue);
+                var result = clazz.CallStatic<AndroidJavaObject>(method, value, def);
+                if (def != null && result != null
+                    && def.GetRawObject() != result.GetRawObject())
+                    def.Dispose();
+                else if (def != null && result == null)
+                    def.Dispose();
+                return result;
             }
         }
 
         static AndroidJavaObject LogLevelFromRaw(int value)
         {
             using (var clazz = new AndroidJavaClass(LogLevelClass))
-            using (var def = clazz.CallStatic<AndroidJavaObject>("fromRawValue", (byte)LogLevel.Info))
             {
-                return clazz.CallStatic<AndroidJavaObject>("fromRawValue", (byte)value, def);
+                var def = clazz.CallStatic<AndroidJavaObject>("fromRawValue", (sbyte)LogLevel.Info);
+                var result = clazz.CallStatic<AndroidJavaObject>("fromRawValue", (sbyte)value, def);
+                if (def != null && result != null
+                    && def.GetRawObject() != result.GetRawObject())
+                    def.Dispose();
+                else if (def != null && result == null)
+                    def.Dispose();
+                return result;
             }
         }
     }

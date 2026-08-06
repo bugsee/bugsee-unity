@@ -12,6 +12,8 @@ using Bugsee.Platform.EditorStub;
 using UnityEngine;
 #if UNITY_ANDROID && !UNITY_EDITOR
 using Bugsee.Platform.Android;
+#elif UNITY_IOS && !UNITY_EDITOR
+using Bugsee.Platform.IOS;
 #endif
 
 namespace Bugsee
@@ -35,6 +37,8 @@ namespace Bugsee
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
             return new AndroidBridge();
+#elif UNITY_IOS && !UNITY_EDITOR
+            return new IOSBridge();
 #else
             return new EditorBridge();
 #endif
@@ -79,7 +83,7 @@ namespace Bugsee
         [Obsolete("Use StartBlackout/EndBlackout instead.")]
         public static void Resume() => EndBlackout();
 
-        public static void Log(string message, LogLevel level = LogLevel.Debug) =>
+        public static void Log(string message, LogLevel level = LogLevel.Info) =>
             Bridge.Log(message, level);
 
         public static void Trace(string name, object value) => Bridge.Trace(name, value);
