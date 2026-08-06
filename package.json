@@ -1,0 +1,28 @@
+{
+  "name": "com.bugsee.unity",
+  "version": "0.1.0",
+  "displayName": "Bugsee",
+  "description": "Bugsee crash and session-replay SDK for Unity (iOS & Android).",
+  "unity": "2021.3",
+  "documentationUrl": "https://docs.bugsee.com/sdk/unity/",
+  "changelogUrl": "https://github.com/bugsee/bugsee-unity/blob/main/CHANGELOG.md",
+  "licensesUrl": "https://github.com/bugsee/bugsee-unity/blob/main/LICENSE",
+  "license": "MIT",
+  "keywords": [
+    "bugsee",
+    "crash",
+    "bug-reporting",
+    "session-replay",
+    "logging",
+    "diagnostics"
+  ],
+  "author": {
+    "name": "Bugsee",
+    "email": "support@bugsee.com",
+    "url": "https://www.bugsee.com"
+  },
+  "type": "library",
+  "dependencies": {
+    "com.google.external-dependency-manager": "1.2.188"
+  }
+}

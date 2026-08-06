@@ -1,0 +1,6 @@
+<dependencies>
+  <androidPackages>
+    <androidPackage spec="com.bugsee:bugsee-android:7.0.4" />
+    <androidPackage spec="com.bugsee:bugsee-android-feedback:7.0.4" />
+  </androidPackages>
+</dependencies>

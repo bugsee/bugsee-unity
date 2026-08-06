@@ -1,0 +1,4 @@
+# Built by Tools~/scripts/update-native-sdks.sh — do not commit the xcframework.
+Bugsee.xcframework/
+*.xcframework/
+.DS_Store

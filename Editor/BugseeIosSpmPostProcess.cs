@@ -1,0 +1,248 @@
+using System.IO;
+using UnityEditor;
+using UnityEditor.Callbacks;
+using UnityEditor.iOS.Xcode;
+using UnityEditor.PackageManager;
+using UnityEngine;
+
+namespace Bugsee.Editor
+{
+    /// <summary>
+    /// Wires the Bugsee iOS SDK into the generated Xcode project via Swift Package Manager.
+    ///
+    /// Until nextgen is published to github.com/bugsee/spm, we copy the in-repo local SPM
+    /// package (Native~/ios/Bugsee) next to the Xcode project and add an XCLocalSwiftPackageReference.
+    /// Flip <see cref="UseRemoteSpm"/> when the remote package is ready.
+    /// </summary>
+    public static class BugseeIosSpmPostProcess
+    {
+        /// <summary>
+        /// When false (default), uses the local SPM package under Native~/ios/Bugsee.
+        /// When true, adds a remote reference to github.com/bugsee/spm at <see cref="RemoteSpmVersion"/>.
+        /// </summary>
+        public const bool UseRemoteSpm = false;
+
+        public const string RemoteSpmUrl = "https://github.com/bugsee/spm.git";
+        public const string RemoteSpmVersion = "7.0.0";
+        public const string SpmProductName = "Bugsee";
+
+        const string LocalPackageFolderName = "Bugsee";
+        const string LocalPackageRelativePath = "Native~/ios/Bugsee";
+
+        [PostProcessBuild(999)]
+        public static void OnPostProcessBuild(BuildTarget target, string pathToBuiltProject)
+        {
+            if (target != BuildTarget.iOS)
+            {
+                return;
+            }
+
+            string projectPath = PBXProject.GetPBXProjectPath(pathToBuiltProject);
+            var project = new PBXProject();
+            project.ReadFromFile(projectPath);
+
+            string mainTargetGuid = project.GetUnityMainTargetGuid();
+            string frameworkTargetGuid = project.GetUnityFrameworkTargetGuid();
+
+            if (UseRemoteSpm)
+            {
+                string packageGuid = project.AddRemotePackageReferenceAtVersion(RemoteSpmUrl, RemoteSpmVersion);
+                project.AddRemotePackageFrameworkToProject(mainTargetGuid, SpmProductName, packageGuid, false);
+                project.AddRemotePackageFrameworkToProject(frameworkTargetGuid, SpmProductName, packageGuid, false);
+                project.WriteToFile(projectPath);
+                Debug.Log($"[Bugsee] Linked remote SPM {RemoteSpmUrl}@{RemoteSpmVersion}");
+                return;
+            }
+
+            string localPackageSource = ResolveLocalPackagePath();
+            if (string.IsNullOrEmpty(localPackageSource) || !File.Exists(Path.Combine(localPackageSource, "Package.swift")))
+            {
+                Debug.LogError(
+                    "[Bugsee] Local SPM package not found. Expected Package.swift under " +
+                    $"{LocalPackageRelativePath}. Run Tools~/scripts/update-native-sdks.sh first.");
+                return;
+            }
+
+            string destPackageDir = Path.Combine(pathToBuiltProject, LocalPackageFolderName);
+            CopyDirectory(localPackageSource, destPackageDir);
+
+            if (!Directory.Exists(Path.Combine(destPackageDir, "Bugsee.xcframework")))
+            {
+                Debug.LogWarning(
+                    "[Bugsee] Bugsee.xcframework is missing from the local SPM package. " +
+                    "iOS linking will fail until you run Tools~/scripts/update-native-sdks.sh.");
+            }
+
+            project.WriteToFile(projectPath);
+            InjectLocalSwiftPackageReference(projectPath, LocalPackageFolderName, SpmProductName, mainTargetGuid, frameworkTargetGuid);
+            Debug.Log($"[Bugsee] Linked local SPM package at {destPackageDir}");
+        }
+
+        static string ResolveLocalPackagePath()
+        {
+            foreach (var info in PackageInfo.GetAllRegisteredPackages())
+            {
+                if (info.name != "com.bugsee.unity")
+                {
+                    continue;
+                }
+
+                string candidate = Path.Combine(info.resolvedPath, "Native~", "ios", "Bugsee");
+                if (Directory.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+
+            // Fallback when developing with the package embedded / opened as the project root.
+            string fromCwd = Path.GetFullPath(Path.Combine(Application.dataPath, "..", LocalPackageRelativePath));
+            return Directory.Exists(fromCwd) ? fromCwd : null;
+        }
+
+        static void CopyDirectory(string sourceDir, string destDir)
+        {
+            if (Directory.Exists(destDir))
+            {
+                Directory.Delete(destDir, true);
+            }
+
+            Directory.CreateDirectory(destDir);
+
+            foreach (string file in Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
+            {
+                if (file.Contains($"{Path.DirectorySeparatorChar}.git{Path.DirectorySeparatorChar}") ||
+                    Path.GetFileName(file) == ".DS_Store")
+                {
+                    continue;
+                }
+
+                string relative = file.Substring(sourceDir.Length)
+                    .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string destFile = Path.Combine(destDir, relative);
+                string destParent = Path.GetDirectoryName(destFile);
+                if (!string.IsNullOrEmpty(destParent))
+                {
+                    Directory.CreateDirectory(destParent);
+                }
+
+                File.Copy(file, destFile, true);
+            }
+        }
+
+        /// <summary>
+        /// Unity's PBXProject API exposes remote SPM helpers but not local path packages.
+        /// Inject XCLocalSwiftPackageReference + product dependencies into project.pbxproj.
+        /// </summary>
+        static void InjectLocalSwiftPackageReference(
+            string projectPath,
+            string relativePackagePath,
+            string productName,
+            string mainTargetGuid,
+            string frameworkTargetGuid)
+        {
+            string contents = File.ReadAllText(projectPath);
+            if (contents.Contains($"XCLocalSwiftPackageReference \"{relativePackagePath}\""))
+            {
+                return;
+            }
+
+            string packageRefGuid = Guid24();
+            string mainProductGuid = Guid24();
+            string frameworkProductGuid = Guid24();
+
+            string localRefSection =
+                "/* Begin XCLocalSwiftPackageReference section */\n" +
+                $"\t\t{packageRefGuid} /* XCLocalSwiftPackageReference \"{relativePackagePath}\" */ = {{\n" +
+                "\t\t\tisa = XCLocalSwiftPackageReference;\n" +
+                $"\t\t\trelativePath = {relativePackagePath};\n" +
+                "\t\t};\n" +
+                "/* End XCLocalSwiftPackageReference section */\n";
+
+            string productSection =
+                "/* Begin XCSwiftPackageProductDependency section */\n" +
+                $"\t\t{mainProductGuid} /* {productName} */ = {{\n" +
+                "\t\t\tisa = XCSwiftPackageProductDependency;\n" +
+                $"\t\t\tpackage = {packageRefGuid} /* XCLocalSwiftPackageReference \"{relativePackagePath}\" */;\n" +
+                $"\t\t\tproductName = {productName};\n" +
+                "\t\t};\n" +
+                $"\t\t{frameworkProductGuid} /* {productName} */ = {{\n" +
+                "\t\t\tisa = XCSwiftPackageProductDependency;\n" +
+                $"\t\t\tpackage = {packageRefGuid} /* XCLocalSwiftPackageReference \"{relativePackagePath}\" */;\n" +
+                $"\t\t\tproductName = {productName};\n" +
+                "\t\t};\n" +
+                "/* End XCSwiftPackageProductDependency section */\n";
+
+            int objectsEnd = contents.LastIndexOf("/* End PBXProject section */");
+            if (objectsEnd < 0)
+            {
+                Debug.LogError("[Bugsee] Could not locate PBXProject section to inject local SPM reference.");
+                return;
+            }
+
+            contents = contents.Insert(objectsEnd, localRefSection + productSection);
+            contents = AddPackageReferenceToProjectObject(contents, packageRefGuid, relativePackagePath);
+            contents = AddProductDependencyToTarget(contents, mainTargetGuid, mainProductGuid, productName);
+            contents = AddProductDependencyToTarget(contents, frameworkTargetGuid, frameworkProductGuid, productName);
+
+            File.WriteAllText(projectPath, contents);
+        }
+
+        static string AddPackageReferenceToProjectObject(string contents, string packageRefGuid, string relativePackagePath)
+        {
+            const string marker = "packageReferences = (";
+            int idx = contents.IndexOf(marker);
+            if (idx < 0)
+            {
+                Debug.LogWarning(
+                    "[Bugsee] PBXProject has no packageReferences list; " +
+                    "Xcode may still resolve the local package after a manual refresh.");
+                return contents;
+            }
+
+            int insertAt = idx + marker.Length;
+            string entry = $"\n\t\t\t\t{packageRefGuid} /* XCLocalSwiftPackageReference \"{relativePackagePath}\" */,";
+            return contents.Insert(insertAt, entry);
+        }
+
+        static string AddProductDependencyToTarget(string contents, string targetGuid, string productGuid, string productName)
+        {
+            string targetMarker = $"{targetGuid} /*";
+            int targetIdx = contents.IndexOf(targetMarker);
+            if (targetIdx < 0)
+            {
+                return contents;
+            }
+
+            int searchFrom = targetIdx;
+            int depsIdx = contents.IndexOf("packageProductDependencies = (", searchFrom);
+            int nextTarget = contents.IndexOf("isa = PBXNativeTarget", searchFrom + 1);
+            if (depsIdx >= 0 && (nextTarget < 0 || depsIdx < nextTarget))
+            {
+                int insertAt = depsIdx + "packageProductDependencies = (".Length;
+                string entry = $"\n\t\t\t\t{productGuid} /* {productName} */,";
+                return contents.Insert(insertAt, entry);
+            }
+
+            int afterDeps = contents.IndexOf("dependencies = (", searchFrom);
+            if (afterDeps > 0 && (nextTarget < 0 || afterDeps < nextTarget))
+            {
+                int close = contents.IndexOf(");", afterDeps);
+                if (close > 0)
+                {
+                    string block =
+                        $"\n\t\t\tpackageProductDependencies = (\n" +
+                        $"\t\t\t\t{productGuid} /* {productName} */,\n" +
+                        "\t\t\t);";
+                    return contents.Insert(close + 2, block);
+                }
+            }
+
+            return contents;
+        }
+
+        static string Guid24()
+        {
+            return System.Guid.NewGuid().ToString("N").Substring(0, 24).ToUpperInvariant();
+        }
+    }
+}
