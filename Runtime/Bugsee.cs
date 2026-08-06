@@ -44,12 +44,12 @@ namespace Bugsee
 #endif
         }
 
-        public static void Launch(string appToken, OptionsBuilder options = null)
-        {
-            Launch(appToken, options?.ToDictionary());
-        }
-
-        public static void Launch(string appToken, IDictionary<string, object> options)
+        /// <summary>
+        /// Launch Bugsee. Pass typed <see cref="AndroidLaunchOptions"/> /
+        /// <see cref="IOSLaunchOptions"/> / <see cref="OptionsBuilder"/> (implicit
+        /// conversion), a <see cref="Dictionary{TKey,TValue}"/>, or omit for native defaults.
+        /// </summary>
+        public static void Launch(string appToken, Dictionary<string, object> options = null)
         {
             if (string.IsNullOrEmpty(appToken))
                 throw new ArgumentException("appToken is required", nameof(appToken));
@@ -59,10 +59,7 @@ namespace Bugsee
             Bridge.Launch(appToken, options);
         }
 
-        public static void Relaunch(OptionsBuilder options = null) =>
-            Relaunch(options?.ToDictionary());
-
-        public static void Relaunch(IDictionary<string, object> options) =>
+        public static void Relaunch(Dictionary<string, object> options = null) =>
             Bridge.Relaunch(options);
 
         public static void Stop(Action completion = null) => Bridge.Stop(completion);

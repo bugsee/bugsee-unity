@@ -27,6 +27,12 @@ Legacy foundation: `cross/unity`. Min Unity: **2021.3**.
 | iOS natives | SPM (local path now → remote later) | Vendored xcframework only; CocoaPods | Aligns with Bugsee iOS distribution |
 | Min Unity | 2021.3 | 2018.3 / Unity 6 only | SPM `PBXProject` APIs + practical floor |
 | Primary C# API | Android 7.0 mirror | Keep legacy `BugseePlugin` names | Clean 7.0 surface; legacy shims optional later |
+| Launch options shape | Shared base + platform subclasses | Single shared type; two independent types | Legacy Unity DX; platform-only props stay typed |
+| Launch options API | Write-only properties (no getters) | Mutable get/set; fluent-only builder | Omit unset keys → native defaults; no false “read your writes” |
+| Launch options defaults | Empty until set | Constructor-filled defaults | Native SDK owns defaults when key omitted |
+| Launch overloads | Single `Dictionary` param (+ implicit from typed/`OptionsBuilder`) | Separate typed + `IDictionary` overloads | Avoids CS0121 on `Launch(token, null)`; typed still feels first-class |
+| Options secondary API | Keep `Options.*` keys + `OptionsBuilder` | Hide keys; drop builder | Advanced / custom keys without forcing the map path alone |
+| Options property names | Android 7.0 contract names | Legacy Unity names; dual aliases | Clean 7.0 mirror; **revisit unify when iOS SDK is RC/stable** |
 | `BugseeWrapper` | Unity implements + `Bugsee.setWrapper` | App-only listeners | Required wrapper contract for metadata, secure rects, report/lifecycle hooks, `requestData` |
 | Filters/handlers | First-class C# callbacks + JNI proxies | Omit (legacy gap) | Parity with Android/Flutter |
 | C# deviations | Allowed where idioms win | Pure Java-shaped API | Better Unity/.NET DX |
@@ -37,11 +43,40 @@ Legacy foundation: `cross/unity`. Min Unity: **2021.3**.
 |---|---|
 | `EventFilter.filter(T, Callback1<T>)` | Prefer sync `Func<T,T>` (null/drop = omit); async completion only when needed |
 | `Callback1` / `Runnable` | `Action` / `Action<T>` |
-| `Map<String,Serializable>` options | Typed options builder **and** raw dictionary escape hatch |
+| `Map<String,Serializable>` options | Typed write-only `*LaunchOptions` (primary) **+** `OptionsBuilder` / raw dictionary (secondary) |
 | `Bugsee.ext(Feedback.class)` | `Bugsee.Feedback` property (resolves extension under the hood) |
 | Java listeners | C# `event` / `Action<>` on `Bugsee` |
 | Lifecycle string constants | `LifecycleEvents` consts **+** optional enum for known events |
 | `IssueSeverity.Critical` (6.x) | Not in 7.x — map legacy Critical → `High` or `Blocker` if compat shim added |
+
+## Launch options (approved)
+
+Legacy reference: `cross/unity/.../LaunchOptions/` (`BugseeLaunchOptions` + `AndroidLaunchOptions` / `IOSLaunchOptions`).
+
+### Types
+
+| Type | Role |
+|---|---|
+| `BugseeLaunchOptions` | Base; internal map; shared write-only props; `SetCustomOption(key, value)`; serialize via `ToDictionary()` (not for direct `new` by apps) |
+| `AndroidLaunchOptions` | Android-only write-only props (video mode, notification/broadcast triggers, …) |
+| `IOSLaunchOptions` | iOS-only write-only props (stub/minimal until iOS bridge); shared props via base |
+
+### Semantics
+
+- **Write-only properties** — setters write into the map; no public getters.
+- **Omit unset keys** — empty until set; no constructor defaults that pre-fill the map. Native SDK applies defaults for omitted keys.
+- **Wire keys** — property setters store under Android 7.0 `Options.*` (or mapped iOS keys later). Enums as wire ints/bytes; bridge coerces to native enums (`AndroidOptionsMapper`).
+- **Custom keys** — `SetCustomOption(string, object)` on the base (and/or raw map / `OptionsBuilder`).
+
+### Facade
+
+- Primary: `Bugsee.Launch(token, androidOptions)` / `iosOptions` via implicit conversion to `Dictionary<string, object>` (single optional-map overload — avoids `Launch(token, null)` ambiguity across typed types).
+- Secondary: `Launch(token, dictionary)`, `OptionsBuilder` (same implicit conversion), public `Options.*` constants, `SetCustomOption`.
+- `Relaunch` mirrors `Launch`.
+
+### Naming revisit (explicit follow-up)
+
+Property / key naming currently follows **Android 7.0**. When the Bugsee **iOS** SDK reaches **RC or stable**, revisit options naming to properly unify the cross-platform typed surface (base vs platform splits and any divergent key vocabularies).
 
 ### Do not copy (stale / wrong)
 
@@ -65,7 +100,8 @@ Runtime/
 ├── Bugsee.Runtime.asmdef
 │
 ├── Contracts/                        # Public mirror of com.bugsee.library.contracts
-│   ├── Options/                      # Options keys, enums, OptionsBuilder/Container
+│   ├── Options/                      # Options keys, enums, OptionsBuilder,
+│   │                                 # BugseeLaunchOptions + Android/IOS subclasses
 │   ├── Exchange/                     # NetworkEvent, LogEvent, Breadcrumb, filters, factory
 │   ├── Reporting/                    # Report, Attachment, ReportHandler, …
 │   ├── Lifecycle/                    # LifecycleEvents, BugseeStatus, listener
@@ -144,7 +180,8 @@ Wrapper: **internal registration only** — not an app-facing `SetWrapper`
 
 ### Contracts to port (public)
 
-`Options` (+ ~69 keys), option enums, `OptionsContainer`  
+`Options` (+ ~69 keys), option enums, `OptionsBuilder`, `BugseeLaunchOptions` / `AndroidLaunchOptions` / `IOSLaunchOptions`  
+
 `EventFilter`, `NetworkEvent`, `LogEvent`, `Breadcrumb`, `BugseeExchangeFactory`  
 `Report`, `Attachment`, `ReportHandler`, `ReportCreationListener`  
 `LifecycleEvents`, `LifecycleEventListener`, `BugseeStatus`, feedback lifecycle consts  
@@ -168,7 +205,7 @@ Feedback: `FeedbackListener`, …
 
 ## Implementation order (suggested)
 
-1. `Contracts/Options` + enums + `OptionsBuilder`
+1. `Contracts/Options` + enums + `OptionsBuilder` + typed `*LaunchOptions` (write-only)
 2. `IBugseeNativeBridge` + Android facade methods (no callbacks yet)
 3. `BugseeWrapperProxy` + `setWrapper` on launch
 4. Filters + `ReportHandler` + lifecycle proxies
@@ -184,3 +221,4 @@ Feedback: `FeedbackListener`, …
 - `logException` cannot carry structured foreign frames in 7.0 — degrade to message/labels (known platform gap).
 - Local iOS SPM pbxproj injection is custom (no Unity local-SPM API) — verify on real Xcode export.
 - Doc drift in `api-7.x.md` — trust `Bugsee.java` + contracts source.
+- Options property naming is Android-first until iOS SDK RC/stable — then unify typed names across platforms.

@@ -4,7 +4,9 @@ using System.Collections.Generic;
 namespace Bugsee.Contracts.Options
 {
     /// <summary>
-    /// Fluent builder for launch options. Values are stored under Android <see cref="Options"/> keys.
+    /// Fluent builder for launch options (secondary API). Prefer typed
+    /// <see cref="AndroidLaunchOptions"/> / <see cref="IOSLaunchOptions"/> for
+    /// day-to-day use. Values are stored under Android <see cref="Options"/> keys.
     /// Enum options are stored as their wire integer/byte values; the Android bridge coerces to SDK enums.
     /// </summary>
     public sealed class OptionsBuilder
@@ -44,5 +46,12 @@ namespace Bugsee.Contracts.Options
             new Dictionary<string, object>(_map);
 
         public Dictionary<string, object> ToDictionary() => new Dictionary<string, object>(_map);
+
+        /// <summary>
+        /// Allows <c>Bugsee.Launch(token, builder)</c> against the
+        /// <c>IDictionary</c> overload without null-literal ambiguity.
+        /// </summary>
+        public static implicit operator Dictionary<string, object>(OptionsBuilder builder) =>
+            builder == null ? null : new Dictionary<string, object>(builder._map);
     }
 }
