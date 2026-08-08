@@ -41,13 +41,13 @@ namespace Bugsee.Sample
             _grassMat = ProceduralMaterials.CreateLit(
                 Color.white,
                 ProceduralMaterials.NoiseTexture(128, ProceduralMaterials.GrassA, ProceduralMaterials.GrassB, 0.08f, seed));
-            // Opaque lit blades (same path as trees/rocks) — transparent quads were invisible in play.
+            // Opaque lit blades with tip wind (chunk transform rotation bobbed the whole patch).
             _bladeMats = new[]
             {
-                ProceduralMaterials.CreateLit(new Color(0.32f, 0.62f, 0.24f)),
-                ProceduralMaterials.CreateLit(new Color(0.22f, 0.5f, 0.18f)),
-                ProceduralMaterials.CreateLit(new Color(0.4f, 0.68f, 0.28f)),
-                ProceduralMaterials.CreateLit(new Color(0.3f, 0.55f, 0.2f))
+                ProceduralMaterials.CreateWindyLit(new Color(0.32f, 0.62f, 0.24f)),
+                ProceduralMaterials.CreateWindyLit(new Color(0.22f, 0.5f, 0.18f)),
+                ProceduralMaterials.CreateWindyLit(new Color(0.4f, 0.68f, 0.28f)),
+                ProceduralMaterials.CreateWindyLit(new Color(0.3f, 0.55f, 0.2f))
             };
 
             _barkMats = new[]
@@ -358,11 +358,7 @@ namespace Bugsee.Sample
                 }
             }
 
-            var chunkRoots = new List<Transform>(chunks.Count);
-            var phases = new List<float>(chunks.Count);
-            var amps = new List<float>(chunks.Count);
-            var mat = _bladeMats[0];
-
+            var chunkMats = new List<Material>(chunks.Count);
             foreach (var kv in chunks)
             {
                 if (kv.Value.Count == 0) continue;
@@ -388,6 +384,10 @@ namespace Bugsee.Sample
                 var mesh = new Mesh { name = "GrassChunk", indexFormat = IndexFormat.UInt32 };
                 mesh.CombineMeshes(localCombines.ToArray(), true, true);
                 mesh.RecalculateBounds();
+                // Pad bounds for tip sway (avoids frustum pop when wind displaces verts).
+                var b = mesh.bounds;
+                b.Expand(0.35f);
+                mesh.bounds = b;
                 mesh.UploadMeshData(true);
 
                 var chunkGo = new GameObject("GrassChunk_" + ix + "_" + iz);
@@ -395,18 +395,19 @@ namespace Bugsee.Sample
                 chunkGo.transform.position = chunkOrigin;
                 chunkGo.AddComponent<MeshFilter>().sharedMesh = mesh;
                 var rend = chunkGo.AddComponent<MeshRenderer>();
+                // Per-chunk instance so patches don't lockstep; tip wind is in the shader.
+                float phaseBias = (ix * 0.37f + iz * 0.19f) % 1.7f;
+                var mat = new Material(_bladeMats[(ix + iz) % _bladeMats.Length]);
+                mat.SetFloat("_WindSpeed", 1.15f + phaseBias * 0.3f);
+                mat.SetFloat("_WindAmp", SampleQuality.IsMobile ? 0.11f : 0.15f);
                 rend.sharedMaterial = mat;
                 rend.shadowCastingMode = ShadowCastingMode.Off;
                 rend.receiveShadows = !SampleQuality.IsMobile;
-
-                chunkRoots.Add(chunkGo.transform);
-                phases.Add((ix * 0.37f + iz * 0.19f) % (Mathf.PI * 2f));
-                // Whole-chunk lean — keep amplitude small.
-                amps.Add(SampleQuality.IsMobile ? 2.2f : 3.5f);
+                chunkMats.Add(mat);
             }
 
-            field.Bind(chunkRoots.ToArray(), phases.ToArray(), amps.ToArray(), speed: 1.35f);
-            Debug.Log("[MiniGame] Grass blades=" + bladeCount + " chunks=" + chunkRoots.Count +
+            field.Bind(chunkMats.ToArray());
+            Debug.Log("[MiniGame] Grass blades=" + bladeCount + " chunks=" + chunkMats.Count +
                       " mobile=" + SampleQuality.IsMobile);
         }
 

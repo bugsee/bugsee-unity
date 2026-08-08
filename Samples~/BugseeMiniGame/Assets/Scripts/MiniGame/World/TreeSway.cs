@@ -42,47 +42,38 @@ namespace Bugsee.Sample
     }
 
     /// <summary>
-    /// Batched grass-clump sway. One Update drives every clump — cheaper than per-blade scripts.
+    /// Keeps grass materials aligned with <see cref="FieldWind"/>. Vertex wind lives in
+    /// Bugsee/LitColored — rotating combined chunk meshes looked like vertical bobbing.
     /// </summary>
     public sealed class GrassField : MonoBehaviour
     {
-        Transform[] _clumps;
-        Quaternion[] _baseRot;
-        float[] _phase;
-        float[] _amp;
-        float _speed = 1.7f;
+        Material[] _mats;
 
-        public void Bind(Transform[] clumps, float[] phases, float[] amps, float speed = 1.7f)
+        public void Bind(Material[] mats)
         {
-            _clumps = clumps;
-            _phase = phases;
-            _amp = amps;
-            _speed = speed;
-            _baseRot = new Quaternion[clumps.Length];
-            for (int i = 0; i < clumps.Length; i++)
-                _baseRot[i] = clumps[i] != null ? clumps[i].localRotation : Quaternion.identity;
+            _mats = mats;
+            PushWind();
         }
 
-        void Update()
+        void LateUpdate()
         {
-            if (_clumps == null) return;
+            PushWind();
+        }
 
-            var wind = FieldWind.Direction;
-            float strength = FieldWind.Strength;
-            float t = Time.time * _speed;
-
-            for (int i = 0; i < _clumps.Length; i++)
+        void PushWind()
+        {
+            if (_mats == null) return;
+            var d = FieldWind.Direction;
+            var dir = new Vector4(d.x, 0f, d.z, 0f);
+            float strength = Mathf.Clamp(FieldWind.Strength, 0.2f, 2f);
+            for (int i = 0; i < _mats.Length; i++)
             {
-                var tr = _clumps[i];
-                if (tr == null) continue;
-
-                float s = Mathf.Sin(t + _phase[i]) * _amp[i] * strength;
-                // Second harmonic for less mechanical motion.
-                s += Mathf.Sin(t * 1.7f + _phase[i] * 1.3f) * (_amp[i] * 0.35f) * strength;
-                float pitch = wind.z * s;
-                float roll = -wind.x * s;
-                tr.localRotation = _baseRot[i] * Quaternion.Euler(pitch, 0f, roll);
+                var mat = _mats[i];
+                if (mat == null) continue;
+                mat.SetVector("_WindDir", dir);
+                mat.SetFloat("_WindStrength", strength);
             }
         }
     }
 }
+

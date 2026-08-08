@@ -4,6 +4,11 @@ Shader "Bugsee/LitColored"
     {
         _Color ("Color", Color) = (1,1,1,1)
         _MainTex ("Texture", 2D) = "white" {}
+        // Grass / soft foliage: tip bend in wind. Leave strength 0 for rigid props.
+        _WindStrength ("Wind Strength", Float) = 0
+        _WindSpeed ("Wind Speed", Float) = 1.35
+        _WindAmp ("Wind Amplitude", Float) = 0.12
+        _WindDir ("Wind Direction", Vector) = (1, 0, 0.32, 0)
     }
     SubShader
     {
@@ -40,14 +45,34 @@ Shader "Bugsee/LitColored"
             sampler2D _MainTex;
             float4 _MainTex_ST;
             fixed4 _Color;
+            float _WindStrength;
+            float _WindSpeed;
+            float _WindAmp;
+            float4 _WindDir;
 
             v2f vert (appdata v)
             {
                 v2f o;
-                o.pos = UnityObjectToClipPos(v.vertex);
+                float4 local = v.vertex;
+                // Horizontal tip sway (object Y = height). Chunk rotation looks like bobbing.
+                if (_WindStrength > 0.0001)
+                {
+                    float3 worldPos = mul(unity_ObjectToWorld, local).xyz;
+                    float bend = saturate(local.y * 1.65) * _WindStrength;
+                    float phase = worldPos.x * 0.42 + worldPos.z * 0.31;
+                    float t = _Time.y * _WindSpeed;
+                    float wave = sin(t + phase) + sin(t * 1.7 + phase * 1.3) * 0.35;
+                    float3 dir = normalize(float3(_WindDir.x, 0.0, _WindDir.z));
+                    // Keep displacement in XZ so roots stay planted.
+                    float3 worldDisp = dir * (wave * bend * _WindAmp);
+                    float3 localDisp = mul((float3x3)unity_WorldToObject, worldDisp);
+                    local.xyz += localDisp;
+                }
+
+                o.pos = UnityObjectToClipPos(local);
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
                 o.worldNormal = UnityObjectToWorldNormal(v.normal);
-                o.worldPos = mul(unity_ObjectToWorld, v.vertex).xyz;
+                o.worldPos = mul(unity_ObjectToWorld, local).xyz;
                 TRANSFER_SHADOW(o);
                 return o;
             }

@@ -31,6 +31,24 @@ namespace Bugsee.Sample
             return CreateMaterial(ResolveLitShader(), color, tex);
         }
 
+        /// <summary>Lit material with tip-weighted horizontal wind (for grass chunks).</summary>
+        public static Material CreateWindyLit(Color color, Texture2D tex = null, float strength = 1f)
+        {
+            var mat = CreateLit(color, tex);
+            EnableWind(mat, strength);
+            return mat;
+        }
+
+        public static void EnableWind(Material mat, float strength = 1f)
+        {
+            if (mat == null) return;
+            mat.SetFloat("_WindStrength", Mathf.Clamp(strength, 0f, 2.5f));
+            mat.SetFloat("_WindSpeed", 1.35f);
+            mat.SetFloat("_WindAmp", 0.14f);
+            var d = FieldWind.Direction;
+            mat.SetVector("_WindDir", new Vector4(d.x, 0f, d.z, 0f));
+        }
+
         public static Material CreateUnlit(Color color, Texture2D tex = null)
         {
             return CreateMaterial(ResolveUnlitShader(), color, tex);
@@ -43,6 +61,9 @@ namespace Bugsee.Sample
             mat.color = color;
             if (tex != null)
                 mat.mainTexture = tex;
+            // Rigid by default — wind is opt-in for grass.
+            if (mat.HasProperty("_WindStrength"))
+                mat.SetFloat("_WindStrength", 0f);
             return mat;
         }
 
