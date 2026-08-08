@@ -4,12 +4,15 @@ using UnityEngine;
 namespace Bugsee.Sample
 {
     /// <summary>
-    /// Builds the player anteater: prefers Meshy-generated mesh under Resources,
-    /// falls back to procedural organic meshes (Path 3). See Art/Anteater/LICENSE.txt.
+    /// Builds the player anteater: prefers Meshy rigged FBX (Animator walk),
+    /// then static remeshed mesh, then procedural organic meshes. See Art/Anteater/LICENSE.txt.
     /// </summary>
     public static class AnteaterBuilder
     {
+        const string RiggedResourcePath = "Anteater/ScarletSnout";
+        const string RiggedWalkClipPath = "Anteater/ScarletSnoutWalk";
         const string GeneratedResourcePath = "Anteater/AnteaterMesh";
+        public const string WalkClipName = "Walk";
 
         static readonly Color FurCoral = new Color(0.86f, 0.38f, 0.34f, 1f);
         static readonly Color FurBrown = new Color(0.42f, 0.26f, 0.18f, 1f);
@@ -18,7 +21,11 @@ namespace Bugsee.Sample
 
         public static GameObject Build(Transform parent = null)
         {
-            var generated = TryBuildGenerated(parent);
+            var rigged = TryBuildRigged(parent);
+            if (rigged != null)
+                return rigged;
+
+            var generated = TryBuildStaticMesh(parent);
             if (generated != null)
                 return generated;
 
@@ -26,10 +33,159 @@ namespace Bugsee.Sample
         }
 
         /// <summary>
-        /// Instantiate remeshed Meshy mesh from Resources. No Animator (export has no
-        /// skins/clips) — CharacterController remains authoritative.
+        /// Instantiate Meshy quadruped FBX with Walk clip. CharacterController stays
+        /// authoritative. Uses Legacy Animation + WrapMode.Loop (Mecanim often ignores
+        /// loopTime on FBX sub-clips).
         /// </summary>
-        static GameObject TryBuildGenerated(Transform parent)
+        static GameObject TryBuildRigged(Transform parent)
+        {
+            var prefab = Resources.Load<GameObject>(RiggedResourcePath);
+            if (prefab == null)
+                return null;
+
+            var walkClip = FindWalkClip();
+            if (walkClip == null)
+                Debug.LogWarning("[Anteater] ScarletSnout FBX loaded but no AnimationClip found.");
+
+            var root = new GameObject("Anteater");
+            if (parent != null)
+                root.transform.SetParent(parent, false);
+
+            var instance = UnityEngine.Object.Instantiate(prefab, root.transform, false);
+            instance.name = "ScarletSnout";
+
+            // Imported FBX may carry mesh colliders — locomotion uses CharacterController only.
+            var colliders = instance.GetComponentsInChildren<Collider>(true);
+            for (int i = 0; i < colliders.Length; i++)
+                UnityEngine.Object.Destroy(colliders[i]);
+
+            ApplyCoralMaterials(instance);
+            FitRiggedInstance(instance.transform);
+
+            // Disable Mecanim — FBX loopTime is unreliable; Legacy WrapMode.Loop is not.
+            var animator = instance.GetComponentInChildren<Animator>(true);
+            if (animator != null)
+            {
+                animator.applyRootMotion = false;
+                animator.enabled = false;
+            }
+
+            Animation legacy = null;
+            if (walkClip != null)
+            {
+                // Animation component requires legacy clips; FBX imports are Mecanim by default.
+                var legacyClip = UnityEngine.Object.Instantiate(walkClip);
+                legacyClip.name = "ScarletSnoutWalkLegacy";
+                legacyClip.legacy = true;
+                legacyClip.wrapMode = WrapMode.Loop;
+
+                legacy = instance.GetComponent<Animation>();
+                if (legacy == null)
+                    legacy = instance.AddComponent<Animation>();
+                legacy.playAutomatically = false;
+                legacy.wrapMode = WrapMode.Loop;
+                legacy.AddClip(legacyClip, WalkClipName);
+                var state = legacy[WalkClipName];
+                if (state != null)
+                {
+                    state.wrapMode = WrapMode.Loop;
+                    state.speed = 0f;
+                    state.time = 0f;
+                    state.enabled = true;
+                    state.weight = 1f;
+                }
+
+                legacy.Play(WalkClipName);
+            }
+
+            var marker = root.AddComponent<AnteaterGeneratedVisual>();
+            marker.Configure(legacy, hasSkinnedWalk: legacy != null);
+            return root;
+        }
+
+        static AnimationClip FindWalkClip()
+        {
+            // Prefer editor-baked looping .anim when present.
+            var baked = Resources.Load<AnimationClip>(RiggedWalkClipPath);
+            if (baked != null)
+                return baked;
+
+            var clips = Resources.LoadAll<AnimationClip>("Anteater");
+            AnimationClip fallback = null;
+            for (int i = 0; i < clips.Length; i++)
+            {
+                var clip = clips[i];
+                if (clip == null) continue;
+                if (clip.name.StartsWith("__preview__", System.StringComparison.Ordinal))
+                    continue;
+                // Skip clips that belong to the static OBJ if any.
+                if (clip.name.IndexOf("AnteaterMesh", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    continue;
+                if (clip.name.IndexOf("walk", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    clip.name.IndexOf("ScarletSnout", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    clip.name.IndexOf("Armature", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    clip.name.IndexOf("Take", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    return clip;
+                if (fallback == null)
+                    fallback = clip;
+            }
+
+            return fallback;
+        }
+
+        static void ApplyCoralMaterials(GameObject instance)
+        {
+            var mat = ProceduralMaterials.CreateLit(
+                Color.white,
+                ProceduralMaterials.NoiseTexture(64, FurCoral, FurBrown, 0.2f, 17));
+            var renderers = instance.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (renderers[i] != null)
+                    renderers[i].sharedMaterial = mat;
+            }
+        }
+
+        static void FitRiggedInstance(Transform instance)
+        {
+            // Measure bounds in root-local space after identity placement.
+            instance.localPosition = Vector3.zero;
+            instance.localRotation = Quaternion.identity;
+            instance.localScale = Vector3.one;
+
+            var renderers = instance.GetComponentsInChildren<Renderer>(true);
+            if (renderers.Length == 0)
+                return;
+
+            Bounds b = renderers[0].bounds;
+            for (int i = 1; i < renderers.Length; i++)
+                b.Encapsulate(renderers[i].bounds);
+
+            const float targetHeight = 0.9f;
+            float height = b.size.y;
+            if (height > 0.01f)
+                instance.localScale = Vector3.one * (targetHeight / height);
+
+            // Recompute after scale; drop feet to y=0 under the player root.
+            b = renderers[0].bounds;
+            for (int i = 1; i < renderers.Length; i++)
+                b.Encapsulate(renderers[i].bounds);
+
+            var parent = instance.parent;
+            float feetY = b.min.y;
+            if (parent != null)
+                feetY = parent.InverseTransformPoint(new Vector3(b.center.x, b.min.y, b.center.z)).y;
+
+            var lp = instance.localPosition;
+            lp.y -= feetY;
+            instance.localPosition = lp;
+
+            // Meshy quadrupeds sometimes face -Z; if the long axis reads backward, flip 180.
+            // Default: keep as authored — tweak via AnteaterGeneratedVisual if needed in playtests.
+        }
+
+        /// <summary>Static remeshed OBJ path (no skin). Used if rigged FBX is missing.</summary>
+        static GameObject TryBuildStaticMesh(Transform parent)
         {
             var mesh = FindGeneratedMesh();
             if (mesh == null)
@@ -41,7 +197,6 @@ namespace Bugsee.Sample
 
             var visual = new GameObject("GeneratedMesh");
             visual.transform.SetParent(root.transform, false);
-            // glTF/Meshy long axis is Z; sample faces +Z. Lift already baked into OBJ (feet at y=0).
             visual.transform.localRotation = Quaternion.identity;
             visual.transform.localScale = Vector3.one * 1.15f;
 
@@ -52,7 +207,8 @@ namespace Bugsee.Sample
                 Color.white,
                 ProceduralMaterials.NoiseTexture(64, FurCoral, FurBrown, 0.2f, 17));
 
-            root.AddComponent<AnteaterGeneratedVisual>();
+            var marker = root.AddComponent<AnteaterGeneratedVisual>();
+            marker.Configure(null, hasSkinnedWalk: false);
             return root;
         }
 
@@ -430,9 +586,17 @@ namespace Bugsee.Sample
         }
     }
 
-    /// <summary>Marker for Meshy-generated mesh path (no procedural legs / Animator).</summary>
+    /// <summary>Marker for Meshy-generated visual (Legacy walk Animation and/or static mesh).</summary>
     public sealed class AnteaterGeneratedVisual : MonoBehaviour
     {
+        public Animation WalkAnimation { get; private set; }
+        public bool HasSkinnedWalk { get; private set; }
+
+        public void Configure(Animation walkAnimation, bool hasSkinnedWalk)
+        {
+            WalkAnimation = walkAnimation;
+            HasSkinnedWalk = hasSkinnedWalk;
+        }
     }
 
     /// <summary>Two-bone limb marker for procedural walk cycle.</summary>

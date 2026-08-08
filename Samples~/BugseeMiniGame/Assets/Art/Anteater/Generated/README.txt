@@ -1,2 +1,2 @@
-# Remeshed Meshy anteater for the Bugsee MiniGame sample.
-# See ../LICENSE.txt
+# Remeshed / Meshy anteater assets for the Bugsee MiniGame sample.
+# Prefer ScarletSnout.fbx (rigged + Walking). See ../LICENSE.txt

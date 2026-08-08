@@ -79,17 +79,18 @@ The `com.bugsee.unity` Editor script `BugseeEdmJavaHomeBootstrap` pins `JAVA_HOM
 
 ## Character
 
-The player prefers the Meshy-generated mesh at `Resources/Anteater/AnteaterMesh`
-(remeshed ~14k tris; see `Assets/Art/Anteater/LICENSE.txt`). That export has no
-skin or Idle/Walk clips, so locomotion stays CharacterController-driven with a
-light bob. If the mesh is missing, `AnteaterBuilder` falls back to the procedural
-organic anteater (lathed body, two-bone legs).
+The player prefers the Meshy **rigged** FBX at `Resources/Anteater/ScarletSnout`
+(quadruped Auto-Rig + Walking). Walk is driven by a Legacy `Animation` component with
+`WrapMode.Loop` (Mecanim often refuses to loop FBX takes). Stick scales playback with
+move speed. If the FBX is missing, falls back to the static remesh OBJ, then the
+procedural organic anteater.
 
 ## Layout
 
 ```
-Assets/Art/Anteater/           # logo + Generated mesh (OBJ/GLB) + LICENSE
-Assets/Resources/Anteater/     # runtime-loadable logo + AnteaterMesh
+Assets/Art/Anteater/           # logo + Generated FBX/OBJ + LICENSE
+Assets/Resources/Anteater/     # runtime ScarletSnout FBX + logo + mesh fallback
+Assets/Editor/                 # ScarletSnout Generic import + Animator setup
 Assets/Scripts/MiniGame/       # bootstrap, HUD, stations, collectibles
 Assets/Scripts/MiniGame/World/ # field builder, tree sway, particles
 Assets/Scripts/MiniGame/Player/# anteater mesh, controller, third-person camera

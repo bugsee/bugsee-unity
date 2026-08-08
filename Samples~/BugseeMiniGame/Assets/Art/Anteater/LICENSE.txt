@@ -2,19 +2,23 @@ Anteater character assets
 ========================
 
 Generated/
-  AnteaterMesh.obj / .mtl     — remeshed game mesh (~14k tris) used by the sample
-  AnteaterMesh.source.glb     — remeshed intermediate from the Meshy export
+  ScarletSnout.fbx            — Meshy quadruped auto-rig + Walking clip (preferred)
+  ScarletSnout_Normal.png     — normal map from Meshy (optional; runtime uses coral lit)
+  AnteaterMesh.obj / .mtl     — earlier static remesh (~14k tris), fallback if FBX missing
+  AnteaterMesh.source.glb     — remeshed intermediate from the first Meshy GLB export
 
-Source: Meshy AI image-to-3D from Bugsee anteater logo artwork, converted from
-Meshy's download to GLB, then remeshed (gltf-transform simplify) for mobile.
-Original Meshy export had ~458k triangles, no textures, no skeleton, no clips.
+Resources/Anteater/
+  ScarletSnout.fbx            — runtime load of the rigged model
+  ScarletSnoutAnim.controller — built by Assets/Editor/AnteaterFbxSetup.cs (Generic, Speed)
 
-Materials in-game are authored at runtime (coral/brown lit) because the export
-had no albedo maps.
+Source: Meshy AI image-to-3D from Bugsee anteater logo (“Scarlet Snout”), then Meshy
+quadruped Auto-Rig + Walking animation. Export had Walk skin; no albedo (coral
+material applied at runtime).
 
-Animator Idle/Walk was not added: the mesh has no skin or animation clips.
-Locomotion stays CharacterController-driven; procedural Path 3 remains the
-fallback when Resources/Anteater/AnteaterMesh is missing.
+Animator: Generic, root motion off. Stick drives float `Speed` (0 = frozen rest,
+>0 = Walk). CharacterController remains authoritative.
+
+Fallback chain: rigged FBX → static OBJ → procedural AnteaterBuilder.
 
 Respect Meshy Terms of Service for the generated geometry. Bugsee logo PNG in
 this folder remains Bugsee artwork for the spawn totem.

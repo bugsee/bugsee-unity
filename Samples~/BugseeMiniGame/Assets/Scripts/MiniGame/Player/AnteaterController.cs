@@ -9,17 +9,26 @@ namespace Bugsee.Sample
         [SerializeField] float turnSpeedDeg = 95f; // max yaw °/s at full stick deflection
         [SerializeField] float mouseDragThresholdPx = 12f;
         [SerializeField] float gravity = -20f;
+        [Tooltip("World m/s at which Animator Speed=1 matches the Walk clip.")]
+        [SerializeField] float walkAnimReferenceMoveSpeed = 2.6f;
+        [SerializeField] float walkAnimMinMultiplier = 0.55f;
+        [SerializeField] float walkAnimMaxMultiplier = 4.5f;
 
         CharacterController _cc;
         AnteaterLeg[] _legs;
         Transform _visualRoot;
         Vector3 _visualBaseLocalPos;
         bool _useGeneratedVisual;
+        bool _useSkinnedWalk;
+        Animation _walkAnimation;
+        AnimationState _walkState;
+        bool _wasMoving;
         Vector3 _moveInput;
         float _verticalVel;
         float _walkPhase;
         bool _pointerActive;
         bool _pointerDragging;
+        int _moveFingerId = -1;
         Vector2 _pointerStart;
         Vector2 _pointerCurrent;
         bool _hasMoved;
@@ -35,7 +44,24 @@ namespace Bugsee.Sample
         {
             _visualRoot = visualRoot;
             _visualBaseLocalPos = visualRoot != null ? visualRoot.localPosition : Vector3.zero;
-            _useGeneratedVisual = visualRoot != null && visualRoot.GetComponent<AnteaterGeneratedVisual>() != null;
+
+            var generated = visualRoot != null ? visualRoot.GetComponent<AnteaterGeneratedVisual>() : null;
+            _useGeneratedVisual = generated != null;
+            _useSkinnedWalk = generated != null && generated.HasSkinnedWalk;
+            _walkAnimation = generated != null ? generated.WalkAnimation : null;
+            _walkState = null;
+            if (_walkAnimation != null)
+            {
+                _walkState = _walkAnimation[AnteaterBuilder.WalkClipName];
+                if (_walkState != null)
+                {
+                    _walkState.wrapMode = WrapMode.Loop;
+                    _walkState.speed = 0f;
+                }
+            }
+
+            _wasMoving = false;
+
             _legs = _useGeneratedVisual || visualRoot == null
                 ? System.Array.Empty<AnteaterLeg>()
                 : visualRoot.GetComponentsInChildren<AnteaterLeg>();
@@ -119,7 +145,41 @@ namespace Bugsee.Sample
             float gait = IsMoving ? 9f + _moveInput.magnitude * 4f : 0f;
             _walkPhase += dt * gait;
 
-            // Generated mesh has no skin/clips — light bob so motion still reads.
+            if (_useSkinnedWalk && _walkState != null)
+            {
+                // Scale clip playback with actual planar move speed so paws keep up with CC.
+                float planarSpeed = moveSpeed * _moveInput.magnitude;
+                float animSpeed = 0f;
+                if (IsMoving && walkAnimReferenceMoveSpeed > 0.01f)
+                {
+                    animSpeed = Mathf.Clamp(
+                        planarSpeed / walkAnimReferenceMoveSpeed,
+                        walkAnimMinMultiplier,
+                        walkAnimMaxMultiplier);
+                }
+
+                _walkState.wrapMode = WrapMode.Loop;
+                _walkState.speed = animSpeed;
+
+                if (IsMoving)
+                {
+                    if (!_wasMoving || !_walkAnimation.isPlaying)
+                    {
+                        _walkState.time = 0f;
+                        _walkAnimation.Play(AnteaterBuilder.WalkClipName);
+                    }
+                }
+                else if (_wasMoving)
+                {
+                    // Freeze on current pose when stopping (speed 0 keeps Legacy sample).
+                    _walkState.speed = 0f;
+                }
+
+                _wasMoving = IsMoving;
+                return;
+            }
+
+            // Static generated mesh — light bob so motion still reads.
             if (_useGeneratedVisual && _visualRoot != null)
             {
                 float bob = IsMoving ? Mathf.Sin(_walkPhase * 2f) * 0.025f : 0f;
@@ -167,50 +227,66 @@ namespace Bugsee.Sample
         {
             if (Input.touchCount > 0)
             {
-                var t = Input.GetTouch(0);
-                if (t.phase == TouchPhase.Began)
+                if (_moveFingerId >= 0)
                 {
-                    if (IsBlockedByUi(t.position) || !IsInsideStickPad(t.position))
+                    for (int i = 0; i < Input.touchCount; i++)
                     {
-                        _pointerActive = false;
-                        _pointerDragging = false;
-                        return Vector3.zero;
+                        var t = Input.GetTouch(i);
+                        if (t.fingerId != _moveFingerId) continue;
+
+                        if (t.phase == TouchPhase.Ended || t.phase == TouchPhase.Canceled)
+                        {
+                            _pointerActive = false;
+                            _pointerDragging = false;
+                            _moveFingerId = -1;
+                            return Vector3.zero;
+                        }
+
+                        if (IsBlockedByUi(t.position) || ThirdPersonCamera.IsInsideLookPad(t.position))
+                        {
+                            _pointerActive = false;
+                            _pointerDragging = false;
+                            _moveFingerId = -1;
+                            return Vector3.zero;
+                        }
+
+                        _pointerCurrent = t.position;
+                        var delta = _pointerCurrent - DefaultStickBase();
+                        if (!_pointerDragging && delta.sqrMagnitude >= mouseDragThresholdPx * mouseDragThresholdPx)
+                            _pointerDragging = true;
+                        return _pointerDragging ? StickFromDelta(delta) : Vector3.zero;
                     }
+
+                    _pointerActive = false;
+                    _pointerDragging = false;
+                    _moveFingerId = -1;
+                }
+
+                for (int i = 0; i < Input.touchCount; i++)
+                {
+                    var t = Input.GetTouch(i);
+                    if (t.phase != TouchPhase.Began) continue;
+                    if (IsBlockedByUi(t.position) || !IsInsideStickPad(t.position))
+                        continue;
+                    if (ThirdPersonCamera.IsInsideLookPad(t.position))
+                        continue;
 
                     _pointerActive = true;
                     _pointerDragging = false;
+                    _moveFingerId = t.fingerId;
                     _pointerStart = DefaultStickBase();
                     _pointerCurrent = t.position;
-                }
-
-                if (!_pointerActive) return Vector3.zero;
-
-                if (t.phase == TouchPhase.Ended || t.phase == TouchPhase.Canceled)
-                {
-                    _pointerActive = false;
-                    _pointerDragging = false;
                     return Vector3.zero;
                 }
 
-                if (IsBlockedByUi(t.position))
-                {
-                    _pointerActive = false;
-                    _pointerDragging = false;
-                    return Vector3.zero;
-                }
-
-                _pointerCurrent = t.position;
-                var delta = _pointerCurrent - DefaultStickBase();
-                if (!_pointerDragging && delta.sqrMagnitude >= mouseDragThresholdPx * mouseDragThresholdPx)
-                    _pointerDragging = true;
-
-                return _pointerDragging ? StickFromDelta(delta) : Vector3.zero;
+                return Vector3.zero;
             }
 
+            _moveFingerId = -1;
             Vector2 mouse = Input.mousePosition;
             if (Input.GetMouseButtonDown(0))
             {
-                if (IsBlockedByUi(mouse) || !IsInsideStickPad(mouse))
+                if (IsBlockedByUi(mouse) || !IsInsideStickPad(mouse) || ThirdPersonCamera.IsInsideLookPad(mouse))
                 {
                     _pointerActive = false;
                     _pointerDragging = false;
@@ -232,7 +308,7 @@ namespace Bugsee.Sample
             if (!_pointerActive || !Input.GetMouseButton(0))
                 return Vector3.zero;
 
-            if (IsBlockedByUi(mouse))
+            if (IsBlockedByUi(mouse) || ThirdPersonCamera.IsInsideLookPad(mouse))
             {
                 _pointerActive = false;
                 _pointerDragging = false;
@@ -256,7 +332,8 @@ namespace Bugsee.Sample
 
         static bool IsBlockedByUi(Vector2 screen)
         {
-            if (screen.x > Screen.width - 180f)
+            // Top-right Bugsee HUD only — bottom-right is the look stick.
+            if (screen.x > Screen.width - 180f && screen.y > Screen.height * 0.45f)
                 return true;
 
             var panel = BugseeHillStation.ActionPanelScreenRect;
