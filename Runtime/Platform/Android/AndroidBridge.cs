@@ -7,6 +7,7 @@ using Bugsee.Contracts.Feedback;
 using Bugsee.Contracts.Lifecycle;
 using Bugsee.Contracts.Options;
 using Bugsee.Contracts.Reporting;
+using Bugsee.Internal;
 using Bugsee.Platform;
 using UnityEngine;
 
@@ -460,12 +461,13 @@ namespace Bugsee.Platform.Android
                 for (var i = 0; i < size; i++)
                     list.Add(newMessages.Call<string>("get", i));
             }
-            Bugsee.Internal.MainThreadDispatcher.Run(() => _listener.OnNewMessagesReceived(list));
+            // Do not qualify as Bugsee.Internal.* — Bugsee resolves to class Bugsee.Bugsee here.
+            MainThreadDispatcher.Run(() => _listener.OnNewMessagesReceived(list));
         }
 
         public void onNewMessageSent(string message)
         {
-            Bugsee.Internal.MainThreadDispatcher.Run(() => _listener.OnNewMessageSent(message));
+            MainThreadDispatcher.Run(() => _listener.OnNewMessageSent(message));
         }
     }
 }

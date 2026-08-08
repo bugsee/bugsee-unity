@@ -138,7 +138,8 @@ namespace Bugsee.Platform.Android
 
             MainThreadDispatcher.Run(() =>
             {
-                try { Bugsee.Bugsee.HandleNativeLifecycle(eventType, managedData); }
+                // global:: avoids Bugsee → class Bugsee.Bugsee name collision in this namespace.
+                try { global::Bugsee.Bugsee.HandleNativeLifecycle(eventType, managedData); }
                 catch (Exception ex) { Debug.LogException(ex); }
             });
         }

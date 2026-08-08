@@ -15,6 +15,13 @@
 /[Bb]uilds/
 /[Ll]ogs/
 /[Uu]ser[Ss]ettings/
+Samples~/**/[Ll]ibrary/
+Samples~/**/[Tt]emp/
+Samples~/**/[Oo]bj/
+Samples~/**/[Ll]ogs/
+Samples~/**/[Uu]ser[Ss]ettings/
+Samples~/**/[Bb]uild/
+Samples~/**/[Bb]uilds/
 .vs/
 .gradle/
 *.csproj

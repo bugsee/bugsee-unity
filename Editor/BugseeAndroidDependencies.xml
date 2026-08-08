@@ -1,6 +1,12 @@
 <dependencies>
   <androidPackages>
+    <!--
+      Core only. Notes for 7.0.4:
+        - POM has empty <dependencies/>, but Gradle .module metadata still requires
+          kotlin-stdlib:2.1.0. BugseeAndroidGradleSetup excludes it in mainTemplate
+          until Android SDK 7.1.0 (metadata fixed).
+        - bugsee-android-ndk / feedback omitted (same class of consumer-classpath issues).
+    -->
     <androidPackage spec="com.bugsee:bugsee-android:7.0.4" />
-    <androidPackage spec="com.bugsee:bugsee-android-feedback:7.0.4" />
   </androidPackages>
 </dependencies>

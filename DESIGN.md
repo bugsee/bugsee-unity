@@ -12,7 +12,7 @@ Legacy foundation: `cross/unity`. Min Unity: **2021.3**.
 
 ## Assumptions
 
-1. Android pin: Maven `com.bugsee:bugsee-android:7.0.4` (+ feedback) via EDM4U.
+1. Android pin: Maven `com.bugsee:bugsee-android:7.0.4` via EDM4U. **7.0.4 Gradle module metadata still requires kotlin-stdlib** (POM is empty) — Unity `mainTemplate.gradle` excludes it until **7.1.0**. NDK/feedback stay omitted for now.
 2. iOS: local SPM under `Native~/ios/Bugsee` until remote `github.com/bugsee/spm`.
 3. Public C# surface mirrors Android 7.0; intentional C#/.NET deviations allowed (see below).
 4. SDK-internal contracts (`capture` aggregators, most `contracts.internal.*` except what wrappers need for `BugseeWrapper`) are **not** public C# API.
@@ -147,6 +147,8 @@ Runtime/
 ```
 
 **Editor/** (existing): EDM deps, iOS SPM post-process, launcher inspector.
+
+**Samples~/BugseeMiniGame/**: standalone Unity 2021.3 QA project (`file:../../..` → this package, relative to `Packages/`). Uses the `~` suffix so UPM does not import the minigame (avoids nested `Library` / duplicate `PlayerSettings`). Arena + Bugsee HUD + in-world stations.
 
 ## Bridge duties on Launch (Android)
 

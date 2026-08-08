@@ -2,7 +2,6 @@ using System.IO;
 using UnityEditor;
 using UnityEditor.Callbacks;
 using UnityEditor.iOS.Xcode;
-using UnityEditor.PackageManager;
 using UnityEngine;
 
 namespace Bugsee.Editor
@@ -20,7 +19,8 @@ namespace Bugsee.Editor
         /// When false (default), uses the local SPM package under Native~/ios/Bugsee.
         /// When true, adds a remote reference to github.com/bugsee/spm at <see cref="RemoteSpmVersion"/>.
         /// </summary>
-        public const bool UseRemoteSpm = false;
+        // Not const: keeps the remote SPM branch compilable without CS0162.
+        public static readonly bool UseRemoteSpm = false;
 
         public const string RemoteSpmUrl = "https://github.com/bugsee/spm.git";
         public const string RemoteSpmVersion = "7.0.0";
@@ -80,7 +80,7 @@ namespace Bugsee.Editor
 
         static string ResolveLocalPackagePath()
         {
-            foreach (var info in PackageInfo.GetAllRegisteredPackages())
+            foreach (var info in UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages())
             {
                 if (info.name != "com.bugsee.unity")
                 {

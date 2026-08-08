@@ -1,0 +1,20 @@
+Anteater character assets
+========================
+
+Generated/
+  AnteaterMesh.obj / .mtl     — remeshed game mesh (~14k tris) used by the sample
+  AnteaterMesh.source.glb     — remeshed intermediate from the Meshy export
+
+Source: Meshy AI image-to-3D from Bugsee anteater logo artwork, converted from
+Meshy's download to GLB, then remeshed (gltf-transform simplify) for mobile.
+Original Meshy export had ~458k triangles, no textures, no skeleton, no clips.
+
+Materials in-game are authored at runtime (coral/brown lit) because the export
+had no albedo maps.
+
+Animator Idle/Walk was not added: the mesh has no skin or animation clips.
+Locomotion stays CharacterController-driven; procedural Path 3 remains the
+fallback when Resources/Anteater/AnteaterMesh is missing.
+
+Respect Meshy Terms of Service for the generated geometry. Bugsee logo PNG in
+this folder remains Bugsee artwork for the spawn totem.
