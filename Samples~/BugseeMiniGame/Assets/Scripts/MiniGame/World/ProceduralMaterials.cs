@@ -8,10 +8,18 @@ namespace Bugsee.Sample
         public static readonly Color AnteaterRed = new Color(0.91f, 0.35f, 0.35f, 1f);
         public static readonly Color GrassA = new Color(0.28f, 0.52f, 0.26f);
         public static readonly Color GrassB = new Color(0.22f, 0.42f, 0.20f);
+        public static readonly Color GrassBladeA = new Color(0.34f, 0.62f, 0.28f, 0.95f);
+        public static readonly Color GrassBladeB = new Color(0.2f, 0.48f, 0.2f, 0.9f);
         public static readonly Color StoneA = new Color(0.45f, 0.42f, 0.38f);
         public static readonly Color StoneB = new Color(0.32f, 0.30f, 0.28f);
+        public static readonly Color StoneC = new Color(0.55f, 0.5f, 0.45f);
         public static readonly Color Bark = new Color(0.36f, 0.24f, 0.14f);
+        public static readonly Color BarkDark = new Color(0.26f, 0.17f, 0.10f);
+        public static readonly Color BarkPale = new Color(0.48f, 0.36f, 0.22f);
         public static readonly Color Canopy = new Color(0.18f, 0.48f, 0.22f);
+        public static readonly Color CanopyDeep = new Color(0.12f, 0.36f, 0.18f);
+        public static readonly Color CanopyBright = new Color(0.28f, 0.58f, 0.26f);
+        public static readonly Color CanopyOlive = new Color(0.32f, 0.46f, 0.18f);
         public static readonly Color Path = new Color(0.48f, 0.40f, 0.28f);
 
         static Shader _litShader;
@@ -92,6 +100,41 @@ namespace Bugsee.Sample
                     float n2 = Mathf.PerlinNoise(ox + x * scale * 2.7f, oy + y * scale * 2.7f);
                     float t = Mathf.Clamp01(n * 0.7f + n2 * 0.3f);
                     tex.SetPixel(x, y, Color.Lerp(a, b, t));
+                }
+            }
+
+            tex.Apply(false, false);
+            return tex;
+        }
+
+        /// <summary>Soft vertical grass-blade alpha for crossed quads.</summary>
+        public static Texture2D GrassBladeTexture(int size = 32)
+        {
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            tex.wrapMode = TextureWrapMode.Clamp;
+            tex.filterMode = FilterMode.Bilinear;
+            float mid = (size - 1) * 0.5f;
+            for (int y = 0; y < size; y++)
+            {
+                float v = y / (float)(size - 1);
+                // Taper toward the tip.
+                float halfW = Mathf.Lerp(0.55f, 0.1f, v * v);
+                for (int x = 0; x < size; x++)
+                {
+                    float u = Mathf.Abs((x - mid) / mid);
+                    float alpha = 0f;
+                    if (u <= halfW)
+                    {
+                        // Opaque in the center, soft falloff at the silhouette.
+                        float t = u / Mathf.Max(0.001f, halfW);
+                        alpha = Mathf.SmoothStep(1f, 0f, t);
+                        alpha *= Mathf.SmoothStep(0f, 0.06f, v) * Mathf.SmoothStep(0f, 0.1f, 1f - v);
+                        alpha = Mathf.Clamp01(alpha);
+                    }
+
+                    var c = Color.Lerp(GrassBladeB, GrassBladeA, v);
+                    c.a = alpha;
+                    tex.SetPixel(x, y, c);
                 }
             }
 

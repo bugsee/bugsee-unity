@@ -9,7 +9,8 @@ namespace Bugsee.Sample.Editor
 {
     /// <summary>
     /// Imports Meshy quadruped FBX as Generic (root motion off) and builds a
-    /// Resources AnimatorController that freezes Idle via Speed=0 / plays Walk at Speed=1.
+    /// Resources AnimatorController. Runtime drives Walk normalized time in code
+    /// (Speed param kept for Inspector/tools; not required for device playback).
     /// </summary>
     public sealed class AnteaterFbxSetup : AssetPostprocessor
     {

@@ -12,7 +12,6 @@ namespace Bugsee.Sample
         const string RiggedResourcePath = "Anteater/ScarletSnout";
         const string RiggedWalkClipPath = "Anteater/ScarletSnoutWalk";
         const string GeneratedResourcePath = "Anteater/AnteaterMesh";
-        public const string WalkClipName = "Walk";
 
         static readonly Color FurCoral = new Color(0.86f, 0.38f, 0.34f, 1f);
         static readonly Color FurBrown = new Color(0.42f, 0.26f, 0.18f, 1f);
@@ -33,9 +32,9 @@ namespace Bugsee.Sample
         }
 
         /// <summary>
-        /// Instantiate Meshy quadruped FBX with Walk clip. CharacterController stays
-        /// authoritative. Uses Legacy Animation + WrapMode.Loop (Mecanim often ignores
-        /// loopTime on FBX sub-clips).
+        /// Instantiate Meshy quadruped FBX with Walk. CharacterController stays authoritative.
+        /// Samples the FBX AnimationClip directly each frame (no Legacy conversion, no Mecanim
+        /// controller — both are fragile across Editor vs device / missing .anim refs).
         /// </summary>
         static GameObject TryBuildRigged(Transform parent)
         {
@@ -60,46 +59,28 @@ namespace Bugsee.Sample
                 UnityEngine.Object.Destroy(colliders[i]);
 
             ApplyCoralMaterials(instance);
-            FitRiggedInstance(instance.transform);
 
-            // Disable Mecanim — FBX loopTime is unreliable; Legacy WrapMode.Loop is not.
-            var animator = instance.GetComponentInChildren<Animator>(true);
-            if (animator != null)
+            // Disable components that would fight SampleAnimation.
+            var animators = instance.GetComponentsInChildren<Animator>(true);
+            for (int i = 0; i < animators.Length; i++)
             {
-                animator.applyRootMotion = false;
-                animator.enabled = false;
+                animators[i].applyRootMotion = false;
+                animators[i].enabled = false;
             }
 
-            Animation legacy = null;
+            var legacyAnims = instance.GetComponentsInChildren<Animation>(true);
+            for (int i = 0; i < legacyAnims.Length; i++)
+                legacyAnims[i].enabled = false;
+
             if (walkClip != null)
-            {
-                // Animation component requires legacy clips; FBX imports are Mecanim by default.
-                var legacyClip = UnityEngine.Object.Instantiate(walkClip);
-                legacyClip.name = "ScarletSnoutWalkLegacy";
-                legacyClip.legacy = true;
-                legacyClip.wrapMode = WrapMode.Loop;
+                walkClip.SampleAnimation(instance, 0f);
 
-                legacy = instance.GetComponent<Animation>();
-                if (legacy == null)
-                    legacy = instance.AddComponent<Animation>();
-                legacy.playAutomatically = false;
-                legacy.wrapMode = WrapMode.Loop;
-                legacy.AddClip(legacyClip, WalkClipName);
-                var state = legacy[WalkClipName];
-                if (state != null)
-                {
-                    state.wrapMode = WrapMode.Loop;
-                    state.speed = 0f;
-                    state.time = 0f;
-                    state.enabled = true;
-                    state.weight = 1f;
-                }
-
-                legacy.Play(WalkClipName);
-            }
+            // Ground after a walk pose is applied (walk takes often lift the hips vs bind pose).
+            FitRiggedInstance(instance.transform, walkClip);
+            AnteaterGroundAlign.Attach(root.transform, instance.transform);
 
             var marker = root.AddComponent<AnteaterGeneratedVisual>();
-            marker.Configure(legacy, hasSkinnedWalk: legacy != null);
+            marker.Configure(walkClip, instance, hasSkinnedWalk: walkClip != null);
             return root;
         }
 
@@ -118,7 +99,6 @@ namespace Bugsee.Sample
                 if (clip == null) continue;
                 if (clip.name.StartsWith("__preview__", System.StringComparison.Ordinal))
                     continue;
-                // Skip clips that belong to the static OBJ if any.
                 if (clip.name.IndexOf("AnteaterMesh", System.StringComparison.OrdinalIgnoreCase) >= 0)
                     continue;
                 if (clip.name.IndexOf("walk", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
@@ -135,18 +115,28 @@ namespace Bugsee.Sample
 
         static void ApplyCoralMaterials(GameObject instance)
         {
-            var mat = ProceduralMaterials.CreateLit(
-                Color.white,
-                ProceduralMaterials.NoiseTexture(64, FurCoral, FurBrown, 0.2f, 17));
+            // Near-solid coral — noisy albedo reads as shadow acne on this mesh.
+            var mat = ProceduralMaterials.CreateLit(FurCoral);
             var renderers = instance.GetComponentsInChildren<Renderer>(true);
             for (int i = 0; i < renderers.Length; i++)
             {
-                if (renderers[i] != null)
-                    renderers[i].sharedMaterial = mat;
+                var rend = renderers[i];
+                if (rend == null) continue;
+                rend.sharedMaterial = mat;
+                // Cast real silhouette; never receive (self-shadow acne on dense Meshy skin).
+                rend.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+                rend.receiveShadows = false;
+
+                var skin = rend as SkinnedMeshRenderer;
+                if (skin != null)
+                {
+                    skin.updateWhenOffscreen = true;
+                    skin.skinnedMotionVectors = false;
+                }
             }
         }
 
-        static void FitRiggedInstance(Transform instance)
+        static void FitRiggedInstance(Transform instance, AnimationClip walkClip = null)
         {
             // Measure bounds in root-local space after identity placement.
             instance.localPosition = Vector3.zero;
@@ -157,31 +147,68 @@ namespace Bugsee.Sample
             if (renderers.Length == 0)
                 return;
 
-            Bounds b = renderers[0].bounds;
-            for (int i = 1; i < renderers.Length; i++)
-                b.Encapsulate(renderers[i].bounds);
+            if (walkClip != null)
+                walkClip.SampleAnimation(instance.gameObject, 0f);
+
+            Bounds b = EncapsulateRendererBounds(renderers);
 
             const float targetHeight = 0.9f;
             float height = b.size.y;
             if (height > 0.01f)
                 instance.localScale = Vector3.one * (targetHeight / height);
 
-            // Recompute after scale; drop feet to y=0 under the player root.
-            b = renderers[0].bounds;
-            for (int i = 1; i < renderers.Length; i++)
-                b.Encapsulate(renderers[i].bounds);
-
+            // Find the lowest mesh point across the walk cycle so a lifted hip pose
+            // does not leave the character hovering above the CharacterController feet.
+            float minFeetLocalY = float.MaxValue;
             var parent = instance.parent;
-            float feetY = b.min.y;
-            if (parent != null)
-                feetY = parent.InverseTransformPoint(new Vector3(b.center.x, b.min.y, b.center.z)).y;
+            if (walkClip != null && walkClip.length > 0.01f)
+            {
+                const int samples = 10;
+                for (int s = 0; s < samples; s++)
+                {
+                    walkClip.SampleAnimation(instance.gameObject, walkClip.length * (s / (float)samples));
+                    float feet = FeetLocalY(instance, parent);
+                    if (feet < minFeetLocalY)
+                        minFeetLocalY = feet;
+                }
+
+                walkClip.SampleAnimation(instance.gameObject, 0f);
+            }
+            else
+            {
+                minFeetLocalY = FeetLocalY(instance, parent);
+            }
 
             var lp = instance.localPosition;
-            lp.y -= feetY;
+            lp.y -= minFeetLocalY;
+            // Coarse place; AnteaterGroundAlign does the precise per-frame snap.
+            lp.y -= 0.08f;
             instance.localPosition = lp;
+        }
 
-            // Meshy quadrupeds sometimes face -Z; if the long axis reads backward, flip 180.
-            // Default: keep as authored — tweak via AnteaterGeneratedVisual if needed in playtests.
+        static Bounds EncapsulateRendererBounds(Renderer[] renderers)
+        {
+            Bounds b = renderers[0].bounds;
+            for (int i = 1; i < renderers.Length; i++)
+            {
+                if (renderers[i] != null)
+                    b.Encapsulate(renderers[i].bounds);
+            }
+
+            return b;
+        }
+
+        static float FeetLocalY(Transform instance, Transform parent)
+        {
+            var renderers = instance.GetComponentsInChildren<Renderer>(true);
+            if (renderers.Length == 0)
+                return 0f;
+
+            Bounds b = EncapsulateRendererBounds(renderers);
+            if (parent == null)
+                return b.min.y;
+
+            return parent.InverseTransformPoint(new Vector3(b.center.x, b.min.y, b.center.z)).y;
         }
 
         /// <summary>Static remeshed OBJ path (no skin). Used if rigged FBX is missing.</summary>
@@ -208,7 +235,7 @@ namespace Bugsee.Sample
                 ProceduralMaterials.NoiseTexture(64, FurCoral, FurBrown, 0.2f, 17));
 
             var marker = root.AddComponent<AnteaterGeneratedVisual>();
-            marker.Configure(null, hasSkinnedWalk: false);
+            marker.Configure(null, null, hasSkinnedWalk: false);
             return root;
         }
 
@@ -569,7 +596,13 @@ namespace Bugsee.Sample
             pole.transform.SetParent(totem.transform, false);
             pole.transform.localPosition = new Vector3(0f, -0.4f, 0f);
             pole.transform.localScale = new Vector3(0.12f, 0.9f, 0.12f);
-            UnityEngine.Object.Destroy(pole.GetComponent<Collider>());
+            // Wider solid on the totem root (visual pole mesh stays thin).
+            Object.Destroy(pole.GetComponent<Collider>());
+            var poleSolid = totem.AddComponent<CapsuleCollider>();
+            poleSolid.radius = 0.2f;
+            poleSolid.height = 2.2f;
+            poleSolid.center = new Vector3(0f, -0.3f, 0f);
+            poleSolid.direction = 1;
             pole.GetComponent<Renderer>().sharedMaterial =
                 ProceduralMaterials.CreateLit(new Color(0.2f, 0.15f, 0.1f));
 
@@ -586,15 +619,17 @@ namespace Bugsee.Sample
         }
     }
 
-    /// <summary>Marker for Meshy-generated visual (Legacy walk Animation and/or static mesh).</summary>
+    /// <summary>Marker for Meshy-generated visual (sampled walk clip and/or static mesh).</summary>
     public sealed class AnteaterGeneratedVisual : MonoBehaviour
     {
-        public Animation WalkAnimation { get; private set; }
+        public AnimationClip WalkClip { get; private set; }
+        public GameObject AnimatedRoot { get; private set; }
         public bool HasSkinnedWalk { get; private set; }
 
-        public void Configure(Animation walkAnimation, bool hasSkinnedWalk)
+        public void Configure(AnimationClip walkClip, GameObject animatedRoot, bool hasSkinnedWalk)
         {
-            WalkAnimation = walkAnimation;
+            WalkClip = walkClip;
+            AnimatedRoot = animatedRoot;
             HasSkinnedWalk = hasSkinnedWalk;
         }
     }

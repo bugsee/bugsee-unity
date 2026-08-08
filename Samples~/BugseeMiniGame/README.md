@@ -5,6 +5,7 @@ inside an **open grassy field with hills** — a procedural, animal-like coral a
 third-person camera, and twofold Bugsee controls:
 
 1. **Floating HUD** (top-right) — Report, Upload, Blackout, Log, Feedback, Identity, Debug…
+   (**Blackout** also toggles day ↔ night: sun/shadows ↔ moon/stars/weaker shadows)
 2. **Hilltop actions** — each hill has one Bugsee API; walk onto it and **tap the action bubble**
 
 Every action is reachable without passing through any other.
@@ -49,6 +50,9 @@ ShowReportDialog, Upload, TestCrash, Log / Trace / Event / LogException, Blackou
 Identity + attributes, secure rectangles, CaptureViewHierarchy, ResetVideoCapturePermission,
 Feedback, Appearance, filters, report handler, and lifecycle listener.
 
+SetSecureRect / SetAttribute / SetUserIdentifier / Appearance open IMGUI forms for input
+(secure LTRB + Random, attribute key/value, user id, and a scrollable color table with pickers).
+
 ## Platforms
 
 | Platform | Expectation |
@@ -80,10 +84,10 @@ The `com.bugsee.unity` Editor script `BugseeEdmJavaHomeBootstrap` pins `JAVA_HOM
 ## Character
 
 The player prefers the Meshy **rigged** FBX at `Resources/Anteater/ScarletSnout`
-(quadruped Auto-Rig + Walking). Walk is driven by a Legacy `Animation` component with
-`WrapMode.Loop` (Mecanim often refuses to loop FBX takes). Stick scales playback with
-move speed. If the FBX is missing, falls back to the static remesh OBJ, then the
-procedural organic anteater.
+(quadruped Auto-Rig + Walking). Walk samples the FBX `AnimationClip` directly each
+frame (`SampleAnimation`) so it works on Editor and device without Legacy conversion
+or a Mecanim controller. Stick scales playback with move speed. If the FBX is missing,
+falls back to the static remesh OBJ, then the procedural organic anteater.
 
 ## Layout
 

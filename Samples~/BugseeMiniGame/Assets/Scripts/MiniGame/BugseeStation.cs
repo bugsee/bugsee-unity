@@ -219,7 +219,7 @@ namespace Bugsee.Sample
             new BugseeActionGroup(
                 "Identity",
                 new Color(0.9f, 0.9f, 0.95f),
-                BugseeDemoAction.SetIdentity,
+                BugseeDemoAction.SetUserIdentifier,
                 BugseeDemoAction.GetIdentity,
                 BugseeDemoAction.ToggleIdentity,
                 BugseeDemoAction.ClearIdentity),
@@ -227,7 +227,7 @@ namespace Bugsee.Sample
             new BugseeActionGroup(
                 "Privacy",
                 new Color(0.55f, 0.4f, 0.9f),
-                BugseeDemoAction.ToggleSecureRect,
+                BugseeDemoAction.SetSecureRect,
                 BugseeDemoAction.ClearSecureRects,
                 BugseeDemoAction.ResetVideoPermission),
 
@@ -250,7 +250,7 @@ namespace Bugsee.Sample
             new BugseeActionGroup(
                 "Appearance",
                 new Color(0.85f, 0.45f, 0.65f),
-                BugseeDemoAction.AppearanceDemo,
+                BugseeDemoAction.Appearance,
                 BugseeDemoAction.ToggleFilters)
         };
 
@@ -280,24 +280,28 @@ namespace Bugsee.Sample
                 SpawnGroup(Groups[i], summits[i]);
         }
 
-        void SpawnGroup(BugseeActionGroup group, Vector3 summit)
+        void SpawnGroup(BugseeActionGroup group, Vector3 padTop)
         {
             var root = new GameObject("HillActions_" + group.Title.Replace(' ', '_'));
-            root.transform.position = summit;
+            // padTop is the summit-pad surface from FieldWorldBuilder.
+            // Props are authored with feet at local y = 0 — no bounds/raycast planting.
+            root.transform.position = padTop;
 
             // Shared proximity zone for the whole category.
             var zone = root.AddComponent<SphereCollider>();
             zone.isTrigger = true;
             zone.radius = 4.2f;
+            zone.center = new Vector3(0f, 1f, 0f);
 
             var beacons = new List<Transform>();
             int count = group.Actions.Length;
-            float ring = count <= 1 ? 0f : 1.15f;
+            // Keep beacons on the flat summit pad (pad radius ≈ 1.2).
+            float ring = count <= 1 ? 0f : 0.7f;
             for (int i = 0; i < count; i++)
             {
                 float angle = count == 1 ? 0f : (i / (float)count) * Mathf.PI * 2f - Mathf.PI * 0.5f;
-                var offset = new Vector3(Mathf.Cos(angle) * ring, 0f, Mathf.Sin(angle) * ring);
-                beacons.Add(SpawnBeacon(root.transform, offset, group.Color, group.Actions[i]));
+                var local = new Vector3(Mathf.Cos(angle) * ring, 0f, Mathf.Sin(angle) * ring);
+                beacons.Add(SpawnBeacon(root.transform, local, group.Color, group.Actions[i]));
             }
 
             // Category totem / title in the center.
@@ -316,13 +320,40 @@ namespace Bugsee.Sample
             var pillar = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             pillar.name = "CategoryPillar";
             pillar.transform.SetParent(root.transform, false);
-            pillar.transform.localPosition = new Vector3(0f, 0.55f, 0f);
-            pillar.transform.localScale = new Vector3(0.35f, 0.55f, 0.35f);
+            PlaceCylinderOnGround(pillar.transform, height: 1.1f, diameter: 0.35f);
             UnityEngine.Object.Destroy(pillar.GetComponent<Collider>());
             pillar.GetComponent<Renderer>().sharedMaterial = ProceduralMaterials.CreateLit(group.Color * 0.75f);
+            AddUprightSolid(root.transform, "PillarSolid", new Vector3(0f, 0.55f, 0f), radius: 0.28f, height: 1.1f);
 
             var station = root.AddComponent<BugseeHillStation>();
             station.Configure(group, beacons);
+        }
+
+        /// <summary>Unity cylinder: height = 2 * scale.y, pivot at center — put the base on local y = 0.</summary>
+        static void PlaceCylinderOnGround(Transform cylinder, float height, float diameter)
+        {
+            cylinder.localRotation = Quaternion.identity;
+            cylinder.localScale = new Vector3(diameter, height * 0.5f, diameter);
+            cylinder.localPosition = new Vector3(cylinder.localPosition.x, height * 0.5f, cylinder.localPosition.z);
+        }
+
+        /// <summary>
+        /// Unscaled capsule solid. Scaled CreatePrimitive colliders can shove the CharacterController
+        /// into one-sided hill MeshColliders (fall-through / stuck underground).
+        /// </summary>
+        static void AddUprightSolid(Transform parent, string name, Vector3 localCenter, float radius, float height)
+        {
+            var solid = new GameObject(name);
+            solid.transform.SetParent(parent, false);
+            solid.transform.localPosition = localCenter;
+            solid.transform.localRotation = Quaternion.identity;
+            solid.transform.localScale = Vector3.one;
+            var col = solid.AddComponent<CapsuleCollider>();
+            col.radius = radius;
+            col.height = Mathf.Max(height, radius * 2f + 0.01f);
+            col.center = Vector3.zero;
+            col.direction = 1;
+            col.isTrigger = false;
         }
 
         static Transform SpawnBeacon(Transform parent, Vector3 localPos, Color color, BugseeDemoAction action)
@@ -331,21 +362,23 @@ namespace Bugsee.Sample
             go.transform.SetParent(parent, false);
             go.transform.localPosition = localPos;
 
+            const float stemHeight = 0.7f;
             var stem = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             stem.name = "Stem";
             stem.transform.SetParent(go.transform, false);
-            stem.transform.localPosition = new Vector3(0f, 0.35f, 0f);
-            stem.transform.localScale = new Vector3(0.1f, 0.35f, 0.1f);
+            PlaceCylinderOnGround(stem.transform, height: stemHeight, diameter: 0.1f);
             UnityEngine.Object.Destroy(stem.GetComponent<Collider>());
             stem.GetComponent<Renderer>().sharedMaterial = ProceduralMaterials.CreateLit(color * 0.65f);
 
             var beacon = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             beacon.name = "Orb";
             beacon.transform.SetParent(go.transform, false);
-            beacon.transform.localPosition = new Vector3(0f, 0.85f, 0f);
+            beacon.transform.localPosition = new Vector3(0f, stemHeight + 0.15f, 0f);
             beacon.transform.localScale = Vector3.one * 0.42f;
             UnityEngine.Object.Destroy(beacon.GetComponent<Collider>());
             beacon.GetComponent<Renderer>().sharedMaterial = ProceduralMaterials.CreateLit(color);
+
+            AddUprightSolid(go.transform, "BeaconSolid", new Vector3(0f, 0.55f, 0f), radius: 0.26f, height: 1.05f);
 
             var label = new GameObject("Label");
             label.transform.SetParent(go.transform, false);

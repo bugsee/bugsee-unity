@@ -9,7 +9,7 @@ namespace Bugsee.Sample
         [SerializeField] float turnSpeedDeg = 95f; // max yaw °/s at full stick deflection
         [SerializeField] float mouseDragThresholdPx = 12f;
         [SerializeField] float gravity = -20f;
-        [Tooltip("World m/s at which Animator Speed=1 matches the Walk clip.")]
+        [Tooltip("World m/s at which walk clip speed=1 matches movement.")]
         [SerializeField] float walkAnimReferenceMoveSpeed = 2.6f;
         [SerializeField] float walkAnimMinMultiplier = 0.55f;
         [SerializeField] float walkAnimMaxMultiplier = 4.5f;
@@ -20,9 +20,9 @@ namespace Bugsee.Sample
         Vector3 _visualBaseLocalPos;
         bool _useGeneratedVisual;
         bool _useSkinnedWalk;
-        Animation _walkAnimation;
-        AnimationState _walkState;
-        bool _wasMoving;
+        AnimationClip _walkClip;
+        GameObject _animatedRoot;
+        float _walkTime;
         Vector3 _moveInput;
         float _verticalVel;
         float _walkPhase;
@@ -48,19 +48,11 @@ namespace Bugsee.Sample
             var generated = visualRoot != null ? visualRoot.GetComponent<AnteaterGeneratedVisual>() : null;
             _useGeneratedVisual = generated != null;
             _useSkinnedWalk = generated != null && generated.HasSkinnedWalk;
-            _walkAnimation = generated != null ? generated.WalkAnimation : null;
-            _walkState = null;
-            if (_walkAnimation != null)
-            {
-                _walkState = _walkAnimation[AnteaterBuilder.WalkClipName];
-                if (_walkState != null)
-                {
-                    _walkState.wrapMode = WrapMode.Loop;
-                    _walkState.speed = 0f;
-                }
-            }
-
-            _wasMoving = false;
+            _walkClip = generated != null ? generated.WalkClip : null;
+            _animatedRoot = generated != null ? generated.AnimatedRoot : null;
+            _walkTime = 0f;
+            if (_walkClip != null && _animatedRoot != null)
+                _walkClip.SampleAnimation(_animatedRoot, 0f);
 
             _legs = _useGeneratedVisual || visualRoot == null
                 ? System.Array.Empty<AnteaterLeg>()
@@ -72,15 +64,19 @@ namespace Bugsee.Sample
             Instance = this;
             _cc = gameObject.GetComponent<CharacterController>();
             if (_cc == null)
-            {
                 _cc = gameObject.AddComponent<CharacterController>();
-                _cc.height = 0.95f;
-                _cc.radius = 0.42f;
-                _cc.center = new Vector3(0f, 0.5f, 0f);
-                _cc.stepOffset = 0.5f;
-                _cc.slopeLimit = 55f;
-                _cc.skinWidth = 0.06f;
-            }
+
+            // Authoritative locomotion capsule — tuned for tree trunks / totems / hills.
+            _cc.height = 0.85f;
+            _cc.radius = 0.38f;
+            // Capsule bottom at ~y=0 so the controller pivot matches the paws / ground.
+            _cc.center = new Vector3(0f, 0.425f, 0f);
+            _cc.stepOffset = 0.3f;
+            _cc.slopeLimit = 55f;
+            _cc.skinWidth = 0.08f;
+            _cc.minMoveDistance = 0f;
+            // Overlap recovery can shove the capsule into one-sided hill MeshColliders.
+            _cc.enableOverlapRecovery = false;
         }
 
         void OnDestroy()
@@ -92,9 +88,13 @@ namespace Bugsee.Sample
         void Update()
         {
             // Stick/keyboard in pad space: x = yaw around character, z = forward/back along facing.
-            var stick = ReadKeyboard() + ReadPointerStick();
-            if (stick.sqrMagnitude > 1f)
-                stick.Normalize();
+            Vector3 stick = Vector3.zero;
+            if (!BugseeActionForms.IsBlockingInput)
+            {
+                stick = ReadKeyboard() + ReadPointerStick();
+                if (stick.sqrMagnitude > 1f)
+                    stick.Normalize();
+            }
 
             if (stick.sqrMagnitude > 0.01f)
                 _hasMoved = true;
@@ -134,10 +134,57 @@ namespace Bugsee.Sample
         void MoveCharacter(float dt)
         {
             var planar = new Vector3(_moveInput.x, 0f, _moveInput.z) * moveSpeed;
+
+            // Horizontal then vertical — combined Move + side hits on hills can bury the capsule
+            // inside the dome MeshCollider (no interior faces → fall-through).
+            if (planar.sqrMagnitude > 0.0001f)
+                _cc.Move(planar * dt);
+
             if (_cc.isGrounded && _verticalVel < 0f)
                 _verticalVel = -2f;
             _verticalVel += gravity * dt;
-            _cc.Move((planar + Vector3.up * _verticalVel) * dt);
+            _cc.Move(Vector3.up * (_verticalVel * dt));
+
+            RecoverIfBuried();
+        }
+
+        /// <summary>
+        /// If the capsule sinks under walkable ground (hill mesh / summit pad), snap back up.
+        /// </summary>
+        void RecoverIfBuried()
+        {
+            // Cast from well above so we still find the outer hill surface after fall-through.
+            var origin = transform.position + Vector3.up * 10f;
+            var hits = Physics.RaycastAll(origin, Vector3.down, 20f, ~0, QueryTriggerInteraction.Ignore);
+            float bestY = float.NegativeInfinity;
+            bool found = false;
+            for (int i = 0; i < hits.Length; i++)
+            {
+                var hit = hits[i];
+                if (hit.collider == null || hit.collider is CharacterController)
+                    continue;
+                if (hit.collider.GetComponentInParent<AnteaterController>() != null)
+                    continue;
+                if (Vector3.Dot(hit.normal, Vector3.up) < 0.45f)
+                    continue;
+                if (hit.point.y > bestY)
+                {
+                    bestY = hit.point.y;
+                    found = true;
+                }
+            }
+
+            if (!found)
+                return;
+
+            // Feet should sit near ground; if clearly below, snap back up.
+            if (transform.position.y >= bestY - 0.05f)
+                return;
+
+            _cc.enabled = false;
+            transform.position = new Vector3(transform.position.x, bestY + 0.02f, transform.position.z);
+            _cc.enabled = true;
+            _verticalVel = -2f;
         }
 
         void AnimateWalk(float dt)
@@ -145,7 +192,7 @@ namespace Bugsee.Sample
             float gait = IsMoving ? 9f + _moveInput.magnitude * 4f : 0f;
             _walkPhase += dt * gait;
 
-            if (_useSkinnedWalk && _walkState != null)
+            if (_useSkinnedWalk && _walkClip != null && _animatedRoot != null)
             {
                 // Scale clip playback with actual planar move speed so paws keep up with CC.
                 float planarSpeed = moveSpeed * _moveInput.magnitude;
@@ -158,24 +205,16 @@ namespace Bugsee.Sample
                         walkAnimMaxMultiplier);
                 }
 
-                _walkState.wrapMode = WrapMode.Loop;
-                _walkState.speed = animSpeed;
-
-                if (IsMoving)
+                float clipLen = _walkClip.length > 0.01f ? _walkClip.length : 1f;
+                if (animSpeed > 0.001f)
                 {
-                    if (!_wasMoving || !_walkAnimation.isPlaying)
-                    {
-                        _walkState.time = 0f;
-                        _walkAnimation.Play(AnteaterBuilder.WalkClipName);
-                    }
-                }
-                else if (_wasMoving)
-                {
-                    // Freeze on current pose when stopping (speed 0 keeps Legacy sample).
-                    _walkState.speed = 0f;
+                    _walkTime += dt * animSpeed;
+                    _walkTime %= clipLen;
+                    if (_walkTime < 0f)
+                        _walkTime += clipLen;
                 }
 
-                _wasMoving = IsMoving;
+                _walkClip.SampleAnimation(_animatedRoot, _walkTime);
                 return;
             }
 
@@ -332,6 +371,9 @@ namespace Bugsee.Sample
 
         static bool IsBlockedByUi(Vector2 screen)
         {
+            if (BugseeActionForms.IsBlockingInput)
+                return true;
+
             // Top-right Bugsee HUD only — bottom-right is the look stick.
             if (screen.x > Screen.width - 180f && screen.y > Screen.height * 0.45f)
                 return true;

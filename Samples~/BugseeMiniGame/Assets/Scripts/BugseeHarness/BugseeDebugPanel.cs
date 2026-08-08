@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Text;
-using Bugsee.Contracts.Appearance;
 using Bugsee.Contracts.Feedback;
 using UnityEngine;
 
@@ -16,7 +15,6 @@ namespace Bugsee.Sample
         BugseeSampleBootstrap _bootstrap;
         Vector2 _scroll;
         string _attrKey = "sample.key";
-        string _attrValue = "value";
         bool _confirmCrash;
         bool _reportHandlerOn;
         bool _filtersOn;
@@ -57,8 +55,18 @@ namespace Bugsee.Sample
             if (GUILayout.Button("Launch")) _bootstrap?.LaunchSdk();
             if (GUILayout.Button("Relaunch")) BugseeActionCatalog.Instance?.Run(BugseeDemoAction.Relaunch);
             if (GUILayout.Button("Stop")) BugseeActionCatalog.Instance?.Run(BugseeDemoAction.Stop);
-            if (GUILayout.Button("StartBlackout")) Bugsee.StartBlackout();
-            if (GUILayout.Button("EndBlackout")) Bugsee.EndBlackout();
+            if (GUILayout.Button("StartBlackout"))
+            {
+                Bugsee.StartBlackout();
+                DayNightController.Instance?.SetNight(true);
+                _bootstrap?.SetStatus("StartBlackout → night");
+            }
+            if (GUILayout.Button("EndBlackout"))
+            {
+                Bugsee.EndBlackout();
+                DayNightController.Instance?.SetNight(false);
+                _bootstrap?.SetStatus("EndBlackout → day");
+            }
             if (GUILayout.Button("ResetVideoCapturePermission"))
             {
                 Bugsee.ResetVideoCapturePermission();
@@ -79,19 +87,17 @@ namespace Bugsee.Sample
             GUI.enabled = true;
 
             Section("Identity / Attributes");
-            if (GUILayout.Button("Set identity")) BugseeActionCatalog.Instance?.Run(BugseeDemoAction.SetIdentity);
+            if (GUILayout.Button("SetUserIdentifier…"))
+                BugseeActionCatalog.Instance?.Run(BugseeDemoAction.SetUserIdentifier);
             if (GUILayout.Button("Clear identity")) BugseeActionCatalog.Instance?.Run(BugseeDemoAction.ClearIdentity);
             if (GUILayout.Button("GetUserIdentifier"))
                 _bootstrap?.SetStatus("UserId => " + (Bugsee.GetUserIdentifier() ?? "(null)"));
+            if (GUILayout.Button("SetAttribute…"))
+                BugseeActionCatalog.Instance?.Run(BugseeDemoAction.SetAttribute);
             GUILayout.BeginHorizontal();
+            GUILayout.Label("Key", GUILayout.Width(32f));
             _attrKey = GUILayout.TextField(_attrKey);
-            _attrValue = GUILayout.TextField(_attrValue);
             GUILayout.EndHorizontal();
-            if (GUILayout.Button("SetAttribute"))
-            {
-                Bugsee.SetAttribute(_attrKey, _attrValue);
-                _bootstrap?.SetStatus("SetAttribute " + _attrKey);
-            }
             if (GUILayout.Button("GetAttribute"))
             {
                 var v = Bugsee.GetAttribute(_attrKey);
@@ -104,7 +110,8 @@ namespace Bugsee.Sample
             }
 
             Section("Privacy");
-            if (GUILayout.Button("Toggle secure rect")) BugseeActionCatalog.Instance?.Run(BugseeDemoAction.ToggleSecureRect);
+            if (GUILayout.Button("SetSecureRect…"))
+                BugseeActionCatalog.Instance?.Run(BugseeDemoAction.SetSecureRect);
             if (GUILayout.Button("RemoveAllSecureRectangles"))
             {
                 Bugsee.RemoveAllSecureRectangles();
@@ -112,14 +119,8 @@ namespace Bugsee.Sample
             }
 
             Section("Appearance");
-            if (GUILayout.Button("Set report tint (sample)"))
-            {
-                Bugsee.Appearance
-                    .SetColor(ReportAppearance.BackgroundColor, new Color32(30, 40, 60, 255))
-                    .SetColor(ReportAppearance.ActionBarColor, new Color32(40, 90, 160, 255))
-                    .SetString(ReportAppearance.SummaryPlaceholder, "MiniGame summary…");
-                _bootstrap?.SetStatus("Appearance set");
-            }
+            if (GUILayout.Button("Appearance colors…"))
+                BugseeActionCatalog.Instance?.Run(BugseeDemoAction.Appearance);
             if (GUILayout.Button("Appearance.ToMap()"))
             {
                 var map = Bugsee.Appearance.ToMap();
@@ -145,8 +146,6 @@ namespace Bugsee.Sample
                 BugseeActionCatalog.Instance?.Run(BugseeDemoAction.ToggleLifecycleListener);
             if (GUILayout.Button("Log all levels"))
                 BugseeActionCatalog.Instance?.Run(BugseeDemoAction.LogAllLevels);
-            if (GUILayout.Button("Appearance demo"))
-                BugseeActionCatalog.Instance?.Run(BugseeDemoAction.AppearanceDemo);
 
             Section("Feedback");
             if (GUILayout.Button("ShowFeedbackUi")) BugseeActionCatalog.Instance?.Run(BugseeDemoAction.ShowFeedback);

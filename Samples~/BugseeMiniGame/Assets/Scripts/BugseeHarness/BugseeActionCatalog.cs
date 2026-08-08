@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Bugsee.Contracts.Appearance;
 using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Feedback;
 using Bugsee.Contracts.Lifecycle;
@@ -20,12 +19,12 @@ namespace Bugsee.Sample
         LogAllLevels,
         LogException,
         TestCrash,
-        ToggleSecureRect,
+        SetSecureRect,
         ClearSecureRects,
         ShowFeedback,
         FeedbackGreeting,
         ToggleFeedbackListener,
-        SetIdentity,
+        SetUserIdentifier,
         ClearIdentity,
         ToggleIdentity,
         GetIdentity,
@@ -38,7 +37,7 @@ namespace Bugsee.Sample
         ToggleFilters,
         ToggleReportHandler,
         ToggleLifecycleListener,
-        AppearanceDemo,
+        Appearance,
         StatusReadout,
         ObsoletePauseResume,
         Launch,
@@ -74,6 +73,13 @@ namespace Bugsee.Sample
 
         public string LastStatus => _bootstrap != null ? _bootstrap.LastStatus : "";
 
+        /// <summary>Keeps the last applied secure rect so Clear/Remove stay consistent with the form.</summary>
+        public void RememberSecureRect(RectInt rect, bool active)
+        {
+            _secureRect = rect;
+            _secureRectActive = active;
+        }
+
         public void Run(BugseeDemoAction action)
         {
             try
@@ -102,12 +108,14 @@ namespace Bugsee.Sample
                         if (Bugsee.IsBlackout)
                         {
                             Bugsee.EndBlackout();
-                            _bootstrap.SetStatus("EndBlackout");
+                            DayNightController.Instance?.SetNight(false);
+                            _bootstrap.SetStatus("EndBlackout → day");
                         }
                         else
                         {
                             Bugsee.StartBlackout();
-                            _bootstrap.SetStatus("StartBlackout");
+                            DayNightController.Instance?.SetNight(true);
+                            _bootstrap.SetStatus("StartBlackout → night");
                         }
                         break;
 
@@ -152,19 +160,9 @@ namespace Bugsee.Sample
                         Bugsee.TestCrash();
                         break;
 
-                    case BugseeDemoAction.ToggleSecureRect:
-                        if (_secureRectActive)
-                        {
-                            Bugsee.RemoveSecureRectangle(_secureRect);
-                            _secureRectActive = false;
-                            _bootstrap.SetStatus("RemoveSecureRectangle");
-                        }
-                        else
-                        {
-                            Bugsee.AddSecureRectangle(_secureRect);
-                            _secureRectActive = true;
-                            _bootstrap.SetStatus("AddSecureRectangle");
-                        }
+                    case BugseeDemoAction.SetSecureRect:
+                        BugseeActionForms.Ensure(_bootstrap)
+                            .ShowSecureRect(_secureRectActive ? (RectInt?)_secureRect : null);
                         break;
 
                     case BugseeDemoAction.ClearSecureRects:
@@ -192,11 +190,8 @@ namespace Bugsee.Sample
                             : "Feedback listener OFF");
                         break;
 
-                    case BugseeDemoAction.SetIdentity:
-                        Bugsee.SetUserIdentifier("anteater-explorer");
-                        Bugsee.SetAttribute("sample.level", 1);
-                        Bugsee.SetAttribute("sample.build", Application.version);
-                        _bootstrap.SetStatus("SetUserIdentifier + attributes");
+                    case BugseeDemoAction.SetUserIdentifier:
+                        BugseeActionForms.Ensure(_bootstrap).ShowUserIdentifier();
                         break;
 
                     case BugseeDemoAction.ClearIdentity:
@@ -209,7 +204,7 @@ namespace Bugsee.Sample
                     {
                         var id = Bugsee.GetUserIdentifier();
                         if (string.IsNullOrEmpty(id))
-                            Run(BugseeDemoAction.SetIdentity);
+                            Run(BugseeDemoAction.SetUserIdentifier);
                         else
                             Run(BugseeDemoAction.ClearIdentity);
                         break;
@@ -220,9 +215,7 @@ namespace Bugsee.Sample
                         break;
 
                     case BugseeDemoAction.SetAttribute:
-                        Bugsee.SetAttribute("field.cell", Time.frameCount);
-                        Bugsee.SetAttribute("field.note", "anteater");
-                        _bootstrap.SetStatus("SetAttribute");
+                        BugseeActionForms.Ensure(_bootstrap).ShowAttribute();
                         break;
 
                     case BugseeDemoAction.GetAttribute:
@@ -279,16 +272,9 @@ namespace Bugsee.Sample
                         }
                         break;
 
-                    case BugseeDemoAction.AppearanceDemo:
-                    {
-                        var app = Bugsee.Appearance;
-                        app.SetColor(ReportAppearance.ActionBarColor, new Color32(232, 90, 90, 255));
-                        app.SetString(ReportAppearance.SummaryPlaceholder, "Anteater summary…");
-                        app.SetColor(FeedbackAppearance.IncomingBubbleColor, new Color32(76, 153, 230, 255));
-                        var got = app.GetString(ReportAppearance.SummaryPlaceholder);
-                        _bootstrap.SetStatus("Appearance set/get ok placeholder=" + got);
+                    case BugseeDemoAction.Appearance:
+                        BugseeActionForms.Ensure(_bootstrap).ShowAppearance();
                         break;
-                    }
 
                     case BugseeDemoAction.StatusReadout:
                         _bootstrap.SetStatus(_bootstrap.StatusLine);
@@ -338,12 +324,12 @@ namespace Bugsee.Sample
                 case BugseeDemoAction.LogAllLevels: return "Log Levels";
                 case BugseeDemoAction.LogException: return "Exception";
                 case BugseeDemoAction.TestCrash: return "Test Crash";
-                case BugseeDemoAction.ToggleSecureRect: return "Secure Rect";
+                case BugseeDemoAction.SetSecureRect: return "Set Secure Rect";
                 case BugseeDemoAction.ClearSecureRects: return "Clear Rects";
                 case BugseeDemoAction.ShowFeedback: return "Feedback";
                 case BugseeDemoAction.FeedbackGreeting: return "Greeting";
                 case BugseeDemoAction.ToggleFeedbackListener: return "FB Listen";
-                case BugseeDemoAction.SetIdentity: return "Set ID";
+                case BugseeDemoAction.SetUserIdentifier: return "Set User ID";
                 case BugseeDemoAction.ClearIdentity: return "Clear ID";
                 case BugseeDemoAction.ToggleIdentity: return "Identity";
                 case BugseeDemoAction.GetIdentity: return "Get ID";
@@ -356,7 +342,7 @@ namespace Bugsee.Sample
                 case BugseeDemoAction.ToggleFilters: return "Filters";
                 case BugseeDemoAction.ToggleReportHandler: return "Report Hdlr";
                 case BugseeDemoAction.ToggleLifecycleListener: return "Lifecycle";
-                case BugseeDemoAction.AppearanceDemo: return "Appearance";
+                case BugseeDemoAction.Appearance: return "Appearance";
                 case BugseeDemoAction.StatusReadout: return "Status";
                 case BugseeDemoAction.ObsoletePauseResume: return "Pause/Resume";
                 case BugseeDemoAction.Launch: return "Launch";

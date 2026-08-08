@@ -23,9 +23,11 @@ namespace Bugsee.Platform.EditorStub
         public void Stop(Action completion = null) => completion?.Invoke();
         public bool GetLaunched() => false;
         public BugseeStatus GetStatus() => BugseeStatus.Stopped;
-        public void StartBlackout() { }
-        public void EndBlackout() { }
-        public bool IsBlackout() => false;
+
+        bool _blackout;
+        public void StartBlackout() => _blackout = true;
+        public void EndBlackout() => _blackout = false;
+        public bool IsBlackout() => _blackout;
         public void Log(string message, LogLevel level) { }
         public void Trace(string name, object value) { }
         public void Event(string name, IDictionary<string, object> parameters) { }

@@ -32,21 +32,8 @@ namespace Bugsee.Sample
 
         void BuildWorld()
         {
-            // SolidColor: Skybox with no assigned skybox clears to black on many Android devices.
-            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor = new Color(0.55f, 0.7f, 0.95f);
-            RenderSettings.ambientEquatorColor = new Color(0.45f, 0.55f, 0.4f);
-            RenderSettings.ambientGroundColor = new Color(0.25f, 0.22f, 0.18f);
-            RenderSettings.ambientIntensity = 1.05f;
-            RenderSettings.skybox = null;
-
-            var lightGo = new GameObject("Directional Light");
-            var light = lightGo.AddComponent<Light>();
-            light.type = LightType.Directional;
-            light.transform.rotation = Quaternion.Euler(48f, -35f, 0f);
-            light.intensity = 1.25f;
-            light.color = new Color(1f, 0.97f, 0.9f);
-            light.shadows = LightShadows.None;
+            // Day/night owns directional lights, ambient, sky clear color, and shadows.
+            var dayNight = DayNightController.Ensure();
 
             // Camera first so a failed world build never leaves a black void.
             var camGo = new GameObject("Main Camera");
@@ -60,6 +47,7 @@ namespace Bugsee.Sample
             cam.backgroundColor = new Color(0.45f, 0.65f, 0.9f);
             camGo.AddComponent<AudioListener>();
             var follow = camGo.AddComponent<ThirdPersonCamera>();
+            dayNight.SyncFromBlackoutApi();
 
             int hillCount = BugseeStationSpawner.Groups.Length;
 
@@ -84,7 +72,7 @@ namespace Bugsee.Sample
             bootstrap.Configure(bugseeAppToken, launchOnStart: true);
 
             var playerGo = new GameObject("Player");
-            playerGo.transform.position = world != null ? world.SpawnWorldPos : new Vector3(0f, 0.05f, 0f);
+            playerGo.transform.position = world != null ? world.SpawnWorldPos : Vector3.zero;
             playerGo.transform.rotation = Quaternion.Euler(0f, 45f, 0f);
             var controller = playerGo.AddComponent<AnteaterController>();
             var visual = AnteaterBuilder.Build(playerGo.transform);
@@ -98,7 +86,9 @@ namespace Bugsee.Sample
             if (world != null)
             {
                 var ambient = new GameObject("Ambient");
-                ambient.AddComponent<DriftParticles>().Init(FieldWorldBuilder.WorldHalfExtent);
+                ambient.AddComponent<DriftParticles>().Init(
+                    FieldWorldBuilder.WorldHalfExtent,
+                    SampleQuality.DriftParticleCount);
 
                 var spawnerGo = new GameObject("FieldCollectibles");
                 spawnerGo.AddComponent<TargetSpawner>().InitField(bootstrap, FieldWorldBuilder.WorldHalfExtent);
@@ -114,6 +104,7 @@ namespace Bugsee.Sample
             var debug = hudGo.AddComponent<BugseeDebugPanel>();
             debug.Init(bootstrap);
             hudGo.AddComponent<BugseeFloatingHud>().Init(bootstrap, debug);
+            BugseeActionForms.Ensure(bootstrap);
         }
 
         static Texture2D LoadLogoTexture()
