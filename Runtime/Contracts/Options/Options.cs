@@ -78,5 +78,19 @@ namespace Bugsee.Contracts.Options
         public const string PerformanceUploadMode = "com.bugsee.option.performance.upload-mode";
         public const string Debug = "com.bugsee.option.$$DEBUG";
         public const string Endpoint = "com.bugsee.option.$$ENDPOINT";
+
+        /// <summary>
+        /// Unity-only: capture managed exceptions via ExceptionPipeline.
+        /// Separate from <see cref="DetectAndReportCrash"/> (native process death).
+        /// Default when omitted: enabled.
+        /// </summary>
+        public const string CaptureManagedExceptions = "com.bugsee.option.unity.capture-managed-exceptions";
+
+        /// <summary>
+        /// Unity-only: treat Unity-routed <c>LogType.Exception</c> as fatal
+        /// (LogUnhandledException). Default when omitted: false (non-fatal).
+        /// </summary>
+        public const string TreatUnityLogExceptionsAsFatal =
+            "com.bugsee.option.unity.treat-log-exceptions-as-fatal";
     }
 }

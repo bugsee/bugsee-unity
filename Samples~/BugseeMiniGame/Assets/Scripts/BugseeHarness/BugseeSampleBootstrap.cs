@@ -103,20 +103,26 @@ namespace Bugsee.Sample
                     ReportingTriggerByShake = true,
                     ReportingTriggerByScreenshot = true,
                     DetectAndReportCrash = true,
+                    CaptureManagedExceptions = true,
+                    DetectAndReportHang = true,
+                    DetectAndReportExitNotResponding = true,
+                    DetectAndReportExitLowMemory = true,
                     Debug = true
                 };
                 Bugsee.Launch(appToken, options);
 #elif UNITY_IOS && !UNITY_EDITOR
-                SetStatus("iOS bridge not implemented yet (NotSupported)");
-                try
+                var iosOptions = new IOSLaunchOptions
                 {
-                    Bugsee.Launch(appToken, new IOSLaunchOptions());
-                }
-                catch (Exception ex)
-                {
-                    SetStatus("iOS Launch: " + ex.Message);
-                }
-                return;
+                    CaptureVideo = true,
+                    CaptureLogs = true,
+                    CaptureNetwork = true,
+                    ReportingTriggerByShake = true,
+                    DetectAndReportCrash = true,
+                    CaptureManagedExceptions = true,
+                    DetectAndReportHang = true,
+                    Debug = true
+                };
+                Bugsee.Launch(appToken, iosOptions);
 #else
                 // Editor / unsupported: still call Launch (no-op bridge).
                 Bugsee.Launch(appToken);

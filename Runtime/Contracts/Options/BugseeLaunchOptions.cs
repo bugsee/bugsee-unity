@@ -91,6 +91,23 @@ namespace Bugsee.Contracts.Options
             set => Set(Options.DetectAndReportCrash, value);
         }
 
+        /// <summary>
+        /// Unity managed auto-capture (ExceptionPipeline). Independent of
+        /// <see cref="DetectAndReportCrash"/>. Omit for default (enabled).
+        /// </summary>
+        public bool CaptureManagedExceptions
+        {
+            set => Set(Options.CaptureManagedExceptions, value);
+        }
+
+        /// <summary>
+        /// When true, Unity-routed <c>LogType.Exception</c> is reported as unhandled.
+        /// </summary>
+        public bool TreatUnityLogExceptionsAsFatal
+        {
+            set => Set(Options.TreatUnityLogExceptionsAsFatal, value);
+        }
+
         public bool DetectAndReportEarlyCrash
         {
             set => Set(Options.DetectAndReportEarlyCrash, value);

@@ -91,6 +91,13 @@ namespace Bugsee
         public static void LogException(Exception exception, IDictionary<string, object> options = null) =>
             Bridge.LogException(exception, options);
 
+        /// <summary>
+        /// Report a managed exception as unhandled (crash path / MethodMap).
+        /// Prefer ExceptionPipeline auto-capture for uncaught cases.
+        /// </summary>
+        public static void LogUnhandledException(Exception exception, IDictionary<string, object> options = null) =>
+            Bridge.LogUnhandledException(exception, options);
+
         public static void TestCrash() => Bridge.TestCrash();
 
         public static void ShowReportDialog(

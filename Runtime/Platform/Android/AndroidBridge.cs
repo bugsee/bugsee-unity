@@ -50,6 +50,7 @@ namespace Bugsee.Platform.Android
 
         public void Launch(string appToken, IDictionary<string, object> options)
         {
+            ManagedExceptionPayload.EnsureBuildIdentity();
             EnsureWrapperRegistered();
             InstallDefaultListeners();
             using (var activity = CurrentActivity())
@@ -57,6 +58,7 @@ namespace Bugsee.Platform.Android
             {
                 _bugsee.CallStatic("launch", activity, appToken, map);
             }
+            ExceptionPipeline.Install(this, options);
         }
 
         public void Relaunch(IDictionary<string, object> options)
@@ -65,10 +67,12 @@ namespace Bugsee.Platform.Android
             {
                 _bugsee.CallStatic("relaunch", map);
             }
+            ExceptionPipeline.Install(this, options);
         }
 
         public void Stop(Action completion = null)
         {
+            ExceptionPipeline.Uninstall();
             if (completion == null)
             {
                 _bugsee.CallStatic("stop");
@@ -142,23 +146,65 @@ namespace Bugsee.Platform.Android
         public void LogException(Exception exception, IDictionary<string, object> options = null)
         {
             if (exception == null) return;
-            var message = exception.GetType().FullName + ": " + exception.Message + "\n" + exception.StackTrace;
-            using (var throwable = new AndroidJavaObject("java.lang.RuntimeException", message))
-            {
-                if (options == null || options.Count == 0)
-                {
-                    _bugsee.CallStatic("logException", throwable);
-                    return;
-                }
+            LogExceptionPayload(ManagedExceptionPayload.FromException(exception), options);
+        }
 
-                using (var map = new AndroidJavaObject("java.util.HashMap"))
+        public void LogUnhandledException(Exception exception, IDictionary<string, object> options = null)
+        {
+            if (exception == null) return;
+            LogUnhandledExceptionPayload(ManagedExceptionPayload.FromException(exception), options);
+        }
+
+        public void LogExceptionPayload(
+            ManagedExceptionPayload.Payload payload,
+            IDictionary<string, object> options = null)
+        {
+            SendManagedPayload(payload, handled: true, options);
+        }
+
+        public void LogUnhandledExceptionPayload(
+            ManagedExceptionPayload.Payload payload,
+            IDictionary<string, object> options = null)
+        {
+            SendManagedPayload(payload, handled: false, options);
+        }
+
+        void SendManagedPayload(
+            ManagedExceptionPayload.Payload payload,
+            bool handled,
+            IDictionary<string, object> options)
+        {
+            if (payload == null) return;
+
+            var reasonJson = ManagedExceptionPayload.ToJson(payload);
+            // Class name contains UnityManagedException → worker unity.py routing.
+            using (var throwable = new AndroidJavaObject("com.bugsee.unity.UnityManagedException", reasonJson))
+            using (var map = new AndroidJavaObject("java.util.HashMap"))
+            {
+                if (options != null)
                 {
                     foreach (var kv in options)
                     {
                         if (kv.Key == null || kv.Value == null) continue;
                         map.Call<AndroidJavaObject>("put", kv.Key, Box(kv.Value));
                     }
+                }
+                map.Call<AndroidJavaObject>("put", "domain", "UnityManagedException");
+                if (!string.IsNullOrEmpty(payload.signature))
+                {
+                    map.Call<AndroidJavaObject>("put", "$$signature", payload.signature);
+                }
+                if (!string.IsNullOrEmpty(payload.moduleUUID))
+                {
+                    map.Call<AndroidJavaObject>("put", "moduleUUID", payload.moduleUUID);
+                }
+                if (handled)
+                {
                     _bugsee.CallStatic("logException", throwable, map);
+                }
+                else
+                {
+                    _bugsee.CallStatic("logUnhandledException", throwable, map);
                 }
             }
         }

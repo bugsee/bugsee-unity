@@ -6,6 +6,7 @@ using Bugsee.Contracts.Feedback;
 using Bugsee.Contracts.Lifecycle;
 using Bugsee.Contracts.Options;
 using Bugsee.Contracts.Reporting;
+using Bugsee.Internal;
 
 namespace Bugsee.Platform
 {
@@ -28,6 +29,9 @@ namespace Bugsee.Platform
         void Trace(string name, object value);
         void Event(string name, IDictionary<string, object> parameters);
         void LogException(Exception exception, IDictionary<string, object> options = null);
+        void LogUnhandledException(Exception exception, IDictionary<string, object> options = null);
+        void LogExceptionPayload(ManagedExceptionPayload.Payload payload, IDictionary<string, object> options = null);
+        void LogUnhandledExceptionPayload(ManagedExceptionPayload.Payload payload, IDictionary<string, object> options = null);
         void TestCrash();
 
         void ShowReportDialog(string summary, string description, IssueSeverity severity, IList<string> labels);

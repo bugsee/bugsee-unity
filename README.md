@@ -40,23 +40,17 @@ Add the OpenUPM scoped registry to your project’s `Packages/manifest.json` if 
 
 | Platform | Integration | Current pin |
 |---|---|---|
-| **Android** | [EDM4U](https://github.com/googlesamples/unity-jar-resolver) → Maven Central | Default: `bugsee-android:7.0.4`. NDK deferred until Android SDK **7.1.0**. |
-| **iOS** | Swift Package Manager | **Local** package under `Native~/ios/Bugsee` (nextgen xcframework) until published to [`bugsee/spm`](https://github.com/bugsee/spm) |
-
-After nextgen iOS is released, the Editor post-process will switch to remote SPM:
-
-```
-https://github.com/bugsee/spm.git
-```
+| **Android** | [EDM4U](https://github.com/googlesamples/unity-jar-resolver) → Maven Central | `bugsee-android:7.1.1` + `bugsee-android-ndk:7.1.1` |
+| **iOS** | Swift Package Manager + `Plugins/iOS/BugseeUnityBridge.mm` | **Local** package under `Native~/ios/Bugsee` until [`bugsee/spm`](https://github.com/bugsee/spm) |
 
 **Android stack**
 
 | Piece | Status |
 |---|---|
-| `bugsee-android` | Default via EDM. **7.0.4** `.module` still lists `kotlin-stdlib` — Unity templates exclude it until **7.1.0**. |
-| `bugsee-android-ndk` | **Omitted** until Android SDK 7.1.0 |
-| Gradle plugin `4.0.2` | Applied on launcher by `BugseeAndroidGradleSetup` on Unity 6+ (AGP ≥ 8.6); no `ndk { enabled }` until 7.1.0 |
-| `bugsee-android-feedback` | Optional / avoid on Unity 2021.3 (Compose/D8) |
+| `bugsee-android` | Default via EDM **7.1.1** |
+| `bugsee-android-ndk` | Enabled (native fatal capture for IL2CPP primary LNM) |
+| Gradle plugin `4.0.5` | Applied on launcher by `BugseeAndroidGradleSetup` on Unity 6+ (`ndk { enabled = true }`) |
+| kotlin-stdlib | Still excluded in Unity `mainTemplate` if `.module` lists it |
 
 ### Refreshing native artifacts
 
@@ -66,11 +60,22 @@ https://github.com/bugsee/spm.git
 
 See `Tools~/versions.env` for pinned versions and paths.
 
+## Crashes & symbols
+
+See [Documentation~/index.md](Documentation~/index.md) for:
+
+- ExceptionPipeline vs `DetectAndReportCrash`
+- Hang / ANR / OOM launch options
+- `BUGSEE_APP_TOKEN` Editor uploads (`il2cpp-linemap`, `elf`, `proguard`)
+- iOS archive-time dSYM + linemap Run Script
+- Create symbols.zip / FULL native debug symbols vs SYMBOL_TABLE
+
 ## Layout
 
 ```
 Runtime/           # C# runtime API + asmdef
-Editor/            # EDM Dependencies.xml, iOS SPM post-process
+Editor/            # EDM, Gradle, iOS SPM, linemap + symbol upload
+Plugins/           # iOS ObjC++ bridge, Android UnityManagedException.java
 Native~/ios/Bugsee # Local SPM package (Package.swift + xcframework)
 Tools~/            # Version pins + maintenance scripts
 Documentation~/    # Package docs shown in Package Manager
@@ -84,19 +89,12 @@ Open [`Samples~/BugseeMiniGame`](Samples~/BugseeMiniGame) in Unity Hub (2021.3+)
 small arena with **HUD buttons** and **in-world Bugsee stations**. See that folder’s
 [README](Samples~/BugseeMiniGame/README.md).
 
-(`Samples~` is excluded from UPM package import so the minigame’s `Library`/`ProjectSettings`
-are not nested into consuming projects.)
-
 ## Status
 
-Android-first implementation in progress:
-
+- Android + iOS bridges (Launch, exceptions, native crash options)
+- ExceptionPipeline (managed auto-capture) + UnityManagedException JSON contract
+- Editor symbol orchestrator (linemap / ELF / ProGuard / iOS archive dSYM)
 - Contracts (Options, Lifecycle, Reporting, Exchange, Appearance, Feedback)
-- Public `Bugsee` facade mirroring Android 7.x
-- Android bridge: launch/options mapping, `BugseeWrapper` registration, report handler, lifecycle, feedback extension
-- Network/log/breadcrumb **filters**: API present; full field mapping still expanding
-- iOS bridge: deferred until Android path is solid
-- Frame capturer (DirectBuffers): next
 
 See [DESIGN.md](DESIGN.md) for the full plan.
 

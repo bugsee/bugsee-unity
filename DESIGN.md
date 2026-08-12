@@ -12,7 +12,7 @@ Legacy foundation: `cross/unity`. Min Unity: **2021.3**.
 
 ## Assumptions
 
-1. Android pin: Maven `com.bugsee:bugsee-android:7.0.4` via EDM4U. **7.0.4 Gradle module metadata still requires kotlin-stdlib** (POM is empty) — Unity `mainTemplate.gradle` excludes it until **7.1.0**. NDK/feedback stay omitted for now.
+1. Android pin: Maven `com.bugsee:bugsee-android:7.1.1` + `bugsee-android-ndk:7.1.1` via EDM4U; Gradle plugin `4.0.5`. Gradle `.module` may still list kotlin-stdlib — Unity `mainTemplate.gradle` keeps the exclusion. Feedback AAR stays optional.
 2. iOS: local SPM under `Native~/ios/Bugsee` until remote `github.com/bugsee/spm`.
 3. Public C# surface mirrors Android 7.0; intentional C#/.NET deviations allowed (see below).
 4. SDK-internal contracts (`capture` aggregators, most `contracts.internal.*` except what wrappers need for `BugseeWrapper`) are **not** public C# API.
@@ -88,8 +88,9 @@ Property / key naming currently follows **Android 7.0**. When the Bugsee **iOS**
 ## Native packaging (already scaffolded)
 
 - `package.json` → `com.bugsee.unity`, depends on `com.google.external-dependency-manager`
-- `Editor/BugseeAndroidDependencies.xml` → Maven 7.0.4
+- `Editor/BugseeAndroidDependencies.xml` → Maven 7.1.1 (+ NDK)
 - `Native~/ios/Bugsee/Package.swift` + `Editor/BugseeIosSpmPostProcess.cs`
+- `Plugins/iOS/BugseeUnityBridge.mm` + `Plugins/Android/UnityManagedException.java`
 - `Tools~/scripts/update-native-sdks.sh` + `versions.env`
 
 ## Runtime project structure
@@ -129,7 +130,7 @@ Runtime/
 │   │   ├── AndroidReport.cs
 │   │   └── AndroidExchangeFactory.cs
 │   ├── iOS/
-│   │   └── IOSBridge.cs                  # Throws NotSupported until nextgen bridge lands
+│   │   └── IOSBridge.cs                  # P/Invoke → BugseeUnityBridge.mm + xcframework
 │   └── Editor/
 │       └── EditorBridge.cs               # Editor / unsupported no-op
 │
@@ -137,7 +138,8 @@ Runtime/
 │   └── BugseeFrameCapturer.cs            # VideoMode.DirectBuffers → getVideoFrameConsumer()
 │
 ├── Internal/
-│   ├── ExceptionPipeline.cs
+│   ├── ExceptionPipeline.cs              # Managed capture (ILogHandler + AppDomain)
+│   ├── ManagedExceptionPayload.cs        # UnityManagedException JSON contract
 │   ├── MainThreadDispatcher.cs
 │   └── BugseePackageVersion.cs
 │
@@ -146,7 +148,7 @@ Runtime/
     └── BugseeBehaviour.cs                # GameObject host if needed
 ```
 
-**Editor/** (existing): EDM deps, iOS SPM post-process, launcher inspector.
+**Editor/**: EDM deps, Gradle NDK enablement, iOS SPM post-process, IL2CPP linemap + symbol orchestrator (dSYM/ELF/ProGuard).
 
 **Samples~/BugseeMiniGame/**: standalone Unity 2021.3 QA project (`file:../../..` → this package, relative to `Packages/`). Uses the `~` suffix so UPM does not import the minigame (avoids nested `Library` / duplicate `PlayerSettings`). Arena + Bugsee HUD + in-world stations.
 
@@ -220,7 +222,41 @@ Feedback: `FeedbackListener`, …
 ## Risks
 
 - JNI proxy threading: always marshal app callbacks to Unity main thread; honor `isTerminating` (no async round-trip).
-- `logException` cannot carry structured foreign frames in 7.0 — degrade to message/labels (known platform gap).
 - Local iOS SPM pbxproj injection is custom (no Unity local-SPM API) — verify on real Xcode export.
 - Doc drift in `api-7.x.md` — trust `Bugsee.java` + contracts source.
 - Options property naming is Android-first until iOS SDK RC/stable — then unify typed names across platforms.
+
+## Phase B — IL2CPP LineNumberMappings & address contract
+
+Authoritative design: `bugsee-cli/docs/unity-il2cpp-linenumber-mappings.md` and epic `il2cpp_linenumbermaps_epic`.
+
+### Symbol upload
+
+Editor/CI discovers `LineNumberMappings.json` (+ `MethodMap.tsv`, `il2cppFileRoot.txt`) and shells:
+
+```text
+bugsee-cli debug-files upload <path> --type il2cpp-linemap \
+  --version … --build … --uuid <libil2cpp-or-UnityFramework-uuid…>
+```
+
+Alongside `dsym` / `elf` / `proguard` uploads (`BugseeSymbolUpload`).
+
+**Editor failure policy (never fail the Unity build):**
+
+- Auto-discovery miss → warn + continue
+- Explicit `BUGSEE_IL2CPP_MAPPING` missing → warn + skip
+- Unresolved UUID → warn + skip (iOS often deferred to archive Run Script)
+- CLI non-zero / timeout → warn + continue
+- No `BUGSEE_APP_TOKEN` → silent skip (opt-in)
+
+Standalone `bugsee-cli` may still exit non-zero when used directly in CI scripts.
+
+### Event payload (who emits addresses)
+
+| Event class | Payload | Apply path | Dependency |
+|---|---|---|---|
+| Native fatal (iOS) | module UUID + PC (native SDK) | primary (dSYM → cpp → LNM) | archive dSYM + linemap |
+| Native fatal (Android) | module UUID + PC | primary | NDK + ELF/Breakpad **line** info + linemap |
+| Managed fatal (IL2CPP) | UnityManagedException JSON; `address` when present in stack lines; else MethodMap strings | primary if addrs; else MethodMap | ExceptionPipeline / bridge |
+
+Managed stacks without instruction addresses use MethodMap demangle only (not LNM file/line).

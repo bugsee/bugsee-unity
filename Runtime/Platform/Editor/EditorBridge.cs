@@ -6,6 +6,7 @@ using Bugsee.Contracts.Feedback;
 using Bugsee.Contracts.Lifecycle;
 using Bugsee.Contracts.Options;
 using Bugsee.Contracts.Reporting;
+using Bugsee.Internal;
 using Bugsee.Platform;
 using UnityEngine;
 
@@ -32,6 +33,9 @@ namespace Bugsee.Platform.EditorStub
         public void Trace(string name, object value) { }
         public void Event(string name, IDictionary<string, object> parameters) { }
         public void LogException(Exception exception, IDictionary<string, object> options = null) { }
+        public void LogUnhandledException(Exception exception, IDictionary<string, object> options = null) { }
+        public void LogExceptionPayload(ManagedExceptionPayload.Payload payload, IDictionary<string, object> options = null) { }
+        public void LogUnhandledExceptionPayload(ManagedExceptionPayload.Payload payload, IDictionary<string, object> options = null) { }
         public void TestCrash() { }
         public void ShowReportDialog(string summary, string description, IssueSeverity severity, IList<string> labels) { }
         public void Upload(string summary, string description, IssueSeverity severity, IList<string> labels) { }

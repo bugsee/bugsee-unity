@@ -59,7 +59,7 @@ SetSecureRect / SetAttribute / SetUserIdentifier / Appearance open IMGUI forms f
 |----------|-------------|
 | **Editor** | Game + HUD work; Bugsee uses no-op bridge (`IsLaunched` stays false). |
 | **Android** | Full path: Launch with `DirectBuffers`, reporting, blackout, filters, etc. |
-| **iOS** | Launch surfaces “not implemented” until the iOS bridge lands. |
+| **iOS** | Launch + managed/native crash path via `BugseeUnityBridge` + local SPM xcframework. |
 
 ## Build Android
 
@@ -67,9 +67,9 @@ SetSecureRect / SetAttribute / SetUserIdentifier / Appearance open IMGUI forms f
 2. Set a real Bugsee app token on `MiniGameBootstrap`.
 3. Build & Run on device.
 
-EDM pulls **core** `bugsee-android:7.0.4` only. That artifact’s Gradle `.module` still
-requires `kotlin-stdlib:2.1.0` (even though the POM is empty); `mainTemplate.gradle`
-excludes it so Unity 2021.3 D8 can build. Remove the exclude after Android SDK **7.1.0**.
+EDM pulls `bugsee-android:7.1.1` + `bugsee-android-ndk:7.1.1`. Gradle `.module` may still
+list `kotlin-stdlib`; `mainTemplate.gradle` excludes it so Unity 2021.3 D8 can build.
+Gradle plugin `4.0.5` is applied on Unity 6+ launcher templates (`ndk { enabled = true }`).
 
 ### EDM resolve fails with `org.codehaus.groovy.vmplugin.v7.Java7`
 

@@ -39,6 +39,12 @@ namespace Bugsee.Contracts.Options
         public OptionsBuilder CaptureNetwork(bool enabled) => Set(Options.CaptureNetwork, enabled);
         public OptionsBuilder CaptureLogs(bool enabled) => Set(Options.CaptureLogs, enabled);
         public OptionsBuilder DetectAndReportCrash(bool enabled) => Set(Options.DetectAndReportCrash, enabled);
+        public OptionsBuilder CaptureManagedExceptions(bool enabled) => Set(Options.CaptureManagedExceptions, enabled);
+        public OptionsBuilder DetectAndReportHang(bool enabled) => Set(Options.DetectAndReportHang, enabled);
+        public OptionsBuilder DetectAndReportExitNotResponding(bool enabled) =>
+            Set(Options.DetectAndReportExitNotResponding, enabled);
+        public OptionsBuilder DetectAndReportExitLowMemory(bool enabled) =>
+            Set(Options.DetectAndReportExitLowMemory, enabled);
         public OptionsBuilder Debug(bool enabled) => Set(Options.Debug, enabled);
         public OptionsBuilder Endpoint(string url) => Set(Options.Endpoint, url);
 

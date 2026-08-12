@@ -13,21 +13,21 @@ namespace Bugsee.Editor
     /// Instrumentation only runs on <c>com.android.application</c> (not unityLibrary).
     ///
     /// Plugin 4.x requires AGP ≥ 8.6 / Gradle ≥ 8.7 (Unity 6+). On Unity 2021.3 the
-    /// plugin apply is skipped by default. Default EDM dep is <c>bugsee-android</c> only.
-    /// Until Android SDK 7.1.0, <c>bugsee-android</c> 7.0.x Gradle module metadata still
-    /// requires kotlin-stdlib — <see cref="EnsureKotlinStdlibExclusion"/> strips it for D8.
+    /// plugin apply is skipped by default. EDM deps: <c>bugsee-android</c> +
+    /// <c>bugsee-android-ndk</c> 7.1.1. Gradle .module may still list kotlin-stdlib —
+    /// <see cref="EnsureKotlinStdlibExclusion"/> strips it for Unity D8.
     /// </summary>
     [InitializeOnLoad]
     sealed class BugseeAndroidGradleSetup : IPreprocessBuildWithReport
     {
         public int callbackOrder => 10;
 
-        public const string GradlePluginVersion = "4.0.2";
-        public const string SdkVersion = "7.0.4";
+        public const string GradlePluginVersion = "4.0.5";
+        public const string SdkVersion = "7.1.1";
 
         const string PrefForcePlugin = "Bugsee.Android.ForceGradlePlugin";
         const string Marker = "// Bugsee Gradle plugin";
-        const string KotlinExcludeMarker = "// Bugsee: bugsee-android 7.0.4 Gradle .module";
+        const string KotlinExcludeMarker = "// Bugsee: bugsee-android Gradle .module";
 
         static BugseeAndroidGradleSetup()
         {
@@ -86,21 +86,20 @@ namespace Bugsee.Editor
             {
                 Debug.Log(
                     $"[Bugsee] Launcher applies com.bugsee.android.gradle:{GradlePluginVersion}. " +
-                    $"Runtime AAR pin {SdkVersion} (NDK deferred until Android SDK 7.1.0).");
+                    $"Runtime AAR pin {SdkVersion} with NDK enabled.");
             }
             else
             {
                 Debug.LogWarning(
                     "[Bugsee] Bugsee Gradle plugin not applied (needs AGP 8.6+ / Unity 6+). " +
-                    "Default EDM dep is com.bugsee:bugsee-android only.");
+                    "EDM still resolves bugsee-android + bugsee-android-ndk; enable Custom Gradle templates for NDK plugin.");
             }
         }
 
         /// <summary>
-        /// bugsee-android 7.0.4 publishes empty POM deps but Gradle Module Metadata still
-        /// requires kotlin-stdlib:2.1.0. Prefer .module over POM → Unity 2021.3 D8 fails.
+        /// bugsee-android publishes empty POM deps but Gradle Module Metadata may still
+        /// require kotlin-stdlib. Prefer .module over POM → Unity 2021.3 D8 fails.
         /// Patch mainTemplate outside the EDM resolver markers so Force Resolve keeps it.
-        /// Remove after bumping to Android SDK 7.1.0+.
         /// </summary>
         static void EnsureKotlinStdlibExclusion()
         {
@@ -118,7 +117,7 @@ namespace Bugsee.Editor
 
             const string block =
                 "\n" + KotlinExcludeMarker + " still requires kotlin-stdlib 2.1\n" +
-                "// (POM is empty). Unity 2021.3 D8 cannot dex it — exclude until Android SDK 7.1.0.\n" +
+                "// (POM is empty). Unity 2021.3 D8 cannot dex it — exclude while .module lists it.\n" +
                 "configurations.configureEach {\n" +
                 "    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib'\n" +
                 "    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'\n" +
@@ -201,7 +200,9 @@ namespace Bugsee.Editor
                 sb.AppendLine();
                 sb.AppendLine("bugsee {");
                 sb.AppendLine("    // App token is supplied at runtime via Bugsee.Launch.");
-                sb.AppendLine("    // ndk { enabled = true } — re-enable with Android SDK 7.1.0+ (cleaned POM).");
+                sb.AppendLine("    ndk {");
+                sb.AppendLine("        enabled = true");
+                sb.AppendLine("    }");
                 sb.AppendLine("}");
             }
 
@@ -251,7 +252,8 @@ namespace Bugsee.Editor
             sb.AppendLine("            minifyEnabled **MINIFY_RELEASE**");
             sb.AppendLine("            proguardFiles getDefaultProguardFile('proguard-android.txt')**SIGNCONFIG**");
             sb.AppendLine("            ndk {");
-            sb.AppendLine("                debugSymbolLevel 'SYMBOL_TABLE'");
+            // FULL for DWARF line programs — required for IL2CPP LineNumberMappings primary apply.
+            sb.AppendLine("                debugSymbolLevel 'FULL'");
             sb.AppendLine("            }");
             sb.AppendLine("        }");
             sb.AppendLine("    }**PACKAGING_OPTIONS****PLAY_ASSET_PACKS****SPLITS**");
