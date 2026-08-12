@@ -212,11 +212,11 @@ Feedback: `FeedbackListener`, …
 1. `Contracts/Options` + enums + `OptionsBuilder` + typed `*LaunchOptions` (write-only)
 2. `IBugseeNativeBridge` + Android facade methods (no callbacks yet)
 3. `BugseeWrapperProxy` + `setWrapper` on launch
-4. Filters + `ReportHandler` + lifecycle proxies
+4. Filters + `ReportHandler` + lifecycle proxies (**done** Android JNI + iOS MonoPInvokeCallback)
 5. Feedback extension property
 6. `BugseeFrameCapturer` (DirectBuffers)
 7. Appearance + exchange factory + APM
-8. iOS bridge against nextgen SPM
+8. iOS bridge against nextgen SPM (**crash/identity/filters/handler/lifecycle wired**; remote SPM when published)
 9. Optional legacy `BugseePlugin` compat shim (if product needs it)
 
 ## Risks

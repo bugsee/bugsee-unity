@@ -91,7 +91,7 @@ small arena with **HUD buttons** and **in-world Bugsee stations**. See that fold
 
 ## Status
 
-- Android + iOS bridges (Launch, exceptions, native crash options)
+- Android + iOS bridges (Launch, exceptions, filters, report handler, lifecycle, native crash options)
 - ExceptionPipeline (managed auto-capture) + UnityManagedException JSON contract
 - Editor symbol orchestrator (linemap / ELF / ProGuard / iOS archive dSYM)
 - Contracts (Options, Lifecycle, Reporting, Exchange, Appearance, Feedback)

@@ -15,14 +15,11 @@ using UnityEngine;
 namespace Bugsee.Platform.IOS
 {
     /// <summary>
-    /// P/Invoke bridge to <c>Plugins/iOS/BugseeUnityBridge.mm</c> + Bugsee.xcframework.
+    /// P/Invoke bridge to <c>Plugins/iOS/BugseeUnityBridge.mm</c> /
+    /// <c>BugseeUnityCallbacks.mm</c> + Bugsee.xcframework.
     /// Native crash reporting is owned by the iOS SDK when
     /// <see cref="Options.DetectAndReportCrash"/> is enabled at Launch.
     /// </summary>
-    /// <remarks>
-    /// Filters / report handler / lifecycle callbacks still need a UnitySendMessage
-    /// or native callback bridge; crash + identity + appearance + exceptions are wired.
-    /// </remarks>
     sealed class IOSBridge : IBugseeNativeBridge
     {
         bool _launched;
@@ -33,11 +30,12 @@ namespace Bugsee.Platform.IOS
 
         public IFeedback Feedback { get; } = new IosFeedback();
 
-        public void EnsureWrapperRegistered() { }
+        public void EnsureWrapperRegistered() => IosNativeCallbacks.EnsureWrapper();
 
         public void Launch(string appToken, IDictionary<string, object> options)
         {
             ManagedExceptionPayload.EnsureBuildIdentity();
+            EnsureWrapperRegistered();
             _bugsee_launch(appToken, ToJsonObject(options));
             _launched = true;
             ExceptionPipeline.Install(this, options);
@@ -156,11 +154,23 @@ namespace Bugsee.Platform.IOS
         public IAppearance GetAppearance() =>
             _appearance ?? (_appearance = new IosAppearance());
 
-        public void SetNetworkEventFilter(EventFilter<INetworkEvent> filter) { }
-        public void SetLogEventFilter(EventFilter<ILogEvent> filter) { }
-        public void SetBreadcrumbFilter(EventFilter<IBreadcrumb> filter) { }
-        public void SetReportHandler(IReportHandler handler) { }
-        public void SetLifecycleEventListener(ILifecycleEventListener listener) { }
+        public void SetNetworkEventFilter(EventFilter<INetworkEvent> filter) =>
+            IosNativeCallbacks.SetNetworkFilter(filter);
+
+        public void SetLogEventFilter(EventFilter<ILogEvent> filter) =>
+            IosNativeCallbacks.SetLogFilter(filter);
+
+        public void SetBreadcrumbFilter(EventFilter<IBreadcrumb> filter) =>
+            IosNativeCallbacks.SetBreadcrumbFilter(filter);
+
+        public void SetReportHandler(IReportHandler handler) =>
+            IosNativeCallbacks.SetReportHandler(handler);
+
+        public void SetLifecycleEventListener(ILifecycleEventListener listener)
+        {
+            // App listener is held on the Bugsee facade; wrapper onLifecycleEvent fans out there.
+            EnsureWrapperRegistered();
+        }
 
         static string ConsumeNativeString(IntPtr ptr)
         {

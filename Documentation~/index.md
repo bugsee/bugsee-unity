@@ -56,9 +56,36 @@ Bugsee.Launch(appToken, options);
 | Android hang | `DetectAndReportHang` | hang report |
 | Android ANR / OOM | `DetectAndReportExitNotResponding` / `DetectAndReportExitLowMemory` | exit reports |
 
-Managed exceptions use the **UnityManagedException** JSON-in-reason contract (`name`, `reason`, `frames[{trace,address?}]`, `signature`, `buildID`, `moduleUUID`) so the worker can MethodMap-demangle IL2CPP stacks. Instruction `address` is filled when the stack line contains a hex address; otherwise MethodMap string demangle applies.
+Managed exceptions use the **UnityManagedException** JSON-in-reason contract (`name`, `reason`, `frames[{trace,address?}]`, `signature`, `buildID`, `moduleUUID`, optional nested `cause`).
 
-IL2CPP **C# file/line** (primary LineNumberMappings apply) needs native PC + module UUID + uploaded `il2cpp-linemap` + matching dSYM/ELF with **line** info.
+### How to get C# class + file:line on `LogException`
+
+| Mode | Build / capture | Backend | File:line? |
+|---|---|---|---|
+| **A. Rich managed stacks** | Mono, or IL2CPP **Method Name, File Name, and Line Number** (or Script Debugging) | Parse `frames[].trace` | **Yes** (from string) |
+| **B. Release Method-only + LNM** | IL2CPP; thrown exception; SDK emits native IPs via `il2cpp_native_stack_trace` | PC → dSYM/ELF → LineNumberMappings | **In progress** (needs symbols + `il2cpp-linemap`; absolute IPs need module load address) |
+| **C. MethodMap only** | IL2CPP mangled names; map uploaded | MethodMap.tsv demangle | **Names only** (no invented `.cs:line`) |
+
+Mode **B** follows the same capture idea as Sentry (`il2cpp_native_stack_trace` on a thrown exception). Prefer:
+
+```csharp
+try { DoThing(); }
+catch (Exception ex) { Bugsee.LogException(ex); } // real thrown exception
+```
+
+`new Exception("…")` never thrown cannot get Mode B lines. Unity **Stack Trace Log Type** does not rewrite `Exception.StackTrace`.
+
+### Competitors (summary)
+
+| | Managed `Notify`/`CaptureException` file:line on Release IL2CPP | Upload LNM | Native fatal → C# line |
+|---|---|---|---|
+| **Sentry** | Yes — IL2CPP backend IPs + server LNM | Yes | Yes |
+| **Bugsnag** | Yes when maps+symbols uploaded (mobile) | Yes (CLI fail-closed unless opt-out) | Yes |
+| **Firebase** | Relies on Unity managed stack settings; strong native symbols.zip | Not emphasized | Yes (NDK/dSYM) |
+| **Backtrace** | Prefer real `Exception` object; WebGL no C# lines | symbols.zip focus | Yes |
+| **Bugsee** | Mode A; Mode B path shipping (IPs + LNM; prove end-to-end); Mode C names via MethodMap | Yes | Yes (S1/S2) |
+
+IL2CPP **C# file/line** via LNM always needs uploaded `il2cpp-linemap` + matching dSYM/ELF with **line** info (and for Mode B, instruction addresses on the event).
 
 ## Symbol upload (Editor / CI)
 
@@ -97,14 +124,21 @@ Failure policy: **never fail the Unity build**. Missing maps/UUIDs/CLI → warn 
 
 ### Managed stacks: MethodMap vs LNM file/line
 
-- ExceptionPipeline sends **UnityManagedException** JSON (`frames[].trace`, optional `frames[].address`, `moduleUUID`, `signature`, `buildID`).
-- `frames[].address` is filled only when the managed stack line already contains a hex `0x…` token (common on some IL2CPP builds; not guaranteed).
-- Without addresses, the worker demangles mangled names via **MethodMap** — that is **not** the same as primary LNM C# file/line.
-- Primary C# file/line still comes from **native** fatals (PC + module UUID + dSYM/ELF line info + linemap).
+- ExceptionPipeline / `LogException` send **UnityManagedException** JSON (`frames[].trace`, optional `frames[].address`, `moduleUUID`, nested `cause`, `signature`, `buildID`).
+- On IL2CPP, `frames[].address` is filled from **`il2cpp_native_stack_trace`** when the exception was thrown (paired index-for-index with managed frames; UUID matches Bugsee ELF/dSYM upload identity), or from native-looking hex in the stack string. Short Mono/IL offsets like `[0x00023]` are ignored.
+- Worker: MethodMap demangles mangled names; when addresses + symbols + linemap match, **primary LNM** remaps to C# file:line. Absolute IPs require a matching crash module load address; relative offsets use base `0`.
+- Multi-ABI Android: `moduleUUID` may be a CSV; worker tries each UUID (dashed/undashed).
 
 ## Field validation (S1 / S2)
 
-Manual device/CI proof — not automated in this package.
+Prerequisites (tooling + optional build-dir scan):
+
+```bash
+Tools~/scripts/validate-field-symbols.sh
+Tools~/scripts/validate-field-symbols.sh /path/to/unity/build/output
+```
+
+Device/CI proof remains manual.
 
 ### Milestone S1 — iOS C# file/line
 
@@ -121,21 +155,21 @@ Manual device/CI proof — not automated in this package.
 3. Post-build uploads `elf` + `il2cpp-linemap` (multi-ABI UUIDs).
 4. Native fatal on device; viewer shows **C# file/line**.
 
-### Milestone C1 — managed auto-capture
+### Milestone C1 — managed auto-capture / LogException
 
 1. `CaptureManagedExceptions` enabled (default).
 2. Unhandled managed exception / `LogUnhandledException` appears once (no dual-hook duplicates).
-3. Mangled IL2CPP names demangle when MethodMap was uploaded for the same module UUID(s).
+3. **Mode A:** MethodFileLineNumber / Mono → viewer shows C# file:line from stack strings.
+4. **Mode B (in progress):** Release IL2CPP + uploaded dSYM/ELF + `il2cpp-linemap` → `LogException` on a **thrown** exception emits native IPs for worker LNM. Validate on device before treating as parity with Sentry.
+5. **Mode C:** MethodMap demangles mangled names when module UUID(s) match (names only if no addresses/lines).
 
 ## Native dependencies
 
 - **Android:** Maven `com.bugsee:bugsee-android:7.1.1` + `bugsee-android-ndk:7.1.1` via EDM4U (Gradle plugin `4.0.5`).
-- **iOS:** local Swift package under `Native~/ios/Bugsee` until nextgen is on [bugsee/spm](https://github.com/bugsee/spm). C bridge: `Plugins/iOS/BugseeUnityBridge.mm`.
+- **iOS:** local Swift package under `Native~/ios/Bugsee` until nextgen is on [bugsee/spm](https://github.com/bugsee/spm). C bridge: `Plugins/iOS/BugseeUnityBridge.mm` + `BugseeUnityCallbacks.mm`.
 
 ### iOS bridge status
 
-Wired: Launch/Stop, blackout, log/trace/event, exceptions (JSON-in-reason), TestCrash, report/upload (+ labels), identity (email API), attributes, secure rects, appearance colors/strings, feedback UI.
-
-Not yet: network/log/breadcrumb filters, report handler, lifecycle listener callbacks (need a Unity↔ObjC callback channel).
+Wired: Launch/Stop, blackout, log/trace/event, exceptions (JSON-in-reason), TestCrash, report/upload (+ labels), identity (email API), attributes, secure rects, appearance colors/strings, feedback UI, network/log/breadcrumb filters, report handler (via `BugseeWrapper`), lifecycle listener (via wrapper `onLifecycleEvent` → `Bugsee.LifecycleEvent` / `ILifecycleEventListener`).
 
 Full product documentation: [docs.bugsee.com/sdk/unity](https://docs.bugsee.com/sdk/unity/).
