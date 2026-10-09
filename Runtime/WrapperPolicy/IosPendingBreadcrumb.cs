@@ -5,5 +5,6 @@ namespace Bugsee.WrapperPolicy
         public string Category;
         public string Message;
         public int IosLevel;
+        public double TimestampUnixSeconds;
     }
 }

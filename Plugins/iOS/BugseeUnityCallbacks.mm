@@ -465,7 +465,7 @@ void _bugsee_channel_network(const char *eventJson, int requiresFiltering)
     [channel addNetworkEvent:event requiresFiltering:requiresFiltering != 0];
 }
 
-void _bugsee_channel_breadcrumb(const char *category, const char *message, int iosLevel)
+void _bugsee_channel_breadcrumb(const char *category, const char *message, int iosLevel, double timestampUnixSeconds)
 {
     id<BGSWrapperChannel> channel = gChannel;
     if (!channel) {
@@ -486,7 +486,8 @@ void _bugsee_channel_breadcrumb(const char *category, const char *message, int i
     if (!factory) {
         return;
     }
-    id<BGSBreadcrumb> breadcrumb = [factory createBreadcrumbWithTimestamp:[[NSDate date] timeIntervalSince1970]
+    NSTimeInterval timestamp = timestampUnixSeconds > 0 ? timestampUnixSeconds : [[NSDate date] timeIntervalSince1970];
+    id<BGSBreadcrumb> breadcrumb = [factory createBreadcrumbWithTimestamp:timestamp
                                                                  category:categoryText
                                                                     level:(BugseeLogLevel)iosLevel
                                                                   message:messageText
@@ -685,7 +686,13 @@ void _bugsee_register_unity_callbacks(void *a, void *b, void *c) { (void)a; (voi
 void _bugsee_clear_wrapper_channel(void) {}
 void _bugsee_channel_log(const char *message, int level, int source) { (void)message; (void)level; (void)source; }
 void _bugsee_channel_network(const char *eventJson, int requiresFiltering) { (void)eventJson; (void)requiresFiltering; }
-void _bugsee_channel_breadcrumb(const char *category, const char *message, int iosLevel) { (void)category; (void)message; (void)iosLevel; }
+void _bugsee_channel_breadcrumb(const char *category, const char *message, int iosLevel, double timestampUnixSeconds)
+{
+    (void)category;
+    (void)message;
+    (void)iosLevel;
+    (void)timestampUnixSeconds;
+}
 void _bugsee_ensure_wrapper(const char *version, const char *build) { (void)version; (void)build; }
 void _bugsee_set_wrapper_context(const char *json) { (void)json; }
 void _bugsee_set_network_filter_enabled(int enabled) { (void)enabled; }

@@ -297,6 +297,24 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Ios_apply_report_dict_applies_attachment_mime_type()
+        {
+            string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
+            string body = ExtractNativeFunctionBody(bridge, "BugseeBridgeApplyExtendedReportDict");
+            Assert.That(body, Does.Contain("att[@\"mimeType\"]"));
+            Assert.That(body, Does.Contain("BugseeBridgeSetAttachmentMimeTypeIfNeeded"));
+        }
+
+        [Test]
+        public void Ios_channel_breadcrumb_uses_enqueue_timestamp()
+        {
+            string callbacks = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityCallbacks.mm"));
+            string body = ExtractNativeFunctionBody(callbacks, "_bugsee_channel_breadcrumb");
+            Assert.That(body, Does.Contain("timestampUnixSeconds"));
+            Assert.That(body, Does.Contain("createBreadcrumbWithTimestamp:timestamp"));
+        }
+
+        [Test]
         public void Ios_to_result_json_omits_unset_severity_zero()
         {
             string body = ExtractMethodBody(
@@ -400,6 +418,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
             string add = ExtractMethodBody(ios, "public void AddBreadcrumb(string category, string message, string levelName)");
             Assert.That(add, Does.Contain("_breadcrumbLaunchBuffer.Enqueue"));
+            Assert.That(add, Does.Contain("TimestampUnixSeconds"));
             Assert.That(add, Does.Not.Contain("_bugsee_channel_breadcrumb"));
 
             string notify = ExtractMethodBody(ios, "public void NotifyLifecycle(string eventType)");

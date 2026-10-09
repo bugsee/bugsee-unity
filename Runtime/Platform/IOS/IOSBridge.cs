@@ -260,6 +260,8 @@ namespace Bugsee.Platform.IOS
                 Debug.LogError("[Bugsee] CreateReport failed.");
         }
 
+        static readonly DateTime BreadcrumbUnixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
         public void AddBreadcrumb(string category, string message, string levelName)
         {
             var level = BreadcrumbLevelMap.ParseOrThrow(levelName);
@@ -268,12 +270,17 @@ namespace Bugsee.Platform.IOS
                 Category = category ?? "",
                 Message = message ?? "",
                 IosLevel = BreadcrumbLevelMap.ToIos(level),
+                TimestampUnixSeconds = (DateTime.UtcNow - BreadcrumbUnixEpoch).TotalSeconds,
             });
         }
 
         void SubmitBreadcrumbToChannel(IosPendingBreadcrumb breadcrumb)
         {
-            _bugsee_channel_breadcrumb(breadcrumb.Category, breadcrumb.Message, breadcrumb.IosLevel);
+            _bugsee_channel_breadcrumb(
+                breadcrumb.Category,
+                breadcrumb.Message,
+                breadcrumb.IosLevel,
+                breadcrumb.TimestampUnixSeconds);
         }
 
         public IBugseeExchangeFactory GetExchangeFactory() => IosExchangeFactory.Instance;
@@ -502,7 +509,11 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_log(string message, int level);
         [DllImport("__Internal")] static extern void _bugsee_channel_log(string message, int level, int source);
         [DllImport("__Internal")] static extern void _bugsee_channel_network(string eventJson, int requiresFiltering);
-        [DllImport("__Internal")] static extern void _bugsee_channel_breadcrumb(string category, string message, int iosLevel);
+        [DllImport("__Internal")] static extern void _bugsee_channel_breadcrumb(
+            string category,
+            string message,
+            int iosLevel,
+            double timestampUnixSeconds);
         [DllImport("__Internal")] static extern void _bugsee_delete_collected_data(
             int capturedGeneration,
             DeleteCollectedDataShouldRunNativeCallback shouldRun);

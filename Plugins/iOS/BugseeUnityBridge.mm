@@ -70,6 +70,20 @@ static void BugseeBridgeSetAttachmentFileNameIfNeeded(id attachment, NSString *d
     }
 }
 
+static void BugseeBridgeSetAttachmentMimeTypeIfNeeded(id attachment, NSString *mimeType)
+{
+    if (!attachment || mimeType.length == 0) {
+        return;
+    }
+    if ([attachment conformsToProtocol:@protocol(BGSAttachmentContract)]) {
+        ((id<BGSAttachmentContract>)attachment).mimeType = mimeType;
+        return;
+    }
+    if ([attachment respondsToSelector:@selector(setMimeType:)]) {
+        [attachment performSelector:@selector(setMimeType:) withObject:mimeType];
+    }
+}
+
 static void BugseeBridgeApplyExtendedReportDict(BugseeExtendedReport *report, NSDictionary *d)
 {
     if (![d isKindOfClass:[NSDictionary class]] || !report) {
@@ -157,6 +171,10 @@ static void BugseeBridgeApplyExtendedReportDict(BugseeExtendedReport *report, NS
             }
             BugseeAttachment *attachment = [BugseeAttachment attachmentWithName:name filename:fileName data:data];
             if (attachment) {
+                id mime = att[@"mimeType"];
+                if ([mime isKindOfClass:[NSString class]]) {
+                    BugseeBridgeSetAttachmentMimeTypeIfNeeded(attachment, (NSString *)mime);
+                }
                 [report setAttachment:attachment];
             }
         }
