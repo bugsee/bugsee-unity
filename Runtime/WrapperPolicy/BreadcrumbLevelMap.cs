@@ -1,3 +1,5 @@
+using Bugsee.Contracts.Options;
+
 namespace Bugsee.WrapperPolicy
 {
     public enum BreadcrumbLevelName
@@ -26,6 +28,31 @@ namespace Bugsee.WrapperPolicy
             }
         }
 
+        public static bool TryFromLogLevel(LogLevel logLevel, out BreadcrumbLevelName level)
+        {
+            switch (logLevel)
+            {
+                case LogLevel.Error:
+                    level = BreadcrumbLevelName.Error;
+                    return true;
+                case LogLevel.Warning:
+                    level = BreadcrumbLevelName.Warning;
+                    return true;
+                case LogLevel.Info:
+                    level = BreadcrumbLevelName.Info;
+                    return true;
+                case LogLevel.Debug:
+                    level = BreadcrumbLevelName.Debug;
+                    return true;
+                case LogLevel.Verbose:
+                    level = BreadcrumbLevelName.Debug;
+                    return true;
+                default:
+                    level = default;
+                    return false;
+            }
+        }
+
         public static int ToAndroid(BreadcrumbLevelName level)
         {
             switch (level)
@@ -34,7 +61,9 @@ namespace Bugsee.WrapperPolicy
                 case BreadcrumbLevelName.Info: return 2;
                 case BreadcrumbLevelName.Warning: return 3;
                 case BreadcrumbLevelName.Error: return 4;
-                default: return 5;
+                case BreadcrumbLevelName.Fatal: return 5;
+                default:
+                    throw new System.ArgumentOutOfRangeException(nameof(level), level, "Unknown breadcrumb level.");
             }
         }
 
@@ -45,7 +74,10 @@ namespace Bugsee.WrapperPolicy
                 case BreadcrumbLevelName.Debug: return 4;
                 case BreadcrumbLevelName.Info: return 3;
                 case BreadcrumbLevelName.Warning: return 2;
-                default: return 1;
+                case BreadcrumbLevelName.Error: return 1;
+                case BreadcrumbLevelName.Fatal: return 1;
+                default:
+                    throw new System.ArgumentOutOfRangeException(nameof(level), level, "Unknown breadcrumb level.");
             }
         }
     }
