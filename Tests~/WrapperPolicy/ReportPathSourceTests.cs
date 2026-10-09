@@ -76,6 +76,21 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Ios_on_report_releases_snapshots_after_complete()
+        {
+            string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IosNativeCallbacks.cs"));
+            string onReport = ExtractMethodBody(ios, "static void OnReport(long requestId, int phase, int isTerminating, string json)");
+            Assert.That(onReport, Does.Contain("CompleteReport(requestId, report"));
+            Assert.That(onReport, Does.Contain("ReleaseSnapshotFiles"));
+            Assert.That(onReport, Does.Not.Contain("finally"));
+            string complete = ExtractMethodBody(onReport, "static void CompleteReport(long requestId, IosReport report, string resultJson)");
+            int completeReport = complete.IndexOf("_bugsee_complete_report", StringComparison.Ordinal);
+            int release = complete.IndexOf("ReleaseSnapshotFiles", StringComparison.Ordinal);
+            Assert.That(completeReport, Is.GreaterThanOrEqualTo(0));
+            Assert.That(release, Is.GreaterThan(completeReport));
+        }
+
+        [Test]
         public void Ios_on_report_skips_csharp_when_terminating()
         {
             string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IosNativeCallbacks.cs"));

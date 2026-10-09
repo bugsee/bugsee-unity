@@ -240,7 +240,7 @@ namespace Bugsee.Platform.IOS
 
                     if (handler == null)
                     {
-                        _bugsee_complete_report(requestId, null);
+                        CompleteReport(requestId, report, null);
                         return;
                     }
 
@@ -249,7 +249,7 @@ namespace Bugsee.Platform.IOS
                     {
                         if (finished) return;
                         finished = true;
-                        _bugsee_complete_report(requestId, report.ToResultJson());
+                        CompleteReport(requestId, report, report.ToResultJson());
                     };
 
                     if (phase == 0)
@@ -260,12 +260,14 @@ namespace Bugsee.Platform.IOS
                 catch (Exception ex)
                 {
                     Debug.LogException(ex);
-                    _bugsee_complete_report(requestId, null);
+                    CompleteReport(requestId, report, null);
                 }
-                finally
-                {
-                    report?.ReleaseSnapshotFiles();
-                }
+            }
+
+            static void CompleteReport(long requestId, IosReport report, string resultJson)
+            {
+                _bugsee_complete_report(requestId, resultJson);
+                report?.ReleaseSnapshotFiles();
             }
 
             if (MainThreadDispatcher.IsMainThread)
