@@ -567,8 +567,8 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(attachments, Does.Contain("IosLiveAttachment(iosAttachment)"));
             Assert.That(ios, Does.Not.Contain("ApplyOpenReportToNative"));
 
-            string create = ExtractMethodBody(ios, "public IAttachment CreateAndAddAttachment(string name)");
-            Assert.That(create, Does.Contain("(IosAttachment)"));
+            string create = ExtractMethodBody(ios, "public IAttachment AddAttachmentBytes(byte[] data, string name, string mimeType)");
+            Assert.That(create, Does.Contain("as IosAttachment"));
         }
     }
 }

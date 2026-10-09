@@ -1,3 +1,4 @@
+using System.Text;
 using Bugsee.Contracts.Options;
 using Bugsee.Platform.IOS;
 using NUnit.Framework;
@@ -67,8 +68,8 @@ namespace Bugsee.WrapperPolicy.Tests
         public void ToResultJson_appends_attachments_without_replace_all_until_clear()
         {
             var report = new IosReport(new IosReportDto());
-            var att = report.CreateAndAddAttachment("log.txt");
-            att.SetData("hello");
+            var att = report.AddAttachmentBytes(Encoding.UTF8.GetBytes("hello"), "log.txt", "text/plain");
+            Assert.That(att, Is.Not.Null);
             string json = report.ToResultJson();
 
             Assert.That(json, Does.Contain("\"attachments\":["));

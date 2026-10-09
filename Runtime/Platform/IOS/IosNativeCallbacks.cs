@@ -146,7 +146,7 @@ namespace Bugsee.Platform.IOS
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogException(ex);
+                    Debug.Log("filter-failed " + ex.GetType().Name);
                     _bugsee_complete_filter(requestId, FilterCompletion.OnThrow, null);
                 }
             }
@@ -222,35 +222,25 @@ namespace Bugsee.Platform.IOS
         [MonoPInvokeCallback(typeof(ReportCb))]
         static void OnReport(long requestId, int phase, int isTerminating, string json)
         {
+            if (isTerminating != 0)
+            {
+                _bugsee_complete_report(requestId, null);
+                return;
+            }
+
             void Work()
             {
+                IosReport report = null;
                 try
                 {
                     var handler = _reportHandler;
                     var dto = JsonUtility.FromJson<IosReportDto>(
                         IosJsonNormalize.NormalizeReport(json ?? "{}"));
-                    var report = new IosReport(dto);
+                    report = new IosReport(dto);
 
                     if (handler == null)
                     {
-                        _bugsee_complete_report(requestId, null);
-                        return;
-                    }
-
-                    // Terminating: sync handler + force complete (Android pattern).
-                    // Process may die; must not wait on async done().
-                    if (isTerminating != 0)
-                    {
-                        try
-                        {
-                            Action noop = () => { };
-                            if (phase == 0)
-                                handler.OnBeforeReportCreated(report, true, noop);
-                            else
-                                handler.OnAfterReportCreated(report, true, noop);
-                        }
-                        catch (Exception ex) { Debug.LogException(ex); }
-                        _bugsee_complete_report(requestId, report.ToResultJson());
+                        CompleteReport(requestId, report, null);
                         return;
                     }
 
@@ -259,7 +249,7 @@ namespace Bugsee.Platform.IOS
                     {
                         if (finished) return;
                         finished = true;
-                        _bugsee_complete_report(requestId, report.ToResultJson());
+                        CompleteReport(requestId, report, report.ToResultJson());
                     };
 
                     if (phase == 0)
@@ -270,18 +260,20 @@ namespace Bugsee.Platform.IOS
                 catch (Exception ex)
                 {
                     Debug.LogException(ex);
-                    _bugsee_complete_report(requestId, null);
+                    CompleteReport(requestId, report, null);
                 }
             }
 
-            if (isTerminating != 0 || MainThreadDispatcher.IsMainThread)
+            static void CompleteReport(long requestId, IosReport report, string resultJson)
             {
+                _bugsee_complete_report(requestId, resultJson);
+                report?.ReleaseSnapshotFiles();
+            }
+
+            if (MainThreadDispatcher.IsMainThread)
                 Work();
-            }
             else
-            {
                 MainThreadDispatcher.Run(Work);
-            }
         }
 
         [MonoPInvokeCallback(typeof(LifecycleCb))]

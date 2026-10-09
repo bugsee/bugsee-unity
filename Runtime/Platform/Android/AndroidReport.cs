@@ -57,7 +57,9 @@ namespace Bugsee.Platform.Android
             {
                 using (var s = _report.Call<AndroidJavaObject>("getSeverity"))
                 {
-                    var v = s?.Call<int>("getValue") ?? (int)IssueSeverity.High;
+                    if (s == null)
+                        return null;
+                    var v = s.Call<int>("getValue");
                     return IssueSeverityWire.TryFromWire(v, out var severity) ? severity : (IssueSeverity?)null;
                 }
             }
@@ -125,10 +127,27 @@ namespace Bugsee.Platform.Android
 
         public IReadOnlyList<IAttachment> Attachments => new List<IAttachment>();
 
-        public IAttachment CreateAndAddAttachment(string name)
+        public IAttachment AddAttachmentFile(string path, string name, string mimeType)
         {
-            var att = _report.Call<AndroidJavaObject>("createAndAddAttachment", name);
-            return new AndroidAttachment(att);
+            if (string.IsNullOrEmpty(path))
+                return null;
+
+            var attachmentName = string.IsNullOrEmpty(name) ? "attachment" : name;
+            using (var file = new AndroidJavaObject("java.io.File", path))
+            {
+                var att = _report.Call<AndroidJavaObject>("addAttachment", file, attachmentName, mimeType, false);
+                return att == null ? null : new AndroidAttachment(att);
+            }
+        }
+
+        public IAttachment AddAttachmentBytes(byte[] data, string name, string mimeType)
+        {
+            if (data == null || data.Length == 0)
+                return null;
+
+            var attachmentName = string.IsNullOrEmpty(name) ? "attachment" : name;
+            var att = _report.Call<AndroidJavaObject>("addAttachment", data, attachmentName, mimeType);
+            return att == null ? null : new AndroidAttachment(att);
         }
 
         public void ClearAttachments() => _report.Call("clearAttachments");
@@ -298,9 +317,27 @@ namespace Bugsee.Platform.Android
 
         public IReadOnlyList<IAttachment> Attachments => _attachments;
 
-        public IAttachment CreateAndAddAttachment(string name)
+        public IAttachment AddAttachmentFile(string path, string name, string mimeType)
         {
-            var att = new AndroidManagedAttachment(name ?? "attachment", MarkAttachmentsDirty);
+            if (string.IsNullOrEmpty(path))
+                return null;
+            var att = new AndroidManagedAttachment(string.IsNullOrEmpty(name) ? "attachment" : name, MarkAttachmentsDirty);
+            var baseName = System.IO.Path.GetFileName(path);
+            att.Filename = string.IsNullOrEmpty(baseName) ? att.Name : baseName;
+            att.MimeType = string.IsNullOrEmpty(mimeType) ? "application/octet-stream" : mimeType;
+            att.SetFilePath(path);
+            _attachments.Add(att);
+            _attachmentsDirty = true;
+            return att;
+        }
+
+        public IAttachment AddAttachmentBytes(byte[] data, string name, string mimeType)
+        {
+            if (data == null || data.Length == 0)
+                return null;
+            var att = new AndroidManagedAttachment(string.IsNullOrEmpty(name) ? "attachment" : name, MarkAttachmentsDirty);
+            att.MimeType = string.IsNullOrEmpty(mimeType) ? "application/octet-stream" : mimeType;
+            att.SetData(data);
             _attachments.Add(att);
             _attachmentsDirty = true;
             return att;
@@ -369,6 +406,7 @@ namespace Bugsee.Platform.Android
         readonly Action _markDirty;
         byte[] _bytes;
         string _text;
+        string _path;
 
         public AndroidManagedAttachment(string name, Action markDirty)
         {
@@ -386,6 +424,7 @@ namespace Bugsee.Platform.Android
         {
             _bytes = data;
             _text = null;
+            _path = null;
             _markDirty?.Invoke();
         }
 
@@ -393,18 +432,36 @@ namespace Bugsee.Platform.Android
         {
             _text = text ?? "";
             _bytes = null;
+            _path = null;
+            _markDirty?.Invoke();
+        }
+
+        public void SetFilePath(string path)
+        {
+            _path = path;
+            _bytes = null;
+            _text = null;
             _markDirty?.Invoke();
         }
 
         internal void ApplyTo(AndroidReport report)
         {
-            var attachment = report.CreateAndAddAttachment(Name ?? "attachment");
+            IAttachment attachment = null;
+            if (!string.IsNullOrEmpty(_path))
+                attachment = report.AddAttachmentFile(_path, Name ?? "attachment", MimeType);
+            else
+            {
+                byte[] payload = _bytes;
+                if ((payload == null || payload.Length == 0) && _text != null)
+                    payload = Encoding.UTF8.GetBytes(_text);
+                if (payload != null && payload.Length > 0)
+                    attachment = report.AddAttachmentBytes(payload, Name ?? "attachment", MimeType);
+            }
+
+            if (attachment == null)
+                return;
             attachment.Filename = Filename;
             attachment.MimeType = MimeType;
-            if (_bytes != null && _bytes.Length > 0)
-                attachment.SetData(_bytes);
-            else if (_text != null)
-                attachment.SetData(_text);
         }
     }
 }

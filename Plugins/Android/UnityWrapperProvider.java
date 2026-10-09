@@ -127,11 +127,19 @@ final class UnityWrapper implements BugseeWrapper {
 
     @Override
     public void onBeforeReportCreated(Report report, boolean isTerminating, Runnable completion) {
+        if (isTerminating) {
+            if (completion != null) completion.run();
+            return;
+        }
         if (completion != null) completion.run();
     }
 
     @Override
     public void onAfterReportCreated(Report report, boolean isTerminating, Runnable completion) {
+        if (isTerminating) {
+            if (completion != null) completion.run();
+            return;
+        }
         if (completion != null) completion.run();
     }
 }

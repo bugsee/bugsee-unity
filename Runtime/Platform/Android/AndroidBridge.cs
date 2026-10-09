@@ -319,15 +319,30 @@ namespace Bugsee.Platform.Android
             }
         }
 
-        public void SetUserIdentifier(string userIdentifier) =>
-            _bugsee.CallStatic("setUserIdentifier", userIdentifier);
+        public void SetUserIdentifier(string userIdentifier)
+        {
+            var normalized = UserIdentifierPolicy.ForSet(userIdentifier);
+            if (normalized == null)
+                ClearUserIdentifier();
+            else
+                _bugsee.CallStatic("setUserIdentifier", normalized);
+        }
 
-        public string GetUserIdentifier() => _bugsee.CallStatic<string>("getUserIdentifier");
+        public string GetUserIdentifier() =>
+            UserIdentifierPolicy.ForGet(_bugsee.CallStatic<string>("getUserIdentifier"));
 
         public void ClearUserIdentifier() => _bugsee.CallStatic("clearUserIdentifier");
 
-        public void SetAttribute(string key, object value) =>
+        public void SetAttribute(string key, object value)
+        {
+            var decision = AttributePolicy.Evaluate(key, value);
+            if (!decision.Accepted)
+                throw new ArgumentException(decision.Error, nameof(value));
+
             _bugsee.CallStatic("setAttribute", key, Box(value));
+            if (GetAttribute(key) == null)
+                throw new ArgumentException("attribute '" + key + "' was dropped", nameof(value));
+        }
 
         public object GetAttribute(string key)
         {

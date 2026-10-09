@@ -82,16 +82,8 @@ namespace Bugsee.Platform.Android
                 return;
             }
 
-            // Terminating: must not async round-trip.
             if (isTerminating)
             {
-                try
-                {
-                    var wrapped = new AndroidReport(report);
-                    if (before) handler.OnBeforeReportCreated(wrapped, true, () => { });
-                    else handler.OnAfterReportCreated(wrapped, true, () => { });
-                }
-                catch (Exception ex) { Debug.LogException(ex); }
                 completion?.Call("run");
                 return;
             }
