@@ -415,6 +415,16 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Ios_delete_clears_open_report_slot_when_stopped()
+        {
+            string body = ExtractMethodBody(
+                File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs")),
+                "public void DeleteCollectedDataOnDevice()");
+            Assert.That(body, Does.Contain("_openReport = null"));
+            Assert.That(body, Does.Contain("_openReportHandle = null"));
+        }
+
+        [Test]
         public void Ios_submit_network_uses_ToNativeMapJson_for_headers()
         {
             string body = ExtractMethodBody(

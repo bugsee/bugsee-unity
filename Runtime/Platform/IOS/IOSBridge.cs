@@ -160,6 +160,9 @@ namespace Bugsee.Platform.IOS
                 return;
             }
 
+            CancelManagedReportUpload();
+            _openReport = null;
+            _openReportHandle = null;
             _bugsee_delete_collected_data();
         }
 
