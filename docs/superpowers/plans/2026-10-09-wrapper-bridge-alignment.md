@@ -908,7 +908,7 @@ git commit -m "Register the iOS wrapper at load and hop launch onto main."
 - Modify: `Runtime/Platform/Android/AndroidBridge.cs` `Log`
 - Modify: `Runtime/Platform/IOS/IOSBridge.cs` `Log`
 - Create: `Runtime/Internal/HostLogForwarder.cs`
-- Modify: `Runtime/Internal/ExceptionPipeline.cs` (install the log forwarder once; exceptions still use `logException`, not the channel)
+- Modify: `Runtime/Platform/Android/AndroidBridge.cs` and `Runtime/Platform/IOS/IOSBridge.cs` `Launch` / `Relaunch` → `HostLogForwarder.InstallOnce(this)` (independent of managed-exception capture)
 - Modify: `Runtime/Bugsee.cs` `Stop` → `HostLogForwarder.Uninstall()`
 - Create: `Runtime/WrapperPolicy/ChannelSubmit.cs`
 - Create: `Tests~/WrapperPolicy/ChannelSubmitTests.cs`
@@ -920,7 +920,7 @@ git commit -m "Register the iOS wrapper at load and hop launch onto main."
   - `bool ChannelSubmit.NetworkRequiresFiltering()` returns `true`
   - Android: `UnityWrapper.onWrapperChannelAvailable` stores the channel in a static volatile field before returning. New static `UnityWrapper.channelLog(String message, int level, int source)` calls `channel.log(null, message, level, source)` when the channel is non-null, mapping `source` with `LogSource.fromRawValue` and defaulting to `Custom`. New static `UnityWrapper.channelAddNetwork(NetworkEvent event)` calls `channel.addNetworkEvent(event, true)` when the channel is non-null.
   - iOS exports: `void _bugsee_channel_log(const char *message, int level)`, `void _bugsee_channel_network(...)`, `void _bugsee_channel_breadcrumb(const char *name, int iosLevel)`. The log export calls `Wrapper`... from ObjC it passes `BGSLogEventSource` value `98` via `WrapperLogSourcePolicy` equivalent constant `98`, not a raw `0`.
-  - `Bugsee.Log` keeps using the public native `log` (app-curated, source Bugsee). A new internal `HostLogForwarder` subscribes `Application.logMessageReceivedThreaded`, hops to the Unity player thread before `bridge.ChannelLog`, and uses a reentrancy guard so a nested `Debug.Log` during channel submit or filter handling is dropped (same contract as task PR #5). Skip `LogType.Exception` — `ExceptionPipeline` owns exceptions. `InstallOnce` from startup; `Uninstall` from `Bugsee.Stop` clears the subscription and stored bridge so relaunch does not inherit a stale handler. Automatic `UnityWebRequest` observation is out of scope.
+  - `Bugsee.Log` keeps using the public native `log` (app-curated, source Bugsee). A new internal `HostLogForwarder` subscribes `Application.logMessageReceivedThreaded`, hops to the Unity player thread before `bridge.ChannelLog`, and uses a reentrancy guard so a nested `Debug.Log` during channel submit or filter handling is dropped (same contract as task PR #5). Skip `LogType.Exception` — `ExceptionPipeline` owns exceptions and must **not** be the only install site (`CaptureManagedExceptions == false` must still forward host `Debug`). `InstallOnce` from each `Launch` / `Relaunch`; `Uninstall` from `Bugsee.Stop` removes the callback, clears the stored bridge, **resets the installed flag**, and bumps a **generation** so `MainThreadDispatcher` work queued before `Uninstall` is dropped. Automatic `UnityWebRequest` observation is out of scope.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1008,9 +1008,9 @@ iOS `onWrapperChannelAvailable:` stores `gChannel` in a static before returning,
 
 - [ ] **Step 4b: `HostLogForwarder`**
 
-Create `Runtime/Internal/HostLogForwarder.cs` with `static void InstallOnce(IBugseeNativeBridge bridge)` and `static void Uninstall()` guarded by a process flag. Subscribe `Application.logMessageReceivedThreaded` (not `logMessageReceived` alone — off-main `Debug` must still reach the channel). In the handler: ignore `LogType.Exception`; if not on the player thread, post to `MainThreadDispatcher` (or equivalent) and return; before calling `bridge.ChannelLog`, increment a `[ThreadStatic] int` depth and skip when depth > 0; decrement in `finally`. Map `LogType` → `LogLevel`, source via `WrapperLogSourcePolicy.Resolve(null)`. `Uninstall` removes the callback and clears the stored bridge. Wire `Bugsee.Stop` → `Uninstall`.
+Create `Runtime/Internal/HostLogForwarder.cs` with `static void InstallOnce(IBugseeNativeBridge bridge)` and `static void Uninstall()`. Subscribe `Application.logMessageReceivedThreaded` (not `logMessageReceived` alone — off-main `Debug` must still reach the channel). In the handler: ignore `LogType.Exception`; if not on the player thread, capture `generation` and post to `MainThreadDispatcher`; on the player thread, if `generation != _generation`, return; before `bridge.ChannelLog`, increment a `[ThreadStatic] int` depth and skip when depth > 0; decrement in `finally`. Map `LogType` → `LogLevel`, source via `WrapperLogSourcePolicy.Resolve(null)`. `InstallOnce` may re-subscribe after `Uninstall` — `Uninstall` removes the callback, nulls the bridge, sets `_installed = false`, and increments `_generation`. Wire `AndroidBridge`/`IOSBridge` `Launch` and `Relaunch` → `InstallOnce`; `Bugsee.Stop` → `Uninstall`. Do **not** install only from `ExceptionPipeline.Install` (that path no-ops when managed-exception capture is off).
 
-Add `HostLogForwarderSourceTests` asserting `HostLogForwarder.cs` contains `logMessageReceivedThreaded`, a reentrancy depth field, and `Uninstall`; `ExceptionPipeline.cs` calls `InstallOnce`; `Bugsee.cs` calls `Uninstall` from `Stop`.
+Add `HostLogForwarderSourceTests` asserting `HostLogForwarder.cs` contains `logMessageReceivedThreaded`, `_generation`, reentrancy depth, and `_installed`; `AndroidBridge.cs` or `IOSBridge.cs` calls `InstallOnce`; `Bugsee.cs` calls `Uninstall` from `Stop`.
 
 - [ ] **Step 5: Re-run ChannelSubmitTests and RegistrationSourceTests.** Expected: PASS.
 
@@ -1216,15 +1216,15 @@ git commit -m "Expose delete-data, create-report, and channel submit on the C# f
 
 Android `getSecureRectangles(int display)` returns `Instance.Snapshot(display, 1f)` as a Java `int[]`. iOS `-secureRectanglesForDisplay:` builds `NSData` of little-endian int32 from `Snapshot(display, UIScreen.mainScreen.scale)`.
 
-C# cannot run inside the Java/ObjC pull. The registry therefore also has `int[] LastSnapshot(int display)` updated whenever `Set`/`RemoveOwner` publishes, and the native side reads a buffer C# pushed:
+C# cannot run inside the Java/ObjC pull. After every registry mutation that changes the per-display union (`Add`, `Remove`, `RemoveAll`), C# calls `Snapshot` and pushes the result through `setSecureBuffer` / `_bugsee_set_secure_buffer`. Native pull returns that last pushed array (not a live walk of the registry):
 
 Add `void _bugsee_set_secure_buffer(int display, int[] packed)` and the Android twin `UnityWrapper.setSecureBuffer(int display, int[] packed)`. `Bugsee.AddSecureRectangle` updates the registry, then pushes `Snapshot` for display `0`. Android scale is `1`. iOS scale is passed from C# as `Screen.dpi` is wrong; pass a new export argument `float pixelsPerPoint` that `IOSBridge` reads from a P/Invoke ` _bugsee_screen_scale()` returning `[UIScreen mainScreen].scale`.
 
 - [ ] **Step 1: Add `SecureRectRegistry.Instance`, manual owner tracking, and push-on-write.**
 
-In `Bugsee.cs`, keep a private map from each added `RectInt` to its owner id. `AddSecureRectangle` → `Instance.Set(ownerId, 0, …)` then push `Snapshot`. `RemoveSecureRectangle` → `RemoveOwner(ownerId)` and drop the map entry. `RemoveAllSecureRectangles` → remove all manual owners and clear the map.
+In `Bugsee.cs`, keep a private map from each added `RectInt` to its owner id. Shared helper `PushSecureBufferForDisplay(0)` calls `Snapshot`, then native `setSecureBuffer` / `_bugsee_set_secure_buffer`. `AddSecureRectangle` → `Set(ownerId, 0, …)` → push. `RemoveSecureRectangle` → `RemoveOwner(ownerId)` → drop map entry → push (union shrinks; version bumps when the buffer changes). `RemoveAllSecureRectangles` → remove every manual owner → clear map → push (empty union republishes `[1, 0]` when no rects remain).
 
-Add `SecureRectManualOwnerTests` (or extend `SecureRectRegistryTests`): two different owner ids on display `0` → `Snapshot(...)[1] == 2`; `RemoveOwner` one → the other rect remains and version bumps.
+Add `SecureRectManualOwnerTests` (or extend `SecureRectRegistryTests`): two owner ids on display `0` → `Snapshot(...)[1] == 2`; remove one owner → the other survives **and** simulated push buffer count is `1`; after removing the last owner, pushed buffer is `[1, 0]`.
 
 - [ ] **Step 2: Implement the native buffers.** `getSecureRectangles` returns the last pushed array for that display, or `[1, 0]` when nothing has been pushed (version 1, count 0, the first empty publish).
 
