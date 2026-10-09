@@ -2,6 +2,7 @@
 -keep class com.bugsee.unity.UnityWrapper {
     static void refineContext(java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String);
     static void channelLog(java.lang.String, int, int);
+    static void channelAddNetwork(com.bugsee.library.contracts.exchange.NetworkEvent);
     static void clearWrapperChannel();
 }
 -keep class com.bugsee.unity.UnityWrapperProvider { *; }
