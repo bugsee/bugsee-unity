@@ -272,6 +272,18 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Android_upload_releases_snapshots_after_onCreated()
+        {
+            string proxies = File.ReadAllText(RepoFile("Runtime/Platform/Android/Proxies/CallbackProxies.cs"));
+            string onCreated = ExtractMethodBody(proxies, "public void onCreated(AndroidJavaObject report)");
+            Assert.That(onCreated, Does.Contain("ApplyTo(report)"));
+            Assert.That(onCreated, Does.Contain("ReleaseSnapshotFiles()"));
+            int apply = onCreated.IndexOf("ApplyTo(report)", StringComparison.Ordinal);
+            int release = onCreated.IndexOf("ReleaseSnapshotFiles()", StringComparison.Ordinal);
+            Assert.That(release, Is.GreaterThan(apply));
+        }
+
+        [Test]
         public void Android_managed_report_snapshots_files_at_add()
         {
             string report = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidReport.cs"));

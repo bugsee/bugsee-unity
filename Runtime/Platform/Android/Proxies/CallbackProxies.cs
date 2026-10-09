@@ -202,17 +202,17 @@ namespace Bugsee.Platform.Android
 
         public void onCreated(AndroidJavaObject report)
         {
-            if (!AndroidManagedReportUploadFence.IsActive(_uploadFence))
-                return;
-
-            if (report == null)
-            {
-                Debug.LogError("[Bugsee] CreateReport failed.");
-                return;
-            }
-
             try
             {
+                if (!AndroidManagedReportUploadFence.IsActive(_uploadFence))
+                    return;
+
+                if (report == null)
+                {
+                    Debug.LogError("[Bugsee] CreateReport failed.");
+                    return;
+                }
+
                 if (!AndroidManagedReportUploadFence.IsActive(_uploadFence))
                     return;
                 _snapshot.ApplyTo(report);
@@ -223,6 +223,10 @@ namespace Bugsee.Platform.Android
             catch (Exception ex)
             {
                 Debug.LogException(ex);
+            }
+            finally
+            {
+                _snapshot?.ReleaseSnapshotFiles();
             }
         }
     }
