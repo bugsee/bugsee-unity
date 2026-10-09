@@ -230,12 +230,13 @@ namespace Bugsee.Platform.IOS
 
             void Work()
             {
+                IosReport report = null;
                 try
                 {
                     var handler = _reportHandler;
                     var dto = JsonUtility.FromJson<IosReportDto>(
                         IosJsonNormalize.NormalizeReport(json ?? "{}"));
-                    var report = new IosReport(dto);
+                    report = new IosReport(dto);
 
                     if (handler == null)
                     {
@@ -260,6 +261,10 @@ namespace Bugsee.Platform.IOS
                 {
                     Debug.LogException(ex);
                     _bugsee_complete_report(requestId, null);
+                }
+                finally
+                {
+                    report?.ReleaseSnapshotFiles();
                 }
             }
 

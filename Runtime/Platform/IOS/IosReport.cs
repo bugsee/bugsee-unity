@@ -142,11 +142,25 @@ namespace Bugsee.Platform.IOS
             if (string.IsNullOrEmpty(path) || !File.Exists(path))
                 return null;
 
-            var snapshotPath = SnapshotAttachmentFile(path);
+            string snapshotPath;
+            try
+            {
+                snapshotPath = SnapshotAttachmentFile(path);
+            }
+            catch (IOException)
+            {
+                return null;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return null;
+            }
+
             var att = new IosAttachment(name ?? "attachment");
-            att.Filename = name ?? "attachment";
+            var baseName = Path.GetFileName(path);
+            att.Filename = string.IsNullOrEmpty(baseName) ? (name ?? "attachment") : baseName;
             att.MimeType = mimeType ?? "application/octet-stream";
-            att.SetFilePath(snapshotPath);
+            att.SetSnapshotPath(snapshotPath);
             _attachments.Add(att);
             return att;
         }
@@ -175,7 +189,18 @@ namespace Bugsee.Platform.IOS
             return dest;
         }
 
-        public void ClearAttachments() => _attachments.Clear();
+        public void ClearAttachments()
+        {
+            for (var i = 0; i < _attachments.Count; i++)
+                _attachments[i].DeleteSnapshotIfOwned();
+            _attachments.Clear();
+        }
+
+        public void ReleaseSnapshotFiles()
+        {
+            for (var i = 0; i < _attachments.Count; i++)
+                _attachments[i].DeleteSnapshotIfOwned();
+        }
 
         public string ToResultJson()
         {
@@ -262,6 +287,7 @@ namespace Bugsee.Platform.IOS
         string _text;
         string _dataBase64;
         bool _isBinary;
+        bool _ownsSnapshotFile;
 
         public IosAttachment(string name)
         {
@@ -316,6 +342,36 @@ namespace Bugsee.Platform.IOS
             _text = null;
             _dataBase64 = null;
             _isBinary = false;
+            _ownsSnapshotFile = false;
+        }
+
+        public void SetSnapshotPath(string path)
+        {
+            _path = path;
+            _text = null;
+            _dataBase64 = null;
+            _isBinary = false;
+            _ownsSnapshotFile = true;
+        }
+
+        public void DeleteSnapshotIfOwned()
+        {
+            if (!_ownsSnapshotFile || string.IsNullOrEmpty(_path))
+                return;
+
+            try
+            {
+                if (File.Exists(_path))
+                    File.Delete(_path);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+
+            _ownsSnapshotFile = false;
         }
 
         public void SetAttachmentBytes(byte[] data)
@@ -324,8 +380,7 @@ namespace Bugsee.Platform.IOS
             _text = null;
             _isBinary = true;
             _dataBase64 = Convert.ToBase64String(data);
-            if (string.IsNullOrEmpty(MimeType) || MimeType == "text/plain")
-                MimeType = "application/octet-stream";
+            _ownsSnapshotFile = false;
         }
 
         public string ToJsonObject()

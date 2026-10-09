@@ -194,6 +194,9 @@ namespace Bugsee.WrapperPolicy.Tests
             string addFile = ExtractMethodBody(report, "public IAttachment AddAttachmentFile(string path, string name, string mimeType)");
             Assert.That(addFile, Does.Contain("SnapshotAttachmentFile"));
             Assert.That(addFile, Does.Contain("File.Exists(path)"));
+            Assert.That(addFile, Does.Contain("Path.GetFileName(path)"));
+            Assert.That(addFile, Does.Contain("SetSnapshotPath"));
+            Assert.That(addFile, Does.Contain("catch (IOException)"));
 
             string addBytes = ExtractMethodBody(report, "public IAttachment AddAttachmentBytes(byte[] data, string name, string mimeType)");
             Assert.That(addBytes, Does.Contain("SetAttachmentBytes"));
