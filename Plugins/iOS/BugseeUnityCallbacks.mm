@@ -38,6 +38,10 @@ static int64_t gNextRequestId = 1;
 static NSObject *gLock;
 static NSString *gWrapperVersion = @"0.1.0";
 static NSString *gWrapperBuild = @"dev";
+static NSDictionary<NSString *, NSString *> *gWrapperContext = nil;
+
+@class BugseeUnityWrapper;
+static BugseeUnityWrapper *gWrapper;
 
 static void BugseeUnityEnsureState(void)
 {
@@ -281,10 +285,18 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
 
 @implementation BugseeUnityWrapper
 
++ (void)load
+{
+    if (!gWrapper) {
+        gWrapper = [BugseeUnityWrapper new];
+    }
+    [Bugsee setWrapper:gWrapper];
+}
+
 - (NSString *)wrapperType { return @"unity"; }
-- (NSString *)wrapperVersion { return gWrapperVersion ?: @"0.1.0"; }
-- (NSString *)wrapperBuild { return gWrapperBuild ?: @"dev"; }
-- (NSDictionary<NSString *, NSString *> *)context { return @{}; }
+- (NSString *)wrapperVersion { return gWrapperVersion ?: @"unknown"; }
+- (NSString *)wrapperBuild { return gWrapperBuild ?: @"unknown"; }
+- (NSDictionary<NSString *, NSString *> *)context { return gWrapperContext ?: @{}; }
 
 - (void)requestDataWithType:(NSString *)dataType callback:(id<BGSDataRequestResultCallback>)callback
 {
@@ -350,8 +362,6 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
 
 @end
 
-static BugseeUnityWrapper *gWrapper;
-
 static int64_t BugseeUnityEnqueueFilter(NSString *kind, id event, id decisionBlock)
 {
     BugseeUnityEnsureState();
@@ -386,6 +396,25 @@ void _bugsee_ensure_wrapper(const char *version, const char *build)
         gWrapper = [BugseeUnityWrapper new];
     }
     [Bugsee setWrapper:gWrapper];
+}
+
+void _bugsee_set_wrapper_context(const char *json)
+{
+    if (!json) {
+        gWrapperContext = nil;
+        return;
+    }
+    NSDictionary *parsed = BugseeUnityParseJson(json);
+    if (![parsed isKindOfClass:[NSDictionary class]]) {
+        return;
+    }
+    NSMutableDictionary<NSString *, NSString *> *out = [NSMutableDictionary dictionary];
+    [(NSDictionary *)parsed enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+        if ([key isKindOfClass:[NSString class]] && [obj isKindOfClass:[NSString class]]) {
+            out[(NSString *)key] = (NSString *)obj;
+        }
+    }];
+    gWrapperContext = [out copy];
 }
 
 void _bugsee_set_network_filter_enabled(int enabled)
@@ -505,6 +534,7 @@ void _bugsee_complete_report(int64_t requestId, const char *resultJson)
 extern "C" {
 void _bugsee_register_unity_callbacks(void *a, void *b, void *c) { (void)a; (void)b; (void)c; }
 void _bugsee_ensure_wrapper(const char *version, const char *build) { (void)version; (void)build; }
+void _bugsee_set_wrapper_context(const char *json) { (void)json; }
 void _bugsee_set_network_filter_enabled(int enabled) { (void)enabled; }
 void _bugsee_set_log_filter_enabled(int enabled) { (void)enabled; }
 void _bugsee_set_breadcrumb_filter_enabled(int enabled) { (void)enabled; }
