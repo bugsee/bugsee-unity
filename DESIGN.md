@@ -32,7 +32,7 @@ React Native is the reference wrapper those pages were written from. Unity copie
 5. SDK-internal contracts (`BugseeWrapper`, `BugseeWrapperChannel`, `requestData`, most `contracts.internal.*`) are **not** public C# API. `getExchangeFactory()` stays public.
 6. Optional network extensions (OkHttp/Ktor/Cronet) are out of the default graph. Unity's own `UnityWebRequest` is not OkHttp and is not NSURLSession, so the native interceptors do not see it.
 7. One Unity player runtime per process. A second engine in-process is out of scope; its surface lanes would collide with the single-slot bridges.
-8. `sdk/wrapper-workbook` Part 14's iOS appearance shape (writable `report*Color` on `BugseeTheme`) is older than the pin. iOS 7.0.0-beta5 appearance is `BGSAppearance` via `getAppearance`. The pinned headers win.
+8. iOS 7.0.0-beta5 `+[Bugsee getAppearance]` returns `BugseeTheme *` (`BugseeTheme.h`: writable `report*Color` and related properties). It is not `id<BGSAppearance>`. The bridge must read and write through `BugseeTheme` on this pin; `BGSAppearance` in older workbook notes does not match the shipped headers.
 
 ## Decision log
 
@@ -146,7 +146,7 @@ Runtime/
 │   │   ├── AndroidBridge.cs
 │   │   ├── AndroidOptionsMapper.cs
 │   │   ├── Proxies/
-│   │   │   ├── BugseeWrapperProxy.cs     # REQUIRED: setWrapper(impl)
+│   │   │   ├── BugseeWrapperProxy.cs     # Legacy; delete after Task 13 (do not setWrapper from C#)
 │   │   │   ├── EventFilterProxy.cs
 │   │   │   ├── ReportHandlerProxy.cs
 │   │   │   ├── LifecycleListenerProxy.cs
@@ -202,7 +202,7 @@ The SDK reads the wrapper while building a report environment and while dispatch
 
 Store the channel in a field the forwarders actually read, as the first act of `onWrapperChannelAvailable`, then return. Flush any pre-launch buffer after `setWrapper` returns. Register from one thread. Holding a channel does not mean the SDK is running: calls before launch, after `stop()`, and between stop and relaunch are dropped.
 
-**Android.** A `ContentProvider` in the package AAR, `android:initOrder="200"`, extending `BugseeExtensionInitProviderBase`, calls `Bugsee.setWrapper` from `onExtensionCreate()`. The class name must not match `Bugsee<Anything>InitProvider` — the Gradle plugin strips that pattern from every APK, on every plugin version, and the build stays green. Suggested simple name: `UnityWrapperProvider`.
+**Android.** A `ContentProvider` in the package AAR, `android:initOrder="200"`, `android:directBootAware="true"`, extending `BugseeExtensionInitProviderBase`, calls `Bugsee.setWrapper` from `onExtensionCreate()`. The class name must not match `Bugsee<Anything>InitProvider` — the Gradle plugin strips that pattern from every APK, on every plugin version, and the build stays green. Suggested simple name: `UnityWrapperProvider`. Keep `com.bugsee.unity.UnityWrapper` and the provider in R8 rules — C# resolves them by name.
 
 **iOS.** `+[Bugsee setWrapper:]` has no launch ordering of its own. Register from native load (`+load` in the bridge), before any `+launchWithToken:`. There is no auto-init race.
 
@@ -352,7 +352,7 @@ One incident is one report from this package's side: install the runtime handler
 
 ### Appearance, spans, feedback
 
-Appearance uses 7.x constants. On Android that is `setColor` / `setString` with the 7.x property ids (6.x names are a different generation). On iOS 7.0.0-beta5 it is `id<BGSAppearance>` from `getAppearance` (`setColor:forProperty:`, `colorForProperty:`, and the string pair). A name with no binding on this platform: read returns empty, write fails in C#. An unknown name fails on both. Feedback colors belong to the feedback artefact.
+Appearance uses 7.x constants. On Android that is `setColor` / `setString` with the 7.x property ids (6.x names are a different generation). On iOS 7.0.0-beta5 it is `BugseeTheme *` from `+[Bugsee getAppearance]` (writable `report*Color` and the string properties on `BugseeTheme`). A name with no binding on this platform: read returns empty, write fails in C#. An unknown name fails on both. Feedback colors belong to the feedback artefact.
 
 Spans: the bridge holds each native span until `finish`, then drops that handle and any child the parent finish cancelled. The first `finish` kills the handle. A null span is not retained. Invalidate drops the registry and does not finish the spans. Setters and `finish` stay the same dispatch kind so they cannot reorder.
 

@@ -325,7 +325,7 @@ git commit -m "Map breadcrumb levels by name per platform."
 - Consumes: nothing
 - Produces:
   - `AttributeDecision AttributePolicy.Evaluate(string key, object value)` with `bool Accepted` and `string Error`. `Error` is null when accepted. When rejected, `Error` contains `key` and does not contain `value.ToString()`.
-  - Accepted types: `string`, `bool`, `byte`, `short`, `int`, `long`, `float`, `double`. `long.MaxValue` is accepted. A `double` whose magnitude is `>= 9223372036854775808d` is rejected, as are NaN and infinities. Strings whose `Length` is greater than 1024 are rejected.
+  - Accepted types: `string`, `bool`, and any .NET numeric type that maps to a finite number within `|v| < 9223372036854775808` before crossing: `byte`, `sbyte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, `double`, `decimal`. `long.MaxValue` is accepted. Reject NaN, infinities, and magnitudes `>= 9223372036854775808d`. Strings whose `Length` is greater than 1024 are rejected. Non-numeric types (for example `DateTime`) are rejected.
   - `string UserIdentifierPolicy.ForSet(string value)` returns null when value is null or `""`, otherwise the value.
   - `string UserIdentifierPolicy.ForGet(string value)` returns null when value is null or `""`.
 
@@ -360,6 +360,14 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Unsigned_and_decimal_numbers_are_accepted()
+        {
+            Assert.That(AttributePolicy.Evaluate("u", uint.MaxValue).Accepted, Is.True);
+            Assert.That(AttributePolicy.Evaluate("ul", ulong.MaxValue).Accepted, Is.True);
+            Assert.That(AttributePolicy.Evaluate("d", 0.1m).Accepted, Is.True);
+        }
+
+        [Test]
         public void String_over_1024_utf16_units_is_rejected()
         {
             var bad = AttributePolicy.Evaluate("note", new string('a', 1025));
@@ -386,7 +394,7 @@ Expected: FAIL, types missing.
 
 - [ ] **Step 3: Implement both types**
 
-`AttributePolicy.Evaluate` switches on the runtime type. For `float` and `double`, reject when `float.IsNaN` / `double.IsNaN` / `IsInfinity`, and reject when `value >= 9223372036854775808d` or `value <= -9223372036854775808d`. Rejection messages are fixed strings: `"attribute 'lives' exceeds 9223372036854775808"` and `"attribute 'note' exceeds 1024 UTF-16 units"` and `"attribute 'when' must be string, bool, or number"`. Build the message from `key` only.
+`AttributePolicy.Evaluate` switches on the runtime type. Accept all integer and floating numeric types listed above by converting through `Convert.ToDouble` (or equivalent) for range checks. For `decimal`, reject when out of range after conversion. Reject when the magnitude is non-finite or `>= 9223372036854775808d` or `<= -9223372036854775808d`. Rejection messages are fixed strings: `"attribute 'lives' exceeds 9223372036854775808"` and `"attribute 'note' exceeds 1024 UTF-16 units"` and `"attribute 'when' must be string, bool, or number"`. Build the message from `key` only.
 
 `UserIdentifierPolicy` is the two methods in the interface block.
 
@@ -478,8 +486,9 @@ git commit -m "Treat iOS severity 0 as unset."
   - `void RemoveOwner(string ownerId)`
   - `int[] Snapshot(int displayId, float pixelsPerNativeUnit)` — native unit is 1 Android pixel or 1 iOS point. `pixelsPerNativeUnit` is `1` on Android and `Screen.scale` (points divisor) on iOS, so iOS passes `3` on a 3× screen. The returned array is `[version, count, l, t, r, b, ...]`.
   - A repeated `Set` of the same pixels does not change `version`.
-  - The first snapshot for a display, including an empty one, uses version `1`.
-  - Removing one owner republishes the other owner's rects and bumps the version.
+  - The first **empty** all-clear for a display uses version `1` (matches Task 13 native pre-push `[1, 0]`).
+  - The first snapshot that includes **non-empty** rects for a display must use version **≥ 2**, so the SDK sees a version change after the empty baseline.
+  - Removing one owner republishes the other owner's rects and bumps the version when the union changes.
   - Conversion divides by `pixelsPerNativeUnit`, then floors `l`/`t` and ceils `r`/`b`.
 
 - [ ] **Step 1: Write the failing test**
@@ -497,7 +506,7 @@ namespace Bugsee.WrapperPolicy.Tests
             var registry = new SecureRectRegistry();
             registry.Set("hud", 0, 0, 0, 10, 10);
             int[] snap = registry.Snapshot(0, 3f);
-            Assert.That(snap, Is.EqualTo(new[] { 1, 1, 0, 0, 4, 4 }));
+            Assert.That(snap, Is.EqualTo(new[] { 2, 1, 0, 0, 4, 4 }));
         }
 
         [Test]
@@ -528,7 +537,7 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement the registry**
 
-Store `Dictionary<(string owner, int display), int[]>` of four ints. `Snapshot` unions that display's rects in owner-id sort order so the buffer is stable. Compare the converted int buffer to the last published buffer for that display; assign a new version only when it differs. Empty display publishes `[version, 0]` once. Use `Math.Floor` on left/top and `Math.Ceiling` on right/bottom after dividing by `pixelsPerNativeUnit`. Reject a scale `<= 0` by throwing `ArgumentOutOfRangeException(nameof(pixelsPerNativeUnit))`.
+Store `Dictionary<(string owner, int display), int[]>` of four ints. `Snapshot` unions that display's rects in owner-id sort order so the buffer is stable. Compare the converted int buffer to the last published buffer for that display; assign a new version only when it differs. Track per display whether an empty `[1, 0]` baseline was already implied (native pre-push). The first empty union publishes `[1, 0]`. The first non-empty union publishes with version **2** even if no prior C# push occurred, so the SDK never treats real rects as “unchanged” from `[1, 0]`. Use `Math.Floor` on left/top and `Math.Ceiling` on right/bottom after dividing by `pixelsPerNativeUnit`. Reject a scale `<= 0` by throwing `ArgumentOutOfRangeException(nameof(pixelsPerNativeUnit))`.
 
 - [ ] **Step 4: Re-run Step 2.** Expected: PASS.
 
@@ -614,6 +623,8 @@ git commit -m "Stop forwarding Android-only launch keys to iOS."
 **Files:**
 - Create: `Plugins/Android/UnityWrapperProvider.java`
 - Create: `Plugins/Android/AndroidManifest.xml`
+- Create: `Plugins/Android/proguard-user.txt` (merged by the Gradle plugin / consumer rules)
+- Create or update: `Plugins/Android/*.meta` so Java and manifest are included in Android builds
 - Modify: `Runtime/Platform/Android/AndroidBridge.cs` (`EnsureWrapperRegistered`, around the `setWrapper` call)
 - Modify: `Runtime/Bugsee.cs` `Launch` so it does not treat wrapper creation as its job
 - Create: `Tests~/WrapperPolicy/RegistrationSourceTests.cs`
@@ -736,12 +747,24 @@ final class UnityWrapper implements com.bugsee.library.contracts.internal.Bugsee
       android:name="com.bugsee.unity.UnityWrapperProvider"
       android:authorities="${applicationId}.bugsee.unitywrapper"
       android:exported="false"
+      android:directBootAware="true"
       android:initOrder="200" />
   </application>
 </manifest>
 ```
 
 The strip regex looks at the simple class name. `UnityWrapperProvider` does not match it. Also put `android:initOrder="200"` in a comment in the Java file so the source test can see it (`// initOrder 200`).
+
+**R8 / ProGuard.** C# resolves `com.bugsee.unity.UnityWrapper` and its static methods by name. Add `Plugins/Android/proguard-user.txt`:
+
+```proguard
+-keep class com.bugsee.unity.UnityWrapper { *; }
+-keep class com.bugsee.unity.UnityWrapperProvider { *; }
+```
+
+Tasks 9 and 13 add JNI-called static methods on `UnityWrapper` (`channelLog`, `channelAddNetwork`, `setSecureBuffer`). Extend the same `-keep` block when those land; do not narrow it to individual method names. Wire the file through the Bugsee Gradle plugin consumer rules (same pattern as other Bugsee Unity Android plugins).
+
+Extend `RegistrationSourceTests` to assert the manifest contains `directBootAware` and that `proguard-user.txt` keeps `UnityWrapper`.
 
 - [ ] **Step 4: Replace `AndroidBridge.EnsureWrapperRegistered`**
 
@@ -876,6 +899,8 @@ git commit -m "Register the iOS wrapper at load and hop launch onto main."
 - Modify: `Plugins/iOS/BugseeUnityBridge.mm` (new exports)
 - Modify: `Runtime/Platform/Android/AndroidBridge.cs` `Log`
 - Modify: `Runtime/Platform/IOS/IOSBridge.cs` `Log`
+- Create: `Runtime/Internal/HostLogForwarder.cs`
+- Modify: `Runtime/Internal/ExceptionPipeline.cs` (install forwarder once; exceptions still use `logException`, not the channel)
 - Create: `Runtime/WrapperPolicy/ChannelSubmit.cs`
 - Create: `Tests~/WrapperPolicy/ChannelSubmitTests.cs`
 
@@ -886,7 +911,7 @@ git commit -m "Register the iOS wrapper at load and hop launch onto main."
   - `bool ChannelSubmit.NetworkRequiresFiltering()` returns `true`
   - Android: `UnityWrapper.onWrapperChannelAvailable` stores the channel in a static volatile field before returning. New static `UnityWrapper.channelLog(String message, int level)` calls `channel.log(null, message, level, WrapperLogSource.Custom)` when the channel is non-null.
   - iOS exports: `void _bugsee_channel_log(const char *message, int level)`, `void _bugsee_channel_network(...)`, `void _bugsee_channel_breadcrumb(const char *name, int iosLevel)`. The log export calls `Wrapper`... from ObjC it passes `BGSLogEventSource` value `98` via `WrapperLogSourcePolicy` equivalent constant `98`, not a raw `0`.
-  - `Bugsee.Log` keeps using the public native `log` (app-curated, source Bugsee). A new internal `HostLogForwarder` used by `ExceptionPipeline` / player-log capture calls the channel exports. Do not retarget `Bugsee.Log` onto the channel.
+  - `Bugsee.Log` keeps using the public native `log` (app-curated, source Bugsee). A new internal `HostLogForwarder` subscribes `Application.logMessageReceived` (and wraps `Debug.unityLogger.logHandler` / `ILogHandler` when needed) so Unity `Debug` output hits the channel exports with `ChannelSubmit.LogSourceForHostDebug()`. `ExceptionPipeline` installs the forwarder once at startup; it does not retarget exception filing onto the channel.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -955,6 +980,10 @@ public void Android_channel_log_passes_custom_source()
 iOS `onWrapperChannelAvailable:` stores `gChannel` in a static before returning, and does no other work. `_bugsee_channel_log` calls `[gChannel logWithTag:nil message:... level:... source:98]` when `gChannel` responds to the selector. `_bugsee_channel_network` calls `addNetworkEvent:requiresFiltering:` with `YES`.
 
 `IOSBridge` public `Log` stays on `_bugsee_log`. Add `internal void ChannelLog(string message, LogLevel level)` that P/Invokes `_bugsee_channel_log` after `WrapperLogSourcePolicy.Resolve(98)`.
+
+- [ ] **Step 4b: `HostLogForwarder`**
+
+Create `Runtime/Internal/HostLogForwarder.cs` with `static void InstallOnce(IBugseeNativeBridge bridge)` guarded by a process flag. Map `LogType` → `LogLevel`, call `bridge.ChannelLog` (add to `IBugseeNativeBridge` as internal). Subscribe in `Application.logMessageReceived` on the main thread. Add `HostLogForwarderSourceTests` asserting `HostLogForwarder.cs` contains `logMessageReceived` and `ExceptionPipeline.cs` calls `HostLogForwarder.InstallOnce`.
 
 - [ ] **Step 5: Re-run ChannelSubmitTests and RegistrationSourceTests.** Expected: PASS.
 
@@ -1031,6 +1060,8 @@ git commit -m "Drop filtered events when the Unity callback throws or is missing
 - Modify: `Runtime/Platform/Android/AndroidReport.cs`
 - Modify: `Runtime/Platform/IOS/IosReport.cs`
 - Modify: `Plugins/iOS/BugseeUnityCallbacks.mm` `forwardReport:` and `BugseeUnityApplyReportDict`
+- Modify: `Plugins/Android/UnityWrapperProvider.java` (Android `onBeforeReportCreated` / `onAfterReportCreated` on the process wrapper when `isTerminating`)
+- Modify: `Runtime/Platform/Android/Proxies/CallbackProxies.cs` `ReportHandlerProxy` (never invoke C# when `isTerminating`)
 - Modify: `Runtime/Platform/Android/AndroidBridge.cs` `SetAttribute`, `SetUserIdentifier`
 - Modify: `Runtime/Platform/IOS/IOSBridge.cs` `SetAttribute`, `SetUserIdentifier`
 - Modify: `Runtime/Platform/Editor/EditorBridge.cs` so it still compiles
@@ -1065,9 +1096,11 @@ else /* native set normalized */;
 
 `GetUserIdentifier` returns `UserIdentifierPolicy.ForGet(native)`.
 
-- [ ] **Step 2: iOS `forwardReport:`**
+- [ ] **Step 2: `isTerminating` stays native on both platforms**
 
-If `isTerminating` is true, call `completion()` and return. Do not call `gReportCb`.
+**iOS `forwardReport:`** — If `isTerminating` is true, call `completion()` and return. Do not call `gReportCb`.
+
+**Android** — In `ReportHandlerProxy.Invoke`, when `isTerminating` is true, invoke the Java `completion` runnable immediately and return; do not call the C# `IReportHandler`. Optionally implement the same early completion on `UnityWrapper`'s wrapper-level report hooks if the SDK dispatches there during termination. Add `ReportPathSourceTests` asserting `CallbackProxies.cs` (or `ReportHandlerProxy`) completes without `_handler` when `isTerminating`.
 
 In `BugseeUnityApplyReportDict`, delete the `createAndAddAttachmentWithName:` loop. Attachments in the result JSON use `path` or `dataBase64`. Call `addAttachmentWithFilePath:name:mimeType:move:` or `addAttachmentWithData:name:mimeType:`. A null return leaves that entry off the report.
 
@@ -1111,6 +1144,8 @@ git commit -m "Keep dying-process report work on the native side and attach by p
   - `IReport CreateReport()`
   - `void AddBreadcrumb(string category, string message, string levelName)`
   - `void AddNetworkEvent(INetworkEvent evt)` which submits through the channel with `ChannelSubmit.NetworkRequiresFiltering()`
+
+**Launch-gated network (iOS).** `DESIGN.md`: during `Launching`, iOS drops channel `addNetworkEvent`. Buffer host `AddNetworkEvent` calls until lifecycle reaches `Launched`, then flush in order. Android submits immediately. Implement the buffer in `Runtime/WrapperPolicy/` or `Runtime/Internal/` (no `UnityEngine` in policy if possible — lifecycle signal may live in a small `HostNetworkForwarder` beside `HostLogForwarder`).
 
 `AddBreadcrumb` parses `levelName` with `BreadcrumbLevelMap.TryParse`. An unknown name throws `ArgumentException` whose message is `"breadcrumb level"` and does not include `levelName` if you treat it as a value; the level name is a developer-chosen identifier and may appear (`"breadcrumb level 'verbose' is unknown"` is allowed). The iOS bridge passes `BreadcrumbLevelMap.ToIos`. The Android bridge passes `ToAndroid`.
 
@@ -1259,6 +1294,9 @@ Spec coverage against `DESIGN.md` wrapper contract:
 | Identity type `unity`, context strings, `"unknown"` | 7, 8 |
 | Channel log source allow-list and missing → Custom | 1, 9 |
 | Network `requiresFiltering = true` | 9, 12 |
+| Hold iOS network until `Launched` | 12 |
+| Host `Debug` on wrapper channel | 9 |
+| R8 keep `UnityWrapper`, Direct Boot provider | 7 |
 | Breadcrumb ints by name | 2, 12 |
 | `vh` answers null | 7 (`requestData` → `onResult(null)`) and existing iOS `requestDataWithType` |
 | Secure rects, version, units, exclusive edges | 5, 13 |
