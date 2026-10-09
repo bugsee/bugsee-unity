@@ -132,16 +132,21 @@ namespace Bugsee.Platform.Android
             if (string.IsNullOrEmpty(path))
                 return null;
 
+            var attachmentName = string.IsNullOrEmpty(name) ? "attachment" : name;
             using (var file = new AndroidJavaObject("java.io.File", path))
             {
-                var att = _report.Call<AndroidJavaObject>("addAttachment", file, name, mimeType, false);
+                var att = _report.Call<AndroidJavaObject>("addAttachment", file, attachmentName, mimeType, false);
                 return att == null ? null : new AndroidAttachment(att);
             }
         }
 
         public IAttachment AddAttachmentBytes(byte[] data, string name, string mimeType)
         {
-            var att = _report.Call<AndroidJavaObject>("addAttachment", data, name, mimeType);
+            if (data == null || data.Length == 0)
+                return null;
+
+            var attachmentName = string.IsNullOrEmpty(name) ? "attachment" : name;
+            var att = _report.Call<AndroidJavaObject>("addAttachment", data, attachmentName, mimeType);
             return att == null ? null : new AndroidAttachment(att);
         }
 

@@ -271,8 +271,15 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
             id pathVal = att[@"path"];
             if ([pathVal isKindOfClass:[NSString class]] && [(NSString *)pathVal length] > 0) {
                 id reportObj = (id)report;
+                id<BGSAttachmentContract> created = nil;
                 if ([reportObj respondsToSelector:@selector(addAttachmentWithFilePath:name:mimeType:move:)]) {
-                    [reportObj addAttachmentWithFilePath:(NSString *)pathVal name:name mimeType:mime move:NO];
+                    created = [reportObj addAttachmentWithFilePath:(NSString *)pathVal name:name mimeType:mime move:YES];
+                }
+                if (created) {
+                    id fileName = att[@"fileName"];
+                    if ([fileName isKindOfClass:[NSString class]] && [(NSString *)fileName length] > 0) {
+                        created.fileName = fileName;
+                    }
                 }
                 continue;
             }
@@ -281,8 +288,15 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
                 NSData *decoded = [[NSData alloc] initWithBase64EncodedString:(NSString *)b64 options:0];
                 if (decoded) {
                     id reportObj = (id)report;
+                    id<BGSAttachmentContract> created = nil;
                     if ([reportObj respondsToSelector:@selector(addAttachmentWithData:name:mimeType:)]) {
-                        [reportObj addAttachmentWithData:decoded name:name mimeType:mime];
+                        created = [reportObj addAttachmentWithData:decoded name:name mimeType:mime];
+                    }
+                    if (created) {
+                        id fileName = att[@"fileName"];
+                        if ([fileName isKindOfClass:[NSString class]] && [(NSString *)fileName length] > 0) {
+                            created.fileName = fileName;
+                        }
                     }
                 }
             }

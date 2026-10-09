@@ -1,6 +1,7 @@
 #if UNITY_IOS && !UNITY_EDITOR
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using Bugsee.Contracts.Options;
 using Bugsee.Contracts.Reporting;
@@ -138,12 +139,14 @@ namespace Bugsee.Platform.IOS
 
         public IAttachment AddAttachmentFile(string path, string name, string mimeType)
         {
-            if (string.IsNullOrEmpty(path))
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
                 return null;
+
+            var snapshotPath = SnapshotAttachmentFile(path);
             var att = new IosAttachment(name ?? "attachment");
             att.Filename = name ?? "attachment";
             att.MimeType = mimeType ?? "application/octet-stream";
-            att.SetFilePath(path);
+            att.SetFilePath(snapshotPath);
             _attachments.Add(att);
             return att;
         }
@@ -155,9 +158,21 @@ namespace Bugsee.Platform.IOS
             var att = new IosAttachment(name ?? "attachment");
             att.Filename = name ?? "attachment";
             att.MimeType = mimeType ?? "application/octet-stream";
-            att.SetData(data);
+            att.SetAttachmentBytes(data);
             _attachments.Add(att);
             return att;
+        }
+
+        static string SnapshotAttachmentFile(string sourcePath)
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "bugsee-unity-report-attachments");
+            Directory.CreateDirectory(dir);
+            var ext = Path.GetExtension(sourcePath);
+            if (string.IsNullOrEmpty(ext))
+                ext = ".bin";
+            var dest = Path.Combine(dir, Guid.NewGuid().ToString("N") + ext);
+            File.Copy(sourcePath, dest, true);
+            return dest;
         }
 
         public void ClearAttachments() => _attachments.Clear();
@@ -301,6 +316,16 @@ namespace Bugsee.Platform.IOS
             _text = null;
             _dataBase64 = null;
             _isBinary = false;
+        }
+
+        public void SetAttachmentBytes(byte[] data)
+        {
+            _path = null;
+            _text = null;
+            _isBinary = true;
+            _dataBase64 = Convert.ToBase64String(data);
+            if (string.IsNullOrEmpty(MimeType) || MimeType == "text/plain")
+                MimeType = "application/octet-stream";
         }
 
         public string ToJsonObject()

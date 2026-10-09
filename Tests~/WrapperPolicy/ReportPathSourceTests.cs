@@ -53,7 +53,8 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(apply, Does.Contain("dataBase64"));
             Assert.That(apply, Does.Contain("addAttachmentWithFilePath:name:mimeType:move:"));
             Assert.That(apply, Does.Contain("addAttachmentWithData:name:mimeType:"));
-            Assert.That(apply, Does.Contain("move:NO"));
+            Assert.That(apply, Does.Contain("move:YES"));
+            Assert.That(apply, Does.Contain("fileName"));
             Assert.That(apply, Does.Not.Contain("createAndAddAttachmentWithName"));
         }
 
@@ -173,16 +174,30 @@ namespace Bugsee.WrapperPolicy.Tests
             string report = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidReport.cs"));
             string addFile = ExtractMethodBody(report, "public IAttachment AddAttachmentFile(string path, string name, string mimeType)");
             Assert.That(addFile, Does.Contain("string.IsNullOrEmpty(path)"));
-            Assert.That(addFile, Does.Contain("addAttachment\", file, name, mimeType, false"));
+            Assert.That(addFile, Does.Contain("attachmentName"));
+            Assert.That(addFile, Does.Contain("addAttachment\", file, attachmentName, mimeType, false"));
             Assert.That(addFile, Does.Contain("att == null ? null"));
             Assert.That(addFile, Does.Not.Contain("createAndAddAttachment"));
 
             string addBytes = ExtractMethodBody(report, "public IAttachment AddAttachmentBytes(byte[] data, string name, string mimeType)");
-            Assert.That(addBytes, Does.Contain("addAttachment\", data, name, mimeType"));
+            Assert.That(addBytes, Does.Contain("addAttachment\", data, attachmentName, mimeType"));
             Assert.That(addBytes, Does.Contain("att == null ? null"));
             Assert.That(addBytes, Does.Not.Contain("createAndAddAttachment"));
 
             Assert.That(report, Does.Not.Contain("CreateAndAddAttachment"));
+        }
+
+        [Test]
+        public void Ios_report_snapshots_files_and_base64_bytes()
+        {
+            string report = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IosReport.cs"));
+            string addFile = ExtractMethodBody(report, "public IAttachment AddAttachmentFile(string path, string name, string mimeType)");
+            Assert.That(addFile, Does.Contain("SnapshotAttachmentFile"));
+            Assert.That(addFile, Does.Contain("File.Exists(path)"));
+
+            string addBytes = ExtractMethodBody(report, "public IAttachment AddAttachmentBytes(byte[] data, string name, string mimeType)");
+            Assert.That(addBytes, Does.Contain("SetAttachmentBytes"));
+            Assert.That(addBytes, Does.Not.Contain("SetData(data)"));
         }
 
         [Test]
