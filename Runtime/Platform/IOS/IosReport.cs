@@ -1,6 +1,7 @@
 #if UNITY_IOS && !UNITY_EDITOR
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using Bugsee.Contracts.Options;
 using Bugsee.Contracts.Reporting;
@@ -136,14 +137,70 @@ namespace Bugsee.Platform.IOS
 
         public IReadOnlyList<IAttachment> Attachments => _attachments;
 
-        public IAttachment CreateAndAddAttachment(string name)
+        public IAttachment AddAttachmentFile(string path, string name, string mimeType)
         {
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                return null;
+
+            string snapshotPath;
+            try
+            {
+                snapshotPath = SnapshotAttachmentFile(path);
+            }
+            catch (IOException)
+            {
+                return null;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return null;
+            }
+
             var att = new IosAttachment(name ?? "attachment");
+            var baseName = Path.GetFileName(path);
+            att.Filename = string.IsNullOrEmpty(baseName) ? (name ?? "attachment") : baseName;
+            att.MimeType = mimeType ?? "application/octet-stream";
+            att.SetSnapshotPath(snapshotPath);
             _attachments.Add(att);
             return att;
         }
 
-        public void ClearAttachments() => _attachments.Clear();
+        public IAttachment AddAttachmentBytes(byte[] data, string name, string mimeType)
+        {
+            if (data == null || data.Length == 0)
+                return null;
+            var att = new IosAttachment(name ?? "attachment");
+            att.Filename = name ?? "attachment";
+            att.MimeType = mimeType ?? "application/octet-stream";
+            att.SetAttachmentBytes(data);
+            _attachments.Add(att);
+            return att;
+        }
+
+        static string SnapshotAttachmentFile(string sourcePath)
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "bugsee-unity-report-attachments");
+            Directory.CreateDirectory(dir);
+            var ext = Path.GetExtension(sourcePath);
+            if (string.IsNullOrEmpty(ext))
+                ext = ".bin";
+            var dest = Path.Combine(dir, Guid.NewGuid().ToString("N") + ext);
+            File.Copy(sourcePath, dest, true);
+            return dest;
+        }
+
+        public void ClearAttachments()
+        {
+            for (var i = 0; i < _attachments.Count; i++)
+                _attachments[i].DeleteSnapshotIfOwned();
+            _attachments.Clear();
+        }
+
+        public void ReleaseSnapshotFiles()
+        {
+            for (var i = 0; i < _attachments.Count; i++)
+                _attachments[i].DeleteSnapshotIfOwned();
+        }
 
         public string ToResultJson()
         {
@@ -226,9 +283,11 @@ namespace Bugsee.Platform.IOS
 
     sealed class IosAttachment : IAttachment
     {
+        string _path;
         string _text;
         string _dataBase64;
         bool _isBinary;
+        bool _ownsSnapshotFile;
 
         public IosAttachment(string name)
         {
@@ -243,6 +302,7 @@ namespace Bugsee.Platform.IOS
 
         public void SetData(byte[] data)
         {
+            _path = null;
             if (data == null || data.Length == 0)
             {
                 _text = "";
@@ -272,7 +332,55 @@ namespace Bugsee.Platform.IOS
         {
             _text = text ?? "";
             _dataBase64 = null;
+            _path = null;
             _isBinary = false;
+        }
+
+        public void SetFilePath(string path)
+        {
+            _path = path;
+            _text = null;
+            _dataBase64 = null;
+            _isBinary = false;
+            _ownsSnapshotFile = false;
+        }
+
+        public void SetSnapshotPath(string path)
+        {
+            _path = path;
+            _text = null;
+            _dataBase64 = null;
+            _isBinary = false;
+            _ownsSnapshotFile = true;
+        }
+
+        public void DeleteSnapshotIfOwned()
+        {
+            if (!_ownsSnapshotFile || string.IsNullOrEmpty(_path))
+                return;
+
+            try
+            {
+                if (File.Exists(_path))
+                    File.Delete(_path);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+
+            _ownsSnapshotFile = false;
+        }
+
+        public void SetAttachmentBytes(byte[] data)
+        {
+            _path = null;
+            _text = null;
+            _isBinary = true;
+            _dataBase64 = Convert.ToBase64String(data);
+            _ownsSnapshotFile = false;
         }
 
         public string ToJsonObject()
@@ -282,13 +390,21 @@ namespace Bugsee.Platform.IOS
             Append("name", Name); sb.Append(',');
             Append("fileName", Filename); sb.Append(',');
             Append("mimeType", MimeType); sb.Append(',');
-            if (_isBinary && !string.IsNullOrEmpty(_dataBase64))
+            if (!string.IsNullOrEmpty(_path))
+            {
+                Append("path", _path);
+            }
+            else if (_isBinary && !string.IsNullOrEmpty(_dataBase64))
+            {
+                Append("dataBase64", _dataBase64);
+            }
+            else if (!string.IsNullOrEmpty(_dataBase64))
             {
                 Append("dataBase64", _dataBase64);
             }
             else
             {
-                Append("text", _text ?? "");
+                Append("dataBase64", Convert.ToBase64String(Encoding.UTF8.GetBytes(_text ?? "")));
             }
             sb.Append('}');
             return sb.ToString();

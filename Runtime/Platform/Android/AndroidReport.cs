@@ -57,7 +57,9 @@ namespace Bugsee.Platform.Android
             {
                 using (var s = _report.Call<AndroidJavaObject>("getSeverity"))
                 {
-                    var v = s?.Call<int>("getValue") ?? (int)IssueSeverity.High;
+                    if (s == null)
+                        return null;
+                    var v = s.Call<int>("getValue");
                     return IssueSeverityWire.TryFromWire(v, out var severity) ? severity : (IssueSeverity?)null;
                 }
             }
@@ -125,10 +127,27 @@ namespace Bugsee.Platform.Android
 
         public IReadOnlyList<IAttachment> Attachments => new List<IAttachment>();
 
-        public IAttachment CreateAndAddAttachment(string name)
+        public IAttachment AddAttachmentFile(string path, string name, string mimeType)
         {
-            var att = _report.Call<AndroidJavaObject>("createAndAddAttachment", name);
-            return new AndroidAttachment(att);
+            if (string.IsNullOrEmpty(path))
+                return null;
+
+            var attachmentName = string.IsNullOrEmpty(name) ? "attachment" : name;
+            using (var file = new AndroidJavaObject("java.io.File", path))
+            {
+                var att = _report.Call<AndroidJavaObject>("addAttachment", file, attachmentName, mimeType, false);
+                return att == null ? null : new AndroidAttachment(att);
+            }
+        }
+
+        public IAttachment AddAttachmentBytes(byte[] data, string name, string mimeType)
+        {
+            if (data == null || data.Length == 0)
+                return null;
+
+            var attachmentName = string.IsNullOrEmpty(name) ? "attachment" : name;
+            var att = _report.Call<AndroidJavaObject>("addAttachment", data, attachmentName, mimeType);
+            return att == null ? null : new AndroidAttachment(att);
         }
 
         public void ClearAttachments() => _report.Call("clearAttachments");
