@@ -80,5 +80,14 @@ namespace Bugsee.WrapperPolicy
                     throw new System.ArgumentOutOfRangeException(nameof(level), level, "Unknown breadcrumb level.");
             }
         }
+
+        public static BreadcrumbLevelName ParseOrThrow(string levelName)
+        {
+            if (TryParse(levelName, out var level))
+                return level;
+            throw new System.ArgumentException(
+                "breadcrumb level '" + levelName + "' is unknown",
+                nameof(levelName));
+        }
     }
 }

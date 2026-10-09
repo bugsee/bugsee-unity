@@ -1,6 +1,7 @@
 #if UNITY_ANDROID && !UNITY_EDITOR
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using Bugsee.Contracts.Appearance;
 using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Feedback;
@@ -435,6 +436,70 @@ namespace Bugsee.Platform.Android
         {
             // App listener is held on the Bugsee facade; native proxy always fans out there.
             InstallDefaultListeners();
+        }
+
+        public void NotifyLifecycle(string eventType) { }
+
+        public void DeleteCollectedDataOnDevice()
+        {
+            if (GetLaunched())
+                return;
+            _bugsee.CallStatic("deleteCollectedDataOnDevice");
+        }
+
+        public IReport CreateReport()
+        {
+            var javaReport = _bugsee.CallStatic<AndroidJavaObject>("createReport");
+            return new AndroidReport(javaReport);
+        }
+
+        public void UploadReport(IReport report)
+        {
+            if (report == null)
+                throw new ArgumentNullException(nameof(report));
+            var javaReport = TryGetAndroidReportObject(report);
+            if (javaReport == null)
+                throw new ArgumentException("Report was not created by Bugsee.CreateReport on Android.", nameof(report));
+            _bugsee.CallStatic("upload", javaReport);
+        }
+
+        static AndroidJavaObject TryGetAndroidReportObject(IReport report)
+        {
+            if (!(report is AndroidReport androidReport))
+                return null;
+            var field = typeof(AndroidReport).GetField(
+                "_report",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            return field?.GetValue(androidReport) as AndroidJavaObject;
+        }
+
+        public void AddBreadcrumb(string category, string message, string levelName)
+        {
+            var level = BreadcrumbLevelMap.ParseOrThrow(levelName);
+            if (GetExchangeFactory() == null)
+                return;
+
+            using (var levelClass = new AndroidJavaClass(
+                       "com.bugsee.library.contracts.exchange.Breadcrumb$Level"))
+            using (var def = levelClass.CallStatic<AndroidJavaObject>("fromRawValue", (sbyte)1))
+            using (var javaLevel = levelClass.CallStatic<AndroidJavaObject>(
+                       "fromRawValue",
+                       (sbyte)BreadcrumbLevelMap.ToAndroid(level),
+                       def))
+            using (var javaFactory = _bugsee.CallStatic<AndroidJavaObject>("getExchangeFactory"))
+            {
+                if (javaFactory == null)
+                    return;
+                var breadcrumb = javaFactory.Call<AndroidJavaObject>(
+                    "createBreadcrumb",
+                    DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    category ?? "",
+                    message ?? "",
+                    javaLevel);
+                if (breadcrumb == null)
+                    return;
+                _bugsee.CallStatic("addBreadcrumb", breadcrumb);
+            }
         }
 
         void InstallDefaultListeners()

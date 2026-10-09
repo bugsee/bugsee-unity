@@ -85,6 +85,14 @@ namespace Bugsee
         public static void AddNetworkEvent(INetworkEvent networkEvent) =>
             Bridge.AddNetworkEvent(networkEvent);
 
+        public static void DeleteCollectedDataOnDevice() =>
+            Bridge.DeleteCollectedDataOnDevice();
+
+        public static IReport CreateReport() => Bridge.CreateReport();
+
+        public static void AddBreadcrumb(string category, string message, string levelName) =>
+            Bridge.AddBreadcrumb(category, message, levelName);
+
         public static IBugseeExchangeFactory GetExchangeFactory() =>
             Bridge.GetExchangeFactory();
 
@@ -118,6 +126,9 @@ namespace Bugsee
             IssueSeverity severity = IssueSeverity.High,
             IList<string> labels = null) =>
             Bridge.Upload(summary, description, severity, labels);
+
+        /// <summary>Upload a report created with <see cref="CreateReport"/>.</summary>
+        public static void Upload(IReport report) => Bridge.UploadReport(report);
 
         public static void SetUserIdentifier(string userIdentifier) =>
             Bridge.SetUserIdentifier(userIdentifier);
@@ -167,6 +178,9 @@ namespace Bugsee
         /// <summary>Called from native wrapper / lifecycle proxy. Not for app use.</summary>
         internal static void HandleNativeLifecycle(string eventType, object data)
         {
+            try { Bridge.NotifyLifecycle(eventType); }
+            catch (Exception ex) { Debug.LogException(ex); }
+
             try { LifecycleEvent?.Invoke(eventType, data); }
             catch (Exception ex) { Debug.LogException(ex); }
 

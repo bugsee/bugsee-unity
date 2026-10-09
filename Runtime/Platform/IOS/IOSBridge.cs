@@ -9,9 +9,9 @@ using Bugsee.Contracts.Lifecycle;
 using Bugsee.Contracts.Options;
 using Bugsee.WrapperPolicy;
 using Bugsee.Contracts.Reporting;
+using UnityEngine;
 using Bugsee.Internal;
 using Bugsee.Platform;
-using UnityEngine;
 
 namespace Bugsee.Platform.IOS
 {
@@ -26,8 +26,16 @@ namespace Bugsee.Platform.IOS
         bool _launched;
         bool _blackout;
         IosAppearance _appearance;
+        IosReport _openReport;
+        IosLiveReport _openReportHandle;
+        readonly NetworkEventLaunchBuffer<INetworkEvent> _networkLaunchBuffer = new NetworkEventLaunchBuffer<INetworkEvent>();
 
         public bool IsSupported => true;
+
+        public IOSBridge()
+        {
+            _networkLaunchBuffer.SetSubmitHandler(SubmitNetworkEventToChannel);
+        }
 
         public IFeedback Feedback { get; } = new IosFeedback();
 
@@ -39,6 +47,7 @@ namespace Bugsee.Platform.IOS
             if (!MainThreadDispatcher.RunSyncLifecycle(() =>
                 {
                     EnsureWrapperRegistered();
+                    _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
                     _bugsee_launch(appToken, ToJsonObject(OptionPlatformGate.ForIos(options)));
                     _launched = true;
                     ExceptionPipeline.Install(this, options);
@@ -53,6 +62,7 @@ namespace Bugsee.Platform.IOS
         {
             if (!MainThreadDispatcher.RunSyncLifecycle(() =>
                 {
+                    _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
                     _bugsee_relaunch(ToJsonObject(OptionPlatformGate.ForIos(options)));
                     ExceptionPipeline.Install(this, options);
                     HostLogForwarder.InstallOnce(this);
@@ -71,6 +81,14 @@ namespace Bugsee.Platform.IOS
                     _bugsee_clear_wrapper_channel();
                     _bugsee_stop();
                     _launched = false;
+                    if (_openReport != null)
+                    {
+                        ApplyOpenReportToNative();
+                        _bugsee_release_open_report();
+                    }
+                    _openReport = null;
+                    _openReportHandle = null;
+                    _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
                     completion?.Invoke();
                 }))
             {
@@ -105,7 +123,66 @@ namespace Bugsee.Platform.IOS
 
         public void AddNetworkEvent(INetworkEvent networkEvent)
         {
-            // iOS wrapper-channel network export lands in a follow-up task.
+            _networkLaunchBuffer.Enqueue(networkEvent);
+        }
+
+        public void NotifyLifecycle(string eventType)
+        {
+            if (eventType == LifecycleEvents.Launched)
+                _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Launched);
+            else if (eventType == LifecycleEvents.Stopped)
+                _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
+        }
+
+        public void DeleteCollectedDataOnDevice() => _bugsee_delete_collected_data();
+
+        public IReport CreateReport()
+        {
+            if (_openReport != null)
+                throw new InvalidOperationException("a report is already open");
+            var json = ConsumeNativeString(_bugsee_create_report());
+            if (string.IsNullOrEmpty(json))
+                throw new InvalidOperationException("CreateReport failed.");
+            var dto = JsonUtility.FromJson<IosReportDto>(IosJsonNormalize.NormalizeReport(json));
+            _openReport = new IosReport(dto);
+            _openReportHandle = new IosLiveReport(_openReport, this);
+            return _openReportHandle;
+        }
+
+        public void UploadReport(IReport report)
+        {
+            if (!ReferenceEquals(report, _openReportHandle))
+                throw new ArgumentException("Report was not created by CreateReport.", nameof(report));
+            ApplyOpenReportToNative();
+            _bugsee_upload_open_report();
+            _openReport = null;
+            _openReportHandle = null;
+        }
+
+        internal void ApplyOpenReportToNative()
+        {
+            if (_openReport == null)
+                return;
+            _bugsee_apply_open_report(_openReport.ToResultJson());
+        }
+
+        internal void ReleaseOpenReportFromLiveHandle(IosLiveReport handle)
+        {
+            if (!ReferenceEquals(handle, _openReportHandle))
+                return;
+            ApplyOpenReportToNative();
+            _bugsee_release_open_report();
+            _openReport = null;
+            _openReportHandle = null;
+        }
+
+        public void AddBreadcrumb(string category, string message, string levelName)
+        {
+            var level = BreadcrumbLevelMap.ParseOrThrow(levelName);
+            _bugsee_channel_breadcrumb(
+                category ?? "",
+                message ?? "",
+                BreadcrumbLevelMap.ToIos(level));
         }
 
         public IBugseeExchangeFactory GetExchangeFactory() => IosExchangeFactory.Instance;
@@ -208,6 +285,47 @@ namespace Bugsee.Platform.IOS
             EnsureWrapperRegistered();
         }
 
+        void SubmitNetworkEventToChannel(INetworkEvent networkEvent)
+        {
+            if (networkEvent == null)
+                return;
+
+            var iosEvent = networkEvent as IosNetworkEvent;
+            if (iosEvent == null)
+            {
+                var factory = GetExchangeFactory();
+                if (factory == null)
+                    return;
+                iosEvent = (IosNetworkEvent)factory.CreateNetworkEvent(
+                    DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    networkEvent.Stage,
+                    string.IsNullOrEmpty(networkEvent.Id) ? null : networkEvent.Id,
+                    networkEvent.Mechanism,
+                    networkEvent.Method);
+                if (iosEvent == null)
+                    return;
+                CopyNetworkFields(networkEvent, iosEvent);
+            }
+
+            var requiresFiltering = ChannelSubmit.NetworkRequiresFiltering() ? 1 : 0;
+            var json = IosNativeCallbacks.ToNativeMapJson(iosEvent.ToResultJson(), "headers");
+            _bugsee_channel_network(json, requiresFiltering);
+        }
+
+        static void CopyNetworkFields(INetworkEvent source, INetworkEvent target)
+        {
+            if (source == null || target == null || ReferenceEquals(source, target))
+                return;
+            target.Url = source.Url;
+            target.Body = source.Body;
+            target.Size = source.Size;
+            target.ResponseCode = source.ResponseCode;
+            target.StatusText = source.StatusText;
+            target.ErrorShortMessage = source.ErrorShortMessage;
+            target.ErrorDescription = source.ErrorDescription;
+            target.Headers = source.Headers;
+        }
+
         static string ConsumeNativeString(IntPtr ptr)
         {
             if (ptr == IntPtr.Zero) return null;
@@ -292,6 +410,13 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_end_blackout();
         [DllImport("__Internal")] static extern void _bugsee_log(string message, int level);
         [DllImport("__Internal")] static extern void _bugsee_channel_log(string message, int level, int source);
+        [DllImport("__Internal")] static extern void _bugsee_channel_network(string eventJson, int requiresFiltering);
+        [DllImport("__Internal")] static extern void _bugsee_channel_breadcrumb(string category, string message, int iosLevel);
+        [DllImport("__Internal")] static extern void _bugsee_delete_collected_data();
+        [DllImport("__Internal")] static extern IntPtr _bugsee_create_report();
+        [DllImport("__Internal")] static extern void _bugsee_apply_open_report(string reportJson);
+        [DllImport("__Internal")] static extern void _bugsee_upload_open_report();
+        [DllImport("__Internal")] static extern void _bugsee_release_open_report();
         [DllImport("__Internal")] static extern void _bugsee_trace(string name, string valueJson);
         [DllImport("__Internal")] static extern void _bugsee_event(string name, string paramsJson);
         [DllImport("__Internal")] static extern void _bugsee_logException(string name, string reason, bool handled);
@@ -368,6 +493,162 @@ namespace Bugsee.Platform.IOS
 
             public IReadOnlyDictionary<string, object> ToMap() =>
                 new Dictionary<string, object>(_cache);
+        }
+
+        /// <summary>Live handle over the native open report created by <see cref="CreateReport"/>.</summary>
+        internal sealed class IosLiveReport : IReport, IDisposable
+        {
+            readonly IosReport _inner;
+            readonly IOSBridge _owner;
+
+            internal IosLiveReport(IosReport inner, IOSBridge owner)
+            {
+                _inner = inner;
+                _owner = owner;
+            }
+
+            public void Dispose() => _owner.ReleaseOpenReportFromLiveHandle(this);
+
+            public string Id => _inner.Id;
+            public IssueType Type => _inner.Type;
+
+            public string Summary
+            {
+                get => _inner.Summary;
+                set { _inner.Summary = value; _owner.ApplyOpenReportToNative(); }
+            }
+
+            public string Description
+            {
+                get => _inner.Description;
+                set { _inner.Description = value; _owner.ApplyOpenReportToNative(); }
+            }
+
+            public string Email
+            {
+                get => _inner.Email;
+                set { _inner.Email = value; _owner.ApplyOpenReportToNative(); }
+            }
+
+            public IssueSeverity? Severity
+            {
+                get => _inner.Severity;
+                set { _inner.Severity = value; _owner.ApplyOpenReportToNative(); }
+            }
+
+            public IReadOnlyDictionary<string, object> Attributes => _inner.Attributes;
+
+            public object GetAttribute(string name) => _inner.GetAttribute(name);
+
+            public void SetAttribute(string name, object value)
+            {
+                _inner.SetAttribute(name, value);
+                _owner.ApplyOpenReportToNative();
+            }
+
+            public void RemoveAttribute(string name)
+            {
+                _inner.RemoveAttribute(name);
+                _owner.ApplyOpenReportToNative();
+            }
+
+            public void ClearAllAttributes()
+            {
+                _inner.ClearAllAttributes();
+                _owner.ApplyOpenReportToNative();
+            }
+
+            public IReadOnlyList<string> Labels => _inner.Labels;
+
+            public void AddLabel(string label)
+            {
+                _inner.AddLabel(label);
+                _owner.ApplyOpenReportToNative();
+            }
+
+            public void ClearLabels()
+            {
+                _inner.ClearLabels();
+                _owner.ApplyOpenReportToNative();
+            }
+
+            public void SetLabels(IEnumerable<string> labels)
+            {
+                _inner.SetLabels(labels);
+                _owner.ApplyOpenReportToNative();
+            }
+
+            public IReadOnlyList<IAttachment> Attachments
+            {
+                get
+                {
+                    var inner = _inner.Attachments;
+                    var wrapped = new List<IAttachment>(inner.Count);
+                    for (var i = 0; i < inner.Count; i++)
+                    {
+                        if (inner[i] is IosAttachment iosAttachment)
+                            wrapped.Add(new IosLiveAttachment(iosAttachment, _owner));
+                        else
+                            wrapped.Add(inner[i]);
+                    }
+                    return wrapped;
+                }
+            }
+
+            public IAttachment CreateAndAddAttachment(string name)
+            {
+                var att = (IosAttachment)_inner.CreateAndAddAttachment(name);
+                _owner.ApplyOpenReportToNative();
+                return new IosLiveAttachment(att, _owner);
+            }
+
+            public void ClearAttachments()
+            {
+                _inner.ClearAttachments();
+                _owner.ApplyOpenReportToNative();
+            }
+        }
+
+        sealed class IosLiveAttachment : IAttachment
+        {
+            readonly IosAttachment _inner;
+            readonly IOSBridge _owner;
+
+            internal IosLiveAttachment(IosAttachment inner, IOSBridge owner)
+            {
+                _inner = inner;
+                _owner = owner;
+            }
+
+            public string Name
+            {
+                get => _inner.Name;
+                set { _inner.Name = value; _owner.ApplyOpenReportToNative(); }
+            }
+
+            public string Filename
+            {
+                get => _inner.Filename;
+                set { _inner.Filename = value; _owner.ApplyOpenReportToNative(); }
+            }
+
+            public string MimeType
+            {
+                get => _inner.MimeType;
+                set { _inner.MimeType = value; _owner.ApplyOpenReportToNative(); }
+            }
+
+            public void SetData(byte[] data)
+            {
+                _inner.SetData(data);
+                _owner.ApplyOpenReportToNative();
+            }
+
+            public void SetData(string text)
+            {
+                _inner.SetData(text);
+                _owner.ApplyOpenReportToNative();
+            }
         }
     }
 

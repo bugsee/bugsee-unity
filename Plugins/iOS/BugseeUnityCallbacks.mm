@@ -421,6 +421,53 @@ void _bugsee_channel_log(const char *message, int level, int source)
                  source:(BGSLogEventSource)source];
 }
 
+void _bugsee_channel_network(const char *eventJson, int requiresFiltering)
+{
+    id<BGSWrapperChannel> channel = gChannel;
+    if (!channel || !eventJson) {
+        return;
+    }
+    if (![channel respondsToSelector:@selector(addNetworkEvent:requiresFiltering:)]) {
+        return;
+    }
+    NSDictionary *dict = BugseeUnityParseJson(eventJson);
+    if (![dict isKindOfClass:[NSDictionary class]]) {
+        return;
+    }
+    BugseeNetworkEvent *event = [BugseeNetworkEvent new];
+    id eventId = dict[@"id"];
+    if ([eventId isKindOfClass:[NSString class]]) {
+        event.ID = eventId;
+    }
+    BugseeUnityApplyNetworkDict(event, dict);
+    [channel addNetworkEvent:event requiresFiltering:requiresFiltering != 0];
+}
+
+void _bugsee_channel_breadcrumb(const char *category, const char *message, int iosLevel)
+{
+    id<BGSWrapperChannel> channel = gChannel;
+    if (!channel) {
+        return;
+    }
+    if (![channel respondsToSelector:@selector(addBreadcrumb:)]) {
+        return;
+    }
+    NSString *categoryText = category ? [NSString stringWithUTF8String:category] : @"";
+    NSString *messageText = message ? [NSString stringWithUTF8String:message] : @"";
+    if (!categoryText) {
+        categoryText = @"";
+    }
+    if (!messageText) {
+        messageText = @"";
+    }
+    id<BGSBreadcrumb> breadcrumb = [BugseeBreadcrumb breadcrumbWithCategory:categoryText message:messageText];
+    if (!breadcrumb) {
+        return;
+    }
+    breadcrumb.level = (BugseeLogLevel)iosLevel;
+    [channel addBreadcrumb:breadcrumb];
+}
+
 void _bugsee_ensure_wrapper(const char *version, const char *build)
 {
     if (version) gWrapperVersion = [NSString stringWithUTF8String:version];
@@ -607,6 +654,8 @@ extern "C" {
 void _bugsee_register_unity_callbacks(void *a, void *b, void *c) { (void)a; (void)b; (void)c; }
 void _bugsee_clear_wrapper_channel(void) {}
 void _bugsee_channel_log(const char *message, int level, int source) { (void)message; (void)level; (void)source; }
+void _bugsee_channel_network(const char *eventJson, int requiresFiltering) { (void)eventJson; (void)requiresFiltering; }
+void _bugsee_channel_breadcrumb(const char *category, const char *message, int iosLevel) { (void)category; (void)message; (void)iosLevel; }
 void _bugsee_ensure_wrapper(const char *version, const char *build) { (void)version; (void)build; }
 void _bugsee_set_wrapper_context(const char *json) { (void)json; }
 void _bugsee_set_network_filter_enabled(int enabled) { (void)enabled; }
