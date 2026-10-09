@@ -14,6 +14,7 @@ namespace Bugsee.Internal
         static bool _installed;
         static IBugseeNativeBridge _bridge;
         static Application.LogCallback _logHandler;
+        static int _generation;
 
         [ThreadStatic]
         static int _forwardDepth;
@@ -27,7 +28,8 @@ namespace Bugsee.Internal
 
             _installed = true;
             _bridge = bridge;
-            _logHandler = (message, stackTrace, type) => ForwardLog(_bridge, message, type);
+            _generation++;
+            _logHandler = (message, stackTrace, type) => ForwardLog(_bridge, message, stackTrace, type);
             Application.logMessageReceivedThreaded += _logHandler;
         }
 
@@ -37,6 +39,8 @@ namespace Bugsee.Internal
             {
                 return;
             }
+
+            _generation++;
 
             if (_logHandler != null)
             {
@@ -48,15 +52,28 @@ namespace Bugsee.Internal
             _installed = false;
         }
 
-        static void ForwardLog(IBugseeNativeBridge bridge, string message, LogType type)
+        static void ForwardLog(IBugseeNativeBridge bridge, string message, string stackTrace, LogType type)
         {
             if (type == LogType.Exception || string.IsNullOrEmpty(message))
             {
                 return;
             }
 
+            var payload = message;
+            if (!string.IsNullOrEmpty(stackTrace))
+            {
+                payload = message + "\n" + stackTrace;
+            }
+
+            var generation = _generation;
+
             void Send()
             {
+                if (generation != _generation)
+                {
+                    return;
+                }
+
                 if (_forwardDepth > 0)
                 {
                     return;
@@ -65,7 +82,7 @@ namespace Bugsee.Internal
                 _forwardDepth++;
                 try
                 {
-                    bridge.ChannelLog(message, LevelFor(type));
+                    bridge.ChannelLog(payload, LevelFor(type));
                 }
                 catch (Exception ex)
                 {
