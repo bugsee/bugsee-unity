@@ -1,4 +1,5 @@
 #if UNITY_ANDROID && !UNITY_EDITOR
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using Bugsee;
 using UnityEngine;
@@ -11,9 +12,8 @@ namespace Bugsee.Platform.Android
     /// </summary>
     sealed class BugseeWrapperProxy : AndroidJavaProxy
     {
-        // Packed secure-rect buffer: [version, count, l,t,r,b, ...]
-        int[] _secureRects = { 0, 0 };
-        int _secureVersion = 1;
+        // Packed secure-rect buffer per display: [version, count, l,t,r,b, ...]
+        readonly ConcurrentDictionary<int, int[]> _secureRectsByDisplay = new ConcurrentDictionary<int, int[]>();
 
         public BugseeWrapperProxy()
             : base("com.bugsee.library.contracts.internal.BugseeWrapper")
@@ -75,8 +75,10 @@ namespace Bugsee.Platform.Android
 
         public int[] getSecureRectangles(int display)
         {
-            // display id reserved for multi-display; Unity currently publishes one set.
-            return _secureRects;
+            if (_secureRectsByDisplay.TryGetValue(display, out int[] cached))
+                return (int[])cached.Clone();
+
+            return new[] { 1, 0 };
         }
 
         // ReportHandler defaults — no-op continue. App handler is separate via setReportHandler.
@@ -92,18 +94,21 @@ namespace Bugsee.Platform.Android
 
         internal void SetSecureRectangles(IList<int> packedOrEmpty)
         {
+            SetSecureRectangles(0, packedOrEmpty);
+        }
+
+        internal void SetSecureRectangles(int display, IList<int> packedOrEmpty)
+        {
             if (packedOrEmpty == null || packedOrEmpty.Count < 2)
             {
-                _secureVersion++;
-                _secureRects = new[] { _secureVersion, 0 };
+                _secureRectsByDisplay[display] = new[] { 1, 0 };
                 return;
             }
 
-            _secureVersion++;
             var arr = new int[packedOrEmpty.Count];
-            for (var i = 0; i < packedOrEmpty.Count; i++) arr[i] = packedOrEmpty[i];
-            arr[0] = _secureVersion;
-            _secureRects = arr;
+            for (var i = 0; i < packedOrEmpty.Count; i++)
+                arr[i] = packedOrEmpty[i];
+            _secureRectsByDisplay[display] = arr;
         }
     }
 }
