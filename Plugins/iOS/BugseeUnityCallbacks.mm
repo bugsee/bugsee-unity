@@ -277,9 +277,14 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
         [report clearAllAttributes];
     }
 
+    id replaceAttachments = d[@"attachmentsReplaceAll"];
+    BOOL shouldReplaceAttachments = [replaceAttachments respondsToSelector:@selector(boolValue)] && [replaceAttachments boolValue];
+
     id attachments = d[@"attachments"];
     if ([attachments isKindOfClass:[NSArray class]]) {
-        [report clearAttachments];
+        if (shouldReplaceAttachments) {
+            [report clearAttachments];
+        }
         for (id item in (NSArray *)attachments) {
             if (![item isKindOfClass:[NSDictionary class]]) continue;
             NSDictionary *att = (NSDictionary *)item;

@@ -62,5 +62,22 @@ namespace Bugsee.WrapperPolicy.Tests
             json = report.ToResultJson();
             Assert.That(json, Does.Contain("attributesReplaceAll"));
         }
+
+        [Test]
+        public void ToResultJson_appends_attachments_without_replace_all_until_clear()
+        {
+            var report = new IosReport(new IosReportDto());
+            var att = report.CreateAndAddAttachment("log.txt");
+            att.SetData("hello");
+            string json = report.ToResultJson();
+
+            Assert.That(json, Does.Contain("\"attachments\":["));
+            Assert.That(json, Does.Not.Contain("attachmentsReplaceAll"));
+
+            report.ClearAttachments();
+            json = report.ToResultJson();
+            Assert.That(json, Does.Contain("\"attachments\":[]"));
+            Assert.That(json, Does.Contain("attachmentsReplaceAll"));
+        }
     }
 }

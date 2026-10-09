@@ -323,11 +323,32 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Ios_handler_apply_clears_attachments_before_add_loop()
+        public void Ios_handler_apply_appends_attachments_unless_replace_all_flag()
         {
             string callbacks = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityCallbacks.mm"));
             string body = ExtractNativeFunctionBody(callbacks, "BugseeUnityApplyReportDict");
-            Assert.That(body, Does.Contain("[report clearAttachments]"));
+            Assert.That(body, Does.Contain("attachmentsReplaceAll"));
+            Assert.That(body, Does.Contain("shouldReplaceAttachments"));
+            Assert.That(body, Does.Contain("if (shouldReplaceAttachments)"));
+        }
+
+        [Test]
+        public void Ios_to_result_json_emits_attachments_replace_all_only_after_clear()
+        {
+            string body = ExtractMethodBody(
+                File.ReadAllText(RepoFile("Runtime/Platform/IOS/IosReport.cs")),
+                "public string ToResultJson()");
+            Assert.That(body, Does.Contain("_attachmentsReplaceAll"));
+            Assert.That(body, Does.Contain("attachmentsReplaceAll"));
+        }
+
+        [Test]
+        public void Ios_create_report_apply_still_clears_attachments()
+        {
+            string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
+            string body = ExtractNativeFunctionBody(bridge, "BugseeBridgeApplyExtendedReportDict");
+            Assert.That(body, Does.Contain("[report clearAllAttachments]"));
+            Assert.That(body, Does.Not.Contain("attachmentsReplaceAll"));
         }
 
         [Test]

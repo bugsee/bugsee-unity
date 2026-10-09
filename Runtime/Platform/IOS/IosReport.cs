@@ -43,6 +43,7 @@ namespace Bugsee.Platform.IOS
         bool _attributesClearAll;
         bool _labelsDirty;
         bool _attachmentsDirty;
+        bool _attachmentsReplaceAll;
 
         public IosReport(IosReportDto dto)
         {
@@ -165,6 +166,7 @@ namespace Bugsee.Platform.IOS
         {
             _attachments.Clear();
             _attachmentsDirty = true;
+            _attachmentsReplaceAll = true;
         }
 
         public string ToResultJson()
@@ -239,6 +241,8 @@ namespace Bugsee.Platform.IOS
                     sb.Append(_attachments[i].ToJsonObject());
                 }
                 sb.Append(']');
+                if (_attachmentsReplaceAll)
+                    sb.Append(",\"attachmentsReplaceAll\":true");
             }
 
             sb.Append('}');
