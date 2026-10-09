@@ -43,6 +43,8 @@ Native~/ios/Bugsee/Bugsee.xcframework/
 # Native bridge test build output
 Tests~/**/build/
 Tests~/**/.build/
+Tests~/**/bin/
+Tests~/**/obj/
 Tests~/Android/local.properties
 
 # Packaging
