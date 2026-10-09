@@ -59,6 +59,23 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Lifecycle_stopped_after_launched_does_not_drop_later_events()
+        {
+            var delivered = new List<int>();
+            var buffer = new NetworkEventLaunchBuffer<int>();
+            buffer.SetSubmitHandler(v => delivered.Add(v));
+
+            buffer.BeginNewLaunchCycle();
+            buffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
+            buffer.Enqueue(1);
+            buffer.SetPhaseFromLifecycle(NetworkLaunchPhase.Launched);
+            buffer.SetPhaseFromLifecycle(NetworkLaunchPhase.Stopped);
+            buffer.Enqueue(2);
+
+            Assert.That(delivered, Is.EqualTo(new[] { 1, 2 }));
+        }
+
+        [Test]
         public void Breadcrumb_buffer_stop_clears_pending_without_flush()
         {
             var delivered = new List<IosPendingBreadcrumb>();

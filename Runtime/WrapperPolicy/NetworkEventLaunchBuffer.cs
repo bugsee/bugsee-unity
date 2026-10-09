@@ -45,7 +45,6 @@ namespace Bugsee.WrapperPolicy
                 {
                     if (_phase == NetworkLaunchPhase.Launched)
                         return;
-                    _lifecycleStoppedPendingAfterNewLaunch = false;
                     _phase = NetworkLaunchPhase.Launched;
                     FlushPendingLocked();
                     return;
@@ -72,7 +71,6 @@ namespace Bugsee.WrapperPolicy
                 {
                     if (_phase == NetworkLaunchPhase.Launched)
                         return;
-                    _lifecycleStoppedPendingAfterNewLaunch = false;
                     _phase = NetworkLaunchPhase.Launched;
                     FlushPendingLocked();
                     return;
@@ -80,9 +78,8 @@ namespace Bugsee.WrapperPolicy
 
                 if (phase == NetworkLaunchPhase.Stopped)
                 {
-                    if (_lifecycleStoppedPendingAfterNewLaunch && _phase == NetworkLaunchPhase.BeforeLaunched)
+                    if (_lifecycleStoppedPendingAfterNewLaunch)
                         return;
-                    _lifecycleStoppedPendingAfterNewLaunch = false;
                     _phase = NetworkLaunchPhase.Stopped;
                     _pending.Clear();
                     return;
