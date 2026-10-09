@@ -37,6 +37,7 @@ namespace Bugsee.Platform.IOS
         public static void EnsureWrapper()
         {
             EnsureRegistered();
+            MainThreadDispatcher.Ensure();
             void Work()
             {
                 PublishHostContext();

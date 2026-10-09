@@ -35,7 +35,7 @@ namespace Bugsee.Platform.IOS
         public void Launch(string appToken, IDictionary<string, object> options)
         {
             ManagedExceptionPayload.EnsureBuildIdentity();
-            if (!MainThreadDispatcher.RunSync(() =>
+            if (!MainThreadDispatcher.RunSyncLifecycle(() =>
                 {
                     EnsureWrapperRegistered();
                     _bugsee_launch(appToken, ToJsonObject(options));
@@ -49,7 +49,7 @@ namespace Bugsee.Platform.IOS
 
         public void Relaunch(IDictionary<string, object> options)
         {
-            if (!MainThreadDispatcher.RunSync(() =>
+            if (!MainThreadDispatcher.RunSyncLifecycle(() =>
                 {
                     _bugsee_relaunch(ToJsonObject(options));
                     ExceptionPipeline.Install(this, options);
@@ -61,7 +61,7 @@ namespace Bugsee.Platform.IOS
 
         public void Stop(Action completion = null)
         {
-            if (!MainThreadDispatcher.RunSync(() =>
+            if (!MainThreadDispatcher.RunSyncLifecycle(() =>
                 {
                     ExceptionPipeline.Uninstall();
                     _bugsee_stop();

@@ -21,7 +21,12 @@ namespace Bugsee.Internal
 
         public static MainThreadDispatcher Ensure()
         {
-            if (_instance != null) return _instance;
+            if (_instance != null)
+            {
+                return _instance;
+            }
+
+            AdoptMainThreadId();
             var go = new GameObject("Bugsee.MainThreadDispatcher");
             DontDestroyOnLoad(go);
             _instance = go.AddComponent<MainThreadDispatcher>();
@@ -39,8 +44,6 @@ namespace Bugsee.Internal
         public static bool IsMainThread =>
             _mainThreadId != 0 && Thread.CurrentThread.ManagedThreadId == _mainThreadId;
 
-        static bool ShouldRunInline() => _mainThreadId == 0 || IsMainThread;
-
         static void DrainQueueInline()
         {
             while (Queue.TryDequeue(out var pending))
@@ -52,7 +55,6 @@ namespace Bugsee.Internal
 
         static void RunInlineOnMainThread(Action action)
         {
-            AdoptMainThreadId();
             DrainQueueInline();
             action();
         }
@@ -60,7 +62,7 @@ namespace Bugsee.Internal
         public static void Run(Action action)
         {
             if (action == null) return;
-            if (ShouldRunInline())
+            if (IsMainThread)
             {
                 RunInlineOnMainThread(action);
                 return;
@@ -73,11 +75,13 @@ namespace Bugsee.Internal
         /// <summary>
         /// Run on the main thread and block the caller until completion (or timeout).
         /// Used for fatal managed exception flush before process teardown.
+        /// Queued work is not cancelled when the wait times out.
         /// </summary>
         public static bool RunSync(Action action, int timeoutMs = 5000)
         {
             if (action == null) return true;
-            if (ShouldRunInline())
+            Ensure();
+            if (IsMainThread)
             {
                 try
                 {
@@ -91,45 +95,82 @@ namespace Bugsee.Internal
                 }
             }
 
-            Ensure();
-            using (var done = new ManualResetEventSlim(false))
+            var done = new ManualResetEventSlim(false);
+            Exception captured = null;
+            Queue.Enqueue(() =>
             {
-                Exception captured = null;
-                var cancelled = 0;
-                Queue.Enqueue(() =>
-                {
-                    if (Interlocked.CompareExchange(ref cancelled, 0, 0) != 0)
-                    {
-                        return;
-                    }
+                try { action(); }
+                catch (Exception ex) { captured = ex; }
+                finally { done.Set(); }
+            });
 
-                    try { action(); }
-                    catch (Exception ex) { captured = ex; }
-                    finally { done.Set(); }
-                });
-
-                if (!done.Wait(timeoutMs))
-                {
-                    Interlocked.Exchange(ref cancelled, 1);
-                    return false;
-                }
-
-                if (captured != null)
-                {
-                    throw captured;
-                }
-
-                return true;
+            if (!done.Wait(timeoutMs))
+            {
+                return false;
             }
+
+            if (captured != null)
+            {
+                throw captured;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Like <see cref="RunSync"/> but skips the queued action if the wait times out
+        /// (for iOS lifecycle calls that must not run after the caller has moved on).
+        /// </summary>
+        public static bool RunSyncLifecycle(Action action, int timeoutMs = 5000)
+        {
+            if (action == null) return true;
+            Ensure();
+            if (IsMainThread)
+            {
+                try
+                {
+                    RunInlineOnMainThread(action);
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogException(ex);
+                    throw;
+                }
+            }
+
+            var done = new ManualResetEventSlim(false);
+            Exception captured = null;
+            var skip = 0;
+            Queue.Enqueue(() =>
+            {
+                if (Interlocked.CompareExchange(ref skip, 0, 0) != 0)
+                {
+                    return;
+                }
+
+                try { action(); }
+                catch (Exception ex) { captured = ex; }
+                finally { done.Set(); }
+            });
+
+            if (!done.Wait(timeoutMs))
+            {
+                Interlocked.Exchange(ref skip, 1);
+                return false;
+            }
+
+            done.Dispose();
+            if (captured != null)
+            {
+                throw captured;
+            }
+
+            return true;
         }
 
         void Update()
         {
-            if (!IsMainThread)
-            {
-                return;
-            }
-
             DrainQueueInline();
         }
     }
