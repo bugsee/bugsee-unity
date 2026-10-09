@@ -168,5 +168,26 @@ namespace Bugsee.Platform.Android
 
         public void run() => _action?.Invoke();
     }
+
+    sealed class BooleanConsumerProxy : AndroidJavaProxy
+    {
+        readonly Action<bool> _onResult;
+
+        public BooleanConsumerProxy(Action<bool> onResult) : base("java.util.function.Consumer")
+        {
+            _onResult = onResult;
+        }
+
+        public void accept(AndroidJavaObject success)
+        {
+            if (success == null)
+            {
+                _onResult?.Invoke(false);
+                return;
+            }
+
+            _onResult?.Invoke(success.Call<bool>("booleanValue"));
+        }
+    }
 }
 #endif

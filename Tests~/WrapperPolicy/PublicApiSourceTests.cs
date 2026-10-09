@@ -127,6 +127,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string apply = ExtractNativeFunctionBody(bridge, "BugseeBridgeApplyReportDict");
             Assert.That(apply, Does.Contain("[report clearAttachments]"));
             Assert.That(apply, Does.Contain("addAttachmentWithData:"));
+            Assert.That(apply, Does.Contain(@"fileName"));
             Assert.That(apply, Does.Not.Contain("createAndAddAttachmentWithName"));
             Assert.That(bridge, Does.Not.Contain("_bugsee_apply_open_report"));
             Assert.That(bridge, Does.Not.Contain("[Bugsee createReport]"));
@@ -188,6 +189,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string invoke = ExtractMethodBody(android, "void InvokeDeleteCollectedDataOnDevice()");
             Assert.That(invoke, Does.Contain("deleteCollectedDataOnDevice"));
             Assert.That(invoke, Does.Contain("true"));
+            Assert.That(invoke, Does.Contain("BooleanConsumerProxy"));
         }
 
         [Test]

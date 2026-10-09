@@ -98,10 +98,15 @@ static void BugseeBridgeApplyReportDict(id<BGSReportContract> report, NSDictiona
             }
             NSDictionary *att = (NSDictionary *)item;
             NSString *name = [att[@"name"] isKindOfClass:[NSString class]] ? att[@"name"] : @"attachment";
+            id fileNameVal = att[@"fileName"];
+            NSString *fileName = [fileNameVal isKindOfClass:[NSString class]] ? fileNameVal : nil;
+            if (fileName.length == 0) {
+                fileName = name;
+            }
             NSString *mime = [att[@"mimeType"] isKindOfClass:[NSString class]] ? att[@"mimeType"] : @"text/plain";
             id filePath = att[@"filePath"];
             if ([filePath isKindOfClass:[NSString class]] && [(NSString *)filePath length] > 0) {
-                [report addAttachmentWithFilePath:filePath name:name mimeType:mime move:NO];
+                [report addAttachmentWithFilePath:filePath name:fileName mimeType:mime move:NO];
                 continue;
             }
             NSData *data = nil;
@@ -116,7 +121,7 @@ static void BugseeBridgeApplyReportDict(id<BGSReportContract> report, NSDictiona
             if (!data) {
                 data = [NSData data];
             }
-            [report addAttachmentWithData:data name:name mimeType:mime];
+            [report addAttachmentWithData:data name:fileName mimeType:mime];
         }
     }
 }

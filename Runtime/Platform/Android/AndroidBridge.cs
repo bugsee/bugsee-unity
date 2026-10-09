@@ -453,7 +453,14 @@ namespace Bugsee.Platform.Android
 
         void InvokeDeleteCollectedDataOnDevice()
         {
-            _bugsee.CallStatic("deleteCollectedDataOnDevice", true, new RunnableProxy(() => { }));
+            _bugsee.CallStatic(
+                "deleteCollectedDataOnDevice",
+                true,
+                new BooleanConsumerProxy(success =>
+                {
+                    if (!success)
+                        Debug.LogError("[Bugsee] deleteCollectedDataOnDevice failed.");
+                }));
         }
 
         public IReport CreateReport()
