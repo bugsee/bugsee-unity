@@ -36,6 +36,7 @@ namespace Bugsee.Platform.IOS
         IosAppearance _appearance;
         IosReport _openReport;
         IosLiveReport _openReportHandle;
+        readonly object _uploadSnapshotReportsGate = new object();
         readonly Dictionary<ulong, IosReport> _uploadSnapshotReports = new Dictionary<ulong, IosReport>();
         readonly NetworkEventLaunchBuffer<INetworkEvent> _networkLaunchBuffer = new NetworkEventLaunchBuffer<INetworkEvent>();
         readonly NetworkEventLaunchBuffer<IosPendingBreadcrumb> _breadcrumbLaunchBuffer =
@@ -102,6 +103,7 @@ namespace Bugsee.Platform.IOS
                     _bugsee_stop();
                     _launched = false;
                     CancelManagedReportUpload();
+                    _openReport?.ReleaseSnapshotFiles();
                     _openReport = null;
                     _openReportHandle = null;
                     _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
@@ -168,6 +170,7 @@ namespace Bugsee.Platform.IOS
                         ExceptionPipeline.Uninstall();
                         _bugsee_clear_wrapper_channel();
                         CancelManagedReportUpload();
+                        _openReport?.ReleaseSnapshotFiles();
                         _openReport = null;
                         _openReportHandle = null;
                         _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
@@ -183,6 +186,7 @@ namespace Bugsee.Platform.IOS
             }
 
             CancelManagedReportUpload();
+            _openReport?.ReleaseSnapshotFiles();
             _openReport = null;
             _openReportHandle = null;
             _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
@@ -205,16 +209,24 @@ namespace Bugsee.Platform.IOS
 
         void ReleaseAllUploadSnapshotReports()
         {
-            foreach (var kv in _uploadSnapshotReports)
-                kv.Value?.ReleaseSnapshotFiles();
-            _uploadSnapshotReports.Clear();
+            lock (_uploadSnapshotReportsGate)
+            {
+                foreach (var kv in _uploadSnapshotReports)
+                    kv.Value?.ReleaseSnapshotFiles();
+                _uploadSnapshotReports.Clear();
+            }
         }
 
         void ReleaseUploadSnapshotReport(ulong uploadToken)
         {
-            if (!_uploadSnapshotReports.TryGetValue(uploadToken, out var report))
-                return;
-            _uploadSnapshotReports.Remove(uploadToken);
+            IosReport report;
+            lock (_uploadSnapshotReportsGate)
+            {
+                if (!_uploadSnapshotReports.TryGetValue(uploadToken, out report))
+                    return;
+                _uploadSnapshotReports.Remove(uploadToken);
+            }
+
             report?.ReleaseSnapshotFiles();
         }
 
@@ -254,7 +266,8 @@ namespace Bugsee.Platform.IOS
             var json = snapshotReport.ToResultJson();
             var uploadToken = (ulong)++_reportUploadGeneration;
             var uploadFence = _managedReportUploadFence;
-            _uploadSnapshotReports[uploadToken] = snapshotReport;
+            lock (_uploadSnapshotReportsGate)
+                _uploadSnapshotReports[uploadToken] = snapshotReport;
             _openReport = null;
             _openReportHandle = null;
             _uploadCompletionBridge = this;

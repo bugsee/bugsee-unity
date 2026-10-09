@@ -88,6 +88,11 @@ namespace Bugsee.WrapperPolicy.Tests
 
             string completion = ExtractMethodBody(ios, "void HandleManagedReportCreateCompletion(bool succeeded, ulong uploadToken)");
             Assert.That(completion, Does.Contain("ReleaseUploadSnapshotReport(uploadToken)"));
+
+            string stop = ExtractMethodBody(ios, "public void Stop(Action completion = null)");
+            Assert.That(stop, Does.Contain("_openReport?.ReleaseSnapshotFiles()"));
+            string delete = ExtractMethodBody(ios, "public void DeleteCollectedDataOnDevice()");
+            Assert.That(delete, Does.Contain("_openReport?.ReleaseSnapshotFiles()"));
         }
 
         [Test]
@@ -264,6 +269,19 @@ namespace Bugsee.WrapperPolicy.Tests
             string addBytes = ExtractMethodBody(report, "public IAttachment AddAttachmentBytes(byte[] data, string name, string mimeType)");
             Assert.That(addBytes, Does.Contain("SetAttachmentBytes"));
             Assert.That(addBytes, Does.Not.Contain("SetData(data)"));
+        }
+
+        [Test]
+        public void Android_managed_report_snapshots_files_at_add()
+        {
+            string report = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidReport.cs"));
+            int managedStart = report.IndexOf("sealed class AndroidManagedReport", StringComparison.Ordinal);
+            Assert.That(managedStart, Is.GreaterThanOrEqualTo(0));
+            string managed = report.Substring(managedStart);
+            string addFile = ExtractMethodBody(managed, "public IAttachment AddAttachmentFile(string path, string name, string mimeType)");
+            Assert.That(addFile, Does.Contain("SnapshotAttachmentFile"));
+            Assert.That(addFile, Does.Contain("SetSnapshotPath"));
+            Assert.That(addFile, Does.Contain("File.Exists(path)"));
         }
 
         [Test]

@@ -95,6 +95,7 @@ namespace Bugsee.Platform.Android
         public void Stop(Action completion = null)
         {
             AndroidManagedReportUploadFence.Invalidate();
+            _openReport?.ReleaseSnapshotFiles();
             _openReport = null;
             HostLogForwarder.Uninstall();
             ExceptionPipeline.Uninstall();
@@ -462,6 +463,7 @@ namespace Bugsee.Platform.Android
         public void DeleteCollectedDataOnDevice()
         {
             AndroidManagedReportUploadFence.Invalidate();
+            _openReport?.ReleaseSnapshotFiles();
             _openReport = null;
             var deleteGeneration = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
             if (GetLaunched())
@@ -502,6 +504,7 @@ namespace Bugsee.Platform.Android
                 throw new ArgumentNullException(nameof(report));
             if (!ReferenceEquals(report, _openReport))
                 throw new ArgumentException("Report was not created by CreateReport.", nameof(report));
+            _openReport?.ReleaseSnapshotFiles();
             _openReport = null;
         }
 

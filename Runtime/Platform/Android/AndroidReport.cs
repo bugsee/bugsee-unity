@@ -319,16 +319,48 @@ namespace Bugsee.Platform.Android
 
         public IAttachment AddAttachmentFile(string path, string name, string mimeType)
         {
-            if (string.IsNullOrEmpty(path))
+            if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path))
                 return null;
+            string snapshotPath;
+            try
+            {
+                snapshotPath = SnapshotAttachmentFile(path);
+            }
+            catch (System.IO.IOException)
+            {
+                return null;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return null;
+            }
+
             var att = new AndroidManagedAttachment(string.IsNullOrEmpty(name) ? "attachment" : name, MarkAttachmentsDirty);
             var baseName = System.IO.Path.GetFileName(path);
             att.Filename = string.IsNullOrEmpty(baseName) ? att.Name : baseName;
             att.MimeType = string.IsNullOrEmpty(mimeType) ? "application/octet-stream" : mimeType;
-            att.SetFilePath(path);
+            att.SetSnapshotPath(snapshotPath);
             _attachments.Add(att);
             _attachmentsDirty = true;
             return att;
+        }
+
+        static string SnapshotAttachmentFile(string sourcePath)
+        {
+            var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bugsee-unity-report-attachments");
+            System.IO.Directory.CreateDirectory(dir);
+            var ext = System.IO.Path.GetExtension(sourcePath);
+            if (string.IsNullOrEmpty(ext))
+                ext = ".bin";
+            var dest = System.IO.Path.Combine(dir, Guid.NewGuid().ToString("N") + ext);
+            System.IO.File.Copy(sourcePath, dest, true);
+            return dest;
+        }
+
+        internal void ReleaseSnapshotFiles()
+        {
+            for (var i = 0; i < _attachments.Count; i++)
+                _attachments[i].DeleteSnapshotIfOwned();
         }
 
         public IAttachment AddAttachmentBytes(byte[] data, string name, string mimeType)
@@ -345,6 +377,7 @@ namespace Bugsee.Platform.Android
 
         public void ClearAttachments()
         {
+            ReleaseSnapshotFiles();
             _attachments.Clear();
             _attachmentsDirty = true;
         }
@@ -407,6 +440,7 @@ namespace Bugsee.Platform.Android
         byte[] _bytes;
         string _text;
         string _path;
+        bool _ownsSnapshotFile;
 
         public AndroidManagedAttachment(string name, Action markDirty)
         {
@@ -438,10 +472,41 @@ namespace Bugsee.Platform.Android
 
         public void SetFilePath(string path)
         {
+            DeleteSnapshotIfOwned();
             _path = path;
             _bytes = null;
             _text = null;
+            _ownsSnapshotFile = false;
             _markDirty?.Invoke();
+        }
+
+        internal void SetSnapshotPath(string snapshotPath)
+        {
+            DeleteSnapshotIfOwned();
+            _path = snapshotPath;
+            _bytes = null;
+            _text = null;
+            _ownsSnapshotFile = true;
+            _markDirty?.Invoke();
+        }
+
+        internal void DeleteSnapshotIfOwned()
+        {
+            if (!_ownsSnapshotFile || string.IsNullOrEmpty(_path))
+                return;
+            try
+            {
+                if (System.IO.File.Exists(_path))
+                    System.IO.File.Delete(_path);
+            }
+            catch (System.IO.IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+
+            _ownsSnapshotFile = false;
         }
 
         internal void ApplyTo(AndroidReport report)
