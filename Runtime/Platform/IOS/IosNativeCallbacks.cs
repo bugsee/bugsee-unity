@@ -6,6 +6,7 @@ using AOT;
 using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Reporting;
 using Bugsee.Internal;
+using Bugsee.WrapperPolicy;
 using UnityEngine;
 
 namespace Bugsee.Platform.IOS
@@ -117,6 +118,11 @@ namespace Bugsee.Platform.IOS
         [MonoPInvokeCallback(typeof(FilterCb))]
         static void OnFilter(long requestId, int kind, string json)
         {
+            // Snapshot before the main-thread hop so in-flight events keep the filter that was active when native captured them.
+            var networkFilter = _networkFilter;
+            var logFilter = _logFilter;
+            var breadcrumbFilter = _breadcrumbFilter;
+
             // Filters may touch Unity APIs — hop to main thread when needed.
             void Work()
             {
@@ -125,23 +131,23 @@ namespace Bugsee.Platform.IOS
                     switch (kind)
                     {
                         case KindNetwork:
-                            CompleteNetwork(requestId, json);
+                            CompleteNetwork(requestId, json, networkFilter);
                             break;
                         case KindLog:
-                            CompleteLog(requestId, json);
+                            CompleteLog(requestId, json, logFilter);
                             break;
                         case KindBreadcrumb:
-                            CompleteBreadcrumb(requestId, json);
+                            CompleteBreadcrumb(requestId, json, breadcrumbFilter);
                             break;
                         default:
-                            _bugsee_complete_filter(requestId, 1, json);
+                            _bugsee_complete_filter(requestId, FilterCompletion.Drop, null);
                             break;
                     }
                 }
                 catch (Exception ex)
                 {
                     Debug.LogException(ex);
-                    _bugsee_complete_filter(requestId, 1, json);
+                    _bugsee_complete_filter(requestId, FilterCompletion.OnThrow, null);
                 }
             }
 
@@ -149,12 +155,11 @@ namespace Bugsee.Platform.IOS
             else MainThreadDispatcher.Run(Work);
         }
 
-        static void CompleteNetwork(long requestId, string json)
+        static void CompleteNetwork(long requestId, string json, EventFilter<INetworkEvent> filter)
         {
-            var filter = _networkFilter;
             if (filter == null)
             {
-                _bugsee_complete_filter(requestId, 1, json);
+                _bugsee_complete_filter(requestId, FilterCompletion.Keep, json);
                 return;
             }
 
@@ -171,12 +176,11 @@ namespace Bugsee.Platform.IOS
             _bugsee_complete_filter(requestId, 1, ToNativeMapJson(ios.ToResultJson(), "headers"));
         }
 
-        static void CompleteLog(long requestId, string json)
+        static void CompleteLog(long requestId, string json, EventFilter<ILogEvent> filter)
         {
-            var filter = _logFilter;
             if (filter == null)
             {
-                _bugsee_complete_filter(requestId, 1, json);
+                _bugsee_complete_filter(requestId, FilterCompletion.Keep, json);
                 return;
             }
 
@@ -193,12 +197,11 @@ namespace Bugsee.Platform.IOS
             _bugsee_complete_filter(requestId, 1, ios.ToResultJson());
         }
 
-        static void CompleteBreadcrumb(long requestId, string json)
+        static void CompleteBreadcrumb(long requestId, string json, EventFilter<IBreadcrumb> filter)
         {
-            var filter = _breadcrumbFilter;
             if (filter == null)
             {
-                _bugsee_complete_filter(requestId, 1, json);
+                _bugsee_complete_filter(requestId, FilterCompletion.Keep, json);
                 return;
             }
 

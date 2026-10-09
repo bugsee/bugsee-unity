@@ -45,8 +45,8 @@ namespace Bugsee.Platform.Android
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogException(ex);
-                    callback?.Call("run", data);
+                    Debug.Log("filter-failed " + ex.GetType().Name);
+                    callback?.Call("run", (AndroidJavaObject)null);
                 }
             });
         }

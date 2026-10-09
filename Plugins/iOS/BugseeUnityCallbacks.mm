@@ -32,6 +32,9 @@ typedef void (*BugseeUnityLifecycleCb)(const char *eventType, const char *dataJs
 static BugseeUnityFilterCb gFilterCb = NULL;
 static BugseeUnityReportCb gReportCb = NULL;
 static BugseeUnityLifecycleCb gLifecycleCb = NULL;
+static BOOL gNetworkFilterCallbackInstalled = NO;
+static BOOL gLogFilterCallbackInstalled = NO;
+static BOOL gBreadcrumbFilterCallbackInstalled = NO;
 
 static NSMutableDictionary<NSNumber *, NSMutableDictionary *> *gPending;
 static int64_t gNextRequestId = 1;
@@ -450,12 +453,17 @@ void _bugsee_set_wrapper_context(const char *json)
 void _bugsee_set_network_filter_enabled(int enabled)
 {
     if (!enabled) {
-        [Bugsee setNetworkEventFilter:nil];
+        gNetworkFilterCallbackInstalled = NO;
         return;
     }
+    gNetworkFilterCallbackInstalled = YES;
     [Bugsee setNetworkEventFilter:^(BugseeNetworkEvent *event, BugseeNetworkFilterDecisionBlock decisionBlock) {
-        if (!gFilterCb) {
+        if (!gNetworkFilterCallbackInstalled) {
             decisionBlock(event);
+            return;
+        }
+        if (!gFilterCb) {
+            decisionBlock(nil);
             return;
         }
         int64_t requestId = BugseeUnityEnqueueFilter(@"network", event, decisionBlock);
@@ -469,12 +477,17 @@ void _bugsee_set_network_filter_enabled(int enabled)
 void _bugsee_set_log_filter_enabled(int enabled)
 {
     if (!enabled) {
-        [Bugsee setLogEventFilter:nil];
+        gLogFilterCallbackInstalled = NO;
         return;
     }
+    gLogFilterCallbackInstalled = YES;
     [Bugsee setLogEventFilter:^(BugseeLogEvent *event, BugseeLogFilterDecisionBlock decisionBlock) {
-        if (!gFilterCb) {
+        if (!gLogFilterCallbackInstalled) {
             decisionBlock(event);
+            return;
+        }
+        if (!gFilterCb) {
+            decisionBlock(nil);
             return;
         }
         int64_t requestId = BugseeUnityEnqueueFilter(@"log", event, decisionBlock);
@@ -488,12 +501,17 @@ void _bugsee_set_log_filter_enabled(int enabled)
 void _bugsee_set_breadcrumb_filter_enabled(int enabled)
 {
     if (!enabled) {
-        [Bugsee setBreadcrumbFilter:nil];
+        gBreadcrumbFilterCallbackInstalled = NO;
         return;
     }
+    gBreadcrumbFilterCallbackInstalled = YES;
     [Bugsee setBreadcrumbFilter:^(id<BGSBreadcrumb> crumb, BugseeBreadcrumbFilterDecisionBlock decisionBlock) {
-        if (!gFilterCb) {
+        if (!gBreadcrumbFilterCallbackInstalled) {
             decisionBlock(crumb);
+            return;
+        }
+        if (!gFilterCb) {
+            decisionBlock(nil);
             return;
         }
         int64_t requestId = BugseeUnityEnqueueFilter(@"breadcrumb", crumb, decisionBlock);
