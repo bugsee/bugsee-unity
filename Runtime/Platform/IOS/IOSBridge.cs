@@ -401,13 +401,13 @@ namespace Bugsee.Platform.IOS
 
         public void ClearAllAttributes() => _bugsee_clear_all_attributes();
 
-        public void AddSecureRectangle(int left, int top, int right, int bottom) =>
-            _bugsee_add_secure_rect(left, top, right - left, bottom - top);
+        public void SetSecureBuffer(int display, int[] packed)
+        {
+            if (packed == null) return;
+            _bugsee_set_secure_buffer(display, packed, packed.Length);
+        }
 
-        public void RemoveSecureRectangle(int left, int top, int right, int bottom) =>
-            _bugsee_remove_secure_rect(left, top, right - left, bottom - top);
-
-        public void RemoveAllSecureRectangles() => _bugsee_remove_all_secure_rects();
+        public float GetSecureRectSnapshotScale() => _bugsee_screen_scale();
 
         public void CaptureViewHierarchy() => _bugsee_capture_view_hierarchy();
 
@@ -589,9 +589,8 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern IntPtr _bugsee_get_email();
         [DllImport("__Internal")] static extern void _bugsee_clear_email();
         [DllImport("__Internal")] static extern IntPtr _bugsee_get_device_id();
-        [DllImport("__Internal")] static extern void _bugsee_add_secure_rect(float x, float y, float w, float h);
-        [DllImport("__Internal")] static extern void _bugsee_remove_secure_rect(float x, float y, float w, float h);
-        [DllImport("__Internal")] static extern void _bugsee_remove_all_secure_rects();
+        [DllImport("__Internal")] static extern void _bugsee_set_secure_buffer(int display, int[] packed, int packedLength);
+        [DllImport("__Internal")] static extern float _bugsee_screen_scale();
         [DllImport("__Internal")] static extern void _bugsee_capture_view_hierarchy();
         [DllImport("__Internal")] static extern void _bugsee_feedback_show();
         [DllImport("__Internal")] static extern void _bugsee_feedback_set_greeting(string message);

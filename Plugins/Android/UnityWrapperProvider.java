@@ -8,6 +8,7 @@ import com.bugsee.library.contracts.internal.BugseeWrapperChannel;
 import com.bugsee.library.contracts.reporting.Report;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 // initOrder 200
 public final class UnityWrapperProvider extends BugseeExtensionInitProviderBase {
@@ -28,6 +29,8 @@ final class UnityWrapper implements BugseeWrapper {
     private String productName = "unknown";
     private String wrapperVersion = "unknown";
     private static volatile BugseeWrapperChannel channel;
+    private static final ConcurrentHashMap<Integer, int[]> secureBuffers =
+            new ConcurrentHashMap<Integer, int[]>();
 
     static void install() {
         if (installed) return;
@@ -120,8 +123,15 @@ final class UnityWrapper implements BugseeWrapper {
         current.addNetworkEvent(event, true);
     }
 
+    public static void setSecureBuffer(int display, int[] packed) {
+        if (packed == null || packed.length < 2) return;
+        secureBuffers.put(display, packed.clone());
+    }
+
     @Override
     public int[] getSecureRectangles(int display) {
+        int[] cached = secureBuffers.get(display);
+        if (cached != null) return cached.clone();
         return new int[] { 1, 0 };
     }
 

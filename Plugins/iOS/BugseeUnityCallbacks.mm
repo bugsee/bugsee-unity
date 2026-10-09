@@ -46,6 +46,18 @@ static NSDictionary<NSString *, NSString *> *gWrapperContext = nil;
 @class BugseeUnityWrapper;
 static BugseeUnityWrapper *gWrapper;
 static id<BGSWrapperChannel> gChannel;
+static NSMutableDictionary<NSNumber *, NSData *> *gSecureRectBuffers;
+static NSData *gDefaultSecureRectBuffer;
+
+static void BugseeUnityEnsureSecureRectBuffers(void)
+{
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        gSecureRectBuffers = [NSMutableDictionary dictionary];
+        int32_t baseline[] = { 1, 0 };
+        gDefaultSecureRectBuffer = [NSData dataWithBytes:baseline length:sizeof(baseline)];
+    });
+}
 
 static void BugseeUnityEnsureState(void)
 {
@@ -54,6 +66,19 @@ static void BugseeUnityEnsureState(void)
         gPending = [NSMutableDictionary dictionary];
         gLock = [NSObject new];
     });
+}
+
+static NSData *BugseeUnitySecureBufferForDisplay(int display)
+{
+    BugseeUnityEnsureState();
+    BugseeUnityEnsureSecureRectBuffers();
+    @synchronized (gLock) {
+        NSData *data = gSecureRectBuffers[@(display)] ?: gDefaultSecureRectBuffer;
+        if (!data || data.length == 0) {
+            return gDefaultSecureRectBuffer;
+        }
+        return [NSData dataWithBytes:data.bytes length:data.length];
+    }
 }
 
 static char *BugseeUnityCopyUTF8(NSString *string)
@@ -386,6 +411,11 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
     [self forwardReport:report phase:1 isTerminating:isTerminating completion:completion];
 }
 
+- (NSData *)secureRectanglesForDisplay:(NSInteger)display
+{
+    return BugseeUnitySecureBufferForDisplay((int)display);
+}
+
 - (void)forwardReport:(id<BGSReportContract>)report
                 phase:(int)phase
         isTerminating:(BOOL)isTerminating
@@ -450,6 +480,18 @@ void _bugsee_register_unity_callbacks(BugseeUnityFilterCb filterCb,
 void _bugsee_clear_wrapper_channel(void)
 {
     gChannel = nil;
+}
+
+void _bugsee_set_secure_buffer(int display, int *packed, int packedLength)
+{
+    if (!packed || packedLength < 2) return;
+    BugseeUnityEnsureState();
+    BugseeUnityEnsureSecureRectBuffers();
+    NSData *data = [NSData dataWithBytes:packed length:(NSUInteger)packedLength * sizeof(int32_t)];
+    if (!data) return;
+    @synchronized (gLock) {
+        gSecureRectBuffers[@(display)] = data;
+    }
 }
 
 void _bugsee_channel_log(const char *message, int level, int source)
