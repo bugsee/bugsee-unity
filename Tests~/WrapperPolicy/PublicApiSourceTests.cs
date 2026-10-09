@@ -510,6 +510,8 @@ namespace Bugsee.WrapperPolicy.Tests
                 "public void DeleteCollectedDataOnDevice()");
             Assert.That(body, Does.Contain("_openReport = null"));
             Assert.That(body, Does.Contain("_openReportHandle = null"));
+            Assert.That(body, Does.Contain("_networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped)"));
+            Assert.That(body, Does.Contain("_breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped)"));
         }
 
         [Test]

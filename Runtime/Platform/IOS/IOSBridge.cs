@@ -184,6 +184,8 @@ namespace Bugsee.Platform.IOS
             CancelManagedReportUpload();
             _openReport = null;
             _openReportHandle = null;
+            _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
+            _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
             _bugsee_delete_collected_data(deleteGeneration, ShouldRunDeleteCollectedDataNative);
         }
 
