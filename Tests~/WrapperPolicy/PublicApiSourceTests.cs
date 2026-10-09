@@ -206,7 +206,38 @@ namespace Bugsee.WrapperPolicy.Tests
             string invoke = ExtractMethodBody(android, "void InvokeDeleteCollectedDataOnDevice()");
             Assert.That(invoke, Does.Contain("deleteCollectedDataOnDevice"));
             Assert.That(invoke, Does.Contain("true"));
-            Assert.That(invoke, Does.Contain("BooleanConsumerProxy"));
+            Assert.That(invoke, Does.Contain("BooleanCallback1Proxy"));
+
+            string callback = File.ReadAllText(RepoFile("Runtime/Platform/Android/Proxies/CallbackProxies.cs"));
+            Assert.That(callback, Does.Contain("BooleanCallback1Proxy"));
+            Assert.That(callback, Does.Contain("com.bugsee.library.contracts.common.Callback1"));
+            Assert.That(callback, Does.Contain("public void run(AndroidJavaObject value)"));
+        }
+
+        [Test]
+        public void Android_create_report_uses_listener_and_managed_snapshot()
+        {
+            string android = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs"));
+            string create = ExtractMethodBody(android, "public IReport CreateReport()");
+            Assert.That(create, Does.Contain("AndroidManagedReport"));
+            Assert.That(create, Does.Not.Contain("CallStatic<AndroidJavaObject>(\"createReport\")"));
+            Assert.That(create, Does.Contain("a report is already open"));
+
+            string upload = ExtractMethodBody(android, "public void UploadReport(IReport report)");
+            Assert.That(upload, Does.Contain("ReportCreationListenerProxy"));
+            Assert.That(upload, Does.Contain("createReport"));
+        }
+
+        [Test]
+        public void Android_breadcrumb_uses_fromValue_and_six_arg_factory()
+        {
+            string body = ExtractMethodBody(
+                File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs")),
+                "public void AddBreadcrumb(string category, string message, string levelName)");
+            Assert.That(body, Does.Contain("fromValue"));
+            Assert.That(body, Does.Not.Contain("fromRawValue"));
+            Assert.That(body, Does.Contain("\"manual\""));
+            Assert.That(body, Does.Contain("java.util.HashMap"));
         }
 
         [Test]

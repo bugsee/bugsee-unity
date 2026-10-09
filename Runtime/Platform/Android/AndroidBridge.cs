@@ -1,7 +1,6 @@
 #if UNITY_ANDROID && !UNITY_EDITOR
 using System;
 using System.Collections.Generic;
-using System.Reflection;
 using Bugsee.Contracts.Appearance;
 using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Feedback;
@@ -31,6 +30,7 @@ namespace Bugsee.Platform.Android
         AndroidFeedback _feedback;
         AndroidAppearance _appearance;
         IBugseeExchangeFactory _exchangeFactory;
+        AndroidManagedReport _openReport;
         static bool _loggedMissingNetworkFactory;
 
         public bool IsSupported => true;
@@ -456,7 +456,7 @@ namespace Bugsee.Platform.Android
             _bugsee.CallStatic(
                 "deleteCollectedDataOnDevice",
                 true,
-                new BooleanConsumerProxy(success =>
+                new BooleanCallback1Proxy(success =>
                 {
                     if (!success)
                         Debug.LogError("[Bugsee] deleteCollectedDataOnDevice failed.");
@@ -465,36 +465,34 @@ namespace Bugsee.Platform.Android
 
         public IReport CreateReport()
         {
-            var javaReport = _bugsee.CallStatic<AndroidJavaObject>("createReport");
-            if (javaReport == null)
-                throw new InvalidOperationException("CreateReport failed.");
-            return new AndroidReport(javaReport);
+            if (_openReport != null)
+                throw new InvalidOperationException("a report is already open");
+            _openReport = new AndroidManagedReport();
+            return _openReport;
         }
 
         public void DiscardReport(IReport report)
         {
             if (report == null)
                 throw new ArgumentNullException(nameof(report));
+            if (!ReferenceEquals(report, _openReport))
+                throw new ArgumentException("Report was not created by CreateReport.", nameof(report));
+            _openReport = null;
         }
 
         public void UploadReport(IReport report)
         {
             if (report == null)
                 throw new ArgumentNullException(nameof(report));
-            var javaReport = TryGetAndroidReportObject(report);
-            if (javaReport == null)
-                throw new ArgumentException("Report was not created by Bugsee.CreateReport on Android.", nameof(report));
-            _bugsee.CallStatic("upload", javaReport);
-        }
-
-        static AndroidJavaObject TryGetAndroidReportObject(IReport report)
-        {
-            if (!(report is AndroidReport androidReport))
-                return null;
-            var field = typeof(AndroidReport).GetField(
-                "_report",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            return field?.GetValue(androidReport) as AndroidJavaObject;
+            if (!ReferenceEquals(report, _openReport))
+                throw new ArgumentException("Report was not created by CreateReport.", nameof(report));
+            if (_openReport == null)
+                throw new InvalidOperationException("CreateReport failed.");
+            var snapshot = _openReport;
+            _openReport = null;
+            _bugsee.CallStatic(
+                "createReport",
+                new ReportCreationListenerProxy(snapshot, _bugsee));
         }
 
         public void AddBreadcrumb(string category, string message, string levelName)
@@ -505,12 +503,11 @@ namespace Bugsee.Platform.Android
 
             using (var levelClass = new AndroidJavaClass(
                        "com.bugsee.library.contracts.exchange.Breadcrumb$Level"))
-            using (var def = levelClass.CallStatic<AndroidJavaObject>("fromRawValue", (sbyte)1))
             using (var javaLevel = levelClass.CallStatic<AndroidJavaObject>(
-                       "fromRawValue",
-                       (sbyte)BreadcrumbLevelMap.ToAndroid(level),
-                       def))
+                       "fromValue",
+                       (sbyte)BreadcrumbLevelMap.ToAndroid(level)))
             using (var javaFactory = _bugsee.CallStatic<AndroidJavaObject>("getExchangeFactory"))
+            using (var dataMap = new AndroidJavaObject("java.util.HashMap"))
             {
                 if (javaFactory == null)
                     return;
@@ -519,7 +516,9 @@ namespace Bugsee.Platform.Android
                     DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     category ?? "",
                     message ?? "",
-                    javaLevel);
+                    javaLevel,
+                    "manual",
+                    dataMap);
                 if (breadcrumb == null)
                     return;
                 _bugsee.CallStatic("addBreadcrumb", breadcrumb);

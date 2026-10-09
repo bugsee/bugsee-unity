@@ -189,5 +189,142 @@ namespace Bugsee.Platform.Android
             SetData(Encoding.UTF8.GetBytes(text));
         }
     }
+
+    /// <summary>Managed report snapshot; native Report is created at upload.</summary>
+    sealed class AndroidManagedReport : IReport
+    {
+        readonly Dictionary<string, object> _attributes = new Dictionary<string, object>();
+        readonly List<string> _labels = new List<string>();
+        readonly List<AndroidManagedAttachment> _attachments = new List<AndroidManagedAttachment>();
+
+        public string Id => "";
+
+        public IssueType Type => IssueType.Bug;
+
+        public string Summary { get; set; }
+        public string Description { get; set; }
+        public string Email { get; set; }
+
+        public IssueSeverity? Severity { get; set; }
+
+        public IReadOnlyDictionary<string, object> Attributes => _attributes;
+
+        public object GetAttribute(string name)
+        {
+            if (name == null) return null;
+            return _attributes.TryGetValue(name, out var v) ? v : null;
+        }
+
+        public void SetAttribute(string name, object value)
+        {
+            if (string.IsNullOrEmpty(name)) return;
+            _attributes[name] = value;
+        }
+
+        public void RemoveAttribute(string name)
+        {
+            if (name == null) return;
+            _attributes.Remove(name);
+        }
+
+        public void ClearAllAttributes() => _attributes.Clear();
+
+        public IReadOnlyList<string> Labels => _labels;
+
+        public void AddLabel(string label)
+        {
+            if (!string.IsNullOrEmpty(label)) _labels.Add(label);
+        }
+
+        public void ClearLabels() => _labels.Clear();
+
+        public void SetLabels(IEnumerable<string> labels)
+        {
+            _labels.Clear();
+            if (labels == null) return;
+            foreach (var label in labels)
+            {
+                if (!string.IsNullOrEmpty(label)) _labels.Add(label);
+            }
+        }
+
+        public IReadOnlyList<IAttachment> Attachments => _attachments;
+
+        public IAttachment CreateAndAddAttachment(string name)
+        {
+            var att = new AndroidManagedAttachment(name ?? "attachment");
+            _attachments.Add(att);
+            return att;
+        }
+
+        public void ClearAttachments() => _attachments.Clear();
+
+        internal void ApplyTo(AndroidJavaObject javaReport)
+        {
+            if (javaReport == null)
+                return;
+
+            var report = new AndroidReport(javaReport);
+            report.Summary = Summary ?? "";
+            report.Description = Description ?? "";
+            report.Email = Email ?? "";
+            if (Severity.HasValue)
+                report.Severity = Severity;
+
+            report.ClearAllAttributes();
+            foreach (var kv in _attributes)
+            {
+                if (kv.Key == null) continue;
+                report.SetAttribute(kv.Key, kv.Value);
+            }
+
+            report.ClearLabels();
+            report.SetLabels(_labels);
+
+            report.ClearAttachments();
+            for (var i = 0; i < _attachments.Count; i++)
+                _attachments[i].ApplyTo(report);
+        }
+    }
+
+    sealed class AndroidManagedAttachment : IAttachment
+    {
+        byte[] _bytes;
+        string _text;
+
+        public AndroidManagedAttachment(string name)
+        {
+            Name = name;
+            Filename = name;
+            MimeType = "text/plain";
+        }
+
+        public string Name { get; set; }
+        public string Filename { get; set; }
+        public string MimeType { get; set; }
+
+        public void SetData(byte[] data)
+        {
+            _bytes = data;
+            _text = null;
+        }
+
+        public void SetData(string text)
+        {
+            _text = text ?? "";
+            _bytes = null;
+        }
+
+        internal void ApplyTo(AndroidReport report)
+        {
+            var attachment = report.CreateAndAddAttachment(Name ?? "attachment");
+            attachment.Filename = Filename;
+            attachment.MimeType = MimeType;
+            if (_bytes != null && _bytes.Length > 0)
+                attachment.SetData(_bytes);
+            else if (_text != null)
+                attachment.SetData(_text);
+        }
+    }
 }
 #endif

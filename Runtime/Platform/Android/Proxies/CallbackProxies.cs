@@ -169,24 +169,57 @@ namespace Bugsee.Platform.Android
         public void run() => _action?.Invoke();
     }
 
-    sealed class BooleanConsumerProxy : AndroidJavaProxy
+    sealed class BooleanCallback1Proxy : AndroidJavaProxy
     {
         readonly Action<bool> _onResult;
 
-        public BooleanConsumerProxy(Action<bool> onResult) : base("java.util.function.Consumer")
+        public BooleanCallback1Proxy(Action<bool> onResult)
+            : base("com.bugsee.library.contracts.common.Callback1")
         {
             _onResult = onResult;
         }
 
-        public void accept(AndroidJavaObject success)
+        public void run(AndroidJavaObject value)
         {
-            if (success == null)
+            if (value == null)
             {
                 _onResult?.Invoke(false);
                 return;
             }
 
-            _onResult?.Invoke(success.Call<bool>("booleanValue"));
+            _onResult?.Invoke(value.Call<bool>("booleanValue"));
+        }
+    }
+
+    sealed class ReportCreationListenerProxy : AndroidJavaProxy
+    {
+        readonly AndroidManagedReport _snapshot;
+        readonly AndroidJavaClass _bugsee;
+
+        public ReportCreationListenerProxy(AndroidManagedReport snapshot, AndroidJavaClass bugsee)
+            : base("com.bugsee.library.contracts.reporting.ReportCreationListener")
+        {
+            _snapshot = snapshot;
+            _bugsee = bugsee;
+        }
+
+        public void onCreated(AndroidJavaObject report)
+        {
+            if (report == null)
+            {
+                Debug.LogError("[Bugsee] CreateReport failed.");
+                return;
+            }
+
+            try
+            {
+                _snapshot.ApplyTo(report);
+                _bugsee.CallStatic("upload", report);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
         }
     }
 }
