@@ -211,6 +211,7 @@ namespace Bugsee.Platform.Android
         bool _emailAssigned;
         bool _attributesDirty;
         bool _labelsDirty;
+        bool _attachmentsDirty;
 
         public string Id => "";
 
@@ -293,12 +294,19 @@ namespace Bugsee.Platform.Android
 
         public IAttachment CreateAndAddAttachment(string name)
         {
-            var att = new AndroidManagedAttachment(name ?? "attachment");
+            var att = new AndroidManagedAttachment(name ?? "attachment", MarkAttachmentsDirty);
             _attachments.Add(att);
+            _attachmentsDirty = true;
             return att;
         }
 
-        public void ClearAttachments() => _attachments.Clear();
+        public void ClearAttachments()
+        {
+            _attachments.Clear();
+            _attachmentsDirty = true;
+        }
+
+        void MarkAttachmentsDirty() => _attachmentsDirty = true;
 
         internal void ApplyTo(AndroidJavaObject javaReport)
         {
@@ -331,18 +339,24 @@ namespace Bugsee.Platform.Android
                 report.SetLabels(_labels);
             }
 
-            for (var i = 0; i < _attachments.Count; i++)
-                _attachments[i].ApplyTo(report);
+            if (_attachmentsDirty)
+            {
+                report.ClearAttachments();
+                for (var i = 0; i < _attachments.Count; i++)
+                    _attachments[i].ApplyTo(report);
+            }
         }
     }
 
     sealed class AndroidManagedAttachment : IAttachment
     {
+        readonly Action _markDirty;
         byte[] _bytes;
         string _text;
 
-        public AndroidManagedAttachment(string name)
+        public AndroidManagedAttachment(string name, Action markDirty)
         {
+            _markDirty = markDirty;
             Name = name;
             Filename = name;
             MimeType = "text/plain";
@@ -356,12 +370,14 @@ namespace Bugsee.Platform.Android
         {
             _bytes = data;
             _text = null;
+            _markDirty?.Invoke();
         }
 
         public void SetData(string text)
         {
             _text = text ?? "";
             _bytes = null;
+            _markDirty?.Invoke();
         }
 
         internal void ApplyTo(AndroidReport report)

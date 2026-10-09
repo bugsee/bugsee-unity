@@ -249,9 +249,10 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(apply, Does.Contain("if (Summary != null)"));
             Assert.That(apply, Does.Contain("if (_emailAssigned)"));
             Assert.That(apply, Does.Contain("if (_attributesDirty)"));
+            Assert.That(apply, Does.Contain("if (_attachmentsDirty)"));
+            Assert.That(apply, Does.Contain("report.ClearAttachments()"));
             Assert.That(apply, Does.Not.Contain("Email ?? \"\""));
             Assert.That(apply, Does.Not.Contain("Summary ?? \"\""));
-            Assert.That(apply, Does.Not.Contain("ClearAttachments()"));
         }
 
         [Test]
