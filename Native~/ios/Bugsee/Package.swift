@@ -1,17 +1,15 @@
 // swift-tools-version:5.9
 import PackageDescription
 
-// Local Swift package used by the Unity iOS post-process.
-// Native SDK pin: https://github.com/bugsee/bugsee-cocoa (nextgen, see Tools~/versions.env).
-//
-// Populate Bugsee.xcframework via:
-//   IOS_XCFRAMEWORK_PATH=... ./Tools~/scripts/update-native-sdks.sh
+// Local stub kept for offline / UseRemoteSpm = false.
+// Default iOS integration is remote SPM: https://github.com/bugsee/spm @ 7.0.0-beta5
+// (see Tools~/versions.env and Editor/BugseeIosSpmPostProcess.cs).
 
 let package = Package(
     name: "Bugsee",
     platforms: [
-        .iOS(.v13),
-        .tvOS(.v13),
+        .iOS(.v15),
+        .tvOS(.v15),
         .visionOS(.v1)
     ],
     products: [

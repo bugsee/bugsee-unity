@@ -5,15 +5,15 @@ Legacy foundation: `cross/unity`. Min Unity: **2021.3**.
 
 ## Understanding
 
-- **What:** UPM-first Unity SDK whose public C# API mirrors Android SDK **7.x** (`Bugsee` facade + public `contracts`), with platform bridges for Android (EDM4U/Maven) and iOS (SPM; native pin is `bugsee-cocoa` nextgen).
+- **What:** UPM-first Unity SDK whose public C# API mirrors Android SDK **7.x** (`Bugsee` facade + public `contracts`), with platform bridges for Android (EDM4U/Maven) and iOS (remote SPM `github.com/bugsee/spm`).
 - **Why:** Replace legacy `.unitypackage` / `Assets/Plugins` distribution; align with 7.0 redesign and other wrappers (Flutter 7.x pattern).
 - **Who:** Unity game/app developers; Bugsee maintainers.
 - **Non-goals (initial implementation):** OpenUPM publish, dual release repo, Asset Store `.unitypackage`, full iOS nextgen API parity deep-dive before Android bridge works, RN 6.x bridge patterns.
 
 ## Assumptions
 
-1. Android pin: Maven `com.bugsee:bugsee-android:7.1.4` + `bugsee-android-ndk:7.1.4` via EDM4U; Gradle plugin `4.0.6`. Core publishes no transitives (no kotlin-stdlib / fragment pull); NDK must be declared. Feedback AAR stays optional.
-2. iOS: pin [`bugsee/bugsee-cocoa`](https://github.com/bugsee/bugsee-cocoa) `nextgen` by commit (`IOS_SDK_COMMIT` in `Tools~/versions.env`). Xcode still consumes a vendored SPM wrapper under `Native~/ios/Bugsee` because cocoa’s `Package.swift` is a release template, not a consumable package.
+1. Android pin: Maven `com.bugsee:bugsee-android:7.3.0` + `bugsee-android-ndk:7.3.0` via EDM4U; Gradle plugin `4.0.8`. Core publishes no transitives (no kotlin-stdlib / fragment pull); NDK must be declared. Feedback AAR stays optional.
+2. iOS: SPM-only. Pin [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta5` (`IOS_SDK_VERSION` in `Tools~/versions.env`). Xcode resolves the remote package at export; no CocoaPods and no vendored xcframework.
 3. Public C# surface mirrors Android 7.0; intentional C#/.NET deviations allowed (see below).
 4. SDK-internal contracts (`capture` aggregators, most `contracts.internal.*` except what wrappers need for `BugseeWrapper`) are **not** public C# API.
 5. Optional Gradle network extensions (OkHttp/Ktor/Cronet) are out of default Unity deps unless explicitly added later.
@@ -24,7 +24,7 @@ Legacy foundation: `cross/unity`. Min Unity: **2021.3**.
 |---|---|---|---|
 | Repo layout | UPM package at repo root | `package/` subfolder; Sentry dual-repo | Simplest Git URL install |
 | Android natives | EDM4U → Maven | Vendored Unity AAR | Matches Flutter/RN 7.x; smaller git |
-| iOS natives | SPM (local path now → remote later) | Vendored xcframework only; CocoaPods | Aligns with Bugsee iOS distribution |
+| iOS natives | Remote SPM `github.com/bugsee/spm` | Vendored xcframework; CocoaPods | iOS 7.x is SPM-only |
 | Min Unity | 2021.3 | 2018.3 / Unity 6 only | SPM `PBXProject` APIs + practical floor |
 | Primary C# API | Android 7.0 mirror | Keep legacy `BugseePlugin` names | Clean 7.0 surface; legacy shims optional later |
 | Launch options shape | Shared base + platform subclasses | Single shared type; two independent types | Legacy Unity DX; platform-only props stay typed |
@@ -89,8 +89,8 @@ Property / key naming currently follows **Android 7.0**. When the Bugsee **iOS**
 ## Native packaging (already scaffolded)
 
 - `package.json` → `com.bugsee.unity`, depends on `com.google.external-dependency-manager`
-- `Editor/BugseeAndroidDependencies.xml` → Maven 7.1.4 (+ NDK, both explicit)
-- `Native~/ios/Bugsee/Package.swift` + `Editor/BugseeIosSpmPostProcess.cs`
+- `Editor/BugseeAndroidDependencies.xml` → Maven 7.3.0 (+ NDK, both explicit)
+- `Editor/BugseeIosSpmPostProcess.cs` → remote SPM `github.com/bugsee/spm` `7.0.0-beta5`
 - `Plugins/iOS/BugseeUnityBridge.mm` + `Plugins/Android/UnityManagedException.java`
 - `Tools~/scripts/update-native-sdks.sh` + `versions.env`
 

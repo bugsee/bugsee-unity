@@ -5,6 +5,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 BUILD_DIR="${1:-}"
+# shellcheck disable=SC1091
+[[ -f "${ROOT_DIR}/Tools~/versions.env" ]] && source "${ROOT_DIR}/Tools~/versions.env"
 UNITY_EDITOR="${UNITY_EDITOR:-/Applications/Unity/Hub/Editor/2021.3.45f1/Unity.app/Contents/MacOS/Unity}"
 ERRORS=0
 WARNINGS=0
@@ -76,11 +78,7 @@ do
   fi
 done
 
-if [[ -d "${ROOT_DIR}/Native~/ios/Bugsee/Bugsee.xcframework" ]]; then
-  ok "Native~/ios/Bugsee/Bugsee.xcframework present"
-else
-  warn "Bugsee.xcframework missing — run Tools~/scripts/update-native-sdks.sh before iOS builds"
-fi
+ok "iOS native SDK via remote SPM (github.com/bugsee/spm ${IOS_SDK_VERSION:-7.0.0-beta5})"
 
 extract_macho_uuid() {
   local bin="$1"

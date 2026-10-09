@@ -6,7 +6,7 @@ Bug reporting, crash capture, and session replay for Unity games and apps on iOS
 
 - Unity **2021.3** or newer
 - [External Dependency Manager for Unity (EDM4U)](https://github.com/googlesamples/unity-jar-resolver) (declared as a package dependency)
-- iOS builds: Xcode with Swift Package Manager support; `bugsee-cli` on the PATH for archive-time symbol upload
+- iOS builds: Xcode with Swift Package Manager support; **iOS 15+** (Bugsee 7.0.0-beta5); `bugsee-cli` on the PATH for archive-time symbol upload
 - Android builds: custom Gradle templates enabled (EDM4U will prompt as needed); `bugsee-cli` on the PATH for Editor symbol upload
 
 ## Installation
@@ -151,7 +151,7 @@ Device/CI proof remains manual.
 ### Milestone S2 — Android C# file/line
 
 1. IL2CPP Android build; Create symbols.zip / **FULL** native debug symbols.
-2. NDK enabled (`bugsee-android-ndk:7.1.4` + Gradle `ndk { enabled = true }` on Unity 6+).
+2. NDK enabled (`bugsee-android-ndk:7.3.0` + Gradle `ndk { enabled = true }` on Unity 6+).
 3. Post-build uploads `elf` + `il2cpp-linemap` (multi-ABI UUIDs).
 4. Native fatal on device; viewer shows **C# file/line**.
 
@@ -167,8 +167,8 @@ Managed error/crash **grouping** (one signature per event, Unity-primary when st
 
 ## Native dependencies
 
-- **Android:** Maven `com.bugsee:bugsee-android:7.1.4` + `com.bugsee:bugsee-android-ndk:7.1.4` via EDM4U (Gradle plugin `4.0.6`). Core publishes no transitives; NDK is a separate artifact and must be declared. 7.1.4 types fragment secure-view overloads as `Object`, so Unity JNI does not need `androidx.fragment`.
-- **iOS:** native SDK pin is [`bugsee-cocoa`](https://github.com/bugsee/bugsee-cocoa) `nextgen` `@fe9ceb89`. Xcode links the vendored Swift package under `Native~/ios/Bugsee`. C bridge: `Plugins/iOS/BugseeUnityBridge.mm` + `BugseeUnityCallbacks.mm`.
+- **Android:** Maven `com.bugsee:bugsee-android:7.3.0` + `com.bugsee:bugsee-android-ndk:7.3.0` via EDM4U (Gradle plugin `4.0.8`). Core publishes no transitives; NDK is a separate artifact and must be declared. Fragment secure-view overloads are typed as `Object`, so Unity JNI does not need `androidx.fragment`.
+- **iOS:** SPM-only. Xcode resolves [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta5` (iOS 15+). C bridge: `Plugins/iOS/BugseeUnityBridge.mm` + `BugseeUnityCallbacks.mm`.
 
 ### iOS bridge status
 

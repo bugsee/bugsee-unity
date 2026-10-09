@@ -9,23 +9,20 @@ namespace Bugsee.Editor
     /// <summary>
     /// Wires the Bugsee iOS SDK into the generated Xcode project via Swift Package Manager.
     ///
-    /// Native SDK pin is github.com/bugsee/bugsee-cocoa (nextgen SHA in
-    /// <c>BugseePackageVersion.IosSdkCommit</c>). Xcode consumes the vendored package
-    /// under Native~/ios/Bugsee because cocoa nextgen ships Package.swift as a release
-    /// template, not a resolvable SPM package. Flip <see cref="UseRemoteSpm"/> when a
-    /// binary feed (bugsee/spm or cocoa Package.swift) is ready.
+    /// iOS 7.x is SPM-only: Xcode resolves <see cref="RemoteSpmUrl"/> at
+    /// <see cref="RemoteSpmVersion"/> (github.com/bugsee/spm). The local
+    /// Native~/ios/Bugsee wrapper is unused unless <see cref="UseRemoteSpm"/> is flipped off.
     /// </summary>
     public static class BugseeIosSpmPostProcess
     {
         /// <summary>
-        /// When false (default), uses the local SPM package under Native~/ios/Bugsee.
-        /// When true, adds a remote reference to github.com/bugsee/spm at <see cref="RemoteSpmVersion"/>.
+        /// When true (default), adds a remote reference to github.com/bugsee/spm.
+        /// When false, copies Native~/ios/Bugsee next to the Xcode project (offline / local xcframework).
         /// </summary>
-        // Not const: keeps the remote SPM branch compilable without CS0162.
-        public static readonly bool UseRemoteSpm = false;
+        public static readonly bool UseRemoteSpm = true;
 
-        public const string RemoteSpmUrl = "https://github.com/bugsee/spm.git";
-        public const string RemoteSpmVersion = "7.0.0";
+        public const string RemoteSpmUrl = BugseePackageVersion.IosSdkSource;
+        public const string RemoteSpmVersion = BugseePackageVersion.IosSdkVersion;
         public const string SpmProductName = "Bugsee";
 
         const string LocalPackageFolderName = "Bugsee";

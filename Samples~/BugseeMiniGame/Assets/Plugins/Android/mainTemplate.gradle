@@ -4,8 +4,8 @@ apply plugin: 'com.android.library'
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
 // Android Resolver Dependencies Start
-    implementation 'com.bugsee:bugsee-android:7.1.4' // Packages/com.bugsee.unity/Editor/BugseeAndroidDependencies.xml
-    implementation 'com.bugsee:bugsee-android-ndk:7.1.4' // Packages/com.bugsee.unity/Editor/BugseeAndroidDependencies.xml
+    implementation 'com.bugsee:bugsee-android:7.3.0' // Packages/com.bugsee.unity/Editor/BugseeAndroidDependencies.xml
+    implementation 'com.bugsee:bugsee-android-ndk:7.3.0' // Packages/com.bugsee.unity/Editor/BugseeAndroidDependencies.xml
 // Android Resolver Dependencies End
 **DEPS**}
 

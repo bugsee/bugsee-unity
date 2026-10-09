@@ -3,8 +3,7 @@
 #
 # - Regenerates Runtime/BugseePackageVersion.cs
 # - Updates Editor/BugseeAndroidDependencies.xml Maven coordinates
-# - Optionally copies a prebuilt Bugsee.xcframework into Native~/ios/Bugsee/
-#   (set IOS_XCFRAMEWORK_PATH). iOS source of truth is GitHub bugsee-cocoa.
+# - Verifies the iOS SPM tag on github.com/bugsee/spm (no local xcframework copy)
 
 set -euo pipefail
 
@@ -21,12 +20,10 @@ source "${VERSIONS_FILE}"
 
 RUNTIME_VERSION_CS="${ROOT_DIR}/Runtime/BugseePackageVersion.cs"
 ANDROID_DEPS_XML="${ROOT_DIR}/Editor/BugseeAndroidDependencies.xml"
-LOCAL_SPM_DIR="${ROOT_DIR}/Native~/ios/Bugsee"
-XCFRAMEWORK_DEST="${LOCAL_SPM_DIR}/Bugsee.xcframework"
 
 echo "==> Package ${BUGSEE_PACKAGE_VERSION}"
 echo "    Android ${ANDROID_SDK_VERSION}"
-echo "    iOS ${IOS_SDK_REPO} ${IOS_SDK_BRANCH} @ ${IOS_SDK_COMMIT}"
+echo "    iOS ${IOS_SDK_REPO} @ ${IOS_SDK_VERSION} (${IOS_SDK_COMMIT})"
 
 cat > "${RUNTIME_VERSION_CS}" <<EOF
 namespace Bugsee
@@ -40,7 +37,7 @@ namespace Bugsee
         public const string Build = "$(git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null || echo dev)";
         public const string AndroidSdkVersion = "${ANDROID_SDK_VERSION}";
         public const string IosSdkSource = "${IOS_SDK_REPO}";
-        public const string IosSdkBranch = "${IOS_SDK_BRANCH}";
+        public const string IosSdkVersion = "${IOS_SDK_VERSION}";
         public const string IosSdkCommit = "${IOS_SDK_COMMIT}";
     }
 }
@@ -51,37 +48,23 @@ cat > "${ANDROID_DEPS_XML}" <<EOF
 <dependencies>
   <androidPackages>
     <androidPackage spec="${ANDROID_MAVEN_GROUP}:${ANDROID_MAVEN_ARTIFACT}:${ANDROID_SDK_VERSION}" />
-    <androidPackage spec="${ANDROID_MAVEN_GROUP}:${ANDROID_FEEDBACK_ARTIFACT}:${ANDROID_SDK_VERSION}" />
+    <androidPackage spec="${ANDROID_MAVEN_GROUP}:${ANDROID_NDK_ARTIFACT}:${ANDROID_SDK_VERSION}" />
   </androidPackages>
 </dependencies>
 EOF
 echo "Updated ${ANDROID_DEPS_XML}"
 
-# --- iOS pin (GitHub bugsee-cocoa) + optional xcframework copy ---
+# --- iOS SPM pin (github.com/bugsee/spm) ---
 if command -v git >/dev/null 2>&1; then
-  REMOTE_SHA="$(git ls-remote "${IOS_SDK_REPO}" "refs/heads/${IOS_SDK_BRANCH}" 2>/dev/null | awk '{print $1}')"
-  if [[ -n "${REMOTE_SHA}" && "${REMOTE_SHA}" != "${IOS_SDK_COMMIT}" ]]; then
-    echo "WARNING: ${IOS_SDK_REPO} ${IOS_SDK_BRANCH} is ${REMOTE_SHA}," >&2
+  REMOTE_SHA="$(git ls-remote "${IOS_SDK_REPO}" "refs/tags/${IOS_SDK_VERSION}" 2>/dev/null | awk '{print $1}')"
+  if [[ -z "${REMOTE_SHA}" ]]; then
+    echo "WARNING: could not resolve ${IOS_SDK_REPO} tag ${IOS_SDK_VERSION}." >&2
+  elif [[ -n "${IOS_SDK_COMMIT:-}" && "${REMOTE_SHA}" != "${IOS_SDK_COMMIT}" && "${REMOTE_SHA}" != *"${IOS_SDK_COMMIT}"* ]]; then
+    echo "WARNING: ${IOS_SDK_REPO} tag ${IOS_SDK_VERSION} is ${REMOTE_SHA}," >&2
     echo "         pin is ${IOS_SDK_COMMIT}. Update IOS_SDK_COMMIT in Tools~/versions.env if intended." >&2
-  elif [[ -z "${REMOTE_SHA}" ]]; then
-    echo "WARNING: could not resolve ${IOS_SDK_REPO} ${IOS_SDK_BRANCH} (offline or private clone needed)." >&2
   else
-    echo "Verified ${IOS_SDK_BRANCH} @ ${IOS_SDK_COMMIT}"
+    echo "Verified iOS SPM ${IOS_SDK_VERSION}"
   fi
-fi
-
-SRC_XCF="${IOS_XCFRAMEWORK_PATH}"
-if [[ -z "${SRC_XCF}" ]]; then
-  echo "No IOS_XCFRAMEWORK_PATH set — skipping xcframework copy."
-  echo "Build ${IOS_SDK_REPO}@${IOS_SDK_COMMIT} and set IOS_XCFRAMEWORK_PATH to the SPM Bugsee.xcframework."
-elif [[ ! -d "${SRC_XCF}" ]]; then
-  echo "WARNING: xcframework not found at ${SRC_XCF}" >&2
-  echo "         Local SPM package will be incomplete until the framework is present." >&2
-else
-  rm -rf "${XCFRAMEWORK_DEST}"
-  mkdir -p "${LOCAL_SPM_DIR}"
-  cp -R "${SRC_XCF}" "${XCFRAMEWORK_DEST}"
-  echo "Copied ${SRC_XCF} -> ${XCFRAMEWORK_DEST}"
 fi
 
 # Keep package.json version in sync when present

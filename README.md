@@ -40,16 +40,16 @@ Add the OpenUPM scoped registry to your project’s `Packages/manifest.json` if 
 
 | Platform | Integration | Current pin |
 |---|---|---|
-| **Android** | [EDM4U](https://github.com/googlesamples/unity-jar-resolver) → Maven Central | `bugsee-android:7.1.4` + `bugsee-android-ndk:7.1.4` |
-| **iOS** | Swift Package Manager + `Plugins/iOS/BugseeUnityBridge.mm` | [`bugsee-cocoa`](https://github.com/bugsee/bugsee-cocoa) `nextgen` `@fe9ceb89` |
+| **Android** | [EDM4U](https://github.com/googlesamples/unity-jar-resolver) → Maven Central | `bugsee-android:7.3.0` + `bugsee-android-ndk:7.3.0` |
+| **iOS** | Swift Package Manager + `Plugins/iOS/BugseeUnityBridge.mm` | [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta5` |
 
 **Android stack**
 
 | Piece | Status |
 |---|---|
-| `bugsee-android` | Default via EDM **7.1.4** (no Maven transitives) |
+| `bugsee-android` | Default via EDM **7.3.0** (no Maven transitives) |
 | `bugsee-android-ndk` | Declared explicitly (native fatal capture for IL2CPP primary LNM) |
-| Gradle plugin `4.0.6` | Applied on launcher by `BugseeAndroidGradleSetup` on Unity 6+ (`ndk { enabled = true }`) |
+| Gradle plugin `4.0.8` | Applied on launcher by `BugseeAndroidGradleSetup` on Unity 6+ (`ndk { enabled = true }`) |
 
 ### Refreshing native artifacts
 
@@ -75,7 +75,7 @@ See [Documentation~/index.md](Documentation~/index.md) for:
 Runtime/           # C# runtime API + asmdef
 Editor/            # EDM, Gradle, iOS SPM, linemap + symbol upload
 Plugins/           # iOS ObjC++ bridge, Android UnityManagedException.java
-Native~/ios/Bugsee # Local SPM package (Package.swift + xcframework)
+Native~/ios/Bugsee # Unused local SPM stub (Xcode uses github.com/bugsee/spm)
 Tools~/            # Version pins + maintenance scripts
 Documentation~/    # Package docs shown in Package Manager
 Samples~/
