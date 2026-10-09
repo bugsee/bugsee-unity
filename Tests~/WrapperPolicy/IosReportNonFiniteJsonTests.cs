@@ -42,5 +42,25 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(json, Does.Contain("\"severity\":"));
             Assert.That(json, Does.Contain("\"severity\":" + (int)IssueSeverity.High));
         }
+
+        [Test]
+        public void ToResultJson_overlays_create_report_attributes_without_replace_all()
+        {
+            var report = new IosReport(new IosReportDto());
+            report.SetAttribute("cart_id", "abc");
+            string json = report.ToResultJson();
+
+            Assert.That(json, Does.Contain("\"cart_id\":\"abc\""));
+            Assert.That(json, Does.Not.Contain("attributesReplaceAll"));
+
+            report.RemoveAttribute("cart_id");
+            json = report.ToResultJson();
+            Assert.That(json, Does.Contain("\"attributeRemovals\":[\"cart_id\"]"));
+            Assert.That(json, Does.Not.Contain("attributesReplaceAll"));
+
+            report.ClearAllAttributes();
+            json = report.ToResultJson();
+            Assert.That(json, Does.Contain("attributesReplaceAll"));
+        }
     }
 }

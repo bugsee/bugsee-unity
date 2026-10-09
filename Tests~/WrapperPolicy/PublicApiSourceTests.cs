@@ -283,12 +283,32 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Ios_apply_report_dict_overlays_attributes_without_default_clear()
+        {
+            string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
+            string body = ExtractNativeFunctionBody(bridge, "BugseeBridgeApplyReportDict");
+            Assert.That(body, Does.Contain("attributeRemovals"));
+            Assert.That(body, Does.Contain("attributesReplaceAll"));
+            Assert.That(body, Does.Contain("shouldReplaceAll"));
+        }
+
+        [Test]
         public void Ios_to_result_json_omits_unset_severity_zero()
         {
             string body = ExtractMethodBody(
                 File.ReadAllText(RepoFile("Runtime/Platform/IOS/IosReport.cs")),
                 "public string ToResultJson()");
             Assert.That(body, Does.Contain("if (_dto.severity != 0)"));
+        }
+
+        [Test]
+        public void Ios_to_result_json_emits_attribute_overlay_metadata()
+        {
+            string body = ExtractMethodBody(
+                File.ReadAllText(RepoFile("Runtime/Platform/IOS/IosReport.cs")),
+                "public string ToResultJson()");
+            Assert.That(body, Does.Contain("attributeRemovals"));
+            Assert.That(body, Does.Contain("attributesReplaceAll"));
         }
 
         [Test]

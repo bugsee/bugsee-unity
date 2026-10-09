@@ -251,14 +251,30 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
         }
     }
 
+    id removals = d[@"attributeRemovals"];
+    if ([removals isKindOfClass:[NSArray class]]) {
+        for (id name in (NSArray *)removals) {
+            if ([name isKindOfClass:[NSString class]] && [report respondsToSelector:@selector(clearAttribute:)]) {
+                [report clearAttribute:(NSString *)name];
+            }
+        }
+    }
+
+    id replaceAll = d[@"attributesReplaceAll"];
+    BOOL shouldReplaceAll = [replaceAll respondsToSelector:@selector(boolValue)] && [replaceAll boolValue];
+
     id attrs = d[@"attributes"];
     if ([attrs isKindOfClass:[NSDictionary class]]) {
-        [report clearAllAttributes];
+        if (shouldReplaceAll) {
+            [report clearAllAttributes];
+        }
         [(NSDictionary *)attrs enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
             if ([key isKindOfClass:[NSString class]]) {
                 [report setAttribute:obj forName:key];
             }
         }];
+    } else if (shouldReplaceAll) {
+        [report clearAllAttributes];
     }
 
     id attachments = d[@"attachments"];

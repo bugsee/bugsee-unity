@@ -35,10 +35,12 @@ namespace Bugsee.Platform.IOS
     {
         readonly IosReportDto _dto;
         readonly Dictionary<string, object> _attributes = new Dictionary<string, object>();
+        readonly HashSet<string> _removedAttributes = new HashSet<string>();
         readonly List<string> _labels = new List<string>();
         readonly List<IosAttachment> _attachments = new List<IosAttachment>();
         readonly bool _hadAttributeArray;
-        bool _attributesDirty;
+        bool _attributesOverlayDirty;
+        bool _attributesClearAll;
         bool _labelsDirty;
         bool _attachmentsDirty;
 
@@ -101,20 +103,24 @@ namespace Bugsee.Platform.IOS
         {
             if (string.IsNullOrEmpty(name)) return;
             _attributes[name] = value;
-            _attributesDirty = true;
+            _removedAttributes.Remove(name);
+            _attributesOverlayDirty = true;
         }
 
         public void RemoveAttribute(string name)
         {
             if (name == null) return;
             _attributes.Remove(name);
-            _attributesDirty = true;
+            _removedAttributes.Add(name);
+            _attributesOverlayDirty = true;
         }
 
         public void ClearAllAttributes()
         {
             _attributes.Clear();
-            _attributesDirty = true;
+            _removedAttributes.Clear();
+            _attributesClearAll = true;
+            _attributesOverlayDirty = false;
         }
 
         public IReadOnlyList<string> Labels => _labels;
@@ -187,20 +193,41 @@ namespace Bugsee.Platform.IOS
 
             // Omit attributes when normalize failed to load them and user never
             // touched the map — otherwise ApplyReportDict would wipe native attrs.
-            if (_hadAttributeArray || _attributesDirty || _attributes.Count > 0)
+            var emitAttributes = _hadAttributeArray || _attributesClearAll || _attributesOverlayDirty
+                || _attributes.Count > 0 || _removedAttributes.Count > 0;
+            if (emitAttributes)
             {
-                sb.Append(",\"attributes\":{");
-                var first = true;
-                foreach (var kv in _attributes)
+                if (!_hadAttributeArray && _removedAttributes.Count > 0)
                 {
-                    if (kv.Key == null) continue;
-                    if (!first) sb.Append(',');
-                    first = false;
-                    IosJsonStringEncoding.AppendQuoted(sb, kv.Key);
-                    sb.Append(':');
-                    AppendValue(sb, kv.Value);
+                    sb.Append(",\"attributeRemovals\":[");
+                    var firstRemoval = true;
+                    foreach (var name in _removedAttributes)
+                    {
+                        if (!firstRemoval) sb.Append(',');
+                        firstRemoval = false;
+                        IosJsonStringEncoding.AppendQuoted(sb, name);
+                    }
+                    sb.Append(']');
                 }
-                sb.Append('}');
+
+                if (_attributes.Count > 0 || _attributesClearAll || _hadAttributeArray)
+                {
+                    sb.Append(",\"attributes\":{");
+                    var first = true;
+                    foreach (var kv in _attributes)
+                    {
+                        if (kv.Key == null) continue;
+                        if (!first) sb.Append(',');
+                        first = false;
+                        IosJsonStringEncoding.AppendQuoted(sb, kv.Key);
+                        sb.Append(':');
+                        AppendValue(sb, kv.Value);
+                    }
+                    sb.Append('}');
+                }
+
+                if (_attributesClearAll || _hadAttributeArray)
+                    sb.Append(",\"attributesReplaceAll\":true");
             }
 
             if (_attachmentsDirty)
