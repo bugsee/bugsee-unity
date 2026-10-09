@@ -14,15 +14,15 @@ namespace Bugsee.Editor
     ///
     /// Plugin 4.x requires AGP ≥ 8.6 / Gradle ≥ 8.7 (Unity 6+). On Unity 2021.3 the
     /// plugin apply is skipped by default. EDM deps: <c>bugsee-android</c> +
-    /// <c>bugsee-android-ndk</c> 7.1.4 (core publishes no transitives; NDK is explicit).
+    /// <c>bugsee-android-ndk</c> 7.3.0 (core publishes no transitives; NDK is explicit).
     /// </summary>
     [InitializeOnLoad]
     sealed class BugseeAndroidGradleSetup : IPreprocessBuildWithReport
     {
         public int callbackOrder => 10;
 
-        public const string GradlePluginVersion = "4.0.6";
-        public const string SdkVersion = "7.1.4";
+        public const string GradlePluginVersion = "4.0.8";
+        public const string SdkVersion = "7.3.0";
 
         const string PrefForcePlugin = "Bugsee.Android.ForceGradlePlugin";
         const string Marker = "// Bugsee Gradle plugin";
@@ -96,7 +96,7 @@ namespace Bugsee.Editor
         }
 
         /// <summary>
-        /// 7.1.4+ ships empty POM and Gradle .module metadata. Drop the kotlin-stdlib
+        /// 7.1.4+ (including 7.3.0) ships empty POM and Gradle .module metadata. Drop the kotlin-stdlib
         /// exclusion previously patched into mainTemplate for older .module files.
         /// </summary>
         static void RemoveStaleKotlinStdlibExclusion()

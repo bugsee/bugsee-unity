@@ -1,12 +1,12 @@
 <dependencies>
   <androidPackages>
     <!--
-      Android SDK 7.1.4 publishes no Maven transitives (POM and Gradle .module are
+      Android SDK 7.3.0 publishes no Maven transitives (POM and Gradle .module are
       empty). NDK is a separate artifact and is not pulled by the core AAR — declare
-      both. androidx.fragment is no longer required: 7.1.4 types fragment secure-view
-      overloads as Object so Unity JNI reflection can load Bugsee without Fragment.
+      both. androidx.fragment is not required: fragment secure-view overloads are typed
+      as Object so Unity JNI reflection can load Bugsee without Fragment.
     -->
-    <androidPackage spec="com.bugsee:bugsee-android:7.1.4" />
-    <androidPackage spec="com.bugsee:bugsee-android-ndk:7.1.4" />
+    <androidPackage spec="com.bugsee:bugsee-android:7.3.0" />
+    <androidPackage spec="com.bugsee:bugsee-android-ndk:7.3.0" />
   </androidPackages>
 </dependencies>

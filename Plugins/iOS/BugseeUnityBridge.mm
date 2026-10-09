@@ -71,12 +71,12 @@ bool _bugsee_get_launched(void)
 
 void _bugsee_start_blackout(void)
 {
-    [Bugsee pause];
+    [Bugsee startBlackout];
 }
 
 void _bugsee_end_blackout(void)
 {
-    [Bugsee resume];
+    [Bugsee endBlackout];
 }
 
 void _bugsee_log(const char *message, int level)
@@ -118,7 +118,7 @@ void _bugsee_logException(const char *name, const char *reason, bool handled)
 
 void _bugsee_test_crash(void)
 {
-    [Bugsee testSignalCrash];
+    [Bugsee testCrash];
 }
 
 static NSArray<NSString *> *BugseeLabelsFromJson(const char *labelsJson)
@@ -157,12 +157,12 @@ void _bugsee_show_report(const char *summary, const char *description, int sever
 {
     NSArray<NSString *> *labels = BugseeLabelsFromJson(labelsJson);
     if (summary) {
-        [Bugsee showReportControllerWithSummary:BugseeNSString(summary)
-                                    description:BugseeNSString(description) ?: @""
-                                       severity:(BugseeSeverityLevel)severity
-                                         labels:labels];
+        [Bugsee showReportDialogWithSummary:BugseeNSString(summary)
+                                description:BugseeNSString(description) ?: @""
+                                   severity:(BugseeSeverityLevel)severity
+                                     labels:labels];
     } else {
-        [Bugsee showReportController];
+        [Bugsee showReportDialog];
     }
 }
 
@@ -215,41 +215,42 @@ void _bugsee_clear_all_attributes(void)
 
 void _bugsee_set_email(const char *email)
 {
-    [Bugsee setEmail:BugseeNSString(email) ?: @""];
+    [Bugsee setUserIdentifier:BugseeNSString(email) ?: @""];
 }
 
 char *_bugsee_get_email(void)
 {
-    return BugseeCopyUTF8([Bugsee getEmail]);
+    return BugseeCopyUTF8([Bugsee getUserIdentifier]);
 }
 
 void _bugsee_clear_email(void)
 {
-    [Bugsee clearEmail];
+    [Bugsee clearUserIdentifier];
 }
 
 char *_bugsee_get_device_id(void)
 {
-    return BugseeCopyUTF8([Bugsee getDeviceId]);
+    // 7.x dropped getDeviceId from the public facade.
+    return NULL;
 }
 
 void _bugsee_add_secure_rect(float x, float y, float w, float h)
 {
     CGFloat scale = [UIScreen mainScreen].scale;
     CGRect rect = CGRectMake(x / scale, y / scale, w / scale, h / scale);
-    [Bugsee addSecureRect:rect];
+    [Bugsee addSecureRectangle:rect];
 }
 
 void _bugsee_remove_secure_rect(float x, float y, float w, float h)
 {
     CGFloat scale = [UIScreen mainScreen].scale;
     CGRect rect = CGRectMake(x / scale, y / scale, w / scale, h / scale);
-    [Bugsee removeSecureRect:rect];
+    [Bugsee removeSecureRectangle:rect];
 }
 
 void _bugsee_remove_all_secure_rects(void)
 {
-    [Bugsee removeAllSecureRects];
+    [Bugsee removeAllSecureRectangles];
 }
 
 void _bugsee_capture_view_hierarchy(void)
@@ -259,36 +260,53 @@ void _bugsee_capture_view_hierarchy(void)
 
 void _bugsee_feedback_show(void)
 {
-    [Bugsee showFeedbackController];
+    NSLog(@"[Bugsee] Feedback UI is not in the core 7.x SPM package; install the Feedback module to enable it.");
 }
 
 void _bugsee_feedback_set_greeting(const char *message)
 {
-    [Bugsee setDefaultFeedbackGreeting:BugseeNSString(message)];
+    (void)message;
+    NSLog(@"[Bugsee] Feedback greeting is not in the core 7.x SPM package; install the Feedback module to enable it.");
+}
+
+static id<BGSAppearance> BugseeAppearanceOrNil(void)
+{
+    id appearance = [Bugsee getAppearance];
+    if ([appearance conformsToProtocol:@protocol(BGSAppearance)]) {
+        return (id<BGSAppearance>)appearance;
+    }
+    static BOOL logged;
+    if (!logged) {
+        NSLog(@"[Bugsee] getAppearance does not implement BGSAppearance; color/string property APIs are skipped.");
+        logged = YES;
+    }
+    return nil;
 }
 
 void _bugsee_appearance_set_color(const char *propertyName, int r, int g, int b, int a)
 {
     NSString *name = BugseeNSString(propertyName);
-    if (!name) {
+    id<BGSAppearance> appearance = BugseeAppearanceOrNil();
+    if (!name || !appearance) {
         return;
     }
     UIColor *color = [UIColor colorWithRed:r / 255.0 green:g / 255.0 blue:b / 255.0 alpha:a / 255.0];
-    [[Bugsee appearance] setValue:color forKey:name];
+    [appearance setColor:color forProperty:name];
 }
 
 char *_bugsee_appearance_get_color(const char *propertyName)
 {
     NSString *name = BugseeNSString(propertyName);
-    if (!name) {
+    id<BGSAppearance> appearance = BugseeAppearanceOrNil();
+    if (!name || !appearance) {
         return NULL;
     }
-    id value = [[Bugsee appearance] valueForKey:name];
-    if (![value isKindOfClass:[UIColor class]]) {
+    UIColor *value = [appearance colorForProperty:name];
+    if (!value) {
         return NULL;
     }
     CGFloat r = 0, g = 0, b = 0, a = 0;
-    if (![(UIColor *)value getRed:&r green:&g blue:&b alpha:&a]) {
+    if (![value getRed:&r green:&g blue:&b alpha:&a]) {
         return NULL;
     }
     NSString *hex = [NSString stringWithFormat:@"#%02lX%02lX%02lX%02lX",
@@ -299,23 +317,21 @@ char *_bugsee_appearance_get_color(const char *propertyName)
 void _bugsee_appearance_set_string(const char *propertyName, const char *propertyValue)
 {
     NSString *name = BugseeNSString(propertyName);
-    if (!name) {
+    id<BGSAppearance> appearance = BugseeAppearanceOrNil();
+    if (!name || !appearance) {
         return;
     }
-    [[Bugsee appearance] setValue:BugseeNSString(propertyValue) ?: @"" forKey:name];
+    [appearance setString:BugseeNSString(propertyValue) ?: @"" forProperty:name];
 }
 
 char *_bugsee_appearance_get_string(const char *propertyName)
 {
     NSString *name = BugseeNSString(propertyName);
-    if (!name) {
+    id<BGSAppearance> appearance = BugseeAppearanceOrNil();
+    if (!name || !appearance) {
         return NULL;
     }
-    id value = [[Bugsee appearance] valueForKey:name];
-    if (![value isKindOfClass:[NSString class]]) {
-        return NULL;
-    }
-    return BugseeCopyUTF8((NSString *)value);
+    return BugseeCopyUTF8([appearance stringForProperty:name]);
 }
 
 void _bugsee_free(char *ptr)

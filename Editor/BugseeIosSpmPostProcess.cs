@@ -9,24 +9,24 @@ namespace Bugsee.Editor
     /// <summary>
     /// Wires the Bugsee iOS SDK into the generated Xcode project via Swift Package Manager.
     ///
-    /// Native SDK pin is github.com/bugsee/bugsee-cocoa (nextgen SHA in
-    /// <c>BugseePackageVersion.IosSdkCommit</c>). Xcode consumes the vendored package
-    /// under Native~/ios/Bugsee because cocoa nextgen ships Package.swift as a release
-    /// template, not a resolvable SPM package. Flip <see cref="UseRemoteSpm"/> when a
-    /// binary feed (bugsee/spm or cocoa Package.swift) is ready.
+    /// iOS 7.x is SPM-only: Xcode resolves <see cref="RemoteSpmUrl"/> at
+    /// <see cref="RemoteSpmVersion"/> (github.com/bugsee/spm). The local
+    /// Native~/ios/Bugsee wrapper is unused unless <see cref="UseRemoteSpm"/> is flipped off.
     /// </summary>
     public static class BugseeIosSpmPostProcess
     {
         /// <summary>
-        /// When false (default), uses the local SPM package under Native~/ios/Bugsee.
-        /// When true, adds a remote reference to github.com/bugsee/spm at <see cref="RemoteSpmVersion"/>.
+        /// When true (default), adds a remote reference to github.com/bugsee/spm.
+        /// When false, copies Native~/ios/Bugsee next to the Xcode project (offline / local xcframework).
         /// </summary>
-        // Not const: keeps the remote SPM branch compilable without CS0162.
-        public static readonly bool UseRemoteSpm = false;
+        public static readonly bool UseRemoteSpm = true;
 
-        public const string RemoteSpmUrl = "https://github.com/bugsee/spm.git";
-        public const string RemoteSpmVersion = "7.0.0";
+        public const string RemoteSpmUrl = BugseePackageVersion.IosSdkSource;
+        public const string RemoteSpmVersion = BugseePackageVersion.IosSdkVersion;
         public const string SpmProductName = "Bugsee";
+
+        /// <summary>Bugsee 7.x / github.com/bugsee/spm requires iOS 15.</summary>
+        public const string MinIosVersion = "15.0";
 
         const string LocalPackageFolderName = "Bugsee";
         const string LocalPackageRelativePath = "Native~/ios/Bugsee";
@@ -45,6 +45,8 @@ namespace Bugsee.Editor
 
             string mainTargetGuid = project.GetUnityMainTargetGuid();
             string frameworkTargetGuid = project.GetUnityFrameworkTargetGuid();
+            EnsureMinIosDeploymentTarget(project, mainTargetGuid);
+            EnsureMinIosDeploymentTarget(project, frameworkTargetGuid);
 
             if (UseRemoteSpm)
             {
@@ -52,7 +54,7 @@ namespace Bugsee.Editor
                 project.AddRemotePackageFrameworkToProject(mainTargetGuid, SpmProductName, packageGuid, false);
                 project.AddRemotePackageFrameworkToProject(frameworkTargetGuid, SpmProductName, packageGuid, false);
                 project.WriteToFile(projectPath);
-                Debug.Log($"[Bugsee] Linked remote SPM {RemoteSpmUrl}@{RemoteSpmVersion}");
+                Debug.Log($"[Bugsee] Linked remote SPM {RemoteSpmUrl}@{RemoteSpmVersion} (iOS {MinIosVersion}+)");
                 return;
             }
 
@@ -78,6 +80,74 @@ namespace Bugsee.Editor
             project.WriteToFile(projectPath);
             InjectLocalSwiftPackageReference(projectPath, LocalPackageFolderName, SpmProductName, mainTargetGuid, frameworkTargetGuid);
             Debug.Log($"[Bugsee] Linked local SPM package at {destPackageDir}");
+        }
+
+        static void EnsureMinIosDeploymentTarget(PBXProject project, string targetGuid)
+        {
+            if (string.IsNullOrEmpty(targetGuid))
+            {
+                return;
+            }
+
+            bool bumped = false;
+            foreach (string configName in project.BuildConfigNames())
+            {
+                string configGuid = project.BuildConfigByName(targetGuid, configName);
+                if (string.IsNullOrEmpty(configGuid))
+                {
+                    continue;
+                }
+
+                string current = project.GetBuildPropertyForConfig(configGuid, "IPHONEOS_DEPLOYMENT_TARGET");
+                if (NeedsVersionBump(current, MinIosVersion))
+                {
+                    project.SetBuildPropertyForConfig(configGuid, "IPHONEOS_DEPLOYMENT_TARGET", MinIosVersion);
+                    bumped = true;
+                }
+            }
+
+            if (!bumped)
+            {
+                string current = project.GetBuildPropertyForAnyConfig(targetGuid, "IPHONEOS_DEPLOYMENT_TARGET");
+                if (NeedsVersionBump(current, MinIosVersion))
+                {
+                    project.SetBuildProperty(targetGuid, "IPHONEOS_DEPLOYMENT_TARGET", MinIosVersion);
+                    bumped = true;
+                }
+            }
+
+            if (bumped)
+            {
+                Debug.Log($"[Bugsee] Raised IPHONEOS_DEPLOYMENT_TARGET to {MinIosVersion} (Bugsee 7.x SPM requires iOS 15).");
+            }
+        }
+
+        static bool NeedsVersionBump(string current, string minimum)
+        {
+            if (string.IsNullOrEmpty(current))
+            {
+                return true;
+            }
+
+            if (!System.Version.TryParse(NormalizeOsVersion(current), out var have))
+            {
+                return true;
+            }
+
+            return !System.Version.TryParse(NormalizeOsVersion(minimum), out var need) || have < need;
+        }
+
+        static string NormalizeOsVersion(string version)
+        {
+            string v = version.Trim();
+            int parts = 0;
+            for (int i = 0; i < v.Length; i++)
+            {
+                if (v[i] == '.') parts++;
+            }
+
+            if (parts == 0) return v + ".0";
+            return v;
         }
 
         static string ResolveLocalPackagePath()
