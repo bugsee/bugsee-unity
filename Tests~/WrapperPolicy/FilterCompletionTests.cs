@@ -118,6 +118,9 @@ namespace Bugsee.WrapperPolicy.Tests
                 catchBody,
                 Does.Match("FilterCompletion\\.(Drop|OnThrow).*null|null.*FilterCompletion\\.(Drop|OnThrow)"));
             Assert.That(catchBody, Does.Not.Contain("FilterCompletion.Keep"));
+            Assert.That(catchBody, Does.Contain("filter-failed"));
+            Assert.That(catchBody, Does.Contain("GetType().Name"));
+            Assert.That(catchBody, Does.Not.Contain("LogException"));
         }
 
         [Test]
