@@ -25,6 +25,9 @@ namespace Bugsee.Editor
         public const string RemoteSpmVersion = BugseePackageVersion.IosSdkVersion;
         public const string SpmProductName = "Bugsee";
 
+        /// <summary>Bugsee 7.x / github.com/bugsee/spm requires iOS 15.</summary>
+        public const string MinIosVersion = "15.0";
+
         const string LocalPackageFolderName = "Bugsee";
         const string LocalPackageRelativePath = "Native~/ios/Bugsee";
 
@@ -42,6 +45,8 @@ namespace Bugsee.Editor
 
             string mainTargetGuid = project.GetUnityMainTargetGuid();
             string frameworkTargetGuid = project.GetUnityFrameworkTargetGuid();
+            EnsureMinIosDeploymentTarget(project, mainTargetGuid);
+            EnsureMinIosDeploymentTarget(project, frameworkTargetGuid);
 
             if (UseRemoteSpm)
             {
@@ -49,7 +54,7 @@ namespace Bugsee.Editor
                 project.AddRemotePackageFrameworkToProject(mainTargetGuid, SpmProductName, packageGuid, false);
                 project.AddRemotePackageFrameworkToProject(frameworkTargetGuid, SpmProductName, packageGuid, false);
                 project.WriteToFile(projectPath);
-                Debug.Log($"[Bugsee] Linked remote SPM {RemoteSpmUrl}@{RemoteSpmVersion}");
+                Debug.Log($"[Bugsee] Linked remote SPM {RemoteSpmUrl}@{RemoteSpmVersion} (iOS {MinIosVersion}+)");
                 return;
             }
 
@@ -75,6 +80,74 @@ namespace Bugsee.Editor
             project.WriteToFile(projectPath);
             InjectLocalSwiftPackageReference(projectPath, LocalPackageFolderName, SpmProductName, mainTargetGuid, frameworkTargetGuid);
             Debug.Log($"[Bugsee] Linked local SPM package at {destPackageDir}");
+        }
+
+        static void EnsureMinIosDeploymentTarget(PBXProject project, string targetGuid)
+        {
+            if (string.IsNullOrEmpty(targetGuid))
+            {
+                return;
+            }
+
+            bool bumped = false;
+            foreach (string configName in project.BuildConfigNames())
+            {
+                string configGuid = project.BuildConfigByName(targetGuid, configName);
+                if (string.IsNullOrEmpty(configGuid))
+                {
+                    continue;
+                }
+
+                string current = project.GetBuildPropertyForConfig(configGuid, "IPHONEOS_DEPLOYMENT_TARGET");
+                if (NeedsVersionBump(current, MinIosVersion))
+                {
+                    project.SetBuildPropertyForConfig(configGuid, "IPHONEOS_DEPLOYMENT_TARGET", MinIosVersion);
+                    bumped = true;
+                }
+            }
+
+            if (!bumped)
+            {
+                string current = project.GetBuildPropertyForAnyConfig(targetGuid, "IPHONEOS_DEPLOYMENT_TARGET");
+                if (NeedsVersionBump(current, MinIosVersion))
+                {
+                    project.SetBuildProperty(targetGuid, "IPHONEOS_DEPLOYMENT_TARGET", MinIosVersion);
+                    bumped = true;
+                }
+            }
+
+            if (bumped)
+            {
+                Debug.Log($"[Bugsee] Raised IPHONEOS_DEPLOYMENT_TARGET to {MinIosVersion} (Bugsee 7.x SPM requires iOS 15).");
+            }
+        }
+
+        static bool NeedsVersionBump(string current, string minimum)
+        {
+            if (string.IsNullOrEmpty(current))
+            {
+                return true;
+            }
+
+            if (!System.Version.TryParse(NormalizeOsVersion(current), out var have))
+            {
+                return true;
+            }
+
+            return !System.Version.TryParse(NormalizeOsVersion(minimum), out var need) || have < need;
+        }
+
+        static string NormalizeOsVersion(string version)
+        {
+            string v = version.Trim();
+            int parts = 0;
+            for (int i = 0; i < v.Length; i++)
+            {
+                if (v[i] == '.') parts++;
+            }
+
+            if (parts == 0) return v + ".0";
+            return v;
         }
 
         static string ResolveLocalPackagePath()

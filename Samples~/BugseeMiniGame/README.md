@@ -59,7 +59,7 @@ SetSecureRect / SetAttribute / SetUserIdentifier / Appearance open IMGUI forms f
 |----------|-------------|
 | **Editor** | Game + HUD work; Bugsee uses no-op bridge (`IsLaunched` stays false). |
 | **Android** | Full path: Launch with `DirectBuffers`, reporting, blackout, filters, etc. |
-| **iOS** | Launch + managed/native crash path via `BugseeUnityBridge` + remote SPM (`github.com/bugsee/spm` `7.0.0-beta5`). |
+| **iOS** | Launch + managed/native crash path via `BugseeUnityBridge` + remote SPM (`github.com/bugsee/spm` `7.0.0-beta5`). Requires **iOS 15+** (sample Player Settings and the export post-process both set `IPHONEOS_DEPLOYMENT_TARGET` to 15.0). |
 
 ## Build Android
 

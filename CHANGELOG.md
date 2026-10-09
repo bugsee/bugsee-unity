@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial UPM package scaffold (`com.bugsee.unity`).
 - Android native SDK via EDM4U → Maven (`com.bugsee:bugsee-android:7.3.0` + `bugsee-android-ndk:7.3.0`). Core AAR publishes no transitives; NDK is declared explicitly.
 - Android Gradle plugin `4.0.8` (NDK enabled on Unity 6+ launcher templates).
-- iOS SPM-only native SDK: Xcode resolves [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta5` + `Plugins/iOS/BugseeUnityBridge.mm` P/Invoke bridge.
+- iOS SPM-only native SDK: Xcode resolves [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta5` + `Plugins/iOS/BugseeUnityBridge.mm` P/Invoke bridge (7.x selectors; iOS 15 deployment target).
 - ExceptionPipeline managed capture (`CaptureManagedExceptions`) with UnityManagedException JSON-in-reason.
 - `Bugsee.LogUnhandledException` on Android and iOS.
 - Editor IL2CPP linemap upload (`BugseeIl2CppLinemapUpload`) and symbol orchestrator (`BugseeSymbolUpload`: ELF / ProGuard / archive dSYM).
