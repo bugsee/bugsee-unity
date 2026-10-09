@@ -7,6 +7,7 @@ using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Feedback;
 using Bugsee.Contracts.Lifecycle;
 using Bugsee.Contracts.Options;
+using Bugsee.WrapperPolicy;
 using Bugsee.Contracts.Reporting;
 using Bugsee.Internal;
 using Bugsee.Platform;
@@ -41,6 +42,7 @@ namespace Bugsee.Platform.IOS
                     _bugsee_launch(appToken, ToJsonObject(options));
                     _launched = true;
                     ExceptionPipeline.Install(this, options);
+                    HostLogForwarder.InstallOnce(this);
                 }))
             {
                 Debug.LogError("[Bugsee] Launch timed out waiting for the Unity main thread.");
@@ -53,6 +55,7 @@ namespace Bugsee.Platform.IOS
                 {
                     _bugsee_relaunch(ToJsonObject(options));
                     ExceptionPipeline.Install(this, options);
+                    HostLogForwarder.InstallOnce(this);
                 }))
             {
                 Debug.LogError("[Bugsee] Relaunch timed out waiting for the Unity main thread.");
@@ -91,6 +94,12 @@ namespace Bugsee.Platform.IOS
         }
 
         public bool IsBlackout() => _blackout;
+
+        public void ChannelLog(string message, LogLevel level)
+        {
+            if (string.IsNullOrEmpty(message)) return;
+            _bugsee_channel_log(message, (int)level, WrapperLogSourcePolicy.Resolve(null));
+        }
 
         public void Log(string message, LogLevel level) =>
             _bugsee_log(message ?? "", (int)level);
@@ -272,6 +281,7 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_start_blackout();
         [DllImport("__Internal")] static extern void _bugsee_end_blackout();
         [DllImport("__Internal")] static extern void _bugsee_log(string message, int level);
+        [DllImport("__Internal")] static extern void _bugsee_channel_log(string message, int level, int source);
         [DllImport("__Internal")] static extern void _bugsee_trace(string name, string valueJson);
         [DllImport("__Internal")] static extern void _bugsee_event(string name, string paramsJson);
         [DllImport("__Internal")] static extern void _bugsee_logException(string name, string reason, bool handled);

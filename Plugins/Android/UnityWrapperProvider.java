@@ -27,6 +27,7 @@ final class UnityWrapper implements BugseeWrapper {
     private String scriptingBackend = "unknown";
     private String productName = "unknown";
     private String wrapperVersion = "unknown";
+    private static volatile BugseeWrapperChannel channel;
 
     static void install() {
         if (installed) return;
@@ -89,7 +90,24 @@ final class UnityWrapper implements BugseeWrapper {
 
     @Override
     public void onWrapperChannelAvailable(BugseeWrapperChannel value) {
-        // Task 9 stores the channel for host log/network submission.
+        channel = value;
+    }
+
+    public static void channelLog(String message, int level, int source) {
+        BugseeWrapperChannel current = channel;
+        if (current == null || message == null) return;
+        com.bugsee.library.contracts.options.LogLevel nativeLevel;
+        switch (level) {
+            case 1: nativeLevel = com.bugsee.library.contracts.options.LogLevel.Error; break;
+            case 2: nativeLevel = com.bugsee.library.contracts.options.LogLevel.Warning; break;
+            case 4: nativeLevel = com.bugsee.library.contracts.options.LogLevel.Debug; break;
+            case 5: nativeLevel = com.bugsee.library.contracts.options.LogLevel.Verbose; break;
+            default: nativeLevel = com.bugsee.library.contracts.options.LogLevel.Info; break;
+        }
+        com.bugsee.library.contracts.internal.LogSource nativeSource =
+                com.bugsee.library.contracts.internal.LogSource.fromRawValue((byte) source, com.bugsee.library.contracts.internal.LogSource.Custom);
+        if (nativeSource == null) nativeSource = com.bugsee.library.contracts.internal.LogSource.Custom;
+        current.log(null, message, nativeLevel, nativeSource);
     }
 
     @Override

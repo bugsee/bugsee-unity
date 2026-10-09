@@ -26,6 +26,9 @@ namespace Bugsee.Platform
         bool IsBlackout();
 
         void Log(string message, LogLevel level);
+
+        /// <summary>Submit a host log on the wrapper channel. Public <see cref="Log"/> stays on the SDK log API.</summary>
+        void ChannelLog(string message, LogLevel level);
         void Trace(string name, object value);
         void Event(string name, IDictionary<string, object> parameters);
         void LogException(Exception exception, IDictionary<string, object> options = null);
