@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using AOT;
 using Bugsee.Contracts.Appearance;
 using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Feedback;
@@ -23,6 +24,10 @@ namespace Bugsee.Platform.IOS
     /// </summary>
     sealed class IOSBridge : IBugseeNativeBridge
     {
+        delegate void ManagedReportUploadNativeCallback(int succeeded);
+
+        static IOSBridge _pendingManagedReportUpload;
+
         bool _launched;
         bool _blackout;
         IosAppearance _appearance;
@@ -81,11 +86,7 @@ namespace Bugsee.Platform.IOS
                     _bugsee_clear_wrapper_channel();
                     _bugsee_stop();
                     _launched = false;
-                    if (_openReport != null)
-                    {
-                        ApplyOpenReportToNative();
-                        _bugsee_release_open_report();
-                    }
+                    _pendingManagedReportUpload = null;
                     _openReport = null;
                     _openReportHandle = null;
                     _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
@@ -134,46 +135,61 @@ namespace Bugsee.Platform.IOS
                 _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
         }
 
-        public void DeleteCollectedDataOnDevice() => _bugsee_delete_collected_data();
+        public void DeleteCollectedDataOnDevice()
+        {
+            if (GetLaunched())
+                Stop();
+            _bugsee_delete_collected_data();
+        }
 
         public IReport CreateReport()
         {
             if (_openReport != null)
                 throw new InvalidOperationException("a report is already open");
-            var json = ConsumeNativeString(_bugsee_create_report());
-            if (string.IsNullOrEmpty(json))
-                throw new InvalidOperationException("CreateReport failed.");
-            var dto = JsonUtility.FromJson<IosReportDto>(IosJsonNormalize.NormalizeReport(json));
-            _openReport = new IosReport(dto);
-            _openReportHandle = new IosLiveReport(_openReport, this);
+            _openReport = new IosReport(new IosReportDto());
+            _openReportHandle = new IosLiveReport(_openReport);
             return _openReportHandle;
+        }
+
+        public void DiscardReport(IReport report)
+        {
+            if (report == null)
+                throw new ArgumentNullException(nameof(report));
+            if (!ReferenceEquals(report, _openReportHandle))
+                throw new ArgumentException("Report was not created by CreateReport.", nameof(report));
+            _openReport = null;
+            _openReportHandle = null;
         }
 
         public void UploadReport(IReport report)
         {
             if (!ReferenceEquals(report, _openReportHandle))
                 throw new ArgumentException("Report was not created by CreateReport.", nameof(report));
-            ApplyOpenReportToNative();
-            _bugsee_upload_open_report();
-            _openReport = null;
-            _openReportHandle = null;
-        }
-
-        internal void ApplyOpenReportToNative()
-        {
             if (_openReport == null)
-                return;
-            _bugsee_apply_open_report(_openReport.ToResultJson());
+                throw new InvalidOperationException("CreateReport failed.");
+            if (_pendingManagedReportUpload != null)
+                throw new InvalidOperationException("a report upload is already in progress");
+            var json = _openReport.ToResultJson();
+            _pendingManagedReportUpload = this;
+            _bugsee_upload_managed_report(json, OnManagedReportCreateCompletion);
         }
 
-        internal void ReleaseOpenReportFromLiveHandle(IosLiveReport handle)
+        [MonoPInvokeCallback(typeof(ManagedReportUploadNativeCallback))]
+        static void OnManagedReportCreateCompletion(int succeeded)
         {
-            if (!ReferenceEquals(handle, _openReportHandle))
+            var bridge = _pendingManagedReportUpload;
+            _pendingManagedReportUpload = null;
+            if (bridge == null)
                 return;
-            ApplyOpenReportToNative();
-            _bugsee_release_open_report();
+            bridge.FinishManagedReportUpload(succeeded != 0);
+        }
+
+        void FinishManagedReportUpload(bool succeeded)
+        {
             _openReport = null;
             _openReportHandle = null;
+            if (!succeeded)
+                Debug.LogError("[Bugsee] CreateReport failed.");
         }
 
         public void AddBreadcrumb(string category, string message, string levelName)
@@ -413,10 +429,9 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_channel_network(string eventJson, int requiresFiltering);
         [DllImport("__Internal")] static extern void _bugsee_channel_breadcrumb(string category, string message, int iosLevel);
         [DllImport("__Internal")] static extern void _bugsee_delete_collected_data();
-        [DllImport("__Internal")] static extern IntPtr _bugsee_create_report();
-        [DllImport("__Internal")] static extern void _bugsee_apply_open_report(string reportJson);
-        [DllImport("__Internal")] static extern void _bugsee_upload_open_report();
-        [DllImport("__Internal")] static extern void _bugsee_release_open_report();
+        [DllImport("__Internal")] static extern void _bugsee_upload_managed_report(
+            string reportJson,
+            ManagedReportUploadNativeCallback callback);
         [DllImport("__Internal")] static extern void _bugsee_trace(string name, string valueJson);
         [DllImport("__Internal")] static extern void _bugsee_event(string name, string paramsJson);
         [DllImport("__Internal")] static extern void _bugsee_logException(string name, string reason, bool handled);
@@ -495,19 +510,15 @@ namespace Bugsee.Platform.IOS
                 new Dictionary<string, object>(_cache);
         }
 
-        /// <summary>Live handle over the native open report created by <see cref="CreateReport"/>.</summary>
-        internal sealed class IosLiveReport : IReport, IDisposable
+        /// <summary>Managed report snapshot from <see cref="CreateReport"/>; native work runs at upload.</summary>
+        internal sealed class IosLiveReport : IReport
         {
             readonly IosReport _inner;
-            readonly IOSBridge _owner;
 
-            internal IosLiveReport(IosReport inner, IOSBridge owner)
+            internal IosLiveReport(IosReport inner)
             {
                 _inner = inner;
-                _owner = owner;
             }
-
-            public void Dispose() => _owner.ReleaseOpenReportFromLiveHandle(this);
 
             public string Id => _inner.Id;
             public IssueType Type => _inner.Type;
@@ -515,68 +526,44 @@ namespace Bugsee.Platform.IOS
             public string Summary
             {
                 get => _inner.Summary;
-                set { _inner.Summary = value; _owner.ApplyOpenReportToNative(); }
+                set => _inner.Summary = value;
             }
 
             public string Description
             {
                 get => _inner.Description;
-                set { _inner.Description = value; _owner.ApplyOpenReportToNative(); }
+                set => _inner.Description = value;
             }
 
             public string Email
             {
                 get => _inner.Email;
-                set { _inner.Email = value; _owner.ApplyOpenReportToNative(); }
+                set => _inner.Email = value;
             }
 
             public IssueSeverity? Severity
             {
                 get => _inner.Severity;
-                set { _inner.Severity = value; _owner.ApplyOpenReportToNative(); }
+                set => _inner.Severity = value;
             }
 
             public IReadOnlyDictionary<string, object> Attributes => _inner.Attributes;
 
             public object GetAttribute(string name) => _inner.GetAttribute(name);
 
-            public void SetAttribute(string name, object value)
-            {
-                _inner.SetAttribute(name, value);
-                _owner.ApplyOpenReportToNative();
-            }
+            public void SetAttribute(string name, object value) => _inner.SetAttribute(name, value);
 
-            public void RemoveAttribute(string name)
-            {
-                _inner.RemoveAttribute(name);
-                _owner.ApplyOpenReportToNative();
-            }
+            public void RemoveAttribute(string name) => _inner.RemoveAttribute(name);
 
-            public void ClearAllAttributes()
-            {
-                _inner.ClearAllAttributes();
-                _owner.ApplyOpenReportToNative();
-            }
+            public void ClearAllAttributes() => _inner.ClearAllAttributes();
 
             public IReadOnlyList<string> Labels => _inner.Labels;
 
-            public void AddLabel(string label)
-            {
-                _inner.AddLabel(label);
-                _owner.ApplyOpenReportToNative();
-            }
+            public void AddLabel(string label) => _inner.AddLabel(label);
 
-            public void ClearLabels()
-            {
-                _inner.ClearLabels();
-                _owner.ApplyOpenReportToNative();
-            }
+            public void ClearLabels() => _inner.ClearLabels();
 
-            public void SetLabels(IEnumerable<string> labels)
-            {
-                _inner.SetLabels(labels);
-                _owner.ApplyOpenReportToNative();
-            }
+            public void SetLabels(IEnumerable<string> labels) => _inner.SetLabels(labels);
 
             public IReadOnlyList<IAttachment> Attachments
             {
@@ -587,7 +574,7 @@ namespace Bugsee.Platform.IOS
                     for (var i = 0; i < inner.Count; i++)
                     {
                         if (inner[i] is IosAttachment iosAttachment)
-                            wrapped.Add(new IosLiveAttachment(iosAttachment, _owner));
+                            wrapped.Add(new IosLiveAttachment(iosAttachment));
                         else
                             wrapped.Add(inner[i]);
                     }
@@ -598,57 +585,42 @@ namespace Bugsee.Platform.IOS
             public IAttachment CreateAndAddAttachment(string name)
             {
                 var att = (IosAttachment)_inner.CreateAndAddAttachment(name);
-                _owner.ApplyOpenReportToNative();
-                return new IosLiveAttachment(att, _owner);
+                return new IosLiveAttachment(att);
             }
 
-            public void ClearAttachments()
-            {
-                _inner.ClearAttachments();
-                _owner.ApplyOpenReportToNative();
-            }
+            public void ClearAttachments() => _inner.ClearAttachments();
         }
 
         sealed class IosLiveAttachment : IAttachment
         {
             readonly IosAttachment _inner;
-            readonly IOSBridge _owner;
 
-            internal IosLiveAttachment(IosAttachment inner, IOSBridge owner)
+            internal IosLiveAttachment(IosAttachment inner)
             {
                 _inner = inner;
-                _owner = owner;
             }
 
             public string Name
             {
                 get => _inner.Name;
-                set { _inner.Name = value; _owner.ApplyOpenReportToNative(); }
+                set => _inner.Name = value;
             }
 
             public string Filename
             {
                 get => _inner.Filename;
-                set { _inner.Filename = value; _owner.ApplyOpenReportToNative(); }
+                set => _inner.Filename = value;
             }
 
             public string MimeType
             {
                 get => _inner.MimeType;
-                set { _inner.MimeType = value; _owner.ApplyOpenReportToNative(); }
+                set => _inner.MimeType = value;
             }
 
-            public void SetData(byte[] data)
-            {
-                _inner.SetData(data);
-                _owner.ApplyOpenReportToNative();
-            }
+            public void SetData(byte[] data) => _inner.SetData(data);
 
-            public void SetData(string text)
-            {
-                _inner.SetData(text);
-                _owner.ApplyOpenReportToNative();
-            }
+            public void SetData(string text) => _inner.SetData(text);
         }
     }
 

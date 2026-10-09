@@ -460,11 +460,19 @@ void _bugsee_channel_breadcrumb(const char *category, const char *message, int i
     if (!messageText) {
         messageText = @"";
     }
-    id<BGSBreadcrumb> breadcrumb = [BugseeBreadcrumb breadcrumbWithCategory:categoryText message:messageText];
+    id factory = [Bugsee getExchangeFactory];
+    if (!factory) {
+        return;
+    }
+    id<BGSBreadcrumb> breadcrumb = [factory createBreadcrumbWithTimestamp:[[NSDate date] timeIntervalSince1970]
+                                                                 category:categoryText
+                                                                    level:(BugseeLogLevel)iosLevel
+                                                                  message:messageText
+                                                                     type:@"manual"
+                                                                     data:nil];
     if (!breadcrumb) {
         return;
     }
-    breadcrumb.level = (BugseeLogLevel)iosLevel;
     [channel addBreadcrumb:breadcrumb];
 }
 

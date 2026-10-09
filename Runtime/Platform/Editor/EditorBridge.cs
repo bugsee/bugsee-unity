@@ -78,6 +78,12 @@ namespace Bugsee.Platform.EditorStub
         public void UploadReport(IReport report) =>
             throw new NotSupportedException("Upload(IReport) is not supported in the Unity Editor.");
 
+        public void DiscardReport(IReport report)
+        {
+            if (report == null)
+                throw new ArgumentNullException(nameof(report));
+        }
+
         public void EnsureWrapperRegistered() { }
 
         sealed class StubAppearance : IAppearance

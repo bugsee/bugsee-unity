@@ -15,34 +15,45 @@ namespace Bugsee.WrapperPolicy
     /// </summary>
     public sealed class NetworkEventLaunchBuffer<T>
     {
+        readonly object _gate = new object();
         readonly List<T> _pending = new List<T>();
         NetworkLaunchPhase _phase = NetworkLaunchPhase.BeforeLaunched;
         Action<T> _submit;
 
-        public NetworkLaunchPhase Phase => _phase;
+        public NetworkLaunchPhase Phase
+        {
+            get
+            {
+                lock (_gate)
+                    return _phase;
+            }
+        }
 
         public void SetSubmitHandler(Action<T> submit) => _submit = submit;
 
         public void SetPhase(NetworkLaunchPhase phase)
         {
-            if (phase == NetworkLaunchPhase.Launched)
+            lock (_gate)
             {
-                if (_phase == NetworkLaunchPhase.Launched)
+                if (phase == NetworkLaunchPhase.Launched)
+                {
+                    if (_phase == NetworkLaunchPhase.Launched)
+                        return;
+                    _phase = NetworkLaunchPhase.Launched;
+                    FlushPendingLocked();
                     return;
-                _phase = NetworkLaunchPhase.Launched;
-                FlushPending();
-                return;
-            }
+                }
 
-            if (phase == NetworkLaunchPhase.Stopped)
-            {
-                _phase = NetworkLaunchPhase.Stopped;
-                _pending.Clear();
-                return;
-            }
+                if (phase == NetworkLaunchPhase.Stopped)
+                {
+                    _phase = NetworkLaunchPhase.Stopped;
+                    _pending.Clear();
+                    return;
+                }
 
-            if (phase == NetworkLaunchPhase.BeforeLaunched)
-                _phase = NetworkLaunchPhase.BeforeLaunched;
+                if (phase == NetworkLaunchPhase.BeforeLaunched)
+                    _phase = NetworkLaunchPhase.BeforeLaunched;
+            }
         }
 
         public void Enqueue(T item)
@@ -50,19 +61,24 @@ namespace Bugsee.WrapperPolicy
             if (item == null)
                 return;
 
-            if (_phase == NetworkLaunchPhase.Stopped)
-                return;
-
-            if (_phase == NetworkLaunchPhase.Launched)
+            lock (_gate)
             {
-                _submit?.Invoke(item);
-                return;
-            }
+                if (_phase == NetworkLaunchPhase.Stopped)
+                    return;
 
-            _pending.Add(item);
+                if (_phase == NetworkLaunchPhase.Launched)
+                {
+                    var submit = _submit;
+                    if (submit != null)
+                        submit(item);
+                    return;
+                }
+
+                _pending.Add(item);
+            }
         }
 
-        void FlushPending()
+        void FlushPendingLocked()
         {
             if (_submit == null || _pending.Count == 0)
             {
@@ -72,8 +88,9 @@ namespace Bugsee.WrapperPolicy
 
             var copy = new List<T>(_pending);
             _pending.Clear();
+            var submit = _submit;
             for (var i = 0; i < copy.Count; i++)
-                _submit(copy[i]);
+                submit(copy[i]);
         }
     }
 }

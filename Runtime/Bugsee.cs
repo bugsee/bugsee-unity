@@ -90,6 +90,9 @@ namespace Bugsee
 
         public static IReport CreateReport() => Bridge.CreateReport();
 
+        /// <summary>Release a report from <see cref="CreateReport"/> without uploading.</summary>
+        public static void Discard(IReport report) => Bridge.DiscardReport(report);
+
         public static void AddBreadcrumb(string category, string message, string levelName) =>
             Bridge.AddBreadcrumb(category, message, levelName);
 

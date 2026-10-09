@@ -72,6 +72,7 @@ namespace Bugsee.Platform
 
         void DeleteCollectedDataOnDevice();
         IReport CreateReport();
+        void DiscardReport(IReport report);
         void AddBreadcrumb(string category, string message, string levelName);
         void UploadReport(IReport report);
 

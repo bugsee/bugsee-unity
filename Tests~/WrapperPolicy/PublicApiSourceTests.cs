@@ -77,6 +77,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(facade, Does.Contain("CreateReport"));
             Assert.That(facade, Does.Contain("AddBreadcrumb"));
             Assert.That(facade, Does.Contain("AddNetworkEvent"));
+            Assert.That(facade, Does.Contain("Discard"));
         }
 
         [Test]
@@ -92,7 +93,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
             string body = ExtractNativeFunctionBody(bridge, "_bugsee_delete_collected_data");
             Assert.That(body, Does.Contain("BugseeRunOnMain"));
-            Assert.That(body, Does.Contain("deleteCollectedDataOnDevice"));
+            Assert.That(body, Does.Contain("deleteCollectedDataOnDevice:YES"));
         }
 
         [Test]
@@ -115,13 +116,29 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Ios_apply_open_report_clears_attachments_before_re_add()
+        public void Ios_upload_managed_report_uses_beta5_create_and_apply_once()
         {
             string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
-            string body = ExtractNativeFunctionBody(bridge, "BugseeBridgeApplyReportDict");
-            Assert.That(body, Does.Contain("clearAttachments"));
-            Assert.That(body, Does.Contain("addAttachmentWithData:name:mimeType:"));
-            Assert.That(body, Does.Not.Contain("createAndAddAttachmentWithName"));
+            string upload = ExtractNativeFunctionBody(bridge, "_bugsee_upload_managed_report");
+            Assert.That(upload, Does.Contain("createReportWithCompletion:"));
+            Assert.That(upload, Does.Contain("uploadReport:"));
+            Assert.That(upload, Does.Contain("BugseeExtendedReport"));
+
+            string apply = ExtractNativeFunctionBody(bridge, "BugseeBridgeApplyReportDict");
+            Assert.That(apply, Does.Contain("[report clearAttachments]"));
+            Assert.That(apply, Does.Contain("addAttachmentWithData:"));
+            Assert.That(apply, Does.Not.Contain("createAndAddAttachmentWithName"));
+            Assert.That(bridge, Does.Not.Contain("_bugsee_apply_open_report"));
+            Assert.That(bridge, Does.Not.Contain("[Bugsee createReport]"));
+        }
+
+        [Test]
+        public void Ios_channel_breadcrumb_uses_exchange_factory()
+        {
+            string callbacks = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityCallbacks.mm"));
+            string body = ExtractNativeFunctionBody(callbacks, "_bugsee_channel_breadcrumb");
+            Assert.That(body, Does.Contain("createBreadcrumbWithTimestamp:"));
+            Assert.That(body, Does.Not.Contain("BugseeBreadcrumb"));
         }
 
         [Test]
@@ -163,12 +180,12 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Android_delete_collected_data_skips_when_launched()
+        public void Android_delete_collected_data_stops_then_deletes()
         {
             string body = ExtractMethodBody(
                 File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs")),
                 "public void DeleteCollectedDataOnDevice()");
-            Assert.That(body, Does.Match(new Regex(@"if\s*\(\s*GetLaunched\s*\(\s*\)\s*\)\s*return")));
+            Assert.That(body, Does.Match(new Regex(@"if\s*\(\s*GetLaunched\s*\(\s*\)\s*\)\s*Stop\s*\(\s*\)\s*;")));
             Assert.That(body, Does.Contain("deleteCollectedDataOnDevice"));
         }
 
@@ -233,6 +250,17 @@ namespace Bugsee.WrapperPolicy.Tests
                 File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs")),
                 "public IReport CreateReport()");
             Assert.That(body, Does.Contain("a report is already open"));
+            Assert.That(body, Does.Not.Contain("_bugsee_create_report"));
+        }
+
+        [Test]
+        public void Ios_discard_report_clears_managed_slot_without_native()
+        {
+            string body = ExtractMethodBody(
+                File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs")),
+                "public void DiscardReport(IReport report)");
+            Assert.That(body, Does.Not.Contain("_bugsee_"));
+            Assert.That(body, Does.Contain("_openReport = null"));
         }
 
         [Test]
@@ -251,7 +279,8 @@ namespace Bugsee.WrapperPolicy.Tests
             string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
 
             string attachments = ExtractMethodBody(ios, "public IReadOnlyList<IAttachment> Attachments");
-            Assert.That(attachments, Does.Contain("IosLiveAttachment(iosAttachment, _owner)"));
+            Assert.That(attachments, Does.Contain("IosLiveAttachment(iosAttachment)"));
+            Assert.That(ios, Does.Not.Contain("ApplyOpenReportToNative"));
 
             string create = ExtractMethodBody(ios, "public IAttachment CreateAndAddAttachment(string name)");
             Assert.That(create, Does.Contain("(IosAttachment)"));

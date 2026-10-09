@@ -44,7 +44,7 @@ static void BugseeRunOnMain(dispatch_block_t block)
     }
 }
 
-static id<BGSReportContract> gOpenReport;
+typedef void (*BugseeManagedReportCreateCallback)(int succeeded);
 
 static void BugseeBridgeApplyReportDict(id<BGSReportContract> report, NSDictionary *d)
 {
@@ -91,13 +91,7 @@ static void BugseeBridgeApplyReportDict(id<BGSReportContract> report, NSDictiona
 
     id attachments = d[@"attachments"];
     if ([attachments isKindOfClass:[NSArray class]]) {
-        id reportObj = (id)report;
-        if ([reportObj respondsToSelector:@selector(clearAttachments)]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-            [reportObj performSelector:@selector(clearAttachments)];
-#pragma clang diagnostic pop
-        }
+        [report clearAttachments];
         for (id item in (NSArray *)attachments) {
             if (![item isKindOfClass:[NSDictionary class]]) {
                 continue;
@@ -106,9 +100,8 @@ static void BugseeBridgeApplyReportDict(id<BGSReportContract> report, NSDictiona
             NSString *name = [att[@"name"] isKindOfClass:[NSString class]] ? att[@"name"] : @"attachment";
             NSString *mime = [att[@"mimeType"] isKindOfClass:[NSString class]] ? att[@"mimeType"] : @"text/plain";
             id filePath = att[@"filePath"];
-            if ([filePath isKindOfClass:[NSString class]] && [(NSString *)filePath length] > 0
-                && [reportObj respondsToSelector:@selector(addAttachmentWithFilePath:name:mimeType:move:)]) {
-                [reportObj addAttachmentWithFilePath:filePath name:name mimeType:mime move:NO];
+            if ([filePath isKindOfClass:[NSString class]] && [(NSString *)filePath length] > 0) {
+                [report addAttachmentWithFilePath:filePath name:name mimeType:mime move:NO];
                 continue;
             }
             NSData *data = nil;
@@ -123,45 +116,9 @@ static void BugseeBridgeApplyReportDict(id<BGSReportContract> report, NSDictiona
             if (!data) {
                 data = [NSData data];
             }
-            if ([reportObj respondsToSelector:@selector(addAttachmentWithData:name:mimeType:)]) {
-                [reportObj addAttachmentWithData:data name:name mimeType:mime];
-            }
+            [report addAttachmentWithData:data name:name mimeType:mime];
         }
     }
-}
-
-static NSDictionary *BugseeBridgeReportToDict(id<BGSReportContract> report)
-{
-    NSMutableDictionary *d = [NSMutableDictionary dictionary];
-    d[@"id"] = report.reportId ?: @"";
-    d[@"summary"] = report.summary ?: @"";
-    d[@"description"] = report.reportDescription ?: @"";
-    d[@"email"] = report.email ?: @"";
-    d[@"severity"] = @(report.severity);
-    d[@"labels"] = report.labels ? [report.labels copy] : @[];
-    d[@"attributes"] = report.attributes ? [report.attributes copy] : @{};
-    if ([(id)report respondsToSelector:@selector(type)]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-        id typeVal = [(id)report performSelector:@selector(type)];
-#pragma clang diagnostic pop
-        if ([typeVal isKindOfClass:[NSString class]]) {
-            d[@"type"] = typeVal;
-        }
-    }
-    return d;
-}
-
-static NSString *BugseeJsonStringFromObject(id obj)
-{
-    if (!obj || ![NSJSONSerialization isValidJSONObject:obj]) {
-        return @"{}";
-    }
-    NSData *data = [NSJSONSerialization dataWithJSONObject:obj options:0 error:nil];
-    if (!data) {
-        return @"{}";
-    }
-    return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"{}";
 }
 
 extern "C" {
@@ -480,52 +437,42 @@ void _bugsee_free(char *ptr)
 void _bugsee_delete_collected_data(void)
 {
     BugseeRunOnMain(^{
-        [Bugsee deleteCollectedDataOnDevice];
+        [Bugsee deleteCollectedDataOnDevice:YES completion:nil];
     });
 }
 
-char *_bugsee_create_report(void)
+void _bugsee_upload_managed_report(const char *reportJson, BugseeManagedReportCreateCallback callback)
 {
-    if (gOpenReport) {
-        return NULL;
-    }
-    id<BGSReportContract> report = [Bugsee createReport];
-    if (!report) {
-        return NULL;
-    }
-    gOpenReport = report;
-    return BugseeCopyUTF8(BugseeJsonStringFromObject(BugseeBridgeReportToDict(report)));
-}
-
-void _bugsee_apply_open_report(const char *reportJson)
-{
-    if (!gOpenReport || !reportJson) {
+    if (!reportJson) {
+        if (callback) {
+            callback(0);
+        }
         return;
     }
-    NSDictionary *dict = BugseeDeserializeJson(reportJson);
-    if (![dict isKindOfClass:[NSDictionary class]]) {
-        return;
-    }
-    BugseeBridgeApplyReportDict(gOpenReport, dict);
-}
-
-void _bugsee_upload_open_report(void)
-{
-    if (!gOpenReport) {
-        return;
-    }
-    [Bugsee uploadReport:gOpenReport completion:nil];
-    gOpenReport = nil;
-}
-
-void _bugsee_release_open_report(void)
-{
-    gOpenReport = nil;
+    NSString *jsonCopy = [NSString stringWithUTF8String:reportJson];
+    [Bugsee createReportWithCompletion:^(BugseeExtendedReport *_Nullable report) {
+        if (!report) {
+            if (callback) {
+                callback(0);
+            }
+            return;
+        }
+        NSDictionary *dict = BugseeDeserializeJson(jsonCopy.UTF8String);
+        if ([dict isKindOfClass:[NSDictionary class]]) {
+            BugseeBridgeApplyReportDict((id<BGSReportContract>)report, dict);
+        }
+        if (callback) {
+            callback(1);
+        }
+        [Bugsee uploadReport:report completion:nil];
+    }];
 }
 
 } // extern "C"
 
 #else // !BUGSEE_IOS_SDK
+
+typedef void (*BugseeManagedReportCreateCallback)(int succeeded);
 
 extern "C" {
 
@@ -562,10 +509,13 @@ void _bugsee_appearance_set_string(const char *propertyName, const char *propert
 char *_bugsee_appearance_get_string(const char *propertyName) { (void)propertyName; return NULL; }
 void _bugsee_free(char *ptr) { (void)ptr; }
 void _bugsee_delete_collected_data(void) {}
-char *_bugsee_create_report(void) { return NULL; }
-void _bugsee_apply_open_report(const char *reportJson) { (void)reportJson; }
-void _bugsee_upload_open_report(void) {}
-void _bugsee_release_open_report(void) {}
+void _bugsee_upload_managed_report(const char *reportJson, BugseeManagedReportCreateCallback callback)
+{
+    (void)reportJson;
+    if (callback) {
+        callback(0);
+    }
+}
 
 }
 
