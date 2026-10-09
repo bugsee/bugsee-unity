@@ -314,6 +314,23 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Ios_upload_report_warns_when_create_report_email_set()
+        {
+            string body = ExtractMethodBody(
+                File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs")),
+                "public void UploadReport(IReport report)");
+            Assert.That(body, Does.Contain("Email on CreateReport is not supported on iOS managed upload"));
+        }
+
+        [Test]
+        public void Ios_handler_apply_clears_attachments_before_add_loop()
+        {
+            string callbacks = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityCallbacks.mm"));
+            string body = ExtractNativeFunctionBody(callbacks, "BugseeUnityApplyReportDict");
+            Assert.That(body, Does.Contain("[report clearAttachments]"));
+        }
+
+        [Test]
         public void Ios_delete_chains_stop_completion_before_delete_when_instance_exists()
         {
             string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));

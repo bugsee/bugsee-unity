@@ -197,6 +197,11 @@ namespace Bugsee.Platform.IOS
                 throw new ArgumentException("Report was not created by CreateReport.", nameof(report));
             if (_openReport == null)
                 throw new InvalidOperationException("CreateReport failed.");
+            if (!string.IsNullOrEmpty(_openReport.Email))
+            {
+                Debug.LogWarning(
+                    "[Bugsee] Email on CreateReport is not supported on iOS managed upload; use session identity APIs.");
+            }
             var json = _openReport.ToResultJson();
             var uploadToken = (ulong)++_reportUploadGeneration;
             var uploadFence = _managedReportUploadFence;

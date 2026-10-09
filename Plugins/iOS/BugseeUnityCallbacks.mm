@@ -279,6 +279,7 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
 
     id attachments = d[@"attachments"];
     if ([attachments isKindOfClass:[NSArray class]]) {
+        [report clearAttachments];
         for (id item in (NSArray *)attachments) {
             if (![item isKindOfClass:[NSDictionary class]]) continue;
             NSDictionary *att = (NSDictionary *)item;
