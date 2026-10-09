@@ -15,7 +15,7 @@ namespace Bugsee.Internal
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         static void Bootstrap()
         {
-            AdoptMainThreadId();
+            _mainThreadId = Thread.CurrentThread.ManagedThreadId;
             Ensure();
         }
 
@@ -26,19 +26,11 @@ namespace Bugsee.Internal
                 return _instance;
             }
 
-            AdoptMainThreadId();
             var go = new GameObject("Bugsee.MainThreadDispatcher");
             DontDestroyOnLoad(go);
             _instance = go.AddComponent<MainThreadDispatcher>();
+            _mainThreadId = Thread.CurrentThread.ManagedThreadId;
             return _instance;
-        }
-
-        static void AdoptMainThreadId()
-        {
-            if (_mainThreadId == 0)
-            {
-                _mainThreadId = Thread.CurrentThread.ManagedThreadId;
-            }
         }
 
         public static bool IsMainThread =>
@@ -53,18 +45,12 @@ namespace Bugsee.Internal
             }
         }
 
-        static void RunInlineOnMainThread(Action action)
-        {
-            DrainQueueInline();
-            action();
-        }
-
         public static void Run(Action action)
         {
             if (action == null) return;
             if (IsMainThread)
             {
-                RunInlineOnMainThread(action);
+                action();
                 return;
             }
 
@@ -85,7 +71,7 @@ namespace Bugsee.Internal
             {
                 try
                 {
-                    RunInlineOnMainThread(action);
+                    action();
                     return true;
                 }
                 catch (Exception ex)
@@ -120,6 +106,7 @@ namespace Bugsee.Internal
         /// <summary>
         /// Like <see cref="RunSync"/> but skips the queued action if the wait times out
         /// (for iOS lifecycle calls that must not run after the caller has moved on).
+        /// Drains pending queue work on the player thread before running lifecycle.
         /// </summary>
         public static bool RunSyncLifecycle(Action action, int timeoutMs = 5000)
         {
@@ -129,7 +116,8 @@ namespace Bugsee.Internal
             {
                 try
                 {
-                    RunInlineOnMainThread(action);
+                    DrainQueueInline();
+                    action();
                     return true;
                 }
                 catch (Exception ex)
