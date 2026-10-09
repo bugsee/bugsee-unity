@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Text;
 using Bugsee.Contracts.Options;
 using Bugsee.Contracts.Reporting;
+using Bugsee.WrapperPolicy;
 using UnityEngine;
 
 namespace Bugsee.Platform.Android
@@ -50,20 +51,23 @@ namespace Bugsee.Platform.Android
             set => _report.Call("setEmail", value);
         }
 
-        public IssueSeverity Severity
+        public IssueSeverity? Severity
         {
             get
             {
                 using (var s = _report.Call<AndroidJavaObject>("getSeverity"))
                 {
                     var v = s?.Call<int>("getValue") ?? (int)IssueSeverity.High;
-                    return IssueSeverityExtensions.FromIntValue(v);
+                    return IssueSeverityWire.TryFromWire(v, out var severity) ? severity : (IssueSeverity?)null;
                 }
             }
             set
             {
+                if (!value.HasValue)
+                    return;
+
                 using (var clazz = new AndroidJavaClass("com.bugsee.library.contracts.options.IssueSeverity"))
-                using (var sev = clazz.CallStatic<AndroidJavaObject>("fromIntValue", (int)value))
+                using (var sev = clazz.CallStatic<AndroidJavaObject>("fromIntValue", (int)value.Value))
                 {
                     _report.Call("setSeverity", sev);
                 }

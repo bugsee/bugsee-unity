@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Text;
 using Bugsee.Contracts.Options;
 using Bugsee.Contracts.Reporting;
+using Bugsee.WrapperPolicy;
 
 namespace Bugsee.Platform.IOS
 {
@@ -80,10 +81,10 @@ namespace Bugsee.Platform.IOS
             set => _dto.email = value;
         }
 
-        public IssueSeverity Severity
+        public IssueSeverity? Severity
         {
-            get => IssueSeverityExtensions.FromIntValue(_dto.severity);
-            set => _dto.severity = (int)value;
+            get => IssueSeverityWire.TryFromWire(_dto.severity, out var severity) ? severity : (IssueSeverity?)null;
+            set => _dto.severity = value.HasValue ? (int)value.Value : 0;
         }
 
         public IReadOnlyDictionary<string, object> Attributes => _attributes;
