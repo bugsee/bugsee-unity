@@ -1,3 +1,4 @@
+using System;
 using NUnit.Framework;
 
 namespace Bugsee.WrapperPolicy.Tests
@@ -28,6 +29,24 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(snap[0], Is.GreaterThan(version));
             Assert.That(snap[1], Is.EqualTo(1));
             Assert.That(snap[2], Is.EqualTo(5));
+        }
+
+        [TestCase(float.NaN)]
+        [TestCase(float.PositiveInfinity)]
+        public void Non_finite_scale_throws(float scale)
+        {
+            var registry = new SecureRectRegistry();
+            registry.Set("hud", 0, 0, 0, 10, 10);
+            Assert.Throws<ArgumentOutOfRangeException>(() => registry.Snapshot(0, scale));
+        }
+
+        [Test]
+        public void Inverted_edges_normalize_before_publish()
+        {
+            var registry = new SecureRectRegistry();
+            registry.Set("hud", 0, 100, 200, 40, 80);
+            int[] snap = registry.Snapshot(0, 1f);
+            Assert.That(snap, Is.EqualTo(new[] { 1, 1, 40, 80, 100, 200 }));
         }
     }
 }

@@ -19,7 +19,17 @@ namespace Bugsee.WrapperPolicy
 
         public void Set(string ownerId, int displayId, int left, int top, int right, int bottom)
         {
-            _rectsByOwnerDisplay[(ownerId, displayId)] = new[] { left, top, right, bottom };
+            int normalizedLeft = Math.Min(left, right);
+            int normalizedRight = Math.Max(left, right);
+            int normalizedTop = Math.Min(top, bottom);
+            int normalizedBottom = Math.Max(top, bottom);
+            _rectsByOwnerDisplay[(ownerId, displayId)] = new[]
+            {
+                normalizedLeft,
+                normalizedTop,
+                normalizedRight,
+                normalizedBottom
+            };
         }
 
         public void RemoveOwner(string ownerId)
@@ -37,8 +47,7 @@ namespace Bugsee.WrapperPolicy
 
         public int[] Snapshot(int displayId, float pixelsPerNativeUnit)
         {
-            if (pixelsPerNativeUnit <= 0f)
-                throw new ArgumentOutOfRangeException(nameof(pixelsPerNativeUnit));
+            ValidatePixelsPerNativeUnit(pixelsPerNativeUnit);
 
             int[] converted = BuildConvertedRects(displayId, pixelsPerNativeUnit);
             DisplaySnapshotState state = GetOrCreateDisplayState(displayId);
@@ -101,6 +110,12 @@ namespace Bugsee.WrapperPolicy
             }
 
             return state;
+        }
+
+        static void ValidatePixelsPerNativeUnit(float pixelsPerNativeUnit)
+        {
+            if (pixelsPerNativeUnit <= 0f || float.IsNaN(pixelsPerNativeUnit) || float.IsInfinity(pixelsPerNativeUnit))
+                throw new ArgumentOutOfRangeException(nameof(pixelsPerNativeUnit));
         }
 
         static bool RectBuffersEqual(int[] left, int[] right)
