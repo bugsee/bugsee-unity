@@ -68,5 +68,16 @@ namespace Bugsee.WrapperPolicy.Tests
             string proguard = File.ReadAllText(RepoFile("Plugins/Android/bugsee-unity-wrapper.proguard"));
             Assert.That(proguard, Does.Contain("channelAddNetwork(com.bugsee.library.contracts.exchange.NetworkEvent)"));
         }
+
+        [Test]
+        public void Android_bridge_submits_through_channelAddNetwork_not_public_addNetworkEvent()
+        {
+            string android = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs"));
+            Assert.That(android, Does.Contain("\"channelAddNetwork\""));
+            Assert.That(android, Does.Not.Contain("CallStatic(\"addNetworkEvent\""));
+
+            string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));
+            Assert.That(facade, Does.Contain("AddNetworkEvent"));
+        }
     }
 }

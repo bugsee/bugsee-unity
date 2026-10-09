@@ -90,10 +90,6 @@ namespace Bugsee.Platform.Android
         public void Stop(Action completion = null)
         {
             HostLogForwarder.Uninstall();
-            using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
-            {
-                wrapper.CallStatic("clearWrapperChannel");
-            }
             ExceptionPipeline.Uninstall();
             if (completion == null)
             {
@@ -127,6 +123,22 @@ namespace Bugsee.Platform.Android
             using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
             {
                 wrapper.CallStatic("channelLog", message, (int)level, source);
+            }
+        }
+
+        public void AddNetworkEvent(INetworkEvent networkEvent)
+        {
+            if (networkEvent == null) return;
+            if (!(networkEvent is AndroidNetworkEvent androidEvent))
+            {
+                throw new ArgumentException(
+                    "networkEvent must be a native Android network event from the Bugsee exchange factory.",
+                    nameof(networkEvent));
+            }
+
+            using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
+            {
+                wrapper.CallStatic("channelAddNetwork", androidEvent.Native);
             }
         }
 

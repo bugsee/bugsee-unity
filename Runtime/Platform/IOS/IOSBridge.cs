@@ -103,6 +103,11 @@ namespace Bugsee.Platform.IOS
             _bugsee_channel_log(message, (int)level, WrapperLogSourcePolicy.Resolve(null));
         }
 
+        public void AddNetworkEvent(INetworkEvent networkEvent)
+        {
+            // iOS wrapper-channel network export lands in a follow-up task.
+        }
+
         public void Log(string message, LogLevel level) =>
             _bugsee_log(message ?? "", (int)level);
 

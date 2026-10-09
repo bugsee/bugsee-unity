@@ -15,6 +15,8 @@ namespace Bugsee.Platform.Android
     {
         readonly AndroidJavaObject _native;
 
+        internal AndroidJavaObject Native => _native;
+
         public AndroidNetworkEvent(AndroidJavaObject native)
         {
             _native = native;
