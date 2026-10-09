@@ -1,6 +1,6 @@
+using System;
 using Bugsee.Contracts.Options;
 using Bugsee.Platform;
-using Bugsee.WrapperPolicy;
 using UnityEngine;
 
 namespace Bugsee.Internal
@@ -37,20 +37,36 @@ namespace Bugsee.Internal
                 return;
             }
 
-            if (_forwardDepth > 0)
+            void Send()
             {
+                if (_forwardDepth > 0)
+                {
+                    return;
+                }
+
+                _forwardDepth++;
+                try
+                {
+                    bridge.ChannelLog(message, LevelFor(type));
+                }
+                catch (Exception ex)
+                {
+                    try { Debug.LogWarning($"Bugsee HostLogForwarder: {ex.Message}"); }
+                    catch { /* ignore */ }
+                }
+                finally
+                {
+                    _forwardDepth--;
+                }
+            }
+
+            if (MainThreadDispatcher.IsMainThread)
+            {
+                Send();
                 return;
             }
 
-            _forwardDepth++;
-            try
-            {
-                bridge.ChannelLog(message, LevelFor(type));
-            }
-            finally
-            {
-                _forwardDepth--;
-            }
+            MainThreadDispatcher.Run(Send);
         }
 
         static LogLevel LevelFor(LogType type)
