@@ -52,9 +52,9 @@ namespace Bugsee.Platform.EditorStub
         public object GetAttribute(string key) => null;
         public void ClearAttribute(string key) { }
         public void ClearAllAttributes() { }
-        public void AddSecureRectangle(int left, int top, int right, int bottom) { }
-        public void RemoveSecureRectangle(int left, int top, int right, int bottom) { }
-        public void RemoveAllSecureRectangles() { }
+        public void SetSecureBuffer(int display, int[] packed) { }
+
+        public float GetSecureRectSnapshotScale() => 1f;
         public void CaptureViewHierarchy() { }
         public void ResetVideoCapturePermission() { }
         public IAppearance GetAppearance() => new StubAppearance();

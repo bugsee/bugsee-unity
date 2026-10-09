@@ -403,21 +403,25 @@ char *_bugsee_get_device_id(void)
 
 void _bugsee_add_secure_rect(float x, float y, float w, float h)
 {
-    CGFloat scale = [UIScreen mainScreen].scale;
-    CGRect rect = CGRectMake(x / scale, y / scale, w / scale, h / scale);
-    [Bugsee addSecureRectangle:rect];
+    (void)x;
+    (void)y;
+    (void)w;
+    (void)h;
 }
 
 void _bugsee_remove_secure_rect(float x, float y, float w, float h)
 {
-    CGFloat scale = [UIScreen mainScreen].scale;
-    CGRect rect = CGRectMake(x / scale, y / scale, w / scale, h / scale);
-    [Bugsee removeSecureRectangle:rect];
+    (void)x;
+    (void)y;
+    (void)w;
+    (void)h;
 }
 
-void _bugsee_remove_all_secure_rects(void)
+void _bugsee_remove_all_secure_rects(void) {}
+
+float _bugsee_screen_scale(void)
 {
-    [Bugsee removeAllSecureRectangles];
+    return (float)[UIScreen mainScreen].scale;
 }
 
 void _bugsee_capture_view_hierarchy(void)
@@ -624,6 +628,13 @@ char *_bugsee_get_device_id(void) { return NULL; }
 void _bugsee_add_secure_rect(float x, float y, float w, float h) { (void)x; (void)y; (void)w; (void)h; }
 void _bugsee_remove_secure_rect(float x, float y, float w, float h) { (void)x; (void)y; (void)w; (void)h; }
 void _bugsee_remove_all_secure_rects(void) {}
+float _bugsee_screen_scale(void) { return 1.f; }
+void _bugsee_set_secure_buffer(int display, int *packed, int packedLength)
+{
+    (void)display;
+    (void)packed;
+    (void)packedLength;
+}
 void _bugsee_capture_view_hierarchy(void) {}
 void _bugsee_feedback_show(void) {}
 void _bugsee_feedback_set_greeting(const char *message) { (void)message; }

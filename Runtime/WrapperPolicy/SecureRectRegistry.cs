@@ -5,6 +5,10 @@ namespace Bugsee.WrapperPolicy
 {
     public sealed class SecureRectRegistry
     {
+        static readonly SecureRectRegistry SharedInstance = new SecureRectRegistry();
+
+        public static SecureRectRegistry Instance => SharedInstance;
+
         readonly Dictionary<(string ownerId, int displayId), int[]> _rectsByOwnerDisplay =
             new Dictionary<(string ownerId, int displayId), int[]>();
 
@@ -38,6 +42,22 @@ namespace Bugsee.WrapperPolicy
             foreach (var key in _rectsByOwnerDisplay.Keys)
             {
                 if (key.ownerId == ownerId)
+                    keysToRemove.Add(key);
+            }
+
+            for (int i = 0; i < keysToRemove.Count; i++)
+                _rectsByOwnerDisplay.Remove(keysToRemove[i]);
+        }
+
+        public void RemoveOwnersWithPrefix(string ownerIdPrefix)
+        {
+            if (string.IsNullOrEmpty(ownerIdPrefix))
+                return;
+
+            var keysToRemove = new List<(string ownerId, int displayId)>();
+            foreach (var key in _rectsByOwnerDisplay.Keys)
+            {
+                if (key.ownerId != null && key.ownerId.StartsWith(ownerIdPrefix))
                     keysToRemove.Add(key);
             }
 

@@ -355,23 +355,16 @@ namespace Bugsee.Platform.Android
 
         public void ClearAllAttributes() => _bugsee.CallStatic("clearAllAttributes");
 
-        public void AddSecureRectangle(int left, int top, int right, int bottom)
+        public void SetSecureBuffer(int display, int[] packed)
         {
-            using (var rect = new AndroidJavaObject("android.graphics.Rect", left, top, right, bottom))
+            if (packed == null) return;
+            using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
             {
-                _bugsee.CallStatic("addSecureRectangle", rect);
+                wrapper.CallStatic("setSecureBuffer", display, packed);
             }
         }
 
-        public void RemoveSecureRectangle(int left, int top, int right, int bottom)
-        {
-            using (var rect = new AndroidJavaObject("android.graphics.Rect", left, top, right, bottom))
-            {
-                _bugsee.CallStatic("removeSecureRectangle", rect);
-            }
-        }
-
-        public void RemoveAllSecureRectangles() => _bugsee.CallStatic("removeAllSecureRectangles");
+        public float GetSecureRectSnapshotScale() => 1f;
 
         public void CaptureViewHierarchy() => _bugsee.CallStatic("captureViewHierarchy");
 

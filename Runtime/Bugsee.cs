@@ -9,6 +9,7 @@ using Bugsee.Contracts.Reporting;
 using Bugsee.Internal;
 using Bugsee.Platform;
 using Bugsee.Platform.EditorStub;
+using Bugsee.WrapperPolicy;
 using UnityEngine;
 #if UNITY_ANDROID && !UNITY_EDITOR
 using Bugsee.Platform.Android;
@@ -25,6 +26,8 @@ namespace Bugsee
     {
         static readonly IBugseeNativeBridge Bridge = CreateBridge();
         static ILifecycleEventListener _appLifecycleListener;
+        const int DefaultSecureRectDisplayId = 0;
+        static readonly SecureRectManualOwners _manualSecureRectOwners = new SecureRectManualOwners();
 
         /// <summary>Raised for every native lifecycle event (all 7.x <see cref="LifecycleEvents"/> strings).</summary>
         public static event Action<string, object> LifecycleEvent;
@@ -148,13 +151,43 @@ namespace Bugsee
 
         public static void ClearAllAttributes() => Bridge.ClearAllAttributes();
 
-        public static void AddSecureRectangle(RectInt pixelRect) =>
-            Bridge.AddSecureRectangle(pixelRect.xMin, pixelRect.yMin, pixelRect.xMax, pixelRect.yMax);
+        public static void AddSecureRectangle(RectInt pixelRect)
+        {
+            _manualSecureRectOwners.Add(
+                pixelRect.xMin,
+                pixelRect.yMin,
+                pixelRect.xMax,
+                pixelRect.yMax,
+                SecureRectRegistry.Instance,
+                DefaultSecureRectDisplayId);
+            PushSecureBufferForDisplay(DefaultSecureRectDisplayId);
+        }
 
-        public static void RemoveSecureRectangle(RectInt pixelRect) =>
-            Bridge.RemoveSecureRectangle(pixelRect.xMin, pixelRect.yMin, pixelRect.xMax, pixelRect.yMax);
+        public static void RemoveSecureRectangle(RectInt pixelRect)
+        {
+            if (!_manualSecureRectOwners.Remove(
+                pixelRect.xMin,
+                pixelRect.yMin,
+                pixelRect.xMax,
+                pixelRect.yMax,
+                SecureRectRegistry.Instance))
+                return;
 
-        public static void RemoveAllSecureRectangles() => Bridge.RemoveAllSecureRectangles();
+            PushSecureBufferForDisplay(DefaultSecureRectDisplayId);
+        }
+
+        public static void RemoveAllSecureRectangles()
+        {
+            _manualSecureRectOwners.RemoveAll(SecureRectRegistry.Instance);
+            PushSecureBufferForDisplay(DefaultSecureRectDisplayId);
+        }
+
+        static void PushSecureBufferForDisplay(int displayId)
+        {
+            float pixelsPerNativeUnit = Bridge.GetSecureRectSnapshotScale();
+            int[] packed = SecureRectRegistry.Instance.Snapshot(displayId, pixelsPerNativeUnit);
+            Bridge.SetSecureBuffer(displayId, packed);
+        }
 
         public static void CaptureViewHierarchy() => Bridge.CaptureViewHierarchy();
 

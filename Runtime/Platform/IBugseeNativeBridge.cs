@@ -54,9 +54,11 @@ namespace Bugsee.Platform
         void ClearAttribute(string key);
         void ClearAllAttributes();
 
-        void AddSecureRectangle(int left, int top, int right, int bottom);
-        void RemoveSecureRectangle(int left, int top, int right, int bottom);
-        void RemoveAllSecureRectangles();
+        /// <summary>Push a versioned secure-rect mask for native wrapper pull (not the public SDK API).</summary>
+        void SetSecureBuffer(int display, int[] packed);
+
+        /// <summary>Scale divisor for <see cref="SecureRectRegistry.Snapshot"/> (1 on Android, screen scale on iOS).</summary>
+        float GetSecureRectSnapshotScale();
 
         void CaptureViewHierarchy();
         void ResetVideoCapturePermission();
