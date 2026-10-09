@@ -254,8 +254,8 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
     id removals = d[@"attributeRemovals"];
     if ([removals isKindOfClass:[NSArray class]]) {
         for (id name in (NSArray *)removals) {
-            if ([name isKindOfClass:[NSString class]] && [report respondsToSelector:@selector(clearAttribute:)]) {
-                [report clearAttribute:(NSString *)name];
+            if ([name isKindOfClass:[NSString class]]) {
+                [report removeAttributeForName:(NSString *)name];
             }
         }
     }

@@ -70,7 +70,7 @@ static void BugseeBridgeSetAttachmentFileNameIfNeeded(id attachment, NSString *d
     }
 }
 
-static void BugseeBridgeApplyReportDict(id<BGSReportContract> report, NSDictionary *d)
+static void BugseeBridgeApplyExtendedReportDict(BugseeExtendedReport *report, NSDictionary *d)
 {
     if (![d isKindOfClass:[NSDictionary class]] || !report) {
         return;
@@ -78,38 +78,35 @@ static void BugseeBridgeApplyReportDict(id<BGSReportContract> report, NSDictiona
 
     id summary = d[@"summary"];
     if ([summary isKindOfClass:[NSString class]]) {
-        report.summary = summary;
+        [report setSummary:summary];
     }
     id desc = d[@"description"];
     if ([desc isKindOfClass:[NSString class]]) {
-        report.reportDescription = desc;
-    }
-    id email = d[@"email"];
-    if ([email isKindOfClass:[NSString class]]) {
-        report.email = email;
+        [report setDescription:desc];
     }
     id sev = d[@"severity"];
     if ([sev respondsToSelector:@selector(integerValue)]) {
         NSInteger sevVal = [sev integerValue];
         if (sevVal != 0) {
-            report.severity = (BugseeSeverityLevel)sevVal;
+            [report setSeverity:(BugseeSeverityLevel)sevVal];
         }
     }
 
     id labels = d[@"labels"];
     if ([labels isKindOfClass:[NSArray class]]) {
-        [report clearLabels];
+        NSMutableArray<NSString *> *clean = [NSMutableArray array];
         for (id label in (NSArray *)labels) {
             if ([label isKindOfClass:[NSString class]]) {
-                [report addLabel:label];
+                [clean addObject:label];
             }
         }
+        report.labels = clean;
     }
 
     id removals = d[@"attributeRemovals"];
     if ([removals isKindOfClass:[NSArray class]]) {
         for (id name in (NSArray *)removals) {
-            if ([name isKindOfClass:[NSString class]] && [report respondsToSelector:@selector(clearAttribute:)]) {
+            if ([name isKindOfClass:[NSString class]]) {
                 [report clearAttribute:(NSString *)name];
             }
         }
@@ -125,7 +122,7 @@ static void BugseeBridgeApplyReportDict(id<BGSReportContract> report, NSDictiona
         }
         [(NSDictionary *)attrs enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
             if ([key isKindOfClass:[NSString class]]) {
-                [report setAttribute:obj forName:key];
+                [report setAttribute:(NSString *)key withValue:obj];
             }
         }];
     } else if (shouldReplaceAll) {
@@ -134,7 +131,7 @@ static void BugseeBridgeApplyReportDict(id<BGSReportContract> report, NSDictiona
 
     id attachments = d[@"attachments"];
     if ([attachments isKindOfClass:[NSArray class]]) {
-        [report clearAttachments];
+        [report clearAllAttachments];
         for (id item in (NSArray *)attachments) {
             if (![item isKindOfClass:[NSDictionary class]]) {
                 continue;
@@ -145,13 +142,6 @@ static void BugseeBridgeApplyReportDict(id<BGSReportContract> report, NSDictiona
             NSString *fileName = [fileNameVal isKindOfClass:[NSString class]] ? fileNameVal : nil;
             if (fileName.length == 0) {
                 fileName = name;
-            }
-            NSString *mime = [att[@"mimeType"] isKindOfClass:[NSString class]] ? att[@"mimeType"] : @"text/plain";
-            id filePath = att[@"filePath"];
-            if ([filePath isKindOfClass:[NSString class]] && [(NSString *)filePath length] > 0) {
-                id attachment = [report addAttachmentWithFilePath:filePath name:name mimeType:mime move:NO];
-                BugseeBridgeSetAttachmentFileNameIfNeeded(attachment, name, fileName);
-                continue;
             }
             NSData *data = nil;
             id b64 = att[@"dataBase64"];
@@ -165,8 +155,10 @@ static void BugseeBridgeApplyReportDict(id<BGSReportContract> report, NSDictiona
             if (!data) {
                 data = [NSData data];
             }
-            id attachment = [report addAttachmentWithData:data name:name mimeType:mime];
-            BugseeBridgeSetAttachmentFileNameIfNeeded(attachment, name, fileName);
+            BugseeAttachment *attachment = [BugseeAttachment attachmentWithName:name filename:fileName data:data];
+            if (attachment) {
+                [report setAttachment:attachment];
+            }
         }
     }
 }
@@ -543,7 +535,7 @@ void _bugsee_upload_managed_report(const char *reportJson,
             }
             return;
         }
-        BugseeBridgeApplyReportDict((id<BGSReportContract>)report, dict);
+        BugseeBridgeApplyExtendedReportDict(report, dict);
         if (!BugseeManagedReportUploadStillActive(uploadId, uploadFence)) {
             if (callback) {
                 callback(0, uploadId);

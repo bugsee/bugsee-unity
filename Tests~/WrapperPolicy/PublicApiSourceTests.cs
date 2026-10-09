@@ -128,10 +128,10 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(upload, Does.Not.Contain("gActiveManagedReportUploadId"));
             Assert.That(bridge, Does.Not.Contain("gCancelManagedReportUpload"));
 
-            string apply = ExtractNativeFunctionBody(bridge, "BugseeBridgeApplyReportDict");
-            Assert.That(apply, Does.Contain("[report clearAttachments]"));
-            Assert.That(apply, Does.Contain("addAttachmentWithData:data name:name"));
-            Assert.That(apply, Does.Contain("BugseeBridgeSetAttachmentFileNameIfNeeded"));
+            string apply = ExtractNativeFunctionBody(bridge, "BugseeBridgeApplyExtendedReportDict");
+            Assert.That(apply, Does.Contain("[report clearAllAttachments]"));
+            Assert.That(apply, Does.Contain("[BugseeAttachment attachmentWithName:name filename:fileName data:data]"));
+            Assert.That(apply, Does.Contain("[report setAttachment:attachment]"));
             Assert.That(apply, Does.Not.Contain("createAndAddAttachmentWithName"));
             Assert.That(bridge, Does.Not.Contain("_bugsee_apply_open_report"));
             Assert.That(bridge, Does.Not.Contain("[Bugsee createReport]"));
@@ -277,7 +277,7 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Ios_apply_report_dict_skips_unset_severity_zero()
         {
             string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
-            string body = ExtractNativeFunctionBody(bridge, "BugseeBridgeApplyReportDict");
+            string body = ExtractNativeFunctionBody(bridge, "BugseeBridgeApplyExtendedReportDict");
             Assert.That(body, Does.Contain("sevVal != 0"));
             Assert.That(body, Does.Not.Match("report\\.severity\\s*=.*integerValue\\]"));
         }
@@ -286,10 +286,12 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Ios_apply_report_dict_overlays_attributes_without_default_clear()
         {
             string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
-            string body = ExtractNativeFunctionBody(bridge, "BugseeBridgeApplyReportDict");
+            string body = ExtractNativeFunctionBody(bridge, "BugseeBridgeApplyExtendedReportDict");
             Assert.That(body, Does.Contain("attributeRemovals"));
             Assert.That(body, Does.Contain("attributesReplaceAll"));
             Assert.That(body, Does.Contain("shouldReplaceAll"));
+            Assert.That(body, Does.Contain("setAttribute:(NSString *)key withValue:obj"));
+            Assert.That(body, Does.Contain("clearAllAttachments"));
         }
 
         [Test]
