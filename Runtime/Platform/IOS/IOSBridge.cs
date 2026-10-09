@@ -36,6 +36,7 @@ namespace Bugsee.Platform.IOS
         IosAppearance _appearance;
         IosReport _openReport;
         IosLiveReport _openReportHandle;
+        readonly Dictionary<ulong, IosReport> _uploadSnapshotReports = new Dictionary<ulong, IosReport>();
         readonly NetworkEventLaunchBuffer<INetworkEvent> _networkLaunchBuffer = new NetworkEventLaunchBuffer<INetworkEvent>();
         readonly NetworkEventLaunchBuffer<IosPendingBreadcrumb> _breadcrumbLaunchBuffer =
             new NetworkEventLaunchBuffer<IosPendingBreadcrumb>();
@@ -198,7 +199,23 @@ namespace Bugsee.Platform.IOS
             _reportUploadGeneration++;
             _managedReportUploadFence++;
             _inFlightUploadToken = 0;
+            ReleaseAllUploadSnapshotReports();
             _bugsee_invalidate_managed_report_uploads();
+        }
+
+        void ReleaseAllUploadSnapshotReports()
+        {
+            foreach (var kv in _uploadSnapshotReports)
+                kv.Value?.ReleaseSnapshotFiles();
+            _uploadSnapshotReports.Clear();
+        }
+
+        void ReleaseUploadSnapshotReport(ulong uploadToken)
+        {
+            if (!_uploadSnapshotReports.TryGetValue(uploadToken, out var report))
+                return;
+            _uploadSnapshotReports.Remove(uploadToken);
+            report?.ReleaseSnapshotFiles();
         }
 
         public IReport CreateReport()
@@ -217,6 +234,7 @@ namespace Bugsee.Platform.IOS
             if (!ReferenceEquals(report, _openReportHandle))
                 throw new ArgumentException("Report was not created by CreateReport.", nameof(report));
             _reportUploadGeneration++;
+            _openReport?.ReleaseSnapshotFiles();
             _openReport = null;
             _openReportHandle = null;
         }
@@ -232,9 +250,11 @@ namespace Bugsee.Platform.IOS
                 Debug.LogWarning(
                     "[Bugsee] Email on CreateReport is not supported on iOS managed upload; use session identity APIs.");
             }
-            var json = _openReport.ToResultJson();
+            var snapshotReport = _openReport;
+            var json = snapshotReport.ToResultJson();
             var uploadToken = (ulong)++_reportUploadGeneration;
             var uploadFence = _managedReportUploadFence;
+            _uploadSnapshotReports[uploadToken] = snapshotReport;
             _openReport = null;
             _openReportHandle = null;
             _uploadCompletionBridge = this;
@@ -255,6 +275,7 @@ namespace Bugsee.Platform.IOS
 
         void HandleManagedReportCreateCompletion(bool succeeded, ulong uploadToken)
         {
+            ReleaseUploadSnapshotReport(uploadToken);
             if (uploadToken != _inFlightUploadToken)
                 return;
             _inFlightUploadToken = 0;

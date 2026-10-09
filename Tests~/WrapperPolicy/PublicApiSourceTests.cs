@@ -130,6 +130,8 @@ namespace Bugsee.WrapperPolicy.Tests
 
             string apply = ExtractNativeFunctionBody(bridge, "BugseeBridgeApplyExtendedReportDict");
             Assert.That(apply, Does.Contain("[report clearAllAttachments]"));
+            Assert.That(apply, Does.Contain("att[@\"path\"]"));
+            Assert.That(apply, Does.Contain("dataWithContentsOfFile:"));
             Assert.That(apply, Does.Contain("[BugseeAttachment attachmentWithName:name filename:fileName data:data]"));
             Assert.That(apply, Does.Contain("[report setAttachment:attachment]"));
             Assert.That(apply, Does.Not.Contain("createAndAddAttachmentWithName"));

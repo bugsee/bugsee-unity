@@ -157,6 +157,23 @@ static void BugseeBridgeApplyExtendedReportDict(BugseeExtendedReport *report, NS
             if (fileName.length == 0) {
                 fileName = name;
             }
+            id mime = att[@"mimeType"];
+            NSString *mimeType = [mime isKindOfClass:[NSString class]] ? (NSString *)mime : nil;
+
+            id pathVal = att[@"path"];
+            if ([pathVal isKindOfClass:[NSString class]] && [(NSString *)pathVal length] > 0) {
+                NSData *fileData = [NSData dataWithContentsOfFile:(NSString *)pathVal];
+                if (!fileData) {
+                    continue;
+                }
+                BugseeAttachment *attachment = [BugseeAttachment attachmentWithName:name filename:fileName data:fileData];
+                if (attachment) {
+                    BugseeBridgeSetAttachmentMimeTypeIfNeeded(attachment, mimeType);
+                    [report setAttachment:attachment];
+                }
+                continue;
+            }
+
             NSData *data = nil;
             id b64 = att[@"dataBase64"];
             if ([b64 isKindOfClass:[NSString class]] && [(NSString *)b64 length] > 0) {
@@ -167,14 +184,11 @@ static void BugseeBridgeApplyExtendedReportDict(BugseeExtendedReport *report, NS
                 data = [(NSString *)text dataUsingEncoding:NSUTF8StringEncoding];
             }
             if (!data) {
-                data = [NSData data];
+                continue;
             }
             BugseeAttachment *attachment = [BugseeAttachment attachmentWithName:name filename:fileName data:data];
             if (attachment) {
-                id mime = att[@"mimeType"];
-                if ([mime isKindOfClass:[NSString class]]) {
-                    BugseeBridgeSetAttachmentMimeTypeIfNeeded(attachment, (NSString *)mime);
-                }
+                BugseeBridgeSetAttachmentMimeTypeIfNeeded(attachment, mimeType);
                 [report setAttachment:attachment];
             }
         }
