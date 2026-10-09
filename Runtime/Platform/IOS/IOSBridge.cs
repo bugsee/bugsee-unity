@@ -378,12 +378,12 @@ namespace Bugsee.Platform.IOS
         public INetworkEvent CreateNetworkEvent(
             long timestamp,
             NetworkEventStage stage,
-            string url,
-            string method,
-            string mechanism) =>
+            string id,
+            string mechanism,
+            string method) =>
             new IosNetworkEvent(new IosNetworkDto
             {
-                url = url,
+                id = string.IsNullOrEmpty(id) ? Guid.NewGuid().ToString("N") : id,
                 method = method,
                 mechanism = mechanism,
                 stage = stage.ToString(),

@@ -16,21 +16,22 @@ namespace Bugsee.Platform.Android
         public INetworkEvent CreateNetworkEvent(
             long timestamp,
             NetworkEventStage stage,
-            string url,
-            string method,
-            string mechanism)
+            string id,
+            string mechanism,
+            string method)
         {
             using (var stageClass = new AndroidJavaClass(
-                       "com.bugsee.library.contracts.exchange.NetworkEventStage"))
+                       "com.bugsee.library.contracts.exchange.NetworkEvent$NetworkEventStage"))
             using (var javaStage = stageClass.CallStatic<AndroidJavaObject>("valueOf", stage.ToString()))
             {
                 var native = _factory.Call<AndroidJavaObject>(
                     "createNetworkEvent",
                     timestamp,
                     javaStage,
-                    url ?? "",
-                    method ?? "",
-                    mechanism ?? "");
+                    id,
+                    mechanism ?? "",
+                    method ?? "");
+                if (native == null) return null;
                 return new AndroidNetworkEvent(native);
             }
         }

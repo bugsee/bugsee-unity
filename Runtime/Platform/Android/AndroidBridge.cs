@@ -157,9 +157,10 @@ namespace Bugsee.Platform.Android
                 androidEvent = (AndroidNetworkEvent)factory.CreateNetworkEvent(
                     DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     networkEvent.Stage,
-                    networkEvent.Url,
-                    networkEvent.Method,
-                    networkEvent.Mechanism);
+                    string.IsNullOrEmpty(networkEvent.Id) ? null : networkEvent.Id,
+                    networkEvent.Mechanism,
+                    networkEvent.Method);
+                if (androidEvent == null) return;
                 CopyNetworkFields(networkEvent, androidEvent);
             }
 

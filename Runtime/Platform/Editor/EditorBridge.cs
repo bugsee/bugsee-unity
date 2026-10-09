@@ -87,10 +87,10 @@ namespace Bugsee.Platform.EditorStub
             public INetworkEvent CreateNetworkEvent(
                 long timestamp,
                 NetworkEventStage stage,
-                string url,
-                string method,
-                string mechanism) =>
-                new EditorNetworkEvent(timestamp, stage, url, method, mechanism);
+                string id,
+                string mechanism,
+                string method) =>
+                new EditorNetworkEvent(timestamp, stage, id, mechanism, method);
         }
 
         sealed class EditorNetworkEvent : INetworkEvent
@@ -103,16 +103,15 @@ namespace Bugsee.Platform.EditorStub
             public EditorNetworkEvent(
                 long timestamp,
                 NetworkEventStage stage,
-                string url,
-                string method,
-                string mechanism)
+                string id,
+                string mechanism,
+                string method)
             {
                 _timestamp = timestamp;
                 _stage = stage;
-                Url = url;
                 _method = method;
                 _mechanism = mechanism;
-                Id = Guid.NewGuid().ToString("N");
+                Id = string.IsNullOrEmpty(id) ? Guid.NewGuid().ToString("N") : id;
             }
 
             public string Id { get; }

@@ -78,7 +78,18 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(android, Does.Contain("getExchangeFactory"));
 
             string factory = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidExchangeFactory.cs"));
+            Assert.That(factory, Does.Contain("NetworkEvent$NetworkEventStage"));
             Assert.That(factory, Does.Contain("createNetworkEvent"));
+            Assert.That(factory, Does.Contain("id,"));
+            Assert.That(factory, Does.Contain("mechanism ?? \"\""));
+            Assert.That(factory, Does.Contain("method ?? \"\""));
+            int createIdx = factory.IndexOf("createNetworkEvent", StringComparison.Ordinal);
+            int idIdx = factory.IndexOf("id,", createIdx, StringComparison.Ordinal);
+            int mechIdx = factory.IndexOf("mechanism ??", createIdx, StringComparison.Ordinal);
+            int methodIdx = factory.IndexOf("method ??", createIdx, StringComparison.Ordinal);
+            Assert.That(idIdx, Is.LessThan(mechIdx));
+            Assert.That(mechIdx, Is.LessThan(methodIdx));
+            Assert.That(factory, Does.Contain("if (native == null) return null"));
 
             string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));
             Assert.That(facade, Does.Contain("AddNetworkEvent"));
