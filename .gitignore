@@ -41,6 +41,8 @@ Native~/ios/Bugsee/Bugsee.xcframework/
 .worktrees/
 
 # Native bridge test build output
+Tests~/**/bin/
+Tests~/**/obj/
 Tests~/**/build/
 Tests~/**/.build/
 Tests~/Android/local.properties

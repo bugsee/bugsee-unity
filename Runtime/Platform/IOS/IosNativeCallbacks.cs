@@ -6,6 +6,7 @@ using AOT;
 using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Reporting;
 using Bugsee.Internal;
+using Bugsee.WrapperPolicy;
 using UnityEngine;
 
 namespace Bugsee.Platform.IOS
@@ -134,14 +135,14 @@ namespace Bugsee.Platform.IOS
                             CompleteBreadcrumb(requestId, json);
                             break;
                         default:
-                            _bugsee_complete_filter(requestId, 1, json);
+                            _bugsee_complete_filter(requestId, FilterCompletion.Drop, null);
                             break;
                     }
                 }
                 catch (Exception ex)
                 {
                     Debug.LogException(ex);
-                    _bugsee_complete_filter(requestId, 1, json);
+                    _bugsee_complete_filter(requestId, FilterCompletion.OnThrow, null);
                 }
             }
 
@@ -154,7 +155,7 @@ namespace Bugsee.Platform.IOS
             var filter = _networkFilter;
             if (filter == null)
             {
-                _bugsee_complete_filter(requestId, 1, json);
+                _bugsee_complete_filter(requestId, FilterCompletion.Drop, null);
                 return;
             }
 
@@ -176,7 +177,7 @@ namespace Bugsee.Platform.IOS
             var filter = _logFilter;
             if (filter == null)
             {
-                _bugsee_complete_filter(requestId, 1, json);
+                _bugsee_complete_filter(requestId, FilterCompletion.Drop, null);
                 return;
             }
 
@@ -198,7 +199,7 @@ namespace Bugsee.Platform.IOS
             var filter = _breadcrumbFilter;
             if (filter == null)
             {
-                _bugsee_complete_filter(requestId, 1, json);
+                _bugsee_complete_filter(requestId, FilterCompletion.Drop, null);
                 return;
             }
 
