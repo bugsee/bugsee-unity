@@ -228,9 +228,21 @@ namespace Bugsee.Platform.IOS
         {
             if (value == null) { sb.Append("null"); return; }
             if (value is bool b) { sb.Append(b ? "true" : "false"); return; }
+            if (value is float f)
+            {
+                if (float.IsNaN(f) || float.IsInfinity(f)) { sb.Append("null"); return; }
+                sb.Append(f.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                return;
+            }
+            if (value is double d)
+            {
+                if (double.IsNaN(d) || double.IsInfinity(d)) { sb.Append("null"); return; }
+                sb.Append(d.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                return;
+            }
             if (value is byte || value is sbyte || value is short || value is ushort
                 || value is int || value is uint || value is long || value is ulong
-                || value is float || value is double || value is decimal)
+                || value is decimal)
             {
                 sb.Append(Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture));
                 return;
