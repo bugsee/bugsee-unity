@@ -30,6 +30,7 @@ namespace Bugsee.Platform.EditorStub
         public void EndBlackout() => _blackout = false;
         public bool IsBlackout() => _blackout;
         public void Log(string message, LogLevel level) { }
+        public void ChannelLog(string message, LogLevel level) { }
         public void Trace(string name, object value) { }
         public void Event(string name, IDictionary<string, object> parameters) { }
         public void LogException(Exception exception, IDictionary<string, object> options = null) { }

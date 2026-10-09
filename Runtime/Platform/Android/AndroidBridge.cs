@@ -6,6 +6,7 @@ using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Feedback;
 using Bugsee.Contracts.Lifecycle;
 using Bugsee.Contracts.Options;
+using Bugsee.WrapperPolicy;
 using Bugsee.Contracts.Reporting;
 using Bugsee;
 using Bugsee.Internal;
@@ -73,6 +74,7 @@ namespace Bugsee.Platform.Android
                 _bugsee.CallStatic("launch", activity, appToken, map);
             }
             ExceptionPipeline.Install(this, options);
+            HostLogForwarder.InstallOnce(this);
         }
 
         public void Relaunch(IDictionary<string, object> options)
@@ -82,10 +84,16 @@ namespace Bugsee.Platform.Android
                 _bugsee.CallStatic("relaunch", map);
             }
             ExceptionPipeline.Install(this, options);
+            HostLogForwarder.InstallOnce(this);
         }
 
         public void Stop(Action completion = null)
         {
+            HostLogForwarder.Uninstall();
+            using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
+            {
+                wrapper.CallStatic("clearWrapperChannel");
+            }
             ExceptionPipeline.Uninstall();
             if (completion == null)
             {
@@ -111,6 +119,16 @@ namespace Bugsee.Platform.Android
         public void StartBlackout() => _bugsee.CallStatic("startBlackout");
         public void EndBlackout() => _bugsee.CallStatic("endBlackout");
         public bool IsBlackout() => _bugsee.CallStatic<bool>("isBlackout");
+
+        public void ChannelLog(string message, LogLevel level)
+        {
+            if (string.IsNullOrEmpty(message)) return;
+            int source = WrapperLogSourcePolicy.Resolve(null);
+            using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
+            {
+                wrapper.CallStatic("channelLog", message, (int)level, source);
+            }
+        }
 
         public void Log(string message, LogLevel level)
         {

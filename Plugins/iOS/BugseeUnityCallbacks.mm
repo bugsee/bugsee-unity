@@ -42,6 +42,7 @@ static NSDictionary<NSString *, NSString *> *gWrapperContext = nil;
 
 @class BugseeUnityWrapper;
 static BugseeUnityWrapper *gWrapper;
+static id<BGSWrapperChannel> gChannel;
 
 static void BugseeUnityEnsureState(void)
 {
@@ -295,6 +296,11 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
     [Bugsee setWrapper:gWrapper];
 }
 
+- (void)onWrapperChannelAvailable:(id<BGSWrapperChannel>)channel
+{
+    gChannel = channel;
+}
+
 - (NSString *)wrapperType { return @"unity"; }
 - (NSString *)wrapperVersion { return gWrapperVersion ?: @"unknown"; }
 - (NSString *)wrapperBuild { return gWrapperBuild ?: @"unknown"; }
@@ -392,6 +398,24 @@ void _bugsee_register_unity_callbacks(BugseeUnityFilterCb filterCb,
     gFilterCb = filterCb;
     gReportCb = reportCb;
     gLifecycleCb = lifecycleCb;
+}
+
+void _bugsee_clear_wrapper_channel(void)
+{
+    gChannel = nil;
+}
+
+void _bugsee_channel_log(const char *message, int level, int source)
+{
+    id<BGSWrapperChannel> channel = gChannel;
+    if (!channel || !message) return;
+    if (![channel respondsToSelector:@selector(logWithTag:message:level:source:)]) return;
+    NSString *text = [NSString stringWithUTF8String:message];
+    if (!text) return;
+    [channel logWithTag:nil
+                message:text
+                  level:(BugseeLogLevel)level
+                 source:(BGSLogEventSource)source];
 }
 
 void _bugsee_ensure_wrapper(const char *version, const char *build)
@@ -563,6 +587,8 @@ const char *_bugsee_test_copy_context_value(const char *key)
 
 extern "C" {
 void _bugsee_register_unity_callbacks(void *a, void *b, void *c) { (void)a; (void)b; (void)c; }
+void _bugsee_clear_wrapper_channel(void) {}
+void _bugsee_channel_log(const char *message, int level, int source) { (void)message; (void)level; (void)source; }
 void _bugsee_ensure_wrapper(const char *version, const char *build) { (void)version; (void)build; }
 void _bugsee_set_wrapper_context(const char *json) { (void)json; }
 void _bugsee_set_network_filter_enabled(int enabled) { (void)enabled; }
