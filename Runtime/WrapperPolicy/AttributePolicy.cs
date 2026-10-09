@@ -17,46 +17,78 @@ namespace Bugsee.WrapperPolicy
     public static class AttributePolicy
     {
         const double MaxMagnitude = 9223372036854775808d;
+        const decimal MaxDecimalMagnitude = 9223372036854775808m;
         const int MaxStringLength = 1024;
 
         public static AttributeDecision Evaluate(string key, object value)
         {
+            if (string.IsNullOrEmpty(key))
+                return new AttributeDecision(false, "attribute name must be non-empty");
+
             switch (value)
             {
+                case null:
+                    return TypeError(key);
                 case string s:
                     if (s.Length > MaxStringLength)
                         return new AttributeDecision(false, "attribute '" + key + "' exceeds 1024 UTF-16 units");
-                    return new AttributeDecision(true, null);
+                    return Accept();
                 case bool _:
-                    return new AttributeDecision(true, null);
-                case byte _:
-                case short _:
-                case int _:
-                case long _:
-                    return new AttributeDecision(true, null);
+                    return Accept();
                 case float f:
                     return EvaluateFloating(key, f);
                 case double d:
                     return EvaluateFloating(key, d);
-                default:
-                    return new AttributeDecision(false, "attribute '" + key + "' must be string, bool, or number");
             }
+
+            switch (Type.GetTypeCode(value.GetType()))
+            {
+                case TypeCode.SByte:
+                case TypeCode.Byte:
+                case TypeCode.Int16:
+                case TypeCode.UInt16:
+                case TypeCode.Int32:
+                case TypeCode.UInt32:
+                case TypeCode.Int64:
+                    return Accept();
+                case TypeCode.UInt64:
+                    return (ulong)value <= (ulong)long.MaxValue ? Accept() : MagnitudeError(key);
+                case TypeCode.Decimal:
+                    return EvaluateDecimal(key, (decimal)value);
+                default:
+                    return TypeError(key);
+            }
+        }
+
+        static AttributeDecision Accept() => new AttributeDecision(true, null);
+
+        static AttributeDecision TypeError(string key) =>
+            new AttributeDecision(false, "attribute '" + key + "' must be string, bool, or number");
+
+        static AttributeDecision MagnitudeError(string key) =>
+            new AttributeDecision(false, "attribute '" + key + "' exceeds 9223372036854775808");
+
+        static AttributeDecision EvaluateDecimal(string key, decimal value)
+        {
+            if (value >= MaxDecimalMagnitude || value <= -MaxDecimalMagnitude)
+                return MagnitudeError(key);
+            return Accept();
         }
 
         static AttributeDecision EvaluateFloating(string key, float value)
         {
             if (float.IsNaN(value) || float.IsInfinity(value))
-                return new AttributeDecision(false, "attribute '" + key + "' must be string, bool, or number");
+                return MagnitudeError(key);
             return EvaluateFloating(key, (double)value);
         }
 
         static AttributeDecision EvaluateFloating(string key, double value)
         {
             if (double.IsNaN(value) || double.IsInfinity(value))
-                return new AttributeDecision(false, "attribute '" + key + "' must be string, bool, or number");
+                return MagnitudeError(key);
             if (value >= MaxMagnitude || value <= -MaxMagnitude)
-                return new AttributeDecision(false, "attribute '" + key + "' exceeds 9223372036854775808");
-            return new AttributeDecision(true, null);
+                return MagnitudeError(key);
+            return Accept();
         }
     }
 }

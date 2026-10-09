@@ -21,8 +21,26 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void Non_finite_and_unsupported_types_are_rejected()
         {
-            Assert.That(AttributePolicy.Evaluate("n", double.NaN).Accepted, Is.False);
+            var nan = AttributePolicy.Evaluate("n", double.NaN);
+            Assert.That(nan.Accepted, Is.False);
+            Assert.That(nan.Error, Does.Contain("9223372036854775808"));
             Assert.That(AttributePolicy.Evaluate("when", DateTime.UtcNow).Accepted, Is.False);
+        }
+
+        [Test]
+        public void Unsigned_and_decimal_integers_inside_signed_64_bit_range_are_accepted()
+        {
+            Assert.That(AttributePolicy.Evaluate("wave", 3u).Accepted, Is.True);
+            Assert.That(AttributePolicy.Evaluate("id", 1UL).Accepted, Is.True);
+            Assert.That(AttributePolicy.Evaluate("score", 1m).Accepted, Is.True);
+            Assert.That(AttributePolicy.Evaluate("big", ulong.MaxValue).Accepted, Is.False);
+        }
+
+        [Test]
+        public void Empty_attribute_name_is_rejected()
+        {
+            Assert.That(AttributePolicy.Evaluate("", "x").Accepted, Is.False);
+            Assert.That(AttributePolicy.Evaluate(null, true).Accepted, Is.False);
         }
 
         [Test]
