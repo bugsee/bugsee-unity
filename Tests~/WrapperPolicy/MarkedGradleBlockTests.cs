@@ -74,6 +74,41 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Commented_plugin_with_ndk_marker_still_gets_restored()
+        {
+            const string commented =
+                LauncherAnchor + "\n" +
+                "// apply plugin: 'com.bugsee.android.gradle' // bugsee:gradle-plugin\n\n" +
+                "bugsee {\n    ndk { enabled = true }\n} // bugsee:gradle-ndk\n";
+            string once = MarkedGradleBlock.Apply(commented, LauncherAnchor, LauncherPatch);
+            Assert.That(once, Does.Contain("\napply plugin: 'com.bugsee.android.gradle' // bugsee:gradle-plugin"));
+            Assert.That(once, Does.Not.Contain("// apply plugin: 'com.bugsee.android.gradle'"));
+        }
+
+        [Test]
+        public void Commented_base_plugin_id_line_is_restored()
+        {
+            const string commented =
+                Anchor + "\n" +
+                "//    id 'com.bugsee.android.gradle' version '4.0.8' apply false // bugsee:gradle-plugin\n}\n";
+            string once = MarkedGradleBlock.Apply(commented, Anchor, Marked);
+            Assert.That(once, Does.Contain(Marked));
+            Assert.That(once, Does.Not.Contain("//    id 'com.bugsee.android.gradle'"));
+        }
+
+        [Test]
+        public void Disabled_ndk_in_marked_block_is_upserted_to_enabled()
+        {
+            const string disabledNdk =
+                LauncherAnchor + "\n" +
+                "apply plugin: 'com.bugsee.android.gradle' // bugsee:gradle-plugin\n\n" +
+                "bugsee {\n    ndk { enabled = false }\n} // bugsee:gradle-ndk\n";
+            string once = MarkedGradleBlock.Apply(disabledNdk, LauncherAnchor, LauncherPatch);
+            Assert.That(once, Does.Contain("enabled = true"));
+            Assert.That(once, Does.Not.Contain("enabled = false"));
+        }
+
+        [Test]
         public void Sample_launcher_gets_plugin_and_ndk_block_idempotently()
         {
             Assume.That(File.Exists(SampleLauncherTemplatePath), Is.True, "sample launcher template missing");

@@ -28,17 +28,13 @@ namespace Bugsee.WrapperPolicy
                 throw new ArgumentNullException(nameof(markedLine));
             }
 
-            if (ContainsNormalizedBlock(existing, markedLine))
-            {
-                return existing;
-            }
-
             SplitPayload(markedLine, out List<string> pluginLines, out List<string> ndkLines);
             if (IsPluginPayloadSatisfied(existing, pluginLines) &&
                 IsNdkPayloadSatisfied(existing, ndkLines))
             {
                 return existing;
             }
+
             var lines = SplitLines(existing, out string newline);
             bool changed = false;
 
@@ -95,11 +91,6 @@ namespace Bugsee.WrapperPolicy
             return InsertAfterLine(existing, lines, newline, anchorIndex, markedLine);
         }
 
-        static bool ContainsNormalizedBlock(string existing, string markedLine)
-        {
-            return NormalizeNewlines(existing).IndexOf(NormalizeNewlines(markedLine), StringComparison.Ordinal) >= 0;
-        }
-
         static string NormalizeNewlines(string text)
         {
             return text.Replace("\r\n", "\n").Replace("\r", "\n");
@@ -107,6 +98,8 @@ namespace Bugsee.WrapperPolicy
 
         static bool IsPluginPayloadSatisfied(string existing, List<string> pluginLines)
         {
+            var lines = SplitLines(existing, out _);
+            bool required = false;
             for (int i = 0; i < pluginLines.Count; i++)
             {
                 if (IsBlank(pluginLines[i]))
@@ -114,13 +107,24 @@ namespace Bugsee.WrapperPolicy
                     continue;
                 }
 
-                if (existing.IndexOf(pluginLines[i], StringComparison.Ordinal) < 0)
+                required = true;
+                bool found = false;
+                for (int j = 0; j < lines.Count; j++)
+                {
+                    if (string.Equals(lines[j], pluginLines[i], StringComparison.Ordinal))
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found)
                 {
                     return false;
                 }
             }
 
-            return pluginLines.Count > 0;
+            return required;
         }
 
         static bool IsNdkPayloadSatisfied(string existing, List<string> ndkLines)
@@ -130,7 +134,13 @@ namespace Bugsee.WrapperPolicy
                 return true;
             }
 
-            return existing.IndexOf(NdkMarkerComment, StringComparison.Ordinal) >= 0;
+            var lines = SplitLines(existing, out _);
+            if (!TryFindNdkRegion(lines, out int start, out int end))
+            {
+                return false;
+            }
+
+            return LinesEqual(lines, start, end, ndkLines);
         }
 
         static void SplitPayload(string markedLine, out List<string> pluginLines, out List<string> ndkLines)
@@ -326,7 +336,7 @@ namespace Bugsee.WrapperPolicy
             for (int j = bugseeStart; j < lines.Count; j++)
             {
                 depth += CountBraceDelta(lines[j]);
-                if (depth <= 0 && lines[j].IndexOf('}', StringComparison.Ordinal) >= 0)
+                if (depth <= 0 && lines[j].IndexOf('}') >= 0)
                 {
                     return j;
                 }
