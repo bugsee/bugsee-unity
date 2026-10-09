@@ -33,35 +33,53 @@ static NSString *BugseeNSString(const char *c)
     return c ? [NSString stringWithUTF8String:c] : nil;
 }
 
+static void BugseeRunOnMain(dispatch_block_t block)
+{
+    if ([NSThread isMainThread]) {
+        block();
+    } else {
+        dispatch_async(dispatch_get_main_queue(), block);
+    }
+}
+
 extern "C" {
 
 void _bugsee_launch(const char *appToken, const char *optionsJson)
 {
-    NSDictionary *dict = nil;
-    if (optionsJson) {
-        id parsed = BugseeDeserializeJson(optionsJson);
-        if ([parsed isKindOfClass:[NSDictionary class]]) {
-            dict = parsed;
+    NSString *token = BugseeNSString(appToken);
+    NSString *optionsStr = optionsJson ? [NSString stringWithUTF8String:optionsJson] : nil;
+    BugseeRunOnMain(^{
+        NSDictionary *dict = nil;
+        if (optionsStr) {
+            id parsed = BugseeDeserializeJson(optionsStr.UTF8String);
+            if ([parsed isKindOfClass:[NSDictionary class]]) {
+                dict = parsed;
+            }
         }
-    }
-    [Bugsee launchWithToken:BugseeNSString(appToken) andOptions:dict];
+        [Bugsee launchWithToken:token andOptions:dict];
+    });
 }
 
 void _bugsee_relaunch(const char *optionsJson)
 {
-    NSDictionary *dict = nil;
-    if (optionsJson) {
-        id parsed = BugseeDeserializeJson(optionsJson);
-        if ([parsed isKindOfClass:[NSDictionary class]]) {
-            dict = parsed;
+    NSString *optionsStr = optionsJson ? [NSString stringWithUTF8String:optionsJson] : nil;
+    BugseeRunOnMain(^{
+        NSDictionary *dict = nil;
+        if (optionsStr) {
+            id parsed = BugseeDeserializeJson(optionsStr.UTF8String);
+            if ([parsed isKindOfClass:[NSDictionary class]]) {
+                dict = parsed;
+            }
         }
-    }
-    [Bugsee relaunchWithDictionaryOptions:dict];
+        [Bugsee relaunchWithDictionaryOptions:dict];
+    });
 }
 
 void _bugsee_stop(void)
 {
-    [Bugsee stop:nil];
+    BugseeRunOnMain(^{
+        [Bugsee stop:nil];
+    });
 }
 
 bool _bugsee_get_launched(void)
@@ -155,15 +173,20 @@ static char *BugseeCopyUTF8(NSString *string)
 
 void _bugsee_show_report(const char *summary, const char *description, int severity, const char *labelsJson)
 {
-    NSArray<NSString *> *labels = BugseeLabelsFromJson(labelsJson);
-    if (summary) {
-        [Bugsee showReportDialogWithSummary:BugseeNSString(summary)
-                                description:BugseeNSString(description) ?: @""
-                                   severity:(BugseeSeverityLevel)severity
-                                     labels:labels];
-    } else {
-        [Bugsee showReportDialog];
-    }
+    NSString *summaryStr = summary ? [NSString stringWithUTF8String:summary] : nil;
+    NSString *descriptionStr = description ? [NSString stringWithUTF8String:description] : nil;
+    NSString *labelsStr = labelsJson ? [NSString stringWithUTF8String:labelsJson] : nil;
+    BugseeRunOnMain(^{
+        NSArray<NSString *> *labels = BugseeLabelsFromJson(labelsStr.UTF8String);
+        if (summaryStr) {
+            [Bugsee showReportDialogWithSummary:summaryStr
+                                    description:descriptionStr ?: @""
+                                       severity:(BugseeSeverityLevel)severity
+                                         labels:labels];
+        } else {
+            [Bugsee showReportDialog];
+        }
+    });
 }
 
 void _bugsee_upload(const char *summary, const char *description, int severity, const char *labelsJson)
