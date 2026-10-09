@@ -4,6 +4,7 @@
       android:name="com.bugsee.unity.UnityWrapperProvider"
       android:authorities="${applicationId}.bugsee.unitywrapper"
       android:exported="false"
+      android:directBootAware="true"
       android:initOrder="200" />
   </application>
 </manifest>
