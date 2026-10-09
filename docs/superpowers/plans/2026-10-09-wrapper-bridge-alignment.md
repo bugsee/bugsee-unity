@@ -1222,9 +1222,9 @@ Add `void _bugsee_set_secure_buffer(int display, int[] packed)` and the Android 
 
 - [ ] **Step 1: Add `SecureRectRegistry.Instance`, manual owner tracking, and push-on-write.**
 
-In `Bugsee.cs`, keep a private map from each added `RectInt` to its owner id. Shared helper `PushSecureBufferForDisplay(0)` calls `Snapshot`, then native `setSecureBuffer` / `_bugsee_set_secure_buffer`. `AddSecureRectangle` → `Set(ownerId, 0, …)` → push. `RemoveSecureRectangle` → `RemoveOwner(ownerId)` → drop map entry → push (union shrinks; version bumps when the buffer changes). `RemoveAllSecureRectangles` → remove every manual owner → clear map → push (empty union republishes `[1, 0]` when no rects remain).
+In `Bugsee.cs`, keep a private map from each added `RectInt` to its owner id. Shared helper `PushSecureBufferForDisplay(0)` calls `Snapshot`, then native `setSecureBuffer` / `_bugsee_set_secure_buffer`. `AddSecureRectangle` → `Set(ownerId, 0, …)` → push. `RemoveSecureRectangle` → `RemoveOwner(ownerId)` → drop map entry → push (union shrinks; version bumps when the buffer changes). `RemoveAllSecureRectangles` → remove every manual owner → clear map → push (empty union: count `0`, version **bumps** — do not republish version `1` after rects were published; #8 yields e.g. `[3, 0]` after add-then-remove-last, not `[1, 0]`).
 
-Add `SecureRectManualOwnerTests` (or extend `SecureRectRegistryTests`): two owner ids on display `0` → `Snapshot(...)[1] == 2`; remove one owner → the other survives **and** simulated push buffer count is `1`; after removing the last owner, pushed buffer is `[1, 0]`.
+Add `SecureRectManualOwnerTests` (or extend `SecureRectRegistryTests`): two owner ids on display `0` → `Snapshot(...)[1] == 2`; remove one owner → the other survives **and** simulated push buffer count is `1`; after removing the last owner, pushed buffer has count `0` and version **strictly greater than** the last non-empty publish (never reuse version `1` once real rects crossed).
 
 - [ ] **Step 2: Implement the native buffers.** `getSecureRectangles` returns the last pushed array for that display, or `[1, 0]` when nothing has been pushed (version 1, count 0, the first empty publish).
 
