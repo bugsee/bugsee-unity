@@ -325,7 +325,7 @@ git commit -m "Map breadcrumb levels by name per platform."
 - Consumes: nothing
 - Produces:
   - `AttributeDecision AttributePolicy.Evaluate(string key, object value)` with `bool Accepted` and `string Error`. `Error` is null when accepted. When rejected, `Error` contains `key` and does not contain `value.ToString()`.
-  - Accepted types: `string`, `bool`, and any .NET numeric type that maps to a finite number within `|v| < 9223372036854775808` before crossing: `byte`, `sbyte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, `double`, `decimal`. `long.MaxValue` is accepted. Reject NaN, infinities, and magnitudes `>= 9223372036854775808d`. Strings whose `Length` is greater than 1024 are rejected. Non-numeric types (for example `DateTime`) are rejected.
+  - Accepted types: `string`, `bool`, and .NET numbers that fit before the SDK clamps: `byte`, `sbyte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, `double`, `decimal`. `long.MaxValue`, `uint.MaxValue`, and `(ulong)long.MaxValue` are accepted. Reject `ulong` values **greater than** `long.MaxValue` (including `ulong.MaxValue`) so Android cannot persist `Long.MAX_VALUE`. Reject NaN, infinities, and floating magnitudes `>= 9223372036854775808d`. Strings whose `Length` is greater than 1024 are rejected. Non-numeric types (for example `DateTime`) are rejected.
   - `string UserIdentifierPolicy.ForSet(string value)` returns null when value is null or `""`, otherwise the value.
   - `string UserIdentifierPolicy.ForGet(string value)` returns null when value is null or `""`.
 
@@ -360,11 +360,16 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Unsigned_and_decimal_numbers_are_accepted()
+        public void Unsigned_in_range_and_decimal_are_accepted_ulong_max_is_rejected()
         {
             Assert.That(AttributePolicy.Evaluate("u", uint.MaxValue).Accepted, Is.True);
-            Assert.That(AttributePolicy.Evaluate("ul", ulong.MaxValue).Accepted, Is.True);
+            Assert.That(AttributePolicy.Evaluate("ul", (ulong)long.MaxValue).Accepted, Is.True);
             Assert.That(AttributePolicy.Evaluate("d", 0.1m).Accepted, Is.True);
+
+            var bad = AttributePolicy.Evaluate("ul", ulong.MaxValue);
+            Assert.That(bad.Accepted, Is.False);
+            Assert.That(bad.Error, Does.Contain("ul"));
+            Assert.That(bad.Error, Does.Not.Contain(ulong.MaxValue.ToString()));
         }
 
         [Test]
@@ -394,7 +399,7 @@ Expected: FAIL, types missing.
 
 - [ ] **Step 3: Implement both types**
 
-`AttributePolicy.Evaluate` switches on the runtime type. Accept all integer and floating numeric types listed above by converting through `Convert.ToDouble` (or equivalent) for range checks. For `decimal`, reject when out of range after conversion. Reject when the magnitude is non-finite or `>= 9223372036854775808d` or `<= -9223372036854775808d`. Rejection messages are fixed strings: `"attribute 'lives' exceeds 9223372036854775808"` and `"attribute 'note' exceeds 1024 UTF-16 units"` and `"attribute 'when' must be string, bool, or number"`. Build the message from `key` only.
+`AttributePolicy.Evaluate` switches on `TypeCode` / runtime type (same approach as task PR #7). **Integers** (`byte` … `long`, `sbyte`, `ushort`, `uint`, `ulong`): compare to `long.MaxValue` / `long.MinValue` without `Convert.ToDouble` — `(double)long.MaxValue` is IEEE `2^63` and would falsely reject `long.MaxValue`. For `ulong`, accept only when `value <= (ulong)long.MaxValue`. **Float/double:** reject NaN and infinities; reject when `>= 9223372036854775808d` or `<= -9223372036854775808d`. **Decimal:** reject when truncated to integer would exceed the same bounds. Rejection messages are fixed strings: `"attribute 'lives' exceeds 9223372036854775808"` and `"attribute 'note' exceeds 1024 UTF-16 units"` and `"attribute 'when' must be string, bool, or number"`. Build the message from `key` only.
 
 `UserIdentifierPolicy` is the two methods in the interface block.
 
