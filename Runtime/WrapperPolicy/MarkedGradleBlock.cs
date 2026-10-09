@@ -33,10 +33,35 @@ namespace Bugsee.WrapperPolicy
                 return existing;
             }
 
-            var lines = SplitLines(existing, out string newline);
-            if (TryReplacePatchRegion(lines, markedLine, newline, existing, out string replaced))
+            SplitPayload(markedLine, out List<string> pluginLines, out List<string> ndkLines);
+            if (IsPluginPayloadSatisfied(existing, pluginLines) &&
+                IsNdkPayloadSatisfied(existing, ndkLines))
             {
-                return replaced;
+                return existing;
+            }
+            var lines = SplitLines(existing, out string newline);
+            bool changed = false;
+
+            if (TryUpsertPluginRegion(lines, pluginLines, ndkLines))
+            {
+                changed = true;
+            }
+
+            if (ndkLines != null && ndkLines.Count > 0)
+            {
+                if (TryUpsertNdkRegion(lines, ndkLines))
+                {
+                    changed = true;
+                }
+                else if (TryInsertNdkAfterPlugin(lines, ndkLines))
+                {
+                    changed = true;
+                }
+            }
+
+            if (changed)
+            {
+                return JoinLines(lines, newline, existing.EndsWith("\n", StringComparison.Ordinal));
             }
 
             int depth = 0;
@@ -77,52 +102,368 @@ namespace Bugsee.WrapperPolicy
 
         static string NormalizeNewlines(string text)
         {
-            return text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\r", "\n", StringComparison.Ordinal);
+            return text.Replace("\r\n", "\n").Replace("\r", "\n");
         }
 
-        static bool TryReplacePatchRegion(
-            List<string> lines,
-            string markedLine,
-            string newline,
-            string existing,
-            out string replaced)
+        static bool IsPluginPayloadSatisfied(string existing, List<string> pluginLines)
         {
-            replaced = null;
-            if (!TryFindPatchRegion(lines, out int start, out int end))
+            for (int i = 0; i < pluginLines.Count; i++)
+            {
+                if (IsBlank(pluginLines[i]))
+                {
+                    continue;
+                }
+
+                if (existing.IndexOf(pluginLines[i], StringComparison.Ordinal) < 0)
+                {
+                    return false;
+                }
+            }
+
+            return pluginLines.Count > 0;
+        }
+
+        static bool IsNdkPayloadSatisfied(string existing, List<string> ndkLines)
+        {
+            if (ndkLines == null || ndkLines.Count == 0)
+            {
+                return true;
+            }
+
+            return existing.IndexOf(NdkMarkerComment, StringComparison.Ordinal) >= 0;
+        }
+
+        static void SplitPayload(string markedLine, out List<string> pluginLines, out List<string> ndkLines)
+        {
+            var all = SplitMarkedLines(markedLine);
+            pluginLines = new List<string>();
+            ndkLines = null;
+            int ndkIndex = -1;
+            for (int i = 0; i < all.Count; i++)
+            {
+                if (all[i].TrimStart().StartsWith("bugsee {", StringComparison.Ordinal))
+                {
+                    ndkIndex = i;
+                    break;
+                }
+            }
+
+            if (ndkIndex < 0)
+            {
+                pluginLines = all;
+                return;
+            }
+
+            for (int i = 0; i < ndkIndex; i++)
+            {
+                if (!IsBlank(all[i]))
+                {
+                    pluginLines.Add(all[i]);
+                }
+            }
+
+            ndkLines = new List<string>();
+            for (int i = ndkIndex; i < all.Count; i++)
+            {
+                ndkLines.Add(all[i]);
+            }
+        }
+
+        static bool TryUpsertPluginRegion(List<string> lines, List<string> pluginLines, List<string> ndkLines)
+        {
+            if (!TryFindPluginRegion(lines, out int start, out int end))
             {
                 return false;
             }
 
-            var markedLines = SplitMarkedLines(markedLine);
-            bool trailingNewline = existing.EndsWith("\n", StringComparison.Ordinal);
-            var sb = new StringBuilder(existing.Length + markedLine.Length + 32);
+            var replacement = BuildPluginReplacement(lines, start, end, pluginLines, ndkLines);
+            if (LinesEqual(lines, start, end, replacement))
+            {
+                return false;
+            }
+
+            ReplaceLines(lines, start, end, replacement);
+            return true;
+        }
+
+        static List<string> BuildPluginReplacement(
+            List<string> lines,
+            int start,
+            int end,
+            List<string> pluginLines,
+            List<string> ndkLines)
+        {
+            var replacement = new List<string>(pluginLines);
+            bool regionIncludesBugsee = false;
+            for (int i = start; i <= end; i++)
+            {
+                if (lines[i].TrimStart().StartsWith("bugsee {", StringComparison.Ordinal))
+                {
+                    regionIncludesBugsee = true;
+                    break;
+                }
+            }
+
+            if (regionIncludesBugsee && ndkLines != null && ndkLines.Count > 0)
+            {
+                replacement.Add(string.Empty);
+                replacement.AddRange(ndkLines);
+            }
+
+            return replacement;
+        }
+
+        static bool TryUpsertNdkRegion(List<string> lines, List<string> ndkLines)
+        {
+            if (!TryFindNdkRegion(lines, out int start, out int end))
+            {
+                return false;
+            }
+
+            if (LinesEqual(lines, start, end, ndkLines))
+            {
+                return false;
+            }
+
+            ReplaceLines(lines, start, end, ndkLines);
+            return true;
+        }
+
+        static bool TryInsertNdkAfterPlugin(List<string> lines, List<string> ndkLines)
+        {
+            if (TryFindNdkRegion(lines, out _, out _))
+            {
+                return false;
+            }
+
             for (int i = 0; i < lines.Count; i++)
             {
-                if (i == start)
+                if (lines[i].TrimStart().StartsWith("bugsee {", StringComparison.Ordinal))
                 {
-                    for (int m = 0; m < markedLines.Count; m++)
-                    {
-                        if (m > 0)
-                        {
-                            sb.Append(newline);
-                        }
+                    return false;
+                }
+            }
 
-                        sb.Append(markedLines[m]);
+            if (!TryFindPluginLineIndex(lines, out int pluginIndex))
+            {
+                return false;
+            }
+
+            var insert = new List<string> { string.Empty };
+            insert.AddRange(ndkLines);
+            lines.InsertRange(pluginIndex + 1, insert);
+            return true;
+        }
+
+        static bool TryFindPluginRegion(List<string> lines, out int start, out int end)
+        {
+            start = -1;
+            end = -1;
+
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (lines[i].IndexOf(MarkerComment, StringComparison.Ordinal) >= 0)
+                {
+                    start = i;
+                    end = FindContiguousPluginEnd(lines, start);
+                    return true;
+                }
+            }
+
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (string.Equals(lines[i].Trim(), LegacyMarkerComment, StringComparison.Ordinal))
+                {
+                    start = i;
+                    end = i;
+                    if (i + 1 < lines.Count && IsActiveBugseePluginLine(lines[i + 1]))
+                    {
+                        end = i + 1;
                     }
 
-                    i = end;
-                    if (i < lines.Count - 1)
-                    {
-                        sb.Append(newline);
-                    }
-                    else if (trailingNewline)
-                    {
-                        sb.Append(newline);
-                    }
+                    end = ExtendThroughContiguousBugsee(lines, end);
+                    return true;
+                }
+            }
 
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (IsActiveBugseePluginLine(lines[i]))
+                {
+                    start = i;
+                    end = FindContiguousPluginEnd(lines, start);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        static int FindContiguousPluginEnd(List<string> lines, int start)
+        {
+            return ExtendThroughContiguousBugsee(lines, start);
+        }
+
+        static int ExtendThroughContiguousBugsee(List<string> lines, int end)
+        {
+            int i = end + 1;
+            while (i < lines.Count && IsBlank(lines[i]))
+            {
+                i++;
+            }
+
+            if (i >= lines.Count || !lines[i].TrimStart().StartsWith("bugsee {", StringComparison.Ordinal))
+            {
+                return end;
+            }
+
+            return FindBugseeBlockEnd(lines, i);
+        }
+
+        static int FindBugseeBlockEnd(List<string> lines, int bugseeStart)
+        {
+            int depth = 0;
+            for (int j = bugseeStart; j < lines.Count; j++)
+            {
+                depth += CountBraceDelta(lines[j]);
+                if (depth <= 0 && lines[j].IndexOf('}', StringComparison.Ordinal) >= 0)
+                {
+                    return j;
+                }
+            }
+
+            return bugseeStart;
+        }
+
+        static bool TryFindNdkRegion(List<string> lines, out int start, out int end)
+        {
+            start = -1;
+            end = -1;
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (lines[i].IndexOf(NdkMarkerComment, StringComparison.Ordinal) < 0)
+                {
                     continue;
                 }
 
+                end = i;
+                start = i;
+                for (int j = i; j >= 0; j--)
+                {
+                    if (lines[j].TrimStart().StartsWith("bugsee {", StringComparison.Ordinal))
+                    {
+                        start = j;
+                        break;
+                    }
+                }
+
+                return true;
+            }
+
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (!lines[i].TrimStart().StartsWith("bugsee {", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                start = i;
+                end = FindBugseeBlockEnd(lines, i);
+                return true;
+            }
+
+            return false;
+        }
+
+        static bool TryFindPluginLineIndex(List<string> lines, out int pluginIndex)
+        {
+            pluginIndex = -1;
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (lines[i].IndexOf(MarkerComment, StringComparison.Ordinal) >= 0 ||
+                    IsActiveBugseePluginLine(lines[i]))
+                {
+                    pluginIndex = i;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        static int CountBraceDelta(string line)
+        {
+            int delta = 0;
+            bool inSingle = false;
+            bool inDouble = false;
+            for (int i = 0; i < line.Length; i++)
+            {
+                char c = line[i];
+                if (!inSingle && !inDouble && c == '/' && i + 1 < line.Length && line[i + 1] == '/')
+                {
+                    break;
+                }
+
+                if (c == '\'' && !inDouble)
+                {
+                    inSingle = !inSingle;
+                    continue;
+                }
+
+                if (c == '"' && !inSingle)
+                {
+                    inDouble = !inDouble;
+                    continue;
+                }
+
+                if (inSingle || inDouble)
+                {
+                    continue;
+                }
+
+                if (c == '{')
+                {
+                    delta++;
+                }
+                else if (c == '}')
+                {
+                    delta--;
+                }
+            }
+
+            return delta;
+        }
+
+        static bool LinesEqual(List<string> lines, int start, int end, List<string> replacement)
+        {
+            if (end - start + 1 != replacement.Count)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < replacement.Count; i++)
+            {
+                if (!string.Equals(lines[start + i], replacement[i], StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        static void ReplaceLines(List<string> lines, int start, int end, List<string> replacement)
+        {
+            int removeCount = end - start + 1;
+            lines.RemoveRange(start, removeCount);
+            lines.InsertRange(start, replacement);
+        }
+
+        static string JoinLines(List<string> lines, string newline, bool trailingNewline)
+        {
+            var sb = new StringBuilder();
+            for (int i = 0; i < lines.Count; i++)
+            {
                 sb.Append(lines[i]);
                 if (i < lines.Count - 1)
                 {
@@ -134,8 +475,12 @@ namespace Bugsee.WrapperPolicy
                 }
             }
 
-            replaced = sb.ToString();
-            return true;
+            return sb.ToString();
+        }
+
+        static bool IsBlank(string line)
+        {
+            return string.IsNullOrWhiteSpace(line);
         }
 
         static void AppendMarkedLines(StringBuilder sb, string markedLine, string newline)
@@ -163,80 +508,6 @@ namespace Bugsee.WrapperPolicy
             }
 
             return result;
-        }
-
-        static bool TryFindPatchRegion(List<string> lines, out int start, out int end)
-        {
-            start = -1;
-            end = -1;
-
-            for (int i = 0; i < lines.Count; i++)
-            {
-                string line = lines[i];
-                if (line.IndexOf(MarkerComment, StringComparison.Ordinal) >= 0)
-                {
-                    start = i;
-                    end = FindPatchEnd(lines, start);
-                    return true;
-                }
-            }
-
-            for (int i = 0; i < lines.Count; i++)
-            {
-                if (string.Equals(lines[i].Trim(), LegacyMarkerComment, StringComparison.Ordinal))
-                {
-                    start = i;
-                    end = i;
-                    if (i + 1 < lines.Count && IsActiveBugseePluginLine(lines[i + 1]))
-                    {
-                        end = i + 1;
-                    }
-
-                    return true;
-                }
-            }
-
-            for (int i = 0; i < lines.Count; i++)
-            {
-                if (IsActiveBugseePluginLine(lines[i]))
-                {
-                    start = i;
-                    end = FindPatchEnd(lines, start);
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        static int FindPatchEnd(List<string> lines, int start)
-        {
-            for (int i = start; i < lines.Count; i++)
-            {
-                if (lines[i].IndexOf(NdkMarkerComment, StringComparison.Ordinal) >= 0)
-                {
-                    return i;
-                }
-            }
-
-            return start;
-        }
-
-        static bool IsActiveBugseePluginLine(string line)
-        {
-            if (line.IndexOf(BugseeGradlePluginId, StringComparison.Ordinal) < 0)
-            {
-                return false;
-            }
-
-            string trimmed = line.TrimStart();
-            if (trimmed.StartsWith("//", StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            return trimmed.IndexOf("id ", StringComparison.Ordinal) >= 0 ||
-                   trimmed.IndexOf("apply plugin", StringComparison.Ordinal) >= 0;
         }
 
         static string InsertAfterLine(
@@ -313,7 +584,7 @@ namespace Bugsee.WrapperPolicy
 
                 if (!inSingle && !inDouble && c == '/' && i + 1 < line.Length && line[i + 1] == '*')
                 {
-                    if (line.AsSpan(i).StartsWith(token))
+                    if (StartsWithAt(line, i, token))
                     {
                         return i;
                     }
@@ -331,13 +602,40 @@ namespace Bugsee.WrapperPolicy
                     continue;
                 }
 
-                if (!inSingle && !inDouble && line.AsSpan(i).StartsWith(token))
+                if (!inSingle && !inDouble && StartsWithAt(line, i, token))
                 {
                     return i;
                 }
             }
 
             return -1;
+        }
+
+        static bool StartsWithAt(string line, int index, string token)
+        {
+            if (index + token.Length > line.Length)
+            {
+                return false;
+            }
+
+            return string.Compare(line, index, token, 0, token.Length, StringComparison.Ordinal) == 0;
+        }
+
+        static bool IsActiveBugseePluginLine(string line)
+        {
+            if (line.IndexOf(BugseeGradlePluginId, StringComparison.Ordinal) < 0)
+            {
+                return false;
+            }
+
+            string trimmed = line.TrimStart();
+            if (trimmed.StartsWith("//", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return trimmed.IndexOf("id ", StringComparison.Ordinal) >= 0 ||
+                   trimmed.IndexOf("apply plugin", StringComparison.Ordinal) >= 0;
         }
 
         static List<string> SplitLines(string text, out string newline)

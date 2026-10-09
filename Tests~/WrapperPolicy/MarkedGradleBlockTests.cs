@@ -96,5 +96,38 @@ namespace Bugsee.WrapperPolicy.Tests
             string twice = MarkedGradleBlock.Apply(once, LauncherAnchor, LauncherPatch);
             Assert.That(twice, Is.EqualTo(once));
         }
+
+        [Test]
+        public void Split_ndk_block_does_not_delete_intervening_gradle()
+        {
+            const string split =
+                LauncherAnchor + "\n" +
+                "apply plugin: 'com.bugsee.android.gradle' // bugsee:gradle-plugin\n\n" +
+                "dependencies {\n    implementation project(':unityLibrary')\n}\n\n" +
+                "android {\n    compileSdkVersion 34\n}\n\n" +
+                "bugsee {\n    ndk { enabled = true }\n} // bugsee:gradle-ndk\n";
+            string twice = MarkedGradleBlock.Apply(split, LauncherAnchor, LauncherPatch);
+            Assert.That(twice, Does.Contain("dependencies {"));
+            Assert.That(twice, Does.Contain("android {"));
+            Assert.That(twice, Does.Contain(MarkedGradleBlock.NdkMarkerComment));
+            Assert.That(MarkedGradleBlock.Apply(twice, LauncherAnchor, LauncherPatch), Is.EqualTo(twice));
+        }
+
+        [Test]
+        public void Legacy_launcher_with_unmarked_ndk_block_upgrades_without_duplicating_ndk()
+        {
+            const string legacyLauncher =
+                LauncherAnchor + "\n" +
+                "// Bugsee Gradle plugin\n" +
+                "apply plugin: 'com.bugsee.android.gradle'\n\n" +
+                "bugsee {\n    ndk { enabled = true }\n}\n\n" +
+                "dependencies {\n    implementation project(':unityLibrary')\n}\n";
+            string once = MarkedGradleBlock.Apply(legacyLauncher, LauncherAnchor, LauncherPatch);
+            Assert.That(once, Does.Contain(MarkedGradleBlock.NdkMarkerComment));
+            Assert.That(once.IndexOf("bugsee {", StringComparison.Ordinal),
+                Is.EqualTo(once.LastIndexOf("bugsee {", StringComparison.Ordinal)));
+            string twice = MarkedGradleBlock.Apply(once, LauncherAnchor, LauncherPatch);
+            Assert.That(twice, Is.EqualTo(once));
+        }
     }
 }
