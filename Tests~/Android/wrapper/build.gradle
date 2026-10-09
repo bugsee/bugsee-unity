@@ -1,0 +1,32 @@
+plugins {
+    id "com.android.library"
+}
+
+android {
+    namespace "com.bugsee.unity.test"
+    compileSdk 35
+
+    defaultConfig {
+        minSdk 21
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+
+    sourceSets {
+        main {
+            java.srcDirs = ["../../../Plugins/Android"]
+        }
+    }
+}
+
+dependencies {
+    implementation "com.bugsee:bugsee-android:7.3.0"
+    testImplementation "junit:junit:4.13.2"
+}

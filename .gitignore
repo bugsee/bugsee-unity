@@ -40,6 +40,11 @@ Native~/ios/Bugsee/Bugsee.xcframework/
 # Local git worktrees for parallel task branches
 .worktrees/
 
+# Native bridge test build output
+Tests~/**/build/
+Tests~/**/.build/
+Tests~/Android/local.properties
+
 # Packaging
 *.unitypackage
 *.apk
