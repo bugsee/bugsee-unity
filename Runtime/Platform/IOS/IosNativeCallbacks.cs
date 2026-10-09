@@ -146,7 +146,7 @@ namespace Bugsee.Platform.IOS
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogException(ex);
+                    Debug.Log("filter-failed " + ex.GetType().Name);
                     _bugsee_complete_filter(requestId, FilterCompletion.OnThrow, null);
                 }
             }
