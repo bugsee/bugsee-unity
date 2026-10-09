@@ -13,6 +13,9 @@ namespace Bugsee.Internal
     {
         static bool _installed;
 
+        [ThreadStatic]
+        static int _forwardDepth;
+
         public static void InstallOnce(IBugseeNativeBridge bridge)
         {
             if (_installed || bridge == null || !bridge.IsSupported)
@@ -21,15 +24,33 @@ namespace Bugsee.Internal
             }
 
             _installed = true;
-            Application.logMessageReceived += (message, stackTrace, type) =>
+            Application.logMessageReceivedThreaded += (message, stackTrace, type) =>
             {
-                if (type == LogType.Exception || string.IsNullOrEmpty(message))
-                {
-                    return;
-                }
-
-                bridge.ChannelLog(message, LevelFor(type));
+                ForwardLog(bridge, message, type);
             };
+        }
+
+        static void ForwardLog(IBugseeNativeBridge bridge, string message, LogType type)
+        {
+            if (type == LogType.Exception || string.IsNullOrEmpty(message))
+            {
+                return;
+            }
+
+            if (_forwardDepth > 0)
+            {
+                return;
+            }
+
+            _forwardDepth++;
+            try
+            {
+                bridge.ChannelLog(message, LevelFor(type));
+            }
+            finally
+            {
+                _forwardDepth--;
+            }
         }
 
         static LogLevel LevelFor(LogType type)
