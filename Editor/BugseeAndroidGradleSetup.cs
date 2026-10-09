@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text;
+using Bugsee.WrapperPolicy;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -25,7 +26,6 @@ namespace Bugsee.Editor
         public const string SdkVersion = "7.3.0";
 
         const string PrefForcePlugin = "Bugsee.Android.ForceGradlePlugin";
-        const string Marker = "// Bugsee Gradle plugin";
         const string KotlinExcludeMarker = "// Bugsee: bugsee-android Gradle .module";
 
         static BugseeAndroidGradleSetup()
@@ -162,6 +162,19 @@ namespace Bugsee.Editor
         static void WriteBaseProjectTemplate(bool applyPlugin)
         {
             string path = Path.Combine(Application.dataPath, "Plugins", "Android", "baseProjectTemplate.gradle");
+            if (File.Exists(path))
+            {
+                if (applyPlugin)
+                {
+                    TryApplyMarkedGradle(
+                        path,
+                        "plugins {",
+                        $"    id 'com.bugsee.android.gradle' version '{GradlePluginVersion}' apply false // bugsee:gradle-plugin");
+                }
+
+                return;
+            }
+
             var sb = new StringBuilder();
             sb.AppendLine("plugins {");
             sb.AppendLine("    // If you are changing the Android Gradle Plugin version, make sure it is compatible with the Gradle version preinstalled with Unity");
@@ -172,8 +185,8 @@ namespace Bugsee.Editor
             sb.AppendLine("    id 'com.android.library' version '7.4.2' apply false");
             if (applyPlugin)
             {
-                sb.AppendLine($"    {Marker}");
-                sb.AppendLine($"    id 'com.bugsee.android.gradle' version '{GradlePluginVersion}' apply false");
+                sb.AppendLine(
+                    $"    id 'com.bugsee.android.gradle' version '{GradlePluginVersion}' apply false // bugsee:gradle-plugin");
             }
 
             sb.AppendLine("    **BUILD_SCRIPT_DEPS**");
@@ -189,19 +202,27 @@ namespace Bugsee.Editor
         static void WriteLauncherTemplate(bool applyPlugin)
         {
             string path = Path.Combine(Application.dataPath, "Plugins", "Android", "launcherTemplate.gradle");
+            if (File.Exists(path))
+            {
+                if (applyPlugin)
+                {
+                    TryApplyMarkedGradle(
+                        path,
+                        "apply plugin: 'com.android.application'",
+                        LauncherMarkedGradlePatch());
+                }
+
+                return;
+            }
+
             var sb = new StringBuilder();
             sb.AppendLine("apply plugin: 'com.android.application'");
             if (applyPlugin)
             {
-                sb.AppendLine(Marker);
-                sb.AppendLine("apply plugin: 'com.bugsee.android.gradle'");
-                sb.AppendLine();
-                sb.AppendLine("bugsee {");
-                sb.AppendLine("    // App token is supplied at runtime via Bugsee.Launch.");
-                sb.AppendLine("    ndk {");
-                sb.AppendLine("        enabled = true");
-                sb.AppendLine("    }");
-                sb.AppendLine("}");
+                foreach (string line in LauncherMarkedGradlePatch().Split('\n'))
+                {
+                    sb.AppendLine(line);
+                }
             }
 
             sb.AppendLine();
@@ -270,6 +291,31 @@ namespace Bugsee.Editor
             sb.AppendLine("}**SPLITS_VERSION_CODE****LAUNCHER_SOURCE_BUILD_SETUP**");
             sb.AppendLine();
             WriteIfChanged(path, sb.ToString());
+        }
+
+        internal static string LauncherMarkedGradlePatch()
+        {
+            return "apply plugin: 'com.bugsee.android.gradle' // bugsee:gradle-plugin\n\n" +
+                   "bugsee {\n" +
+                   "    // App token is supplied at runtime via Bugsee.Launch.\n" +
+                   "    ndk {\n" +
+                   "        enabled = true\n" +
+                   "    }\n" +
+                   "} // bugsee:gradle-ndk";
+        }
+
+        static void TryApplyMarkedGradle(string path, string anchorLine, string markedLine)
+        {
+            try
+            {
+                string existing = File.ReadAllText(path);
+                string updated = MarkedGradleBlock.Apply(existing, anchorLine, markedLine);
+                WriteIfChanged(path, updated);
+            }
+            catch (InvalidOperationException ex)
+            {
+                Debug.LogWarning(ex.Message);
+            }
         }
 
         static void WriteIfChanged(string path, string contents)

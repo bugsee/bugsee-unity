@@ -55,7 +55,6 @@ namespace Bugsee
                 throw new ArgumentException("appToken is required", nameof(appToken));
 
             MainThreadDispatcher.Ensure();
-            Bridge.EnsureWrapperRegistered();
             Bridge.Launch(appToken, options);
         }
 

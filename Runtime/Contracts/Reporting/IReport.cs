@@ -14,7 +14,7 @@ namespace Bugsee.Contracts.Reporting
         string Summary { get; set; }
         string Description { get; set; }
         string Email { get; set; }
-        IssueSeverity Severity { get; set; }
+        IssueSeverity? Severity { get; set; }
 
         IReadOnlyDictionary<string, object> Attributes { get; }
         object GetAttribute(string name);
