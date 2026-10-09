@@ -114,6 +114,12 @@ final class UnityWrapper implements BugseeWrapper {
         current.log(null, message, nativeLevel, nativeSource);
     }
 
+    public static void channelAddNetwork(com.bugsee.library.contracts.exchange.NetworkEvent event) {
+        com.bugsee.library.contracts.internal.BugseeWrapperChannel current = channel;
+        if (current == null || event == null) return;
+        current.addNetworkEvent(event, true);
+    }
+
     @Override
     public int[] getSecureRectangles(int display) {
         return new int[] { 1, 0 };

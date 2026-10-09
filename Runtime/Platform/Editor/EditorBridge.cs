@@ -31,6 +31,10 @@ namespace Bugsee.Platform.EditorStub
         public bool IsBlackout() => _blackout;
         public void Log(string message, LogLevel level) { }
         public void ChannelLog(string message, LogLevel level) { }
+        public void AddNetworkEvent(INetworkEvent networkEvent) { }
+
+        public IBugseeExchangeFactory GetExchangeFactory() => EditorExchangeFactory.Instance;
+
         public void Trace(string name, object value) { }
         public void Event(string name, IDictionary<string, object> parameters) { }
         public void LogException(Exception exception, IDictionary<string, object> options = null) { }
@@ -74,6 +78,54 @@ namespace Bugsee.Platform.EditorStub
             public void ShowFeedbackUi() { }
             public void SetDefaultGreeting(string greeting) { }
             public void SetListener(IFeedbackListener listener) { }
+        }
+
+        sealed class EditorExchangeFactory : IBugseeExchangeFactory
+        {
+            public static readonly EditorExchangeFactory Instance = new EditorExchangeFactory();
+
+            public INetworkEvent CreateNetworkEvent(
+                long timestamp,
+                NetworkEventStage stage,
+                string id,
+                string mechanism,
+                string method) =>
+                new EditorNetworkEvent(timestamp, stage, id, mechanism, method);
+        }
+
+        sealed class EditorNetworkEvent : INetworkEvent
+        {
+            readonly long _timestamp;
+            readonly NetworkEventStage _stage;
+            readonly string _method;
+            readonly string _mechanism;
+
+            public EditorNetworkEvent(
+                long timestamp,
+                NetworkEventStage stage,
+                string id,
+                string mechanism,
+                string method)
+            {
+                _timestamp = timestamp;
+                _stage = stage;
+                _method = method;
+                _mechanism = mechanism;
+                Id = string.IsNullOrEmpty(id) ? Guid.NewGuid().ToString("N") : id;
+            }
+
+            public string Id { get; }
+            public string Mechanism => _mechanism;
+            public string Url { get; set; }
+            public string Method => _method;
+            public string Body { get; set; }
+            public long Size { get; set; }
+            public int ResponseCode { get; set; }
+            public string StatusText { get; set; }
+            public string ErrorShortMessage { get; set; }
+            public string ErrorDescription { get; set; }
+            public IDictionary<string, string> Headers { get; set; }
+            public NetworkEventStage Stage => _stage;
         }
     }
 }
