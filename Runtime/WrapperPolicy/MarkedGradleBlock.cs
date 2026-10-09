@@ -6,7 +6,8 @@ namespace Bugsee.WrapperPolicy
 {
     public static class MarkedGradleBlock
     {
-        const string MarkerComment = "// bugsee:gradle-plugin";
+        internal const string MarkerComment = "// bugsee:gradle-plugin";
+        internal const string NdkMarkerComment = "// bugsee:gradle-ndk";
         const string LegacyMarkerComment = "// Bugsee Gradle plugin";
         const string BugseeGradlePluginId = "com.bugsee.android.gradle";
 
@@ -27,12 +28,17 @@ namespace Bugsee.WrapperPolicy
                 throw new ArgumentNullException(nameof(markedLine));
             }
 
-            if (IsAlreadyPatched(existing, markedLine))
+            if (ContainsNormalizedBlock(existing, markedLine))
             {
                 return existing;
             }
 
             var lines = SplitLines(existing, out string newline);
+            if (TryReplacePatchRegion(lines, markedLine, newline, existing, out string replaced))
+            {
+                return replaced;
+            }
+
             int depth = 0;
             bool inBlockComment = false;
             int anchorIndex = -1;
@@ -61,6 +67,185 @@ namespace Bugsee.WrapperPolicy
                 throw Refuse(anchorLine);
             }
 
+            return InsertAfterLine(existing, lines, newline, anchorIndex, markedLine);
+        }
+
+        static bool ContainsNormalizedBlock(string existing, string markedLine)
+        {
+            return NormalizeNewlines(existing).IndexOf(NormalizeNewlines(markedLine), StringComparison.Ordinal) >= 0;
+        }
+
+        static string NormalizeNewlines(string text)
+        {
+            return text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\r", "\n", StringComparison.Ordinal);
+        }
+
+        static bool TryReplacePatchRegion(
+            List<string> lines,
+            string markedLine,
+            string newline,
+            string existing,
+            out string replaced)
+        {
+            replaced = null;
+            if (!TryFindPatchRegion(lines, out int start, out int end))
+            {
+                return false;
+            }
+
+            var markedLines = SplitMarkedLines(markedLine);
+            bool trailingNewline = existing.EndsWith("\n", StringComparison.Ordinal);
+            var sb = new StringBuilder(existing.Length + markedLine.Length + 32);
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (i == start)
+                {
+                    for (int m = 0; m < markedLines.Count; m++)
+                    {
+                        if (m > 0)
+                        {
+                            sb.Append(newline);
+                        }
+
+                        sb.Append(markedLines[m]);
+                    }
+
+                    i = end;
+                    if (i < lines.Count - 1)
+                    {
+                        sb.Append(newline);
+                    }
+                    else if (trailingNewline)
+                    {
+                        sb.Append(newline);
+                    }
+
+                    continue;
+                }
+
+                sb.Append(lines[i]);
+                if (i < lines.Count - 1)
+                {
+                    sb.Append(newline);
+                }
+                else if (trailingNewline)
+                {
+                    sb.Append(newline);
+                }
+            }
+
+            replaced = sb.ToString();
+            return true;
+        }
+
+        static void AppendMarkedLines(StringBuilder sb, string markedLine, string newline)
+        {
+            var markedLines = SplitMarkedLines(markedLine);
+            for (int m = 0; m < markedLines.Count; m++)
+            {
+                if (m > 0)
+                {
+                    sb.Append(newline);
+                }
+
+                sb.Append(markedLines[m]);
+            }
+        }
+
+        static List<string> SplitMarkedLines(string markedLine)
+        {
+            string normalized = NormalizeNewlines(markedLine);
+            var parts = normalized.Split('\n');
+            var result = new List<string>(parts.Length);
+            for (int i = 0; i < parts.Length; i++)
+            {
+                result.Add(parts[i]);
+            }
+
+            return result;
+        }
+
+        static bool TryFindPatchRegion(List<string> lines, out int start, out int end)
+        {
+            start = -1;
+            end = -1;
+
+            for (int i = 0; i < lines.Count; i++)
+            {
+                string line = lines[i];
+                if (line.IndexOf(MarkerComment, StringComparison.Ordinal) >= 0)
+                {
+                    start = i;
+                    end = FindPatchEnd(lines, start);
+                    return true;
+                }
+            }
+
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (string.Equals(lines[i].Trim(), LegacyMarkerComment, StringComparison.Ordinal))
+                {
+                    start = i;
+                    end = i;
+                    if (i + 1 < lines.Count && IsActiveBugseePluginLine(lines[i + 1]))
+                    {
+                        end = i + 1;
+                    }
+
+                    return true;
+                }
+            }
+
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (IsActiveBugseePluginLine(lines[i]))
+                {
+                    start = i;
+                    end = FindPatchEnd(lines, start);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        static int FindPatchEnd(List<string> lines, int start)
+        {
+            for (int i = start; i < lines.Count; i++)
+            {
+                if (lines[i].IndexOf(NdkMarkerComment, StringComparison.Ordinal) >= 0)
+                {
+                    return i;
+                }
+            }
+
+            return start;
+        }
+
+        static bool IsActiveBugseePluginLine(string line)
+        {
+            if (line.IndexOf(BugseeGradlePluginId, StringComparison.Ordinal) < 0)
+            {
+                return false;
+            }
+
+            string trimmed = line.TrimStart();
+            if (trimmed.StartsWith("//", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return trimmed.IndexOf("id ", StringComparison.Ordinal) >= 0 ||
+                   trimmed.IndexOf("apply plugin", StringComparison.Ordinal) >= 0;
+        }
+
+        static string InsertAfterLine(
+            string existing,
+            List<string> lines,
+            string newline,
+            int anchorIndex,
+            string markedLine)
+        {
             bool trailingNewline = existing.EndsWith("\n", StringComparison.Ordinal);
             var sb = new StringBuilder(existing.Length + markedLine.Length + newline.Length + 8);
             for (int i = 0; i < lines.Count; i++)
@@ -69,7 +254,7 @@ namespace Bugsee.WrapperPolicy
                 if (i == anchorIndex)
                 {
                     sb.Append(newline);
-                    sb.Append(markedLine);
+                    AppendMarkedLines(sb, markedLine, newline);
                 }
 
                 if (i < lines.Count - 1)
@@ -89,42 +274,6 @@ namespace Bugsee.WrapperPolicy
         {
             return new InvalidOperationException(
                 "Gradle edit refused; expected a single anchor line: " + anchorLine);
-        }
-
-        static bool IsAlreadyPatched(string existing, string markedLine)
-        {
-            if (existing.IndexOf(markedLine, StringComparison.Ordinal) >= 0)
-            {
-                return true;
-            }
-
-            if (existing.IndexOf(MarkerComment, StringComparison.Ordinal) >= 0)
-            {
-                return true;
-            }
-
-            if (existing.IndexOf(LegacyMarkerComment, StringComparison.Ordinal) >= 0)
-            {
-                return true;
-            }
-
-            var lines = SplitLines(existing, out _);
-            for (int i = 0; i < lines.Count; i++)
-            {
-                string line = lines[i];
-                if (line.IndexOf(BugseeGradlePluginId, StringComparison.Ordinal) < 0)
-                {
-                    continue;
-                }
-
-                if (line.IndexOf("id ", StringComparison.Ordinal) >= 0 ||
-                    line.IndexOf("apply plugin", StringComparison.Ordinal) >= 0)
-                {
-                    return true;
-                }
-            }
-
-            return false;
         }
 
         static bool HasUnclosedBlockCommentOnLine(string line)

@@ -209,7 +209,7 @@ namespace Bugsee.Editor
                     TryApplyMarkedGradle(
                         path,
                         "apply plugin: 'com.android.application'",
-                        "apply plugin: 'com.bugsee.android.gradle' // bugsee:gradle-plugin");
+                        LauncherMarkedGradlePatch());
                 }
 
                 return;
@@ -219,14 +219,10 @@ namespace Bugsee.Editor
             sb.AppendLine("apply plugin: 'com.android.application'");
             if (applyPlugin)
             {
-                sb.AppendLine("apply plugin: 'com.bugsee.android.gradle' // bugsee:gradle-plugin");
-                sb.AppendLine();
-                sb.AppendLine("bugsee {");
-                sb.AppendLine("    // App token is supplied at runtime via Bugsee.Launch.");
-                sb.AppendLine("    ndk {");
-                sb.AppendLine("        enabled = true");
-                sb.AppendLine("    }");
-                sb.AppendLine("}");
+                foreach (string line in LauncherMarkedGradlePatch().Split('\n'))
+                {
+                    sb.AppendLine(line);
+                }
             }
 
             sb.AppendLine();
@@ -295,6 +291,17 @@ namespace Bugsee.Editor
             sb.AppendLine("}**SPLITS_VERSION_CODE****LAUNCHER_SOURCE_BUILD_SETUP**");
             sb.AppendLine();
             WriteIfChanged(path, sb.ToString());
+        }
+
+        internal static string LauncherMarkedGradlePatch()
+        {
+            return "apply plugin: 'com.bugsee.android.gradle' // bugsee:gradle-plugin\n\n" +
+                   "bugsee {\n" +
+                   "    // App token is supplied at runtime via Bugsee.Launch.\n" +
+                   "    ndk {\n" +
+                   "        enabled = true\n" +
+                   "    }\n" +
+                   "} // bugsee:gradle-ndk";
         }
 
         static void TryApplyMarkedGradle(string path, string anchorLine, string markedLine)
