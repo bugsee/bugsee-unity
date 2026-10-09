@@ -123,8 +123,9 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(upload, Does.Contain("createReportWithCompletion:"));
             Assert.That(upload, Does.Contain("uploadReport:"));
             Assert.That(upload, Does.Contain("BugseeExtendedReport"));
-            Assert.That(upload, Does.Contain("gActiveManagedReportUploadId"));
-            Assert.That(upload, Does.Not.Contain("gCancelManagedReportUpload"));
+            Assert.That(upload, Does.Contain("uploadFence"));
+            Assert.That(bridge, Does.Contain("gManagedReportUploadFence"));
+            Assert.That(upload, Does.Not.Contain("gActiveManagedReportUploadId"));
             Assert.That(bridge, Does.Not.Contain("gCancelManagedReportUpload"));
 
             string apply = ExtractNativeFunctionBody(bridge, "BugseeBridgeApplyReportDict");

@@ -46,11 +46,18 @@ static void BugseeRunOnMain(dispatch_block_t block)
 
 typedef void (*BugseeManagedReportCreateCallback)(int succeeded, uint64_t uploadToken);
 
-static uint64_t gActiveManagedReportUploadId;
+static uint64_t gManagedReportUploadFence;
+static NSMutableSet<NSNumber *> *gCancelledManagedReportUploadIds;
 
-static BOOL BugseeManagedReportUploadStillActive(uint64_t uploadId)
+static BOOL BugseeManagedReportUploadStillActive(uint64_t uploadId, uint64_t uploadFence)
 {
-    return uploadId != 0 && uploadId == gActiveManagedReportUploadId;
+    if (uploadId == 0 || uploadFence != gManagedReportUploadFence) {
+        return NO;
+    }
+    if (!gCancelledManagedReportUploadIds) {
+        return YES;
+    }
+    return ![gCancelledManagedReportUploadIds containsObject:@(uploadId)];
 }
 
 static void BugseeBridgeSetAttachmentFileNameIfNeeded(id attachment, NSString *displayName, NSString *fileName)
@@ -473,16 +480,23 @@ void _bugsee_delete_collected_data(void)
 
 void _bugsee_cancel_managed_report_upload(uint64_t uploadId)
 {
-    if (gActiveManagedReportUploadId == uploadId) {
-        gActiveManagedReportUploadId = 0;
+    if (!gCancelledManagedReportUploadIds) {
+        gCancelledManagedReportUploadIds = [NSMutableSet set];
     }
+    [gCancelledManagedReportUploadIds addObject:@(uploadId)];
+}
+
+void _bugsee_invalidate_managed_report_uploads(void)
+{
+    gManagedReportUploadFence++;
+    [gCancelledManagedReportUploadIds removeAllObjects];
 }
 
 void _bugsee_upload_managed_report(const char *reportJson,
                                    uint64_t uploadId,
+                                   uint64_t uploadFence,
                                    BugseeManagedReportCreateCallback callback)
 {
-    gActiveManagedReportUploadId = uploadId;
     if (!reportJson) {
         if (callback) {
             callback(0, uploadId);
@@ -491,7 +505,7 @@ void _bugsee_upload_managed_report(const char *reportJson,
     }
     NSString *jsonCopy = [NSString stringWithUTF8String:reportJson];
     [Bugsee createReportWithCompletion:^(BugseeExtendedReport *_Nullable report) {
-        if (!BugseeManagedReportUploadStillActive(uploadId)) {
+        if (!BugseeManagedReportUploadStillActive(uploadId, uploadFence)) {
             if (callback) {
                 callback(0, uploadId);
             }
@@ -507,7 +521,7 @@ void _bugsee_upload_managed_report(const char *reportJson,
         if ([dict isKindOfClass:[NSDictionary class]]) {
             BugseeBridgeApplyReportDict((id<BGSReportContract>)report, dict);
         }
-        if (!BugseeManagedReportUploadStillActive(uploadId)) {
+        if (!BugseeManagedReportUploadStillActive(uploadId, uploadFence)) {
             if (callback) {
                 callback(0, uploadId);
             }
@@ -516,7 +530,7 @@ void _bugsee_upload_managed_report(const char *reportJson,
         if (callback) {
             callback(1, uploadId);
         }
-        if (BugseeManagedReportUploadStillActive(uploadId)) {
+        if (BugseeManagedReportUploadStillActive(uploadId, uploadFence)) {
             [Bugsee uploadReport:report completion:nil];
         }
     }];
@@ -564,12 +578,15 @@ char *_bugsee_appearance_get_string(const char *propertyName) { (void)propertyNa
 void _bugsee_free(char *ptr) { (void)ptr; }
 void _bugsee_delete_collected_data(void) {}
 void _bugsee_cancel_managed_report_upload(uint64_t uploadId) { (void)uploadId; }
+void _bugsee_invalidate_managed_report_uploads(void) {}
 void _bugsee_upload_managed_report(const char *reportJson,
                                    uint64_t uploadId,
+                                   uint64_t uploadFence,
                                    BugseeManagedReportCreateCallback callback)
 {
     (void)reportJson;
     (void)uploadId;
+    (void)uploadFence;
     if (callback) {
         callback(0, uploadId);
     }

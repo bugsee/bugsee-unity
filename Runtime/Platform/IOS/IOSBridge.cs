@@ -27,6 +27,7 @@ namespace Bugsee.Platform.IOS
         delegate void ManagedReportUploadNativeCallback(int succeeded, ulong uploadToken);
 
         ulong _inFlightUploadToken;
+        ulong _managedReportUploadFence;
         int _reportUploadGeneration;
 
         bool _launched;
@@ -165,11 +166,9 @@ namespace Bugsee.Platform.IOS
         void CancelManagedReportUpload()
         {
             _reportUploadGeneration++;
-            if (_inFlightUploadToken != 0)
-            {
-                _bugsee_cancel_managed_report_upload(_inFlightUploadToken);
-                _inFlightUploadToken = 0;
-            }
+            _managedReportUploadFence++;
+            _inFlightUploadToken = 0;
+            _bugsee_invalidate_managed_report_uploads();
         }
 
         public IReport CreateReport()
@@ -200,11 +199,12 @@ namespace Bugsee.Platform.IOS
                 throw new InvalidOperationException("CreateReport failed.");
             var json = _openReport.ToResultJson();
             var uploadToken = (ulong)++_reportUploadGeneration;
+            var uploadFence = _managedReportUploadFence;
             _openReport = null;
             _openReportHandle = null;
             _uploadCompletionBridge = this;
             _inFlightUploadToken = uploadToken;
-            _bugsee_upload_managed_report(json, uploadToken, OnManagedReportCreateCompletion);
+            _bugsee_upload_managed_report(json, uploadToken, uploadFence, OnManagedReportCreateCompletion);
         }
 
         [MonoPInvokeCallback(typeof(ManagedReportUploadNativeCallback))]
@@ -465,9 +465,11 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_channel_breadcrumb(string category, string message, int iosLevel);
         [DllImport("__Internal")] static extern void _bugsee_delete_collected_data();
         [DllImport("__Internal")] static extern void _bugsee_cancel_managed_report_upload(ulong uploadId);
+        [DllImport("__Internal")] static extern void _bugsee_invalidate_managed_report_uploads();
         [DllImport("__Internal")] static extern void _bugsee_upload_managed_report(
             string reportJson,
             ulong uploadId,
+            ulong uploadFence,
             ManagedReportUploadNativeCallback callback);
         [DllImport("__Internal")] static extern void _bugsee_trace(string name, string valueJson);
         [DllImport("__Internal")] static extern void _bugsee_event(string name, string paramsJson);
