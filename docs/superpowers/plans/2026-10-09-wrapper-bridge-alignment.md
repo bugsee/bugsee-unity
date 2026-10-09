@@ -957,7 +957,7 @@ public void onWrapperChannelAvailable(com.bugsee.library.contracts.internal.Bugs
     channel = value;
 }
 
-public static void channelLog(String message, int level) {
+public static void channelLog(String message, int level, int source) {
     com.bugsee.library.contracts.internal.BugseeWrapperChannel current = channel;
     if (current == null || message == null) return;
     com.bugsee.library.contracts.options.LogLevel nativeLevel;
@@ -968,9 +968,21 @@ public static void channelLog(String message, int level) {
         case 5: nativeLevel = com.bugsee.library.contracts.options.LogLevel.Verbose; break;
         default: nativeLevel = com.bugsee.library.contracts.options.LogLevel.Info; break;
     }
-    current.log(null, message, nativeLevel, com.bugsee.library.contracts.internal.LogSource.Custom);
+    com.bugsee.library.contracts.internal.LogSource nativeSource =
+        com.bugsee.library.contracts.internal.LogSource.fromRawValue(
+            (byte) source,
+            com.bugsee.library.contracts.internal.LogSource.Custom);
+    current.log(null, message, nativeLevel, nativeSource);
+}
+
+public static void channelAddNetwork(com.bugsee.library.contracts.exchange.NetworkEvent event) {
+    com.bugsee.library.contracts.internal.BugseeWrapperChannel current = channel;
+    if (current == null || event == null) return;
+    current.addNetworkEvent(event, true);
 }
 ```
+
+`LogSource.fromRawValue` on Android 7.3.0 is `(byte)` or `(byte, LogSource)`. The one-arg form uses a null miss default, so this call passes `LogSource.Custom`. There is no `fromRawValue(int)`.
 
 Add to `RegistrationSourceTests`:
 
@@ -980,12 +992,16 @@ public void Android_channel_log_passes_custom_source()
 {
     string java = File.ReadAllText(RepoFile("Plugins/Android/UnityWrapperProvider.java"));
     Assert.That(java, Does.Contain("onWrapperChannelAvailable"));
+    Assert.That(java, Does.Contain("channelAddNetwork"));
+    Assert.That(java, Does.Contain("addNetworkEvent"));
+    Assert.That(java, Does.Contain("true"));
+    Assert.That(java, Does.Contain("fromRawValue"));
     Assert.That(java, Does.Contain("LogSource.Custom"));
     Assert.That(java, Does.Not.Contain("LogSource.Bugsee"));
 }
 ```
 
-iOS `onWrapperChannelAvailable:` stores `gChannel` in a static before returning, and does no other work. `_bugsee_channel_log` calls `[gChannel logWithTag:nil message:... level:... source:]` with the source from `WrapperLogSourcePolicy.Resolve(null)` when `gChannel` responds to the selector. `_bugsee_channel_network` calls `addNetworkEvent:requiresFiltering:` with `YES`. Android `channelAddNetwork` is the twin of that export: source-test that `UnityWrapperProvider.java` contains `addNetworkEvent` and `true`.
+iOS `onWrapperChannelAvailable:` stores `gChannel` in a static before returning, and does no other work. `_bugsee_channel_log` calls `[gChannel logWithTag:nil message:... level:... source:]` with the source from `WrapperLogSourcePolicy.Resolve(null)` when `gChannel` responds to the selector. `_bugsee_channel_network` calls `addNetworkEvent:requiresFiltering:` with `YES`. `channelAddNetwork` above is the Android twin of that export. Task 12 calls `channelAddNetwork`; it does not add the Java method itself.
 
 `IOSBridge` public `Log` stays on `_bugsee_log`. Add `internal void ChannelLog(string message, LogLevel level)` that P/Invokes `_bugsee_channel_log` after `WrapperLogSourcePolicy.Resolve(98)`.
 
@@ -1229,7 +1245,7 @@ git commit -m "Serve secure rectangles from the versioned pull buffer."
 
 **Interfaces:**
 - Consumes: nothing
-- Produces: `MarkedGradleBlock.Apply(string existing, string anchorLine, string markedLine)`. `anchorLine` is the exact line `plugins {` or `apply plugin: 'com.android.application'`. If that line occurs once, at depth 0, and is not inside a block comment, insert `markedLine` once after it when the file is not already patched. Treat the file as already patched when it contains `// bugsee:gradle-plugin`, the legacy comment `// Bugsee Gradle plugin` that `BugseeAndroidGradleSetup` writes today, or an active `id` / `apply plugin` line for `com.bugsee.android.gradle`. A commented-out plugin line does not count. If already patched, return `existing` unchanged (or rewrite that same region in place). Do not insert a second plugin line. If the anchor is missing, duplicated, or the line contains `/*` without a closing `*/` on the same line, throw `InvalidOperationException` whose message contains the anchor text and does not contain any other line from `existing`.
+- Produces: `MarkedGradleBlock.Apply(string existing, string anchorLine, string markedLine)`. `anchorLine` is the exact line `plugins {` or `apply plugin: 'com.android.application'`. Split `markedLine` into a plugin region and, when the payload contains `bugsee {`, an ndk region. Satisfy each region on its own. Return `existing` unchanged only when every region the payload requires is already present. `// bugsee:gradle-plugin`, the legacy comment `// Bugsee Gradle plugin`, or an active `id` / `apply plugin` line for `com.bugsee.android.gradle` satisfies only the plugin region. It does not skip the ndk region. A launcher that already applies the plugin and has no `bugsee { ndk { enabled = true } } // bugsee:gradle-ndk` block gets that block inserted after the plugin line and does not get a second plugin line. A commented-out plugin line does not satisfy the plugin region. If the anchor is missing, duplicated, or the line contains `/*` without a closing `*/` on the same line, throw `InvalidOperationException` whose message contains the anchor text and does not contain any other line from `existing`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1284,9 +1300,11 @@ bugsee {
 } // bugsee:gradle-ndk
 ```
 
-Do not insert `id … apply false` into a launcher file. `Apply` upserts both regions. A second apply does not duplicate the plugin line or the ndk block. When the file is missing, keep today's full-template write, using those marked lines. An existing file that already has `// Bugsee Gradle plugin`, `// bugsee:gradle-plugin`, or an active `com.bugsee.android.gradle` line is already patched. Catch `InvalidOperationException` and `Debug.LogWarning` the exception message. Do not overwrite the customer's file in that case.
+Do not insert `id … apply false` into a launcher file. `Apply` upserts the plugin region and the ndk region separately. A plugin marker does not make the whole file already patched. A second apply does not duplicate the plugin line or the ndk block. When the file is missing, keep today's full-template write, using those marked lines. Catch `InvalidOperationException` and `Debug.LogWarning` the exception message. Do not overwrite the customer's file in that case.
 
 Add a test whose input is a default launcher (`apply plugin: 'com.android.application'` and no Bugsee block). The first `Apply` adds the apply line and the `bugsee { ndk { enabled = true } }` region. The second `Apply` returns the same text.
+
+Add a test whose input is that same launcher plus `apply plugin: 'com.bugsee.android.gradle' // bugsee:gradle-plugin` and no `bugsee {` block. The first `Apply` adds the marked ndk region and does not add a second plugin line. The second `Apply` returns the same text.
 
 - [ ] **Step 4: Re-run Step 2.** Expected: PASS.
 
