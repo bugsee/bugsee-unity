@@ -394,6 +394,11 @@ void _bugsee_register_unity_callbacks(BugseeUnityFilterCb filterCb,
     gLifecycleCb = lifecycleCb;
 }
 
+void _bugsee_clear_wrapper_channel(void)
+{
+    gChannel = nil;
+}
+
 void _bugsee_channel_log(const char *message, int level, int source)
 {
     id<BGSWrapperChannel> channel = gChannel;
@@ -552,6 +557,7 @@ void _bugsee_complete_report(int64_t requestId, const char *resultJson)
 
 extern "C" {
 void _bugsee_register_unity_callbacks(void *a, void *b, void *c) { (void)a; (void)b; (void)c; }
+void _bugsee_clear_wrapper_channel(void) {}
 void _bugsee_channel_log(const char *message, int level, int source) { (void)message; (void)level; (void)source; }
 void _bugsee_ensure_wrapper(const char *version, const char *build) { (void)version; (void)build; }
 void _bugsee_set_wrapper_context(const char *json) { (void)json; }

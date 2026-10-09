@@ -89,6 +89,11 @@ namespace Bugsee.Platform.Android
 
         public void Stop(Action completion = null)
         {
+            HostLogForwarder.Uninstall();
+            using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
+            {
+                wrapper.CallStatic("clearWrapperChannel");
+            }
             ExceptionPipeline.Uninstall();
             if (completion == null)
             {

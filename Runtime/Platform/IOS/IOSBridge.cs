@@ -66,7 +66,9 @@ namespace Bugsee.Platform.IOS
         {
             if (!MainThreadDispatcher.RunSyncLifecycle(() =>
                 {
+                    HostLogForwarder.Uninstall();
                     ExceptionPipeline.Uninstall();
+                    _bugsee_clear_wrapper_channel();
                     _bugsee_stop();
                     _launched = false;
                     completion?.Invoke();
@@ -277,6 +279,7 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_launch(string appToken, string optionsJson);
         [DllImport("__Internal")] static extern void _bugsee_relaunch(string optionsJson);
         [DllImport("__Internal")] static extern void _bugsee_stop();
+        [DllImport("__Internal")] static extern void _bugsee_clear_wrapper_channel();
         [DllImport("__Internal")] static extern bool _bugsee_get_launched();
         [DllImport("__Internal")] static extern void _bugsee_start_blackout();
         [DllImport("__Internal")] static extern void _bugsee_end_blackout();

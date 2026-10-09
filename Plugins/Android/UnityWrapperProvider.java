@@ -93,6 +93,10 @@ final class UnityWrapper implements BugseeWrapper {
         channel = value;
     }
 
+    public static void clearWrapperChannel() {
+        channel = null;
+    }
+
     public static void channelLog(String message, int level, int source) {
         BugseeWrapperChannel current = channel;
         if (current == null || message == null) return;

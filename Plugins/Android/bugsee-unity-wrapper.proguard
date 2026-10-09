@@ -1,5 +1,7 @@
 # C# calls com.bugsee.unity.UnityWrapper.refineContext via JNI; R8 cannot trace it.
 -keep class com.bugsee.unity.UnityWrapper {
     static void refineContext(java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String);
+    static void channelLog(java.lang.String, int, int);
+    static void clearWrapperChannel();
 }
 -keep class com.bugsee.unity.UnityWrapperProvider { *; }

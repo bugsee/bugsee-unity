@@ -47,5 +47,25 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(callbacks, Does.Contain("gChannel = channel"));
             Assert.That(callbacks, Does.Contain("logWithTag:nil"));
         }
+
+        [Test]
+        public void Proguard_keeps_jni_channelLog_entry_point()
+        {
+            string proguard = File.ReadAllText(RepoFile("Plugins/Android/bugsee-unity-wrapper.proguard"));
+            Assert.That(proguard, Does.Contain("channelLog(java.lang.String, int, int)"));
+        }
+
+        [Test]
+        public void Stop_uninstalls_host_log_forwarder()
+        {
+            string forwarder = File.ReadAllText(RepoFile("Runtime/Internal/HostLogForwarder.cs"));
+            Assert.That(forwarder, Does.Contain("Uninstall"));
+
+            string android = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs"));
+            Assert.That(android, Does.Contain("HostLogForwarder.Uninstall"));
+
+            string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
+            Assert.That(ios, Does.Contain("HostLogForwarder.Uninstall"));
+        }
     }
 }

@@ -12,6 +12,8 @@ namespace Bugsee.Internal
     public static class HostLogForwarder
     {
         static bool _installed;
+        static IBugseeNativeBridge _bridge;
+        static Application.LogCallback _logHandler;
 
         [ThreadStatic]
         static int _forwardDepth;
@@ -24,10 +26,26 @@ namespace Bugsee.Internal
             }
 
             _installed = true;
-            Application.logMessageReceivedThreaded += (message, stackTrace, type) =>
+            _bridge = bridge;
+            _logHandler = (message, stackTrace, type) => ForwardLog(_bridge, message, type);
+            Application.logMessageReceivedThreaded += _logHandler;
+        }
+
+        public static void Uninstall()
+        {
+            if (!_installed)
             {
-                ForwardLog(bridge, message, type);
-            };
+                return;
+            }
+
+            if (_logHandler != null)
+            {
+                Application.logMessageReceivedThreaded -= _logHandler;
+                _logHandler = null;
+            }
+
+            _bridge = null;
+            _installed = false;
         }
 
         static void ForwardLog(IBugseeNativeBridge bridge, string message, LogType type)
