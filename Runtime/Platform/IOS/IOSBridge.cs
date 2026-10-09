@@ -39,7 +39,7 @@ namespace Bugsee.Platform.IOS
             if (!MainThreadDispatcher.RunSyncLifecycle(() =>
                 {
                     EnsureWrapperRegistered();
-                    _bugsee_launch(appToken, ToJsonObject(options));
+                    _bugsee_launch(appToken, ToJsonObject(OptionPlatformGate.ForIos(options)));
                     _launched = true;
                     ExceptionPipeline.Install(this, options);
                     HostLogForwarder.InstallOnce(this);
@@ -53,7 +53,7 @@ namespace Bugsee.Platform.IOS
         {
             if (!MainThreadDispatcher.RunSyncLifecycle(() =>
                 {
-                    _bugsee_relaunch(ToJsonObject(options));
+                    _bugsee_relaunch(ToJsonObject(OptionPlatformGate.ForIos(options)));
                     ExceptionPipeline.Install(this, options);
                     HostLogForwarder.InstallOnce(this);
                 }))
