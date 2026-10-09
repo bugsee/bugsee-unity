@@ -1,3 +1,6 @@
+using System;
+using Bugsee.WrapperPolicy;
+
 namespace Bugsee.Contracts.Options
 {
     public enum IssueSeverity
@@ -13,15 +16,12 @@ namespace Bugsee.Contracts.Options
     {
         public static IssueSeverity FromIntValue(int value, IssueSeverity defaultValue = IssueSeverity.VeryLow)
         {
-            switch (value)
-            {
-                case 1: return IssueSeverity.VeryLow;
-                case 2: return IssueSeverity.Medium;
-                case 3: return IssueSeverity.High;
-                case 4: return IssueSeverity.Critical;
-                case 5: return IssueSeverity.Blocker;
-                default: return defaultValue;
-            }
+            if (IssueSeverityWire.TryFromWire(value, out var severity))
+                return severity;
+
+            throw new ArgumentOutOfRangeException(
+                nameof(value),
+                "severity wire value is unset or out of range " + value);
         }
     }
 }
