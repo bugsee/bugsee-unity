@@ -108,6 +108,8 @@ namespace Bugsee.Platform.IOS
             // iOS wrapper-channel network export lands in a follow-up task.
         }
 
+        public IBugseeExchangeFactory GetExchangeFactory() => IosExchangeFactory.Instance;
+
         public void Log(string message, LogLevel level) =>
             _bugsee_log(message ?? "", (int)level);
 
@@ -367,6 +369,25 @@ namespace Bugsee.Platform.IOS
             public IReadOnlyDictionary<string, object> ToMap() =>
                 new Dictionary<string, object>(_cache);
         }
+    }
+
+    sealed class IosExchangeFactory : IBugseeExchangeFactory
+    {
+        public static readonly IosExchangeFactory Instance = new IosExchangeFactory();
+
+        public INetworkEvent CreateNetworkEvent(
+            long timestamp,
+            NetworkEventStage stage,
+            string url,
+            string method,
+            string mechanism) =>
+            new IosNetworkEvent(new IosNetworkDto
+            {
+                url = url,
+                method = method,
+                mechanism = mechanism,
+                stage = stage.ToString(),
+            });
     }
 }
 #endif

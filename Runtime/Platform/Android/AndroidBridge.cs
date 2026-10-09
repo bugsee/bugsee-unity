@@ -29,6 +29,8 @@ namespace Bugsee.Platform.Android
         EventFilterProxy<IBreadcrumb> _breadcrumbFilterProxy;
         AndroidFeedback _feedback;
         AndroidAppearance _appearance;
+        IBugseeExchangeFactory _exchangeFactory;
+        static bool _loggedMissingNetworkFactory;
 
         public bool IsSupported => true;
 
@@ -126,20 +128,58 @@ namespace Bugsee.Platform.Android
             }
         }
 
+        public IBugseeExchangeFactory GetExchangeFactory()
+        {
+            if (_exchangeFactory != null) return _exchangeFactory;
+            var javaFactory = _bugsee.CallStatic<AndroidJavaObject>("getExchangeFactory");
+            if (javaFactory == null) return null;
+            _exchangeFactory = new AndroidExchangeFactory(javaFactory);
+            return _exchangeFactory;
+        }
+
         public void AddNetworkEvent(INetworkEvent networkEvent)
         {
             if (networkEvent == null) return;
-            if (!(networkEvent is AndroidNetworkEvent androidEvent))
+            var androidEvent = networkEvent as AndroidNetworkEvent;
+            if (androidEvent == null)
             {
-                throw new ArgumentException(
-                    "networkEvent must be a native Android network event from the Bugsee exchange factory.",
-                    nameof(networkEvent));
+                var factory = GetExchangeFactory();
+                if (factory == null)
+                {
+                    if (!_loggedMissingNetworkFactory)
+                    {
+                        _loggedMissingNetworkFactory = true;
+                        Debug.LogWarning("[Bugsee] network-factory-missing");
+                    }
+                    return;
+                }
+
+                androidEvent = (AndroidNetworkEvent)factory.CreateNetworkEvent(
+                    DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    networkEvent.Stage,
+                    networkEvent.Url,
+                    networkEvent.Method,
+                    networkEvent.Mechanism);
+                CopyNetworkFields(networkEvent, androidEvent);
             }
 
             using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
             {
                 wrapper.CallStatic("channelAddNetwork", androidEvent.Native);
             }
+        }
+
+        static void CopyNetworkFields(INetworkEvent source, INetworkEvent target)
+        {
+            if (source == null || target == null || ReferenceEquals(source, target)) return;
+            target.Url = source.Url;
+            target.Body = source.Body;
+            target.Size = source.Size;
+            target.ResponseCode = source.ResponseCode;
+            target.StatusText = source.StatusText;
+            target.ErrorShortMessage = source.ErrorShortMessage;
+            target.ErrorDescription = source.ErrorDescription;
+            target.Headers = source.Headers;
         }
 
         public void Log(string message, LogLevel level)

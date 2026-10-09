@@ -32,6 +32,8 @@ namespace Bugsee.Platform
 
         /// <summary>Submit a network event on the wrapper channel, not the public SDK addNetworkEvent API.</summary>
         void AddNetworkEvent(INetworkEvent networkEvent);
+
+        IBugseeExchangeFactory GetExchangeFactory();
         void Trace(string name, object value);
         void Event(string name, IDictionary<string, object> parameters);
         void LogException(Exception exception, IDictionary<string, object> options = null);

@@ -75,9 +75,14 @@ namespace Bugsee.WrapperPolicy.Tests
             string android = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs"));
             Assert.That(android, Does.Contain("\"channelAddNetwork\""));
             Assert.That(android, Does.Not.Contain("CallStatic(\"addNetworkEvent\""));
+            Assert.That(android, Does.Contain("getExchangeFactory"));
+
+            string factory = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidExchangeFactory.cs"));
+            Assert.That(factory, Does.Contain("createNetworkEvent"));
 
             string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));
             Assert.That(facade, Does.Contain("AddNetworkEvent"));
+            Assert.That(facade, Does.Contain("GetExchangeFactory"));
         }
     }
 }

@@ -85,6 +85,9 @@ namespace Bugsee
         public static void AddNetworkEvent(INetworkEvent networkEvent) =>
             Bridge.AddNetworkEvent(networkEvent);
 
+        public static IBugseeExchangeFactory GetExchangeFactory() =>
+            Bridge.GetExchangeFactory();
+
         public static void Trace(string name, object value) => Bridge.Trace(name, value);
 
         public static void Event(string name, IDictionary<string, object> parameters = null) =>
