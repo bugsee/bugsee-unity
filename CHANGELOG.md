@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - IL2CPP native stack capture (`Il2CppNativeStack`) for managed Mode B file/line (`il2cpp_native_stack_trace`; UUID matches Bugsee symbol upload).
 - Nested `cause` (InnerException / Aggregate) in UnityManagedException JSON.
 - Docs: competitor matrix + Mode A/B/C for managed C# class/line (Mode B marked in progress until field-proven).
+- Pre-launch native wrapper registration: one process-lifetime wrapper is registered before SDK launch—Android `UnityWrapperProvider` (`ContentProvider`, `initOrder` 200), iOS bridge `+load`—instead of constructing a second wrapper from C# `Launch`.
+- Wrapper-channel submit: host logs and game-supplied network events go through the stored wrapper channel (Android `UnityWrapper.channelLog` / `channelAddNetwork`; iOS P/Invoke twins), not the public Bugsee log or `addNetworkEvent` APIs.
+- Secure-rectangle pull buffer: `AddSecureRectangle`, `RemoveSecureRectangle`, and `RemoveAllSecureRectangles` push a versioned packed buffer; native `getSecureRectangles` (Android) and `secureRectanglesForDisplay:` (iOS) return the last pushed array.
+- Fail-closed filter callbacks: network, log, and breadcrumb filters that throw drop the event instead of forwarding the original line.
+- Severity `0` is unset, not `VeryLow`: omitted from create-report JSON; `IReport.Severity` is `IssueSeverity?`.
+- Public facade: `DeleteCollectedDataOnDevice`, `CreateReport`, `AddBreadcrumb`, and `AddNetworkEvent`.
 
 ### Notes
 
