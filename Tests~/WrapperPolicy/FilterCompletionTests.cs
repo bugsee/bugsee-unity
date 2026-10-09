@@ -81,7 +81,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 Is.EqualTo("decisionBlock(nil)"));
         }
 
-        static void AssertNullFilterDrops(string ios, string methodSignature)
+        static void AssertNullFilterKeeps(string ios, string methodSignature)
         {
             string body = ExtractMethodBody(ios, methodSignature);
             int nullFilter = body.IndexOf("if (filter == null)", StringComparison.Ordinal);
@@ -90,7 +90,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(complete, Is.GreaterThan(nullFilter));
             int lineEnd = body.IndexOf(';', complete);
             string completion = body.Substring(complete, lineEnd - complete);
-            Assert.That(completion, Is.EqualTo("_bugsee_complete_filter(requestId, FilterCompletion.Drop, null)"));
+            Assert.That(completion, Is.EqualTo("_bugsee_complete_filter(requestId, FilterCompletion.Keep, json)"));
         }
 
         [Test]
@@ -121,12 +121,18 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Ios_complete_methods_drop_when_filter_null()
+        public void Ios_complete_methods_keep_when_filter_null()
         {
             string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IosNativeCallbacks.cs"));
-            AssertNullFilterDrops(ios, "static void CompleteNetwork(long requestId, string json)");
-            AssertNullFilterDrops(ios, "static void CompleteLog(long requestId, string json)");
-            AssertNullFilterDrops(ios, "static void CompleteBreadcrumb(long requestId, string json)");
+            string onFilter = ExtractMethodBody(ios, "static void OnFilter(long requestId, int kind, string json)");
+            Assert.That(onFilter, Does.Contain("var networkFilter = _networkFilter"));
+            Assert.That(onFilter, Does.Contain("var logFilter = _logFilter"));
+            Assert.That(onFilter, Does.Contain("var breadcrumbFilter = _breadcrumbFilter"));
+            AssertNullFilterKeeps(ios, "static void CompleteNetwork(long requestId, string json, EventFilter<INetworkEvent> filter)");
+            AssertNullFilterKeeps(ios, "static void CompleteLog(long requestId, string json, EventFilter<ILogEvent> filter)");
+            AssertNullFilterKeeps(
+                ios,
+                "static void CompleteBreadcrumb(long requestId, string json, EventFilter<IBreadcrumb> filter)");
         }
 
         [Test]
