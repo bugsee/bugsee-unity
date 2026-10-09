@@ -55,11 +55,13 @@ namespace Bugsee.WrapperPolicy
             if (state.LastPublishedRects == null)
             {
                 state.Version = 1;
-                state.LastPublishedRects = (int[])converted.Clone();
+                state.LastPublishedRects = Array.Empty<int>();
             }
-            else if (!RectBuffersEqual(state.LastPublishedRects, converted))
+
+            if (!RectBuffersEqual(state.LastPublishedRects, converted))
             {
-                state.Version++;
+                int next = state.Version + 1;
+                state.Version = next == 1 ? 2 : next;
                 state.LastPublishedRects = (int[])converted.Clone();
             }
 

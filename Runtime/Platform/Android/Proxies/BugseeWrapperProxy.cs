@@ -1,4 +1,5 @@
 #if UNITY_ANDROID && !UNITY_EDITOR
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using Bugsee;
 using UnityEngine;
@@ -12,7 +13,7 @@ namespace Bugsee.Platform.Android
     sealed class BugseeWrapperProxy : AndroidJavaProxy
     {
         // Packed secure-rect buffer per display: [version, count, l,t,r,b, ...]
-        readonly Dictionary<int, int[]> _secureRectsByDisplay = new Dictionary<int, int[]>();
+        readonly ConcurrentDictionary<int, int[]> _secureRectsByDisplay = new ConcurrentDictionary<int, int[]>();
 
         public BugseeWrapperProxy()
             : base("com.bugsee.library.contracts.internal.BugseeWrapper")
@@ -75,7 +76,7 @@ namespace Bugsee.Platform.Android
         public int[] getSecureRectangles(int display)
         {
             if (_secureRectsByDisplay.TryGetValue(display, out int[] cached))
-                return cached;
+                return (int[])cached.Clone();
 
             return new[] { 1, 0 };
         }
