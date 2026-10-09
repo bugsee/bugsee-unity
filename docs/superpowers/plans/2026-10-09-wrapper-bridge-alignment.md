@@ -909,6 +909,7 @@ git commit -m "Register the iOS wrapper at load and hop launch onto main."
 - Modify: `Runtime/Platform/IOS/IOSBridge.cs` `Log`
 - Create: `Runtime/Internal/HostLogForwarder.cs`
 - Modify: `Runtime/Internal/ExceptionPipeline.cs` (install the log forwarder once; exceptions still use `logException`, not the channel)
+- Modify: `Runtime/Bugsee.cs` `Stop` → `HostLogForwarder.Uninstall()`
 - Create: `Runtime/WrapperPolicy/ChannelSubmit.cs`
 - Create: `Tests~/WrapperPolicy/ChannelSubmitTests.cs`
 
@@ -919,7 +920,7 @@ git commit -m "Register the iOS wrapper at load and hop launch onto main."
   - `bool ChannelSubmit.NetworkRequiresFiltering()` returns `true`
   - Android: `UnityWrapper.onWrapperChannelAvailable` stores the channel in a static volatile field before returning. New static `UnityWrapper.channelLog(String message, int level, int source)` calls `channel.log(null, message, level, source)` when the channel is non-null, mapping `source` with `LogSource.fromRawValue` and defaulting to `Custom`. New static `UnityWrapper.channelAddNetwork(NetworkEvent event)` calls `channel.addNetworkEvent(event, true)` when the channel is non-null.
   - iOS exports: `void _bugsee_channel_log(const char *message, int level)`, `void _bugsee_channel_network(...)`, `void _bugsee_channel_breadcrumb(const char *name, int iosLevel)`. The log export calls `Wrapper`... from ObjC it passes `BGSLogEventSource` value `98` via `WrapperLogSourcePolicy` equivalent constant `98`, not a raw `0`.
-  - `Bugsee.Log` keeps using the public native `log` (app-curated, source Bugsee). A new internal `HostLogForwarder` subscribes `Application.logMessageReceived` (and wraps `Debug.unityLogger.logHandler` / `ILogHandler` when needed) so Unity `Debug` output hits the channel exports with `WrapperLogSourcePolicy.Resolve(null)`. `ExceptionPipeline` installs the forwarder once at startup; it does not retarget exception filing onto the channel. Automatic `UnityWebRequest` observation is out of scope.
+  - `Bugsee.Log` keeps using the public native `log` (app-curated, source Bugsee). A new internal `HostLogForwarder` subscribes `Application.logMessageReceivedThreaded`, hops to the Unity player thread before `bridge.ChannelLog`, and uses a reentrancy guard so a nested `Debug.Log` during channel submit or filter handling is dropped (same contract as task PR #5). Skip `LogType.Exception` — `ExceptionPipeline` owns exceptions. `InstallOnce` from startup; `Uninstall` from `Bugsee.Stop` clears the subscription and stored bridge so relaunch does not inherit a stale handler. Automatic `UnityWebRequest` observation is out of scope.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1007,7 +1008,9 @@ iOS `onWrapperChannelAvailable:` stores `gChannel` in a static before returning,
 
 - [ ] **Step 4b: `HostLogForwarder`**
 
-Create `Runtime/Internal/HostLogForwarder.cs` with `static void InstallOnce(IBugseeNativeBridge bridge)` guarded by a process flag. Map `LogType` → `LogLevel`, call `bridge.ChannelLog` (add to `IBugseeNativeBridge` as internal). Subscribe in `Application.logMessageReceived` on the main thread. Add `HostLogForwarderSourceTests` asserting `HostLogForwarder.cs` contains `logMessageReceived` and `ExceptionPipeline.cs` calls `HostLogForwarder.InstallOnce`.
+Create `Runtime/Internal/HostLogForwarder.cs` with `static void InstallOnce(IBugseeNativeBridge bridge)` and `static void Uninstall()` guarded by a process flag. Subscribe `Application.logMessageReceivedThreaded` (not `logMessageReceived` alone — off-main `Debug` must still reach the channel). In the handler: ignore `LogType.Exception`; if not on the player thread, post to `MainThreadDispatcher` (or equivalent) and return; before calling `bridge.ChannelLog`, increment a `[ThreadStatic] int` depth and skip when depth > 0; decrement in `finally`. Map `LogType` → `LogLevel`, source via `WrapperLogSourcePolicy.Resolve(null)`. `Uninstall` removes the callback and clears the stored bridge. Wire `Bugsee.Stop` → `Uninstall`.
+
+Add `HostLogForwarderSourceTests` asserting `HostLogForwarder.cs` contains `logMessageReceivedThreaded`, a reentrancy depth field, and `Uninstall`; `ExceptionPipeline.cs` calls `InstallOnce`; `Bugsee.cs` calls `Uninstall` from `Stop`.
 
 - [ ] **Step 5: Re-run ChannelSubmitTests and RegistrationSourceTests.** Expected: PASS.
 
@@ -1209,7 +1212,7 @@ git commit -m "Expose delete-data, create-report, and channel submit on the C# f
 
 **Interfaces:**
 - Consumes: `SecureRectRegistry`
-- Produces: a process-wide `SecureRectRegistry Shared` in `Runtime/WrapperPolicy/SecureRectRegistry.cs` (static `Instance`). `Bugsee.AddSecureRectangle` calls `Instance.Set("manual", 0, ...)`. `RemoveAllSecureRectangles` calls `Instance.RemoveOwner("manual")`.
+- Produces: a process-wide `SecureRectRegistry Shared` in `Runtime/WrapperPolicy/SecureRectRegistry.cs` (static `Instance`). The registry already unions **one rect per `(ownerId, displayId)`** (#8). Each imperative `AddSecureRectangle` gets its own owner id (for example `"manual:" + l + "," + t + "," + r + "," + b`, or a generated id stored in a `Dictionary` keyed by `RectInt` equality). `RemoveSecureRectangle(RectInt)` removes only that owner. `RemoveAllSecureRectangles` removes every owner whose id starts with `"manual"` (or clears the tracked manual set). Never reuse a single `"manual"` owner for every add — a second add would overwrite the first.
 
 Android `getSecureRectangles(int display)` returns `Instance.Snapshot(display, 1f)` as a Java `int[]`. iOS `-secureRectanglesForDisplay:` builds `NSData` of little-endian int32 from `Snapshot(display, UIScreen.mainScreen.scale)`.
 
@@ -1217,11 +1220,15 @@ C# cannot run inside the Java/ObjC pull. The registry therefore also has `int[] 
 
 Add `void _bugsee_set_secure_buffer(int display, int[] packed)` and the Android twin `UnityWrapper.setSecureBuffer(int display, int[] packed)`. `Bugsee.AddSecureRectangle` updates the registry, then pushes `Snapshot` for display `0`. Android scale is `1`. iOS scale is passed from C# as `Screen.dpi` is wrong; pass a new export argument `float pixelsPerPoint` that `IOSBridge` reads from a P/Invoke ` _bugsee_screen_scale()` returning `[UIScreen mainScreen].scale`.
 
-- [ ] **Step 1: Add `SecureRectRegistry.Instance` and push-on-write from `Bugsee.AddSecureRectangle`.**
+- [ ] **Step 1: Add `SecureRectRegistry.Instance`, manual owner tracking, and push-on-write.**
+
+In `Bugsee.cs`, keep a private map from each added `RectInt` to its owner id. `AddSecureRectangle` → `Instance.Set(ownerId, 0, …)` then push `Snapshot`. `RemoveSecureRectangle` → `RemoveOwner(ownerId)` and drop the map entry. `RemoveAllSecureRectangles` → remove all manual owners and clear the map.
+
+Add `SecureRectManualOwnerTests` (or extend `SecureRectRegistryTests`): two different owner ids on display `0` → `Snapshot(...)[1] == 2`; `RemoveOwner` one → the other rect remains and version bumps.
 
 - [ ] **Step 2: Implement the native buffers.** `getSecureRectangles` returns the last pushed array for that display, or `[1, 0]` when nothing has been pushed (version 1, count 0, the first empty publish).
 
-- [ ] **Step 3: Source test** asserts `AndroidBridge.cs` does not contain `"addSecureRectangle"` and `BugseeUnityBridge.mm` does not contain `addSecureRectangle:`.
+- [ ] **Step 3: Source test** asserts `AndroidBridge.cs` does not contain `"addSecureRectangle"` and `BugseeUnityBridge.mm` does not contain `addSecureRectangle:`; `Bugsee.cs` does not contain `Set("manual", 0` without a per-rect owner suffix.
 
 - [ ] **Step 4: Run** `dotnet test Tests~/WrapperPolicy/Bugsee.WrapperPolicy.Tests.csproj`
 
