@@ -37,6 +37,9 @@ Samples~/**/[Bb]uilds/
 # Native binaries produced by Tools~/scripts/update-native-sdks.sh
 Native~/ios/Bugsee/Bugsee.xcframework/
 
+# Local git worktrees for parallel task branches
+.worktrees/
+
 # Packaging
 *.unitypackage
 *.apk
