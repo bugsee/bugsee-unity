@@ -636,7 +636,7 @@ git commit -m "Stop forwarding Android-only launch keys to iOS."
 - Test: `Tests~/WrapperPolicy/RegistrationSourceTests.cs`
 
 **Interfaces:**
-- Consumes: Android SDK `Bugsee.setWrapper` and `BugseeExtensionInitProviderBase` (compile classpath after EDM). C# talks to `com.bugsee.unity.UnityWrapper.refineContext(String unityVersion, String platform, String scriptingBackend, String productName)`.
+- Consumes: Android SDK `Bugsee.setWrapper` and `BugseeExtensionInitProviderBase` (compile classpath after EDM). C# talks to `com.bugsee.unity.UnityWrapper.refineContext(String unityVersion, String platform, String scriptingBackend, String productName, String wrapperVersion)`.
 - Produces: one Java wrapper for the process. `AndroidBridge.EnsureWrapperRegistered` calls `refineContext` only.
 
 - [ ] **Step 1: Write the failing source test**
@@ -707,6 +707,7 @@ final class UnityWrapper implements com.bugsee.library.contracts.internal.Bugsee
     private String platform = "unknown";
     private String scriptingBackend = "unknown";
     private String productName = "unknown";
+    private String wrapperVersion = "unknown";
 
     static void install() {
         if (installed) return;
@@ -714,16 +715,17 @@ final class UnityWrapper implements com.bugsee.library.contracts.internal.Bugsee
         Bugsee.setWrapper(INSTANCE);
     }
 
-    public static void refineContext(String unityVersion, String platform, String scriptingBackend, String productName) {
+    public static void refineContext(String unityVersion, String platform, String scriptingBackend, String productName, String wrapperVersion) {
         install();
         if (unityVersion != null && unityVersion.length() > 0) INSTANCE.unityVersion = unityVersion;
         if (platform != null && platform.length() > 0) INSTANCE.platform = platform;
         if (scriptingBackend != null && scriptingBackend.length() > 0) INSTANCE.scriptingBackend = scriptingBackend;
         if (productName != null && productName.length() > 0) INSTANCE.productName = productName;
+        if (wrapperVersion != null && wrapperVersion.length() > 0) INSTANCE.wrapperVersion = wrapperVersion;
     }
 
     public String getWrapperType() { return "unity"; }
-    public String getWrapperVersion() { return "0.1.0"; }
+    public String getWrapperVersion() { return wrapperVersion != null ? wrapperVersion : "unknown"; }
     public String getWrapperBuild() { return "unknown"; }
 
     public HashMap<String, String> getContext() {
@@ -741,7 +743,7 @@ final class UnityWrapper implements com.bugsee.library.contracts.internal.Bugsee
 }
 ```
 
-`getWrapperVersion` must read the string passed from C#. Pass `BugseePackageVersion.Version` into `refineContext` as a fifth argument rather than hard-coding `0.1.0`. Add that parameter in this step. `install()` is the only `Bugsee.setWrapper` call.
+`getWrapperVersion()` returns the `wrapperVersion` field, which starts as `"unknown"` and is set from the fifth `refineContext` argument. Do not hard-code `"0.1.0"`. The C# call below passes `BugseePackageVersion.Version` as that argument. `install()` is the only `Bugsee.setWrapper` call.
 
 `Plugins/Android/AndroidManifest.xml`:
 
@@ -905,7 +907,8 @@ git commit -m "Register the iOS wrapper at load and hop launch onto main."
 - Modify: `Runtime/Platform/Android/AndroidBridge.cs` `Log`
 - Modify: `Runtime/Platform/IOS/IOSBridge.cs` `Log`
 - Create: `Runtime/Internal/HostLogForwarder.cs`
-- Modify: `Runtime/Internal/ExceptionPipeline.cs` (install forwarder once; exceptions still use `logException`, not the channel)
+- Create: `Runtime/Internal/HostNetworkForwarder.cs`
+- Modify: `Runtime/Internal/ExceptionPipeline.cs` (install both forwarders once; exceptions still use `logException`, not the channel)
 - Create: `Runtime/WrapperPolicy/ChannelSubmit.cs`
 - Create: `Tests~/WrapperPolicy/ChannelSubmitTests.cs`
 
@@ -917,6 +920,7 @@ git commit -m "Register the iOS wrapper at load and hop launch onto main."
   - Android: `UnityWrapper.onWrapperChannelAvailable` stores the channel in a static volatile field before returning. New static `UnityWrapper.channelLog(String message, int level)` calls `channel.log(null, message, level, WrapperLogSource.Custom)` when the channel is non-null.
   - iOS exports: `void _bugsee_channel_log(const char *message, int level)`, `void _bugsee_channel_network(...)`, `void _bugsee_channel_breadcrumb(const char *name, int iosLevel)`. The log export calls `Wrapper`... from ObjC it passes `BGSLogEventSource` value `98` via `WrapperLogSourcePolicy` equivalent constant `98`, not a raw `0`.
   - `Bugsee.Log` keeps using the public native `log` (app-curated, source Bugsee). A new internal `HostLogForwarder` subscribes `Application.logMessageReceived` (and wraps `Debug.unityLogger.logHandler` / `ILogHandler` when needed) so Unity `Debug` output hits the channel exports with `ChannelSubmit.LogSourceForHostDebug()`. `ExceptionPipeline` installs the forwarder once at startup; it does not retarget exception filing onto the channel.
+  - `HostNetworkForwarder` records finished `UnityWebRequest` calls through the same channel network submit as `AddNetworkEvent` (`requiresFiltering = true`). It does not call the public SDK `addNetworkEvent`. The iOS pre-`Launched` buffer from Task 12 sits in front of that submit, so startup requests are held rather than dropped.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -989,6 +993,10 @@ iOS `onWrapperChannelAvailable:` stores `gChannel` in a static before returning,
 - [ ] **Step 4b: `HostLogForwarder`**
 
 Create `Runtime/Internal/HostLogForwarder.cs` with `static void InstallOnce(IBugseeNativeBridge bridge)` guarded by a process flag. Map `LogType` → `LogLevel`, call `bridge.ChannelLog` (add to `IBugseeNativeBridge` as internal). Subscribe in `Application.logMessageReceived` on the main thread. Add `HostLogForwarderSourceTests` asserting `HostLogForwarder.cs` contains `logMessageReceived` and `ExceptionPipeline.cs` calls `HostLogForwarder.InstallOnce`.
+
+- [ ] **Step 4c: `HostNetworkForwarder`**
+
+Create `Runtime/Internal/HostNetworkForwarder.cs`. On `UnityWebRequest` completion, build a factory `NetworkEvent` (method, URL, status, duration) and submit it through the channel with `ChannelSubmit.NetworkRequiresFiltering()`. Do not call public `Bugsee.addNetworkEvent`. `ExceptionPipeline` calls `HostNetworkForwarder.InstallOnce` beside the log forwarder. The iOS buffer in Task 12 wraps this same submit, so events during `Launching` wait until `Launched` and are dropped on `Stopped`. Add a source test asserting `HostNetworkForwarder.cs` contains `UnityWebRequest`.
 
 - [ ] **Step 5: Re-run ChannelSubmitTests and RegistrationSourceTests.** Expected: PASS.
 
@@ -1150,7 +1158,7 @@ git commit -m "Keep dying-process report work on the native side and attach by p
   - `void AddBreadcrumb(string category, string message, string levelName)`
   - `void AddNetworkEvent(INetworkEvent evt)` which submits through the channel with `ChannelSubmit.NetworkRequiresFiltering()`
 
-**Launch-gated network (iOS).** `DESIGN.md`: during `Launching`, iOS drops channel `addNetworkEvent`. Buffer host `AddNetworkEvent` calls until lifecycle reaches `Launched`, then flush in order. Android submits immediately. Implement the buffer in `Runtime/WrapperPolicy/` or `Runtime/Internal/` (no `UnityEngine` in policy if possible — lifecycle signal may live in a small `HostNetworkForwarder` beside `HostLogForwarder`).
+**Launch-gated network (iOS).** `DESIGN.md`: during `Launching`, iOS drops channel `addNetworkEvent`. Buffer both public `AddNetworkEvent` and `HostNetworkForwarder` submits until lifecycle reaches `Launched`, then flush in order. Drop the buffer on `Stopped`. Android submits immediately. Implement the buffer in `Runtime/WrapperPolicy/` or `Runtime/Internal/` (no `UnityEngine` in policy if possible — the lifecycle signal may live beside `HostNetworkForwarder`).
 
 `AddBreadcrumb` parses `levelName` with `BreadcrumbLevelMap.TryParse`. An unknown name throws `ArgumentException` whose message is `"breadcrumb level"` and does not include `levelName` if you treat it as a value; the level name is a developer-chosen identifier and may appear (`"breadcrumb level 'verbose' is unknown"` is allowed). The iOS bridge passes `BreadcrumbLevelMap.ToIos`. The Android bridge passes `ToAndroid`.
 
@@ -1226,7 +1234,7 @@ git commit -m "Serve secure rectangles from the versioned pull buffer."
 
 **Interfaces:**
 - Consumes: nothing
-- Produces: `MarkedGradleBlock.Apply(string existing, string anchorLine, string markedLine)`. `anchorLine` is the exact line `plugins {` or `apply plugin: 'com.android.application'`. If that line occurs once, at depth 0, and is not inside a block comment, insert `markedLine` once after it when the marker is absent. If the marker is already present, return `existing` unchanged. If the anchor is missing, duplicated, or the line contains `/*` without a closing `*/` on the same line, throw `InvalidOperationException` whose message contains the anchor text and does not contain any other line from `existing`.
+- Produces: `MarkedGradleBlock.Apply(string existing, string anchorLine, string markedLine)`. `anchorLine` is the exact line `plugins {` or `apply plugin: 'com.android.application'`. If that line occurs once, at depth 0, and is not inside a block comment, insert `markedLine` once after it when the file is not already patched. Treat the file as already patched when it contains `// bugsee:gradle-plugin`, the legacy comment `// Bugsee Gradle plugin` that `BugseeAndroidGradleSetup` writes today, or an active `id` / `apply plugin` line for `com.bugsee.android.gradle`. A commented-out plugin line does not count. If already patched, return `existing` unchanged (or rewrite that same region in place). Do not insert a second plugin line. If the anchor is missing, duplicated, or the line contains `/*` without a closing `*/` on the same line, throw `InvalidOperationException` whose message contains the anchor text and does not contain any other line from `existing`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1251,6 +1259,16 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.Throws<InvalidOperationException>(() =>
                 MarkedGradleBlock.Apply("plugins { /*\n}\n", Anchor, Marked));
         }
+
+        [Test]
+        public void Legacy_bugsee_marker_is_not_duplicated()
+        {
+            const string existing =
+                "plugins {\n" +
+                "    id 'com.bugsee.android.gradle' version '4.0.8' apply false // Bugsee Gradle plugin\n" +
+                "}\n";
+            Assert.That(MarkedGradleBlock.Apply(existing, Anchor, Marked), Is.EqualTo(existing));
+        }
     }
 }
 ```
@@ -1259,7 +1277,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement `MarkedGradleBlock` and call it from `BugseeAndroidGradleSetup` instead of rewriting a template that already exists.** When the file is missing, keep today's full-template write. When the file exists, `Apply` and write only if the text changed. Catch `InvalidOperationException` and `Debug.LogWarning` the exception message. Do not overwrite the customer's file in that case.
+- [ ] **Step 3: Implement `MarkedGradleBlock` and call it from `BugseeAndroidGradleSetup` instead of rewriting a template that already exists.** When the file is missing, keep today's full-template write, and write the marked plugin line (`// bugsee:gradle-plugin`) rather than only `// Bugsee Gradle plugin`. When the file exists, `Apply` and write only if the text changed. An existing file that already has `// Bugsee Gradle plugin` or an active `com.bugsee.android.gradle` line is already patched. Catch `InvalidOperationException` and `Debug.LogWarning` the exception message. Do not overwrite the customer's file in that case.
 
 - [ ] **Step 4: Re-run Step 2.** Expected: PASS.
 
@@ -1300,7 +1318,7 @@ Spec coverage against `DESIGN.md` wrapper contract:
 | Channel log source allow-list and missing → Custom | 1, 9 |
 | Network `requiresFiltering = true` | 9, 12 |
 | Hold iOS network until `Launched` | 12 |
-| Host `Debug` on wrapper channel | 9 |
+| Host `Debug` and `UnityWebRequest` on wrapper channel | 9, 12 |
 | R8 keep `UnityWrapper`, Direct Boot provider | 7 |
 | Breadcrumb ints by name | 2, 12 |
 | `vh` answers null | 7 (`requestData` → `onResult(null)`) and existing iOS `requestDataWithType` |
