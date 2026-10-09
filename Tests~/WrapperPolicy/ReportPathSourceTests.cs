@@ -42,6 +42,59 @@ namespace Bugsee.WrapperPolicy.Tests
             return null;
         }
 
+        static string ExtractNativeFunctionBody(string source, string functionName)
+        {
+            var marker = "static void " + functionName;
+            int start = source.IndexOf(marker, StringComparison.Ordinal);
+            Assert.That(start, Is.GreaterThanOrEqualTo(0), "Missing function: " + functionName);
+            int brace = source.IndexOf('{', start);
+            Assert.That(brace, Is.GreaterThanOrEqualTo(0));
+            int depth = 0;
+            for (int i = brace; i < source.Length; i++)
+            {
+                if (source[i] == '{') depth++;
+                else if (source[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                        return source.Substring(start, i - start + 1);
+                }
+            }
+
+            Assert.Fail("Unclosed function body: " + functionName);
+            return null;
+        }
+
+        [Test]
+        public void Ios_extended_apply_uses_path_and_bytes_attachments()
+        {
+            string mm = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
+            string apply = ExtractNativeFunctionBody(mm, "BugseeBridgeApplyExtendedReportDict");
+            Assert.That(apply, Does.Contain("att[@\"path\"]"));
+            Assert.That(apply, Does.Contain("dataWithContentsOfFile:"));
+            Assert.That(apply, Does.Contain("dataBase64"));
+            Assert.That(apply, Does.Contain("[BugseeAttachment attachmentWithName:name filename:fileName data:data]"));
+        }
+
+        [Test]
+        public void Ios_create_report_upload_releases_snapshots_after_native_apply()
+        {
+            string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
+            string discard = ExtractMethodBody(ios, "public void DiscardReport(IReport report)");
+            Assert.That(discard, Does.Contain("ReleaseSnapshotFiles()"));
+
+            string upload = ExtractMethodBody(ios, "public void UploadReport(IReport report)");
+            Assert.That(upload, Does.Contain("_uploadSnapshotReports[uploadToken]"));
+
+            string completion = ExtractMethodBody(ios, "void HandleManagedReportCreateCompletion(bool succeeded, ulong uploadToken)");
+            Assert.That(completion, Does.Contain("ReleaseUploadSnapshotReport(uploadToken)"));
+
+            string stop = ExtractMethodBody(ios, "public void Stop(Action completion = null)");
+            Assert.That(stop, Does.Contain("_openReport?.ReleaseSnapshotFiles()"));
+            string delete = ExtractMethodBody(ios, "public void DeleteCollectedDataOnDevice()");
+            Assert.That(delete, Does.Contain("_openReport?.ReleaseSnapshotFiles()"));
+        }
+
         [Test]
         public void Ios_apply_report_dict_uses_path_and_bytes_attachments()
         {
@@ -216,6 +269,31 @@ namespace Bugsee.WrapperPolicy.Tests
             string addBytes = ExtractMethodBody(report, "public IAttachment AddAttachmentBytes(byte[] data, string name, string mimeType)");
             Assert.That(addBytes, Does.Contain("SetAttachmentBytes"));
             Assert.That(addBytes, Does.Not.Contain("SetData(data)"));
+        }
+
+        [Test]
+        public void Android_upload_releases_snapshots_after_onCreated()
+        {
+            string proxies = File.ReadAllText(RepoFile("Runtime/Platform/Android/Proxies/CallbackProxies.cs"));
+            string onCreated = ExtractMethodBody(proxies, "public void onCreated(AndroidJavaObject report)");
+            Assert.That(onCreated, Does.Contain("ApplyTo(report)"));
+            Assert.That(onCreated, Does.Contain("ReleaseSnapshotFiles()"));
+            int apply = onCreated.IndexOf("ApplyTo(report)", StringComparison.Ordinal);
+            int release = onCreated.IndexOf("ReleaseSnapshotFiles()", StringComparison.Ordinal);
+            Assert.That(release, Is.GreaterThan(apply));
+        }
+
+        [Test]
+        public void Android_managed_report_snapshots_files_at_add()
+        {
+            string report = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidReport.cs"));
+            int managedStart = report.IndexOf("sealed class AndroidManagedReport", StringComparison.Ordinal);
+            Assert.That(managedStart, Is.GreaterThanOrEqualTo(0));
+            string managed = report.Substring(managedStart);
+            string addFile = ExtractMethodBody(managed, "public IAttachment AddAttachmentFile(string path, string name, string mimeType)");
+            Assert.That(addFile, Does.Contain("SnapshotAttachmentFile"));
+            Assert.That(addFile, Does.Contain("SetSnapshotPath"));
+            Assert.That(addFile, Does.Contain("File.Exists(path)"));
         }
 
         [Test]

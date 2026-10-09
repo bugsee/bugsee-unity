@@ -5,9 +5,11 @@
 
 #if __has_include(<Bugsee/Bugsee.h>)
 #import <Bugsee/Bugsee.h>
+#import <Bugsee/BGSContracts.h>
 #define BUGSEE_IOS_SDK 1
 #elif __has_include("Bugsee/Bugsee.h")
 #import "Bugsee/Bugsee.h"
+#import "Bugsee/BGSContracts.h"
 #define BUGSEE_IOS_SDK 1
 #else
 #define BUGSEE_IOS_SDK 0
@@ -39,6 +41,157 @@ static void BugseeRunOnMain(dispatch_block_t block)
         block();
     } else {
         dispatch_async(dispatch_get_main_queue(), block);
+    }
+}
+
+typedef void (*BugseeManagedReportCreateCallback)(int succeeded, uint64_t uploadToken);
+
+static uint64_t gManagedReportUploadFence;
+static NSMutableSet<NSNumber *> *gCancelledManagedReportUploadIds;
+
+static BOOL BugseeManagedReportUploadStillActive(uint64_t uploadId, uint64_t uploadFence)
+{
+    if (uploadId == 0 || uploadFence != gManagedReportUploadFence) {
+        return NO;
+    }
+    if (!gCancelledManagedReportUploadIds) {
+        return YES;
+    }
+    return ![gCancelledManagedReportUploadIds containsObject:@(uploadId)];
+}
+
+static void BugseeBridgeSetAttachmentFileNameIfNeeded(id attachment, NSString *displayName, NSString *fileName)
+{
+    if (!attachment || fileName.length == 0 || [fileName isEqualToString:displayName]) {
+        return;
+    }
+    if ([attachment conformsToProtocol:@protocol(BGSAttachmentContract)]) {
+        ((id<BGSAttachmentContract>)attachment).fileName = fileName;
+    }
+}
+
+static void BugseeBridgeSetAttachmentMimeTypeIfNeeded(id attachment, NSString *mimeType)
+{
+    if (!attachment || mimeType.length == 0) {
+        return;
+    }
+    if ([attachment conformsToProtocol:@protocol(BGSAttachmentContract)]) {
+        ((id<BGSAttachmentContract>)attachment).mimeType = mimeType;
+        return;
+    }
+    if ([attachment respondsToSelector:@selector(setMimeType:)]) {
+        [attachment performSelector:@selector(setMimeType:) withObject:mimeType];
+    }
+}
+
+static void BugseeBridgeApplyExtendedReportDict(BugseeExtendedReport *report, NSDictionary *d)
+{
+    if (![d isKindOfClass:[NSDictionary class]] || !report) {
+        return;
+    }
+
+    id summary = d[@"summary"];
+    if ([summary isKindOfClass:[NSString class]]) {
+        [report setSummary:summary];
+    }
+    id desc = d[@"description"];
+    if ([desc isKindOfClass:[NSString class]]) {
+        [report setDescription:desc];
+    }
+    id sev = d[@"severity"];
+    if ([sev respondsToSelector:@selector(integerValue)]) {
+        NSInteger sevVal = [sev integerValue];
+        if (sevVal != 0) {
+            [report setSeverity:(BugseeSeverityLevel)sevVal];
+        }
+    }
+
+    id labels = d[@"labels"];
+    if ([labels isKindOfClass:[NSArray class]]) {
+        NSMutableArray<NSString *> *clean = [NSMutableArray array];
+        for (id label in (NSArray *)labels) {
+            if ([label isKindOfClass:[NSString class]]) {
+                [clean addObject:label];
+            }
+        }
+        report.labels = clean;
+    }
+
+    id removals = d[@"attributeRemovals"];
+    if ([removals isKindOfClass:[NSArray class]]) {
+        for (id name in (NSArray *)removals) {
+            if ([name isKindOfClass:[NSString class]]) {
+                [report clearAttribute:(NSString *)name];
+            }
+        }
+    }
+
+    id replaceAll = d[@"attributesReplaceAll"];
+    BOOL shouldReplaceAll = [replaceAll respondsToSelector:@selector(boolValue)] && [replaceAll boolValue];
+
+    id attrs = d[@"attributes"];
+    if ([attrs isKindOfClass:[NSDictionary class]]) {
+        if (shouldReplaceAll) {
+            [report clearAllAttributes];
+        }
+        [(NSDictionary *)attrs enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+            if ([key isKindOfClass:[NSString class]]) {
+                [report setAttribute:(NSString *)key withValue:obj];
+            }
+        }];
+    } else if (shouldReplaceAll) {
+        [report clearAllAttributes];
+    }
+
+    id attachments = d[@"attachments"];
+    if ([attachments isKindOfClass:[NSArray class]]) {
+        [report clearAllAttachments];
+        for (id item in (NSArray *)attachments) {
+            if (![item isKindOfClass:[NSDictionary class]]) {
+                continue;
+            }
+            NSDictionary *att = (NSDictionary *)item;
+            NSString *name = [att[@"name"] isKindOfClass:[NSString class]] ? att[@"name"] : @"attachment";
+            id fileNameVal = att[@"fileName"];
+            NSString *fileName = [fileNameVal isKindOfClass:[NSString class]] ? fileNameVal : nil;
+            if (fileName.length == 0) {
+                fileName = name;
+            }
+            id mime = att[@"mimeType"];
+            NSString *mimeType = [mime isKindOfClass:[NSString class]] ? (NSString *)mime : nil;
+
+            id pathVal = att[@"path"];
+            if ([pathVal isKindOfClass:[NSString class]] && [(NSString *)pathVal length] > 0) {
+                NSData *fileData = [NSData dataWithContentsOfFile:(NSString *)pathVal];
+                if (!fileData) {
+                    continue;
+                }
+                BugseeAttachment *attachment = [BugseeAttachment attachmentWithName:name filename:fileName data:fileData];
+                if (attachment) {
+                    BugseeBridgeSetAttachmentMimeTypeIfNeeded(attachment, mimeType);
+                    [report setAttachment:attachment];
+                }
+                continue;
+            }
+
+            NSData *data = nil;
+            id b64 = att[@"dataBase64"];
+            if ([b64 isKindOfClass:[NSString class]] && [(NSString *)b64 length] > 0) {
+                data = [[NSData alloc] initWithBase64EncodedString:(NSString *)b64 options:0];
+            }
+            id text = att[@"text"];
+            if (!data && [text isKindOfClass:[NSString class]]) {
+                data = [(NSString *)text dataUsingEncoding:NSUTF8StringEncoding];
+            }
+            if (!data) {
+                continue;
+            }
+            BugseeAttachment *attachment = [BugseeAttachment attachmentWithName:name filename:fileName data:data];
+            if (attachment) {
+                BugseeBridgeSetAttachmentMimeTypeIfNeeded(attachment, mimeType);
+                [report setAttachment:attachment];
+            }
+        }
     }
 }
 
@@ -355,9 +508,95 @@ void _bugsee_free(char *ptr)
     }
 }
 
+typedef int (*BugseeDeleteCollectedDataShouldRunFn)(int capturedGeneration);
+
+void _bugsee_delete_collected_data(int capturedGeneration, BugseeDeleteCollectedDataShouldRunFn shouldRun)
+{
+    BugseeRunOnMain(^{
+        void (^runDeleteIfAllowed)(void) = ^{
+            if (shouldRun && !shouldRun(capturedGeneration)) {
+                return;
+            }
+            [Bugsee deleteCollectedDataOnDevice:YES completion:nil];
+        };
+        if ([Bugsee sharedInstance] != nil) {
+            [Bugsee stop:^{
+                runDeleteIfAllowed();
+            }];
+        } else {
+            runDeleteIfAllowed();
+        }
+    });
+}
+
+void _bugsee_cancel_managed_report_upload(uint64_t uploadId)
+{
+    if (!gCancelledManagedReportUploadIds) {
+        gCancelledManagedReportUploadIds = [NSMutableSet set];
+    }
+    [gCancelledManagedReportUploadIds addObject:@(uploadId)];
+}
+
+void _bugsee_invalidate_managed_report_uploads(void)
+{
+    gManagedReportUploadFence++;
+    [gCancelledManagedReportUploadIds removeAllObjects];
+}
+
+void _bugsee_upload_managed_report(const char *reportJson,
+                                   uint64_t uploadId,
+                                   uint64_t uploadFence,
+                                   BugseeManagedReportCreateCallback callback)
+{
+    if (!reportJson) {
+        if (callback) {
+            callback(0, uploadId);
+        }
+        return;
+    }
+    NSString *jsonCopy = [NSString stringWithUTF8String:reportJson];
+    [Bugsee createReportWithCompletion:^(BugseeExtendedReport *_Nullable report) {
+        if (!BugseeManagedReportUploadStillActive(uploadId, uploadFence)) {
+            if (callback) {
+                callback(0, uploadId);
+            }
+            return;
+        }
+        if (!report) {
+            if (callback) {
+                callback(0, uploadId);
+            }
+            return;
+        }
+        NSDictionary *dict = BugseeDeserializeJson(jsonCopy.UTF8String);
+        if (![dict isKindOfClass:[NSDictionary class]]) {
+            if (callback) {
+                callback(0, uploadId);
+            }
+            return;
+        }
+        BugseeBridgeApplyExtendedReportDict(report, dict);
+        if (!BugseeManagedReportUploadStillActive(uploadId, uploadFence)) {
+            if (callback) {
+                callback(0, uploadId);
+            }
+            return;
+        }
+        if (callback) {
+            callback(1, uploadId);
+        }
+        if (BugseeManagedReportUploadStillActive(uploadId, uploadFence)) {
+            [Bugsee uploadReport:report completion:nil];
+        }
+    }];
+}
+
 } // extern "C"
 
 #else // !BUGSEE_IOS_SDK
+
+typedef void (*BugseeManagedReportCreateCallback)(int succeeded);
+typedef int (*BugseeDeleteCollectedDataShouldRunFn)(int capturedGeneration);
 
 extern "C" {
 
@@ -393,6 +632,25 @@ char *_bugsee_appearance_get_color(const char *propertyName) { (void)propertyNam
 void _bugsee_appearance_set_string(const char *propertyName, const char *propertyValue) { (void)propertyName; (void)propertyValue; }
 char *_bugsee_appearance_get_string(const char *propertyName) { (void)propertyName; return NULL; }
 void _bugsee_free(char *ptr) { (void)ptr; }
+void _bugsee_delete_collected_data(int capturedGeneration, BugseeDeleteCollectedDataShouldRunFn shouldRun)
+{
+    (void)capturedGeneration;
+    (void)shouldRun;
+}
+void _bugsee_cancel_managed_report_upload(uint64_t uploadId) { (void)uploadId; }
+void _bugsee_invalidate_managed_report_uploads(void) {}
+void _bugsee_upload_managed_report(const char *reportJson,
+                                   uint64_t uploadId,
+                                   uint64_t uploadFence,
+                                   BugseeManagedReportCreateCallback callback)
+{
+    (void)reportJson;
+    (void)uploadId;
+    (void)uploadFence;
+    if (callback) {
+        callback(0, uploadId);
+    }
+}
 
 }
 

@@ -311,7 +311,7 @@ namespace Bugsee.Platform.IOS
         /// <summary>
         /// JsonUtility emits kv arrays; native Apply* expects object maps for headers/data.
         /// </summary>
-        static string ToNativeMapJson(string json, string field)
+        internal static string ToNativeMapJson(string json, string field)
         {
             if (string.IsNullOrEmpty(json)) return "{}";
             var key = "\"" + field + "\":";

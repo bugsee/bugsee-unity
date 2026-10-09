@@ -30,6 +30,7 @@ namespace Bugsee.Platform.Android
         AndroidFeedback _feedback;
         AndroidAppearance _appearance;
         IBugseeExchangeFactory _exchangeFactory;
+        AndroidManagedReport _openReport;
         static bool _loggedMissingNetworkFactory;
 
         public bool IsSupported => true;
@@ -68,6 +69,7 @@ namespace Bugsee.Platform.Android
         public void Launch(string appToken, IDictionary<string, object> options)
         {
             ManagedExceptionPayload.EnsureBuildIdentity();
+            DeleteCollectedDataLaunchGeneration.BumpForLaunch();
             EnsureWrapperRegistered();
             InstallDefaultListeners();
             using (var activity = CurrentActivity())
@@ -81,6 +83,7 @@ namespace Bugsee.Platform.Android
 
         public void Relaunch(IDictionary<string, object> options)
         {
+            DeleteCollectedDataLaunchGeneration.BumpForLaunch();
             using (var map = AndroidOptionsMapper.ToJavaMap(options))
             {
                 _bugsee.CallStatic("relaunch", map);
@@ -91,6 +94,9 @@ namespace Bugsee.Platform.Android
 
         public void Stop(Action completion = null)
         {
+            AndroidManagedReportUploadFence.Invalidate();
+            _openReport?.ReleaseSnapshotFiles();
+            _openReport = null;
             HostLogForwarder.Uninstall();
             ExceptionPipeline.Uninstall();
             if (completion == null)
@@ -450,6 +456,102 @@ namespace Bugsee.Platform.Android
         {
             // App listener is held on the Bugsee facade; native proxy always fans out there.
             InstallDefaultListeners();
+        }
+
+        public void NotifyLifecycle(string eventType) { }
+
+        public void DeleteCollectedDataOnDevice()
+        {
+            AndroidManagedReportUploadFence.Invalidate();
+            _openReport?.ReleaseSnapshotFiles();
+            _openReport = null;
+            var deleteGeneration = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
+            if (GetLaunched())
+            {
+                Stop(() => InvokeDeleteCollectedDataOnDevice(deleteGeneration));
+                return;
+            }
+
+            InvokeDeleteCollectedDataOnDevice(deleteGeneration);
+        }
+
+        void InvokeDeleteCollectedDataOnDevice(int deleteGeneration)
+        {
+            if (!DeleteCollectedDataLaunchGeneration.ShouldRunDelete(deleteGeneration))
+                return;
+
+            _bugsee.CallStatic(
+                "deleteCollectedDataOnDevice",
+                true,
+                new BooleanCallback1Proxy(success =>
+                {
+                    if (!success)
+                        Debug.LogError("[Bugsee] deleteCollectedDataOnDevice failed.");
+                }));
+        }
+
+        public IReport CreateReport()
+        {
+            if (_openReport != null)
+                throw new InvalidOperationException("a report is already open");
+            _openReport = new AndroidManagedReport();
+            return _openReport;
+        }
+
+        public void DiscardReport(IReport report)
+        {
+            if (report == null)
+                throw new ArgumentNullException(nameof(report));
+            if (!ReferenceEquals(report, _openReport))
+                throw new ArgumentException("Report was not created by CreateReport.", nameof(report));
+            _openReport?.ReleaseSnapshotFiles();
+            _openReport = null;
+        }
+
+        public void UploadReport(IReport report)
+        {
+            if (report == null)
+                throw new ArgumentNullException(nameof(report));
+            if (!ReferenceEquals(report, _openReport))
+                throw new ArgumentException("Report was not created by CreateReport.", nameof(report));
+            if (_openReport == null)
+                throw new InvalidOperationException("CreateReport failed.");
+            var snapshot = _openReport;
+            _openReport = null;
+            var uploadFence = AndroidManagedReportUploadFence.Current;
+            _bugsee.CallStatic(
+                "createReport",
+                new ReportCreationListenerProxy(snapshot, _bugsee, uploadFence));
+        }
+
+        public void AddBreadcrumb(string category, string message, string levelName)
+        {
+            var level = BreadcrumbLevelMap.ParseOrThrow(levelName);
+            if (GetExchangeFactory() == null)
+                return;
+
+            using (var levelClass = new AndroidJavaClass(
+                       "com.bugsee.library.contracts.exchange.Breadcrumb$Level"))
+            using (var javaLevel = levelClass.CallStatic<AndroidJavaObject>(
+                       "fromValue",
+                       (sbyte)BreadcrumbLevelMap.ToAndroid(level)))
+            using (var javaFactory = _bugsee.CallStatic<AndroidJavaObject>("getExchangeFactory"))
+            using (var dataMap = new AndroidJavaObject("java.util.HashMap"))
+            {
+                if (javaFactory == null)
+                    return;
+                var breadcrumb = javaFactory.Call<AndroidJavaObject>(
+                    "createBreadcrumb",
+                    DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    category ?? "",
+                    message ?? "",
+                    javaLevel,
+                    "manual",
+                    dataMap);
+                if (breadcrumb == null)
+                    return;
+                _bugsee.CallStatic("addBreadcrumb", breadcrumb);
+            }
         }
 
         void InstallDefaultListeners()

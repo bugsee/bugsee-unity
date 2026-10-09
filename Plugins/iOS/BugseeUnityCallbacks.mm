@@ -251,18 +251,40 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
         }
     }
 
+    id removals = d[@"attributeRemovals"];
+    if ([removals isKindOfClass:[NSArray class]]) {
+        for (id name in (NSArray *)removals) {
+            if ([name isKindOfClass:[NSString class]]) {
+                [report removeAttributeForName:(NSString *)name];
+            }
+        }
+    }
+
+    id replaceAll = d[@"attributesReplaceAll"];
+    BOOL shouldReplaceAll = [replaceAll respondsToSelector:@selector(boolValue)] && [replaceAll boolValue];
+
     id attrs = d[@"attributes"];
     if ([attrs isKindOfClass:[NSDictionary class]]) {
-        [report clearAllAttributes];
+        if (shouldReplaceAll) {
+            [report clearAllAttributes];
+        }
         [(NSDictionary *)attrs enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
             if ([key isKindOfClass:[NSString class]]) {
                 [report setAttribute:obj forName:key];
             }
         }];
+    } else if (shouldReplaceAll) {
+        [report clearAllAttributes];
     }
+
+    id replaceAttachments = d[@"attachmentsReplaceAll"];
+    BOOL shouldReplaceAttachments = [replaceAttachments respondsToSelector:@selector(boolValue)] && [replaceAttachments boolValue];
 
     id attachments = d[@"attachments"];
     if ([attachments isKindOfClass:[NSArray class]]) {
+        if (shouldReplaceAttachments) {
+            [report clearAttachments];
+        }
         for (id item in (NSArray *)attachments) {
             if (![item isKindOfClass:[NSDictionary class]]) continue;
             NSDictionary *att = (NSDictionary *)item;
@@ -441,6 +463,62 @@ void _bugsee_channel_log(const char *message, int level, int source)
                 message:text
                   level:(BugseeLogLevel)level
                  source:(BGSLogEventSource)source];
+}
+
+void _bugsee_channel_network(const char *eventJson, int requiresFiltering)
+{
+    id<BGSWrapperChannel> channel = gChannel;
+    if (!channel || !eventJson) {
+        return;
+    }
+    if (![channel respondsToSelector:@selector(addNetworkEvent:requiresFiltering:)]) {
+        return;
+    }
+    NSDictionary *dict = BugseeUnityParseJson(eventJson);
+    if (![dict isKindOfClass:[NSDictionary class]]) {
+        return;
+    }
+    BugseeNetworkEvent *event = [BugseeNetworkEvent new];
+    id eventId = dict[@"id"];
+    if ([eventId isKindOfClass:[NSString class]]) {
+        event.ID = eventId;
+    }
+    BugseeUnityApplyNetworkDict(event, dict);
+    [channel addNetworkEvent:event requiresFiltering:requiresFiltering != 0];
+}
+
+void _bugsee_channel_breadcrumb(const char *category, const char *message, int iosLevel, double timestampUnixSeconds)
+{
+    id<BGSWrapperChannel> channel = gChannel;
+    if (!channel) {
+        return;
+    }
+    if (![channel respondsToSelector:@selector(addBreadcrumb:)]) {
+        return;
+    }
+    NSString *categoryText = category ? [NSString stringWithUTF8String:category] : @"";
+    NSString *messageText = message ? [NSString stringWithUTF8String:message] : @"";
+    if (!categoryText) {
+        categoryText = @"";
+    }
+    if (!messageText) {
+        messageText = @"";
+    }
+    id factory = [Bugsee getExchangeFactory];
+    if (!factory) {
+        return;
+    }
+    NSTimeInterval timestamp = timestampUnixSeconds > 0 ? timestampUnixSeconds : [[NSDate date] timeIntervalSince1970];
+    id<BGSBreadcrumb> breadcrumb = [factory createBreadcrumbWithTimestamp:timestamp
+                                                                 category:categoryText
+                                                                    level:(BugseeLogLevel)iosLevel
+                                                                  message:messageText
+                                                                     type:@"manual"
+                                                                     data:nil];
+    if (!breadcrumb) {
+        return;
+    }
+    [channel addBreadcrumb:breadcrumb];
 }
 
 void _bugsee_ensure_wrapper(const char *version, const char *build)
@@ -629,6 +707,14 @@ extern "C" {
 void _bugsee_register_unity_callbacks(void *a, void *b, void *c) { (void)a; (void)b; (void)c; }
 void _bugsee_clear_wrapper_channel(void) {}
 void _bugsee_channel_log(const char *message, int level, int source) { (void)message; (void)level; (void)source; }
+void _bugsee_channel_network(const char *eventJson, int requiresFiltering) { (void)eventJson; (void)requiresFiltering; }
+void _bugsee_channel_breadcrumb(const char *category, const char *message, int iosLevel, double timestampUnixSeconds)
+{
+    (void)category;
+    (void)message;
+    (void)iosLevel;
+    (void)timestampUnixSeconds;
+}
 void _bugsee_ensure_wrapper(const char *version, const char *build) { (void)version; (void)build; }
 void _bugsee_set_wrapper_context(const char *json) { (void)json; }
 void _bugsee_set_network_filter_enabled(int enabled) { (void)enabled; }

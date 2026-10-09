@@ -8,6 +8,7 @@ using Bugsee.Contracts.Options;
 using Bugsee.Contracts.Reporting;
 using Bugsee.Internal;
 using Bugsee.Platform;
+using Bugsee.WrapperPolicy;
 using UnityEngine;
 
 namespace Bugsee.Platform.EditorStub
@@ -62,6 +63,27 @@ namespace Bugsee.Platform.EditorStub
         public void SetBreadcrumbFilter(EventFilter<IBreadcrumb> filter) { }
         public void SetReportHandler(IReportHandler handler) { }
         public void SetLifecycleEventListener(ILifecycleEventListener listener) { }
+        public void NotifyLifecycle(string eventType) { }
+
+        public void DeleteCollectedDataOnDevice() { }
+
+        public IReport CreateReport() =>
+            throw new NotSupportedException("CreateReport is not supported in the Unity Editor.");
+
+        public void AddBreadcrumb(string category, string message, string levelName)
+        {
+            BreadcrumbLevelMap.ParseOrThrow(levelName);
+        }
+
+        public void UploadReport(IReport report) =>
+            throw new NotSupportedException("Upload(IReport) is not supported in the Unity Editor.");
+
+        public void DiscardReport(IReport report)
+        {
+            if (report == null)
+                throw new ArgumentNullException(nameof(report));
+        }
+
         public void EnsureWrapperRegistered() { }
 
         sealed class StubAppearance : IAppearance

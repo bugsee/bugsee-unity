@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using AOT;
 using Bugsee.Contracts.Appearance;
 using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Feedback;
@@ -9,9 +10,9 @@ using Bugsee.Contracts.Lifecycle;
 using Bugsee.Contracts.Options;
 using Bugsee.WrapperPolicy;
 using Bugsee.Contracts.Reporting;
+using UnityEngine;
 using Bugsee.Internal;
 using Bugsee.Platform;
-using UnityEngine;
 
 namespace Bugsee.Platform.IOS
 {
@@ -23,11 +24,31 @@ namespace Bugsee.Platform.IOS
     /// </summary>
     sealed class IOSBridge : IBugseeNativeBridge
     {
+        delegate void ManagedReportUploadNativeCallback(int succeeded, ulong uploadToken);
+        delegate int DeleteCollectedDataShouldRunNativeCallback(int capturedGeneration);
+
+        ulong _inFlightUploadToken;
+        ulong _managedReportUploadFence;
+        int _reportUploadGeneration;
+
         bool _launched;
         bool _blackout;
         IosAppearance _appearance;
+        IosReport _openReport;
+        IosLiveReport _openReportHandle;
+        readonly object _uploadSnapshotReportsGate = new object();
+        readonly Dictionary<ulong, IosReport> _uploadSnapshotReports = new Dictionary<ulong, IosReport>();
+        readonly NetworkEventLaunchBuffer<INetworkEvent> _networkLaunchBuffer = new NetworkEventLaunchBuffer<INetworkEvent>();
+        readonly NetworkEventLaunchBuffer<IosPendingBreadcrumb> _breadcrumbLaunchBuffer =
+            new NetworkEventLaunchBuffer<IosPendingBreadcrumb>();
 
         public bool IsSupported => true;
+
+        public IOSBridge()
+        {
+            _networkLaunchBuffer.SetSubmitHandler(SubmitNetworkEventToChannel);
+            _breadcrumbLaunchBuffer.SetSubmitHandler(SubmitBreadcrumbToChannel);
+        }
 
         public IFeedback Feedback { get; } = new IosFeedback();
 
@@ -39,6 +60,11 @@ namespace Bugsee.Platform.IOS
             if (!MainThreadDispatcher.RunSyncLifecycle(() =>
                 {
                     EnsureWrapperRegistered();
+                    DeleteCollectedDataLaunchGeneration.BumpForLaunch();
+                    _networkLaunchBuffer.BeginNewLaunchCycle();
+                    _breadcrumbLaunchBuffer.BeginNewLaunchCycle();
+                    _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
+                    _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
                     _bugsee_launch(appToken, ToJsonObject(OptionPlatformGate.ForIos(options)));
                     _launched = true;
                     ExceptionPipeline.Install(this, options);
@@ -53,6 +79,11 @@ namespace Bugsee.Platform.IOS
         {
             if (!MainThreadDispatcher.RunSyncLifecycle(() =>
                 {
+                    DeleteCollectedDataLaunchGeneration.BumpForLaunch();
+                    _networkLaunchBuffer.BeginNewLaunchCycle();
+                    _breadcrumbLaunchBuffer.BeginNewLaunchCycle();
+                    _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
+                    _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
                     _bugsee_relaunch(ToJsonObject(OptionPlatformGate.ForIos(options)));
                     ExceptionPipeline.Install(this, options);
                     HostLogForwarder.InstallOnce(this);
@@ -71,6 +102,12 @@ namespace Bugsee.Platform.IOS
                     _bugsee_clear_wrapper_channel();
                     _bugsee_stop();
                     _launched = false;
+                    CancelManagedReportUpload();
+                    _openReport?.ReleaseSnapshotFiles();
+                    _openReport = null;
+                    _openReportHandle = null;
+                    _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
+                    _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
                     completion?.Invoke();
                 }))
             {
@@ -105,7 +142,181 @@ namespace Bugsee.Platform.IOS
 
         public void AddNetworkEvent(INetworkEvent networkEvent)
         {
-            // iOS wrapper-channel network export lands in a follow-up task.
+            _networkLaunchBuffer.Enqueue(networkEvent);
+        }
+
+        public void NotifyLifecycle(string eventType)
+        {
+            if (eventType == LifecycleEvents.Launched)
+            {
+                _networkLaunchBuffer.SetPhaseFromLifecycle(NetworkLaunchPhase.Launched);
+                _breadcrumbLaunchBuffer.SetPhaseFromLifecycle(NetworkLaunchPhase.Launched);
+            }
+            else if (eventType == LifecycleEvents.Stopped)
+            {
+                _networkLaunchBuffer.SetPhaseFromLifecycle(NetworkLaunchPhase.Stopped);
+                _breadcrumbLaunchBuffer.SetPhaseFromLifecycle(NetworkLaunchPhase.Stopped);
+            }
+        }
+
+        public void DeleteCollectedDataOnDevice()
+        {
+            var deleteGeneration = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
+            if (GetLaunched())
+            {
+                if (!MainThreadDispatcher.RunSyncLifecycle(() =>
+                    {
+                        HostLogForwarder.Uninstall();
+                        ExceptionPipeline.Uninstall();
+                        _bugsee_clear_wrapper_channel();
+                        CancelManagedReportUpload();
+                        _openReport?.ReleaseSnapshotFiles();
+                        _openReport = null;
+                        _openReportHandle = null;
+                        _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
+                        _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
+                        _launched = false;
+                        _bugsee_delete_collected_data(deleteGeneration, ShouldRunDeleteCollectedDataNative);
+                    }))
+                {
+                    Debug.LogError("[Bugsee] DeleteCollectedDataOnDevice timed out waiting for the Unity main thread.");
+                }
+
+                return;
+            }
+
+            CancelManagedReportUpload();
+            _openReport?.ReleaseSnapshotFiles();
+            _openReport = null;
+            _openReportHandle = null;
+            _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
+            _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
+            _bugsee_delete_collected_data(deleteGeneration, ShouldRunDeleteCollectedDataNative);
+        }
+
+        [MonoPInvokeCallback(typeof(DeleteCollectedDataShouldRunNativeCallback))]
+        static int ShouldRunDeleteCollectedDataNative(int capturedGeneration) =>
+            DeleteCollectedDataLaunchGeneration.ShouldRunDelete(capturedGeneration) ? 1 : 0;
+
+        void CancelManagedReportUpload()
+        {
+            _reportUploadGeneration++;
+            _managedReportUploadFence++;
+            _inFlightUploadToken = 0;
+            ReleaseAllUploadSnapshotReports();
+            _bugsee_invalidate_managed_report_uploads();
+        }
+
+        void ReleaseAllUploadSnapshotReports()
+        {
+            lock (_uploadSnapshotReportsGate)
+            {
+                foreach (var kv in _uploadSnapshotReports)
+                    kv.Value?.ReleaseSnapshotFiles();
+                _uploadSnapshotReports.Clear();
+            }
+        }
+
+        void ReleaseUploadSnapshotReport(ulong uploadToken)
+        {
+            IosReport report;
+            lock (_uploadSnapshotReportsGate)
+            {
+                if (!_uploadSnapshotReports.TryGetValue(uploadToken, out report))
+                    return;
+                _uploadSnapshotReports.Remove(uploadToken);
+            }
+
+            report?.ReleaseSnapshotFiles();
+        }
+
+        public IReport CreateReport()
+        {
+            if (_openReport != null)
+                throw new InvalidOperationException("a report is already open");
+            _openReport = new IosReport(new IosReportDto());
+            _openReportHandle = new IosLiveReport(_openReport);
+            return _openReportHandle;
+        }
+
+        public void DiscardReport(IReport report)
+        {
+            if (report == null)
+                throw new ArgumentNullException(nameof(report));
+            if (!ReferenceEquals(report, _openReportHandle))
+                throw new ArgumentException("Report was not created by CreateReport.", nameof(report));
+            _reportUploadGeneration++;
+            _openReport?.ReleaseSnapshotFiles();
+            _openReport = null;
+            _openReportHandle = null;
+        }
+
+        public void UploadReport(IReport report)
+        {
+            if (!ReferenceEquals(report, _openReportHandle))
+                throw new ArgumentException("Report was not created by CreateReport.", nameof(report));
+            if (_openReport == null)
+                throw new InvalidOperationException("CreateReport failed.");
+            if (!string.IsNullOrEmpty(_openReport.Email))
+            {
+                Debug.LogWarning(
+                    "[Bugsee] Email on CreateReport is not supported on iOS managed upload; use session identity APIs.");
+            }
+            var snapshotReport = _openReport;
+            var json = snapshotReport.ToResultJson();
+            var uploadToken = (ulong)++_reportUploadGeneration;
+            var uploadFence = _managedReportUploadFence;
+            lock (_uploadSnapshotReportsGate)
+                _uploadSnapshotReports[uploadToken] = snapshotReport;
+            _openReport = null;
+            _openReportHandle = null;
+            _uploadCompletionBridge = this;
+            _inFlightUploadToken = uploadToken;
+            _bugsee_upload_managed_report(json, uploadToken, uploadFence, OnManagedReportCreateCompletion);
+        }
+
+        [MonoPInvokeCallback(typeof(ManagedReportUploadNativeCallback))]
+        static void OnManagedReportCreateCompletion(int succeeded, ulong uploadToken)
+        {
+            // Instance is resolved through the static bridge reference set at upload time.
+            if (_uploadCompletionBridge == null)
+                return;
+            _uploadCompletionBridge.HandleManagedReportCreateCompletion(succeeded != 0, uploadToken);
+        }
+
+        static IOSBridge _uploadCompletionBridge;
+
+        void HandleManagedReportCreateCompletion(bool succeeded, ulong uploadToken)
+        {
+            ReleaseUploadSnapshotReport(uploadToken);
+            if (uploadToken != _inFlightUploadToken)
+                return;
+            _inFlightUploadToken = 0;
+            if (!succeeded)
+                Debug.LogError("[Bugsee] CreateReport failed.");
+        }
+
+        static readonly DateTime BreadcrumbUnixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        public void AddBreadcrumb(string category, string message, string levelName)
+        {
+            var level = BreadcrumbLevelMap.ParseOrThrow(levelName);
+            _breadcrumbLaunchBuffer.Enqueue(new IosPendingBreadcrumb
+            {
+                Category = category ?? "",
+                Message = message ?? "",
+                IosLevel = BreadcrumbLevelMap.ToIos(level),
+                TimestampUnixSeconds = (DateTime.UtcNow - BreadcrumbUnixEpoch).TotalSeconds,
+            });
+        }
+
+        void SubmitBreadcrumbToChannel(IosPendingBreadcrumb breadcrumb)
+        {
+            _bugsee_channel_breadcrumb(
+                breadcrumb.Category,
+                breadcrumb.Message,
+                breadcrumb.IosLevel,
+                breadcrumb.TimestampUnixSeconds);
         }
 
         public IBugseeExchangeFactory GetExchangeFactory() => IosExchangeFactory.Instance;
@@ -223,6 +434,47 @@ namespace Bugsee.Platform.IOS
             EnsureWrapperRegistered();
         }
 
+        void SubmitNetworkEventToChannel(INetworkEvent networkEvent)
+        {
+            if (networkEvent == null)
+                return;
+
+            var iosEvent = networkEvent as IosNetworkEvent;
+            if (iosEvent == null)
+            {
+                var factory = GetExchangeFactory();
+                if (factory == null)
+                    return;
+                iosEvent = (IosNetworkEvent)factory.CreateNetworkEvent(
+                    DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    networkEvent.Stage,
+                    string.IsNullOrEmpty(networkEvent.Id) ? null : networkEvent.Id,
+                    networkEvent.Mechanism,
+                    networkEvent.Method);
+                if (iosEvent == null)
+                    return;
+                CopyNetworkFields(networkEvent, iosEvent);
+            }
+
+            var requiresFiltering = ChannelSubmit.NetworkRequiresFiltering() ? 1 : 0;
+            var json = IosNativeCallbacks.ToNativeMapJson(iosEvent.ToResultJson(), "headers");
+            _bugsee_channel_network(json, requiresFiltering);
+        }
+
+        static void CopyNetworkFields(INetworkEvent source, INetworkEvent target)
+        {
+            if (source == null || target == null || ReferenceEquals(source, target))
+                return;
+            target.Url = source.Url;
+            target.Body = source.Body;
+            target.Size = source.Size;
+            target.ResponseCode = source.ResponseCode;
+            target.StatusText = source.StatusText;
+            target.ErrorShortMessage = source.ErrorShortMessage;
+            target.ErrorDescription = source.ErrorDescription;
+            target.Headers = source.Headers;
+        }
+
         static string ConsumeNativeString(IntPtr ptr)
         {
             if (ptr == IntPtr.Zero) return null;
@@ -307,6 +559,22 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_end_blackout();
         [DllImport("__Internal")] static extern void _bugsee_log(string message, int level);
         [DllImport("__Internal")] static extern void _bugsee_channel_log(string message, int level, int source);
+        [DllImport("__Internal")] static extern void _bugsee_channel_network(string eventJson, int requiresFiltering);
+        [DllImport("__Internal")] static extern void _bugsee_channel_breadcrumb(
+            string category,
+            string message,
+            int iosLevel,
+            double timestampUnixSeconds);
+        [DllImport("__Internal")] static extern void _bugsee_delete_collected_data(
+            int capturedGeneration,
+            DeleteCollectedDataShouldRunNativeCallback shouldRun);
+        [DllImport("__Internal")] static extern void _bugsee_cancel_managed_report_upload(ulong uploadId);
+        [DllImport("__Internal")] static extern void _bugsee_invalidate_managed_report_uploads();
+        [DllImport("__Internal")] static extern void _bugsee_upload_managed_report(
+            string reportJson,
+            ulong uploadId,
+            ulong uploadFence,
+            ManagedReportUploadNativeCallback callback);
         [DllImport("__Internal")] static extern void _bugsee_trace(string name, string valueJson);
         [DllImport("__Internal")] static extern void _bugsee_event(string name, string paramsJson);
         [DllImport("__Internal")] static extern void _bugsee_logException(string name, string reason, bool handled);
@@ -383,6 +651,125 @@ namespace Bugsee.Platform.IOS
 
             public IReadOnlyDictionary<string, object> ToMap() =>
                 new Dictionary<string, object>(_cache);
+        }
+
+        /// <summary>Managed report snapshot from <see cref="CreateReport"/>; native work runs at upload.</summary>
+        internal sealed class IosLiveReport : IReport
+        {
+            readonly IosReport _inner;
+
+            internal IosLiveReport(IosReport inner)
+            {
+                _inner = inner;
+            }
+
+            public string Id => _inner.Id;
+            public IssueType Type => _inner.Type;
+
+            public string Summary
+            {
+                get => _inner.Summary;
+                set => _inner.Summary = value;
+            }
+
+            public string Description
+            {
+                get => _inner.Description;
+                set => _inner.Description = value;
+            }
+
+            public string Email
+            {
+                get => _inner.Email;
+                set => _inner.Email = value;
+            }
+
+            public IssueSeverity? Severity
+            {
+                get => _inner.Severity;
+                set => _inner.Severity = value;
+            }
+
+            public IReadOnlyDictionary<string, object> Attributes => _inner.Attributes;
+
+            public object GetAttribute(string name) => _inner.GetAttribute(name);
+
+            public void SetAttribute(string name, object value) => _inner.SetAttribute(name, value);
+
+            public void RemoveAttribute(string name) => _inner.RemoveAttribute(name);
+
+            public void ClearAllAttributes() => _inner.ClearAllAttributes();
+
+            public IReadOnlyList<string> Labels => _inner.Labels;
+
+            public void AddLabel(string label) => _inner.AddLabel(label);
+
+            public void ClearLabels() => _inner.ClearLabels();
+
+            public void SetLabels(IEnumerable<string> labels) => _inner.SetLabels(labels);
+
+            public IReadOnlyList<IAttachment> Attachments
+            {
+                get
+                {
+                    var inner = _inner.Attachments;
+                    var wrapped = new List<IAttachment>(inner.Count);
+                    for (var i = 0; i < inner.Count; i++)
+                    {
+                        if (inner[i] is IosAttachment iosAttachment)
+                            wrapped.Add(new IosLiveAttachment(iosAttachment));
+                        else
+                            wrapped.Add(inner[i]);
+                    }
+                    return wrapped;
+                }
+            }
+
+            public IAttachment AddAttachmentFile(string path, string name, string mimeType)
+            {
+                var att = _inner.AddAttachmentFile(path, name, mimeType) as IosAttachment;
+                return att == null ? null : new IosLiveAttachment(att);
+            }
+
+            public IAttachment AddAttachmentBytes(byte[] data, string name, string mimeType)
+            {
+                var att = _inner.AddAttachmentBytes(data, name, mimeType) as IosAttachment;
+                return att == null ? null : new IosLiveAttachment(att);
+            }
+
+            public void ClearAttachments() => _inner.ClearAttachments();
+        }
+
+        sealed class IosLiveAttachment : IAttachment
+        {
+            readonly IosAttachment _inner;
+
+            internal IosLiveAttachment(IosAttachment inner)
+            {
+                _inner = inner;
+            }
+
+            public string Name
+            {
+                get => _inner.Name;
+                set => _inner.Name = value;
+            }
+
+            public string Filename
+            {
+                get => _inner.Filename;
+                set => _inner.Filename = value;
+            }
+
+            public string MimeType
+            {
+                get => _inner.MimeType;
+                set => _inner.MimeType = value;
+            }
+
+            public void SetData(byte[] data) => _inner.SetData(data);
+
+            public void SetData(string text) => _inner.SetData(text);
         }
     }
 

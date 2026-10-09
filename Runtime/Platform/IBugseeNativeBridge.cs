@@ -70,6 +70,15 @@ namespace Bugsee.Platform
         void SetReportHandler(IReportHandler handler);
         void SetLifecycleEventListener(ILifecycleEventListener listener);
 
+        void DeleteCollectedDataOnDevice();
+        IReport CreateReport();
+        void DiscardReport(IReport report);
+        void AddBreadcrumb(string category, string message, string levelName);
+        void UploadReport(IReport report);
+
+        /// <summary>Native lifecycle fan-out for bridge-side policy (iOS network buffer).</summary>
+        void NotifyLifecycle(string eventType);
+
         /// <summary>Register the Unity <c>BugseeWrapper</c> implementation with the native SDK.</summary>
         void EnsureWrapperRegistered();
     }

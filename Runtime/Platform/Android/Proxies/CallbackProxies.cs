@@ -160,5 +160,75 @@ namespace Bugsee.Platform.Android
 
         public void run() => _action?.Invoke();
     }
+
+    sealed class BooleanCallback1Proxy : AndroidJavaProxy
+    {
+        readonly Action<bool> _onResult;
+
+        public BooleanCallback1Proxy(Action<bool> onResult)
+            : base("com.bugsee.library.contracts.common.Callback1")
+        {
+            _onResult = onResult;
+        }
+
+        public void run(AndroidJavaObject value)
+        {
+            if (value == null)
+            {
+                _onResult?.Invoke(false);
+                return;
+            }
+
+            _onResult?.Invoke(value.Call<bool>("booleanValue"));
+        }
+    }
+
+    sealed class ReportCreationListenerProxy : AndroidJavaProxy
+    {
+        readonly AndroidManagedReport _snapshot;
+        readonly AndroidJavaClass _bugsee;
+        readonly ulong _uploadFence;
+
+        public ReportCreationListenerProxy(
+            AndroidManagedReport snapshot,
+            AndroidJavaClass bugsee,
+            ulong uploadFence)
+            : base("com.bugsee.library.contracts.reporting.ReportCreationListener")
+        {
+            _snapshot = snapshot;
+            _bugsee = bugsee;
+            _uploadFence = uploadFence;
+        }
+
+        public void onCreated(AndroidJavaObject report)
+        {
+            try
+            {
+                if (!AndroidManagedReportUploadFence.IsActive(_uploadFence))
+                    return;
+
+                if (report == null)
+                {
+                    Debug.LogError("[Bugsee] CreateReport failed.");
+                    return;
+                }
+
+                if (!AndroidManagedReportUploadFence.IsActive(_uploadFence))
+                    return;
+                _snapshot.ApplyTo(report);
+                if (!AndroidManagedReportUploadFence.IsActive(_uploadFence))
+                    return;
+                _bugsee.CallStatic("upload", report);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+            finally
+            {
+                _snapshot?.ReleaseSnapshotFiles();
+            }
+        }
+    }
 }
 #endif

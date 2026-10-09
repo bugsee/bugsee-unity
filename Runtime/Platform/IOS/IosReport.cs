@@ -36,10 +36,15 @@ namespace Bugsee.Platform.IOS
     {
         readonly IosReportDto _dto;
         readonly Dictionary<string, object> _attributes = new Dictionary<string, object>();
+        readonly HashSet<string> _removedAttributes = new HashSet<string>();
         readonly List<string> _labels = new List<string>();
         readonly List<IosAttachment> _attachments = new List<IosAttachment>();
         readonly bool _hadAttributeArray;
-        bool _attributesDirty;
+        bool _attributesOverlayDirty;
+        bool _attributesClearAll;
+        bool _labelsDirty;
+        bool _attachmentsDirty;
+        bool _attachmentsReplaceAll;
 
         public IosReport(IosReportDto dto)
         {
@@ -100,34 +105,47 @@ namespace Bugsee.Platform.IOS
         {
             if (string.IsNullOrEmpty(name)) return;
             _attributes[name] = value;
-            _attributesDirty = true;
+            _removedAttributes.Remove(name);
+            _attributesOverlayDirty = true;
         }
 
         public void RemoveAttribute(string name)
         {
             if (name == null) return;
             _attributes.Remove(name);
-            _attributesDirty = true;
+            _removedAttributes.Add(name);
+            _attributesOverlayDirty = true;
         }
 
         public void ClearAllAttributes()
         {
             _attributes.Clear();
-            _attributesDirty = true;
+            _removedAttributes.Clear();
+            _attributesClearAll = true;
+            _attributesOverlayDirty = false;
         }
 
         public IReadOnlyList<string> Labels => _labels;
 
         public void AddLabel(string label)
         {
-            if (!string.IsNullOrEmpty(label)) _labels.Add(label);
+            if (!string.IsNullOrEmpty(label))
+            {
+                _labels.Add(label);
+                _labelsDirty = true;
+            }
         }
 
-        public void ClearLabels() => _labels.Clear();
+        public void ClearLabels()
+        {
+            _labels.Clear();
+            _labelsDirty = true;
+        }
 
         public void SetLabels(IEnumerable<string> labels)
         {
             _labels.Clear();
+            _labelsDirty = true;
             if (labels == null) return;
             foreach (var label in labels)
             {
@@ -162,6 +180,7 @@ namespace Bugsee.Platform.IOS
             att.MimeType = mimeType ?? "application/octet-stream";
             att.SetSnapshotPath(snapshotPath);
             _attachments.Add(att);
+            _attachmentsDirty = true;
             return att;
         }
 
@@ -174,6 +193,7 @@ namespace Bugsee.Platform.IOS
             att.MimeType = mimeType ?? "application/octet-stream";
             att.SetAttachmentBytes(data);
             _attachments.Add(att);
+            _attachmentsDirty = true;
             return att;
         }
 
@@ -194,6 +214,8 @@ namespace Bugsee.Platform.IOS
             for (var i = 0; i < _attachments.Count; i++)
                 _attachments[i].DeleteSnapshotIfOwned();
             _attachments.Clear();
+            _attachmentsDirty = true;
+            _attachmentsReplaceAll = true;
         }
 
         public void ReleaseSnapshotFiles()
@@ -208,76 +230,164 @@ namespace Bugsee.Platform.IOS
             sb.Append('{');
             AppendString(sb, "summary", _dto.summary); sb.Append(',');
             AppendString(sb, "description", _dto.description); sb.Append(',');
-            AppendString(sb, "email", _dto.email); sb.Append(',');
-            sb.Append("\"severity\":").Append(_dto.severity).Append(',');
-
-            sb.Append("\"labels\":[");
-            for (var i = 0; i < _labels.Count; i++)
+            AppendString(sb, "email", _dto.email);
+            if (_dto.severity != 0)
             {
-                if (i > 0) sb.Append(',');
-                AppendRawString(sb, _labels[i]);
+                sb.Append(',');
+                sb.Append("\"severity\":").Append(_dto.severity);
             }
-            sb.Append("],");
+
+            if (_labelsDirty)
+            {
+                sb.Append(",\"labels\":[");
+                for (var i = 0; i < _labels.Count; i++)
+                {
+                    if (i > 0) sb.Append(',');
+                    IosJsonStringEncoding.AppendQuoted(sb, _labels[i]);
+                }
+                sb.Append(']');
+            }
 
             // Omit attributes when normalize failed to load them and user never
             // touched the map — otherwise ApplyReportDict would wipe native attrs.
-            if (_hadAttributeArray || _attributesDirty || _attributes.Count > 0)
+            var emitAttributes = _hadAttributeArray || _attributesClearAll || _attributesOverlayDirty
+                || _attributes.Count > 0 || _removedAttributes.Count > 0;
+            if (emitAttributes)
             {
-                sb.Append("\"attributes\":{");
-                var first = true;
-                foreach (var kv in _attributes)
+                if (!_hadAttributeArray && _removedAttributes.Count > 0)
                 {
-                    if (kv.Key == null) continue;
-                    if (!first) sb.Append(',');
-                    first = false;
-                    AppendRawString(sb, kv.Key);
-                    sb.Append(':');
-                    AppendValue(sb, kv.Value);
+                    sb.Append(",\"attributeRemovals\":[");
+                    var firstRemoval = true;
+                    foreach (var name in _removedAttributes)
+                    {
+                        if (!firstRemoval) sb.Append(',');
+                        firstRemoval = false;
+                        IosJsonStringEncoding.AppendQuoted(sb, name);
+                    }
+                    sb.Append(']');
                 }
-                sb.Append("},");
+
+                if (_attributes.Count > 0 || _attributesClearAll || _hadAttributeArray)
+                {
+                    sb.Append(",\"attributes\":{");
+                    var first = true;
+                    foreach (var kv in _attributes)
+                    {
+                        if (kv.Key == null) continue;
+                        if (!first) sb.Append(',');
+                        first = false;
+                        IosJsonStringEncoding.AppendQuoted(sb, kv.Key);
+                        sb.Append(':');
+                        AppendValue(sb, kv.Value);
+                    }
+                    sb.Append('}');
+                }
+
+                if (_attributesClearAll || _hadAttributeArray)
+                    sb.Append(",\"attributesReplaceAll\":true");
             }
 
-            sb.Append("\"attachments\":[");
-            for (var i = 0; i < _attachments.Count; i++)
+            if (_attachmentsDirty)
             {
-                if (i > 0) sb.Append(',');
-                sb.Append(_attachments[i].ToJsonObject());
+                sb.Append(",\"attachments\":[");
+                for (var i = 0; i < _attachments.Count; i++)
+                {
+                    if (i > 0) sb.Append(',');
+                    sb.Append(_attachments[i].ToJsonObject());
+                }
+                sb.Append(']');
+                if (_attachmentsReplaceAll)
+                    sb.Append(",\"attachmentsReplaceAll\":true");
             }
-            sb.Append("]}");
+
+            sb.Append('}');
             return sb.ToString();
         }
 
         static void AppendString(StringBuilder sb, string key, string value)
         {
-            AppendRawString(sb, key);
+            IosJsonStringEncoding.AppendQuoted(sb, key);
             sb.Append(':');
-            AppendRawString(sb, value);
+            IosJsonStringEncoding.AppendQuoted(sb, value);
         }
 
-        static void AppendRawString(StringBuilder sb, string value)
+        static void AppendRawString(StringBuilder sb, string value) =>
+            IosJsonStringEncoding.AppendQuoted(sb, value);
+
+        static void AppendValue(StringBuilder sb, object value)
+        {
+            if (value == null) { sb.Append("null"); return; }
+            if (value is bool b) { sb.Append(b ? "true" : "false"); return; }
+            if (value is float f)
+            {
+                if (float.IsNaN(f) || float.IsInfinity(f)) { sb.Append("null"); return; }
+                sb.Append(f.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                return;
+            }
+            if (value is double d)
+            {
+                if (double.IsNaN(d) || double.IsInfinity(d)) { sb.Append("null"); return; }
+                sb.Append(d.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                return;
+            }
+            if (value is byte || value is sbyte || value is short || value is ushort
+                || value is int || value is uint || value is long || value is ulong
+                || value is decimal)
+            {
+                sb.Append(Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture));
+                return;
+            }
+            IosJsonStringEncoding.AppendQuoted(sb, Convert.ToString(value));
+        }
+    }
+
+    static class IosJsonStringEncoding
+    {
+        internal static void AppendQuoted(StringBuilder sb, string value)
         {
             if (value == null)
             {
                 sb.Append("null");
                 return;
             }
-            sb.Append('"');
-            sb.Append(value.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r"));
-            sb.Append('"');
-        }
 
-        static void AppendValue(StringBuilder sb, object value)
-        {
-            if (value == null) { sb.Append("null"); return; }
-            if (value is bool b) { sb.Append(b ? "true" : "false"); return; }
-            if (value is byte || value is sbyte || value is short || value is ushort
-                || value is int || value is uint || value is long || value is ulong
-                || value is float || value is double || value is decimal)
+            sb.Append('"');
+            for (var i = 0; i < value.Length; i++)
             {
-                sb.Append(Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture));
-                return;
+                var c = value[i];
+                switch (c)
+                {
+                    case '\\':
+                        sb.Append("\\\\");
+                        break;
+                    case '"':
+                        sb.Append("\\\"");
+                        break;
+                    case '\b':
+                        sb.Append("\\b");
+                        break;
+                    case '\f':
+                        sb.Append("\\f");
+                        break;
+                    case '\n':
+                        sb.Append("\\n");
+                        break;
+                    case '\r':
+                        sb.Append("\\r");
+                        break;
+                    case '\t':
+                        sb.Append("\\t");
+                        break;
+                    default:
+                        if (c < '\u0020')
+                            sb.Append("\\u").Append(((int)c).ToString("x4"));
+                        else
+                            sb.Append(c);
+                        break;
+                }
             }
-            AppendRawString(sb, Convert.ToString(value));
+
+            sb.Append('"');
         }
     }
 
@@ -411,11 +521,9 @@ namespace Bugsee.Platform.IOS
 
             void Append(string key, string value)
             {
-                sb.Append('"').Append(key).Append("\":");
-                if (value == null) { sb.Append("null"); return; }
-                sb.Append('"')
-                    .Append(value.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r"))
-                    .Append('"');
+                IosJsonStringEncoding.AppendQuoted(sb, key);
+                sb.Append(':');
+                IosJsonStringEncoding.AppendQuoted(sb, value);
             }
         }
 
