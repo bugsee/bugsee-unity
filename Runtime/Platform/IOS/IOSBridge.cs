@@ -28,6 +28,8 @@ namespace Bugsee.Platform.IOS
 
         static IOSBridge _pendingManagedReportUpload;
 
+        int _reportUploadGeneration;
+
         bool _launched;
         bool _blackout;
         IosAppearance _appearance;
@@ -86,7 +88,7 @@ namespace Bugsee.Platform.IOS
                     _bugsee_clear_wrapper_channel();
                     _bugsee_stop();
                     _launched = false;
-                    _pendingManagedReportUpload = null;
+                    CancelManagedReportUpload();
                     _openReport = null;
                     _openReportHandle = null;
                     _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
@@ -137,27 +139,35 @@ namespace Bugsee.Platform.IOS
 
         public void DeleteCollectedDataOnDevice()
         {
-            if (!GetLaunched())
+            if (GetLaunched())
             {
-                _bugsee_delete_collected_data();
+                if (!MainThreadDispatcher.RunSyncLifecycle(() =>
+                    {
+                        HostLogForwarder.Uninstall();
+                        ExceptionPipeline.Uninstall();
+                        _bugsee_clear_wrapper_channel();
+                        CancelManagedReportUpload();
+                        _openReport = null;
+                        _openReportHandle = null;
+                        _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
+                        _launched = false;
+                        _bugsee_delete_collected_data();
+                    }))
+                {
+                    Debug.LogError("[Bugsee] DeleteCollectedDataOnDevice timed out waiting for the Unity main thread.");
+                }
+
                 return;
             }
 
-            if (!MainThreadDispatcher.RunSyncLifecycle(() =>
-                {
-                    HostLogForwarder.Uninstall();
-                    ExceptionPipeline.Uninstall();
-                    _bugsee_clear_wrapper_channel();
-                    _pendingManagedReportUpload = null;
-                    _openReport = null;
-                    _openReportHandle = null;
-                    _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
-                    _launched = false;
-                    _bugsee_stop_then_delete_collected_data();
-                }))
-            {
-                Debug.LogError("[Bugsee] DeleteCollectedDataOnDevice timed out waiting for the Unity main thread.");
-            }
+            _bugsee_delete_collected_data();
+        }
+
+        void CancelManagedReportUpload()
+        {
+            _reportUploadGeneration++;
+            _pendingManagedReportUpload = null;
+            _bugsee_cancel_managed_report_upload();
         }
 
         public IReport CreateReport()
@@ -175,6 +185,10 @@ namespace Bugsee.Platform.IOS
                 throw new ArgumentNullException(nameof(report));
             if (!ReferenceEquals(report, _openReportHandle))
                 throw new ArgumentException("Report was not created by CreateReport.", nameof(report));
+            if (ReferenceEquals(_pendingManagedReportUpload, this))
+                _bugsee_cancel_managed_report_upload();
+            _pendingManagedReportUpload = null;
+            _reportUploadGeneration++;
             _openReport = null;
             _openReportHandle = null;
         }
@@ -188,22 +202,29 @@ namespace Bugsee.Platform.IOS
             if (_pendingManagedReportUpload != null)
                 throw new InvalidOperationException("a report upload is already in progress");
             var json = _openReport.ToResultJson();
+            var generation = ++_reportUploadGeneration;
+            _pendingUploadGeneration = generation;
             _pendingManagedReportUpload = this;
             _bugsee_upload_managed_report(json, OnManagedReportCreateCompletion);
         }
+
+        static int _pendingUploadGeneration;
 
         [MonoPInvokeCallback(typeof(ManagedReportUploadNativeCallback))]
         static void OnManagedReportCreateCompletion(int succeeded)
         {
             var bridge = _pendingManagedReportUpload;
+            var generation = _pendingUploadGeneration;
             _pendingManagedReportUpload = null;
             if (bridge == null)
                 return;
-            bridge.FinishManagedReportUpload(succeeded != 0);
+            bridge.FinishManagedReportUpload(succeeded != 0, generation);
         }
 
-        void FinishManagedReportUpload(bool succeeded)
+        void FinishManagedReportUpload(bool succeeded, int generation)
         {
+            if (generation != _reportUploadGeneration)
+                return;
             _openReport = null;
             _openReportHandle = null;
             if (!succeeded)
@@ -447,7 +468,7 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_channel_network(string eventJson, int requiresFiltering);
         [DllImport("__Internal")] static extern void _bugsee_channel_breadcrumb(string category, string message, int iosLevel);
         [DllImport("__Internal")] static extern void _bugsee_delete_collected_data();
-        [DllImport("__Internal")] static extern void _bugsee_stop_then_delete_collected_data();
+        [DllImport("__Internal")] static extern void _bugsee_cancel_managed_report_upload();
         [DllImport("__Internal")] static extern void _bugsee_upload_managed_report(
             string reportJson,
             ManagedReportUploadNativeCallback callback);

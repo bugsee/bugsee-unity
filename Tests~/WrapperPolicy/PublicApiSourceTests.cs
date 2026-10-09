@@ -193,16 +193,13 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Ios_delete_when_launched_chains_stop_completion_before_delete()
+        public void Ios_delete_chains_stop_completion_before_delete_when_instance_exists()
         {
             string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
-            string body = ExtractNativeFunctionBody(bridge, "_bugsee_stop_then_delete_collected_data");
+            string body = ExtractNativeFunctionBody(bridge, "_bugsee_delete_collected_data");
             Assert.That(body, Does.Contain("[Bugsee stop:"));
             Assert.That(body, Does.Contain("deleteCollectedDataOnDevice:YES"));
-
-            string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
-            string delete = ExtractMethodBody(ios, "public void DeleteCollectedDataOnDevice()");
-            Assert.That(delete, Does.Contain("_bugsee_stop_then_delete_collected_data"));
+            Assert.That(body, Does.Contain("sharedInstance"));
         }
 
         [Test]
@@ -270,13 +267,13 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Ios_discard_report_clears_managed_slot_without_native()
+        public void Ios_discard_report_clears_managed_slot()
         {
             string body = ExtractMethodBody(
                 File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs")),
                 "public void DiscardReport(IReport report)");
-            Assert.That(body, Does.Not.Contain("_bugsee_"));
             Assert.That(body, Does.Contain("_openReport = null"));
+            Assert.That(body, Does.Contain("_reportUploadGeneration++"));
         }
 
         [Test]

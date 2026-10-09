@@ -46,6 +46,8 @@ static void BugseeRunOnMain(dispatch_block_t block)
 
 typedef void (*BugseeManagedReportCreateCallback)(int succeeded);
 
+static BOOL gCancelManagedReportUpload;
+
 static void BugseeBridgeApplyReportDict(id<BGSReportContract> report, NSDictionary *d)
 {
     if (![d isKindOfClass:[NSDictionary class]] || !report) {
@@ -442,21 +444,24 @@ void _bugsee_free(char *ptr)
 void _bugsee_delete_collected_data(void)
 {
     BugseeRunOnMain(^{
-        [Bugsee deleteCollectedDataOnDevice:YES completion:nil];
+        if ([Bugsee sharedInstance] != nil) {
+            [Bugsee stop:^{
+                [Bugsee deleteCollectedDataOnDevice:YES completion:nil];
+            }];
+        } else {
+            [Bugsee deleteCollectedDataOnDevice:YES completion:nil];
+        }
     });
 }
 
-void _bugsee_stop_then_delete_collected_data(void)
+void _bugsee_cancel_managed_report_upload(void)
 {
-    BugseeRunOnMain(^{
-        [Bugsee stop:^{
-            [Bugsee deleteCollectedDataOnDevice:YES completion:nil];
-        }];
-    });
+    gCancelManagedReportUpload = YES;
 }
 
 void _bugsee_upload_managed_report(const char *reportJson, BugseeManagedReportCreateCallback callback)
 {
+    gCancelManagedReportUpload = NO;
     if (!reportJson) {
         if (callback) {
             callback(0);
@@ -465,6 +470,12 @@ void _bugsee_upload_managed_report(const char *reportJson, BugseeManagedReportCr
     }
     NSString *jsonCopy = [NSString stringWithUTF8String:reportJson];
     [Bugsee createReportWithCompletion:^(BugseeExtendedReport *_Nullable report) {
+        if (gCancelManagedReportUpload) {
+            if (callback) {
+                callback(0);
+            }
+            return;
+        }
         if (!report) {
             if (callback) {
                 callback(0);
@@ -478,7 +489,9 @@ void _bugsee_upload_managed_report(const char *reportJson, BugseeManagedReportCr
         if (callback) {
             callback(1);
         }
-        [Bugsee uploadReport:report completion:nil];
+        if (!gCancelManagedReportUpload) {
+            [Bugsee uploadReport:report completion:nil];
+        }
     }];
 }
 
@@ -523,7 +536,7 @@ void _bugsee_appearance_set_string(const char *propertyName, const char *propert
 char *_bugsee_appearance_get_string(const char *propertyName) { (void)propertyName; return NULL; }
 void _bugsee_free(char *ptr) { (void)ptr; }
 void _bugsee_delete_collected_data(void) {}
-void _bugsee_stop_then_delete_collected_data(void) {}
+void _bugsee_cancel_managed_report_upload(void) {}
 void _bugsee_upload_managed_report(const char *reportJson, BugseeManagedReportCreateCallback callback)
 {
     (void)reportJson;
