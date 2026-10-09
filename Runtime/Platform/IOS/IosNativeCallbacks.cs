@@ -1,5 +1,6 @@
 #if UNITY_IOS && !UNITY_EDITOR
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using AOT;
 using Bugsee.Contracts.Exchange;
@@ -24,6 +25,7 @@ namespace Bugsee.Platform.IOS
         static EventFilter<ILogEvent> _logFilter;
         static EventFilter<IBreadcrumb> _breadcrumbFilter;
         static IReportHandler _reportHandler;
+        static bool _hostContextPublished;
 
         public static void EnsureRegistered()
         {
@@ -35,7 +37,54 @@ namespace Bugsee.Platform.IOS
         public static void EnsureWrapper()
         {
             EnsureRegistered();
-            _bugsee_ensure_wrapper(BugseePackageVersion.Version, BugseePackageVersion.Build);
+            MainThreadDispatcher.Ensure();
+            void Work()
+            {
+                PublishHostContext();
+                _bugsee_ensure_wrapper(BugseePackageVersion.Version, BugseePackageVersion.Build);
+            }
+
+            if (MainThreadDispatcher.IsMainThread)
+            {
+                Work();
+            }
+            else
+            {
+                MainThreadDispatcher.RunSync(Work);
+            }
+        }
+
+        static void PublishHostContext()
+        {
+            if (_hostContextPublished)
+            {
+                return;
+            }
+
+            var context = new Dictionary<string, object>
+            {
+                ["unity_version"] = Application.unityVersion ?? "",
+                ["unity_platform"] = Application.platform.ToString(),
+                ["product_name"] = Application.productName ?? "",
+            };
+            _bugsee_set_wrapper_context(WrapperContextJson(context));
+            _hostContextPublished = true;
+        }
+
+        static string WrapperContextJson(Dictionary<string, object> map)
+        {
+            var parts = new List<string>(map.Count);
+            foreach (var kv in map)
+            {
+                if (kv.Key == null || kv.Value == null)
+                {
+                    continue;
+                }
+
+                parts.Add(JsonString(kv.Key) + ":" + JsonString(kv.Value.ToString()));
+            }
+
+            return "{" + string.Join(",", parts.ToArray()) + "}";
         }
 
         public static void SetNetworkFilter(EventFilter<INetworkEvent> filter)
@@ -405,6 +454,9 @@ namespace Bugsee.Platform.IOS
 
         [DllImport("__Internal")]
         static extern void _bugsee_ensure_wrapper(string version, string build);
+
+        [DllImport("__Internal")]
+        static extern void _bugsee_set_wrapper_context(string json);
 
         [DllImport("__Internal")]
         static extern void _bugsee_set_network_filter_enabled(int enabled);
