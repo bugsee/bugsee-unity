@@ -182,11 +182,25 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void Android_delete_collected_data_stops_then_deletes()
         {
-            string body = ExtractMethodBody(
-                File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs")),
-                "public void DeleteCollectedDataOnDevice()");
-            Assert.That(body, Does.Match(new Regex(@"if\s*\(\s*GetLaunched\s*\(\s*\)\s*\)\s*Stop\s*\(\s*\)\s*;")));
-            Assert.That(body, Does.Contain("deleteCollectedDataOnDevice"));
+            string android = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs"));
+            string body = ExtractMethodBody(android, "public void DeleteCollectedDataOnDevice()");
+            Assert.That(body, Does.Contain("Stop(InvokeDeleteCollectedDataOnDevice)"));
+            string invoke = ExtractMethodBody(android, "void InvokeDeleteCollectedDataOnDevice()");
+            Assert.That(invoke, Does.Contain("deleteCollectedDataOnDevice"));
+            Assert.That(invoke, Does.Contain("true"));
+        }
+
+        [Test]
+        public void Ios_delete_when_launched_chains_stop_completion_before_delete()
+        {
+            string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
+            string body = ExtractNativeFunctionBody(bridge, "_bugsee_stop_then_delete_collected_data");
+            Assert.That(body, Does.Contain("[Bugsee stop:"));
+            Assert.That(body, Does.Contain("deleteCollectedDataOnDevice:YES"));
+
+            string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
+            string delete = ExtractMethodBody(ios, "public void DeleteCollectedDataOnDevice()");
+            Assert.That(delete, Does.Contain("_bugsee_stop_then_delete_collected_data"));
         }
 
         [Test]

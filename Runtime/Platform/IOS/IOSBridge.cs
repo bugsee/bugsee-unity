@@ -137,9 +137,27 @@ namespace Bugsee.Platform.IOS
 
         public void DeleteCollectedDataOnDevice()
         {
-            if (GetLaunched())
-                Stop();
-            _bugsee_delete_collected_data();
+            if (!GetLaunched())
+            {
+                _bugsee_delete_collected_data();
+                return;
+            }
+
+            if (!MainThreadDispatcher.RunSyncLifecycle(() =>
+                {
+                    HostLogForwarder.Uninstall();
+                    ExceptionPipeline.Uninstall();
+                    _bugsee_clear_wrapper_channel();
+                    _pendingManagedReportUpload = null;
+                    _openReport = null;
+                    _openReportHandle = null;
+                    _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
+                    _launched = false;
+                    _bugsee_stop_then_delete_collected_data();
+                }))
+            {
+                Debug.LogError("[Bugsee] DeleteCollectedDataOnDevice timed out waiting for the Unity main thread.");
+            }
         }
 
         public IReport CreateReport()
@@ -429,6 +447,7 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_channel_network(string eventJson, int requiresFiltering);
         [DllImport("__Internal")] static extern void _bugsee_channel_breadcrumb(string category, string message, int iosLevel);
         [DllImport("__Internal")] static extern void _bugsee_delete_collected_data();
+        [DllImport("__Internal")] static extern void _bugsee_stop_then_delete_collected_data();
         [DllImport("__Internal")] static extern void _bugsee_upload_managed_report(
             string reportJson,
             ManagedReportUploadNativeCallback callback);

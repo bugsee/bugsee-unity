@@ -443,8 +443,17 @@ namespace Bugsee.Platform.Android
         public void DeleteCollectedDataOnDevice()
         {
             if (GetLaunched())
-                Stop();
-            _bugsee.CallStatic("deleteCollectedDataOnDevice");
+            {
+                Stop(InvokeDeleteCollectedDataOnDevice);
+                return;
+            }
+
+            InvokeDeleteCollectedDataOnDevice();
+        }
+
+        void InvokeDeleteCollectedDataOnDevice()
+        {
+            _bugsee.CallStatic("deleteCollectedDataOnDevice", true, new RunnableProxy(() => { }));
         }
 
         public IReport CreateReport()
