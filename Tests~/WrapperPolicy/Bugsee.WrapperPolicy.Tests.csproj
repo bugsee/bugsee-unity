@@ -13,6 +13,7 @@
   <ItemGroup>
     <Compile Include="..\..\Runtime\WrapperPolicy\**\*.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\IssueSeverity.cs" />
+    <Compile Include="..\..\Runtime\Contracts\Options\LogLevel.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\Options.cs" />
     <Compile Include="**\*Tests.cs" />
   </ItemGroup>
