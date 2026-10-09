@@ -7,6 +7,7 @@ using Bugsee.Contracts.Feedback;
 using Bugsee.Contracts.Lifecycle;
 using Bugsee.Contracts.Options;
 using Bugsee.Contracts.Reporting;
+using Bugsee;
 using Bugsee.Internal;
 using Bugsee.Platform;
 using UnityEngine;
@@ -19,7 +20,7 @@ namespace Bugsee.Platform.Android
         const string FeedbackClass = "com.bugsee.library.contracts.extensions.Feedback";
 
         readonly AndroidJavaClass _bugsee = new AndroidJavaClass(BugseeClass);
-        BugseeWrapperProxy _wrapper;
+        bool _wrapperContextRefined;
         ReportHandlerProxy _reportHandlerProxy;
         LifecycleListenerProxy _lifecycleProxy;
         EventFilterProxy<INetworkEvent> _networkFilterProxy;
@@ -34,10 +35,23 @@ namespace Bugsee.Platform.Android
 
         public void EnsureWrapperRegistered()
         {
-            if (_wrapper != null) return;
-            BugseeWrapperProxy.CacheHostContext();
-            _wrapper = new BugseeWrapperProxy();
-            _bugsee.CallStatic("setWrapper", _wrapper);
+            if (_wrapperContextRefined) return;
+            _wrapperContextRefined = true;
+#if ENABLE_IL2CPP
+            const string scriptingBackend = "il2cpp";
+#else
+            const string scriptingBackend = "mono";
+#endif
+            using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
+            {
+                wrapper.CallStatic(
+                    "refineContext",
+                    Application.unityVersion ?? "unknown",
+                    Application.platform.ToString(),
+                    scriptingBackend,
+                    Application.productName ?? "unknown",
+                    BugseePackageVersion.Version);
+            }
         }
 
         AndroidJavaObject CurrentActivity()
