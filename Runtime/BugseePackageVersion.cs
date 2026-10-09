@@ -7,7 +7,9 @@ namespace Bugsee
     {
         public const string Version = "0.1.0";
         public const string Build = "dev";
-        public const string AndroidSdkVersion = "7.1.1";
-        public const string IosSdkSource = "local-nextgen";
+        public const string AndroidSdkVersion = "7.1.4";
+        public const string IosSdkSource = "https://github.com/bugsee/bugsee-cocoa.git";
+        public const string IosSdkBranch = "nextgen";
+        public const string IosSdkCommit = "fe9ceb89d8a1948c03e2d754019e2a933ad7698a";
     }
 }

@@ -136,6 +136,18 @@ namespace Bugsee.Platform.Android
             try { managedData = AndroidJavaConverters.UnboxLifecycleData(data); }
             catch (Exception ex) { Debug.LogException(ex); }
 
+            DispatchLifecycle(eventType, managedData);
+        }
+
+        // Android may pass Object as a JSON String; Unity JNI matches that exact
+        // signature and otherwise logs "No such proxy method: onEvent(String,String)".
+        public void onEvent(string eventType, string data)
+        {
+            DispatchLifecycle(eventType, data);
+        }
+
+        static void DispatchLifecycle(string eventType, object managedData)
+        {
             MainThreadDispatcher.Run(() =>
             {
                 // global:: avoids Bugsee → class Bugsee.Bugsee name collision in this namespace.

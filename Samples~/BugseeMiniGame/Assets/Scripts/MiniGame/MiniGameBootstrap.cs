@@ -9,6 +9,11 @@ namespace Bugsee.Sample
     public sealed class MiniGameBootstrap : MonoBehaviour
     {
         [SerializeField] string bugseeAppToken = "";
+        /// <summary>
+        /// Device → local appserver tunnel. Android: no /v2. iOS: with /v2.
+        /// Leave empty to use production/staging default API.
+        /// </summary>
+        [SerializeField] string bugseeEndpoint = "";
         [SerializeField] int worldSeed = 42;
 
         static bool _worldBuilt;
@@ -69,7 +74,9 @@ namespace Bugsee.Sample
 
             var bugseeGo = new GameObject("BugseeSample");
             var bootstrap = bugseeGo.AddComponent<BugseeSampleBootstrap>();
-            bootstrap.Configure(bugseeAppToken, launchOnStart: true);
+            var token = ResolveAppToken();
+            var endpoint = ResolveEndpoint();
+            bootstrap.Configure(token, launchOnStart: true, endpoint);
 
             var playerGo = new GameObject("Player");
             playerGo.transform.position = world != null ? world.SpawnWorldPos : Vector3.zero;
@@ -105,6 +112,16 @@ namespace Bugsee.Sample
             debug.Init(bootstrap);
             hudGo.AddComponent<BugseeFloatingHud>().Init(bootstrap, debug);
             BugseeActionForms.Ensure(bootstrap);
+        }
+
+        string ResolveAppToken()
+        {
+            return string.IsNullOrWhiteSpace(bugseeAppToken) ? "" : bugseeAppToken.Trim();
+        }
+
+        string ResolveEndpoint()
+        {
+            return string.IsNullOrWhiteSpace(bugseeEndpoint) ? "" : bugseeEndpoint.Trim();
         }
 
         static Texture2D LoadLogoTexture()

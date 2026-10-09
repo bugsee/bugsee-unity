@@ -9,9 +9,11 @@ namespace Bugsee.Editor
     /// <summary>
     /// Wires the Bugsee iOS SDK into the generated Xcode project via Swift Package Manager.
     ///
-    /// Until nextgen is published to github.com/bugsee/spm, we copy the in-repo local SPM
-    /// package (Native~/ios/Bugsee) next to the Xcode project and add an XCLocalSwiftPackageReference.
-    /// Flip <see cref="UseRemoteSpm"/> when the remote package is ready.
+    /// Native SDK pin is github.com/bugsee/bugsee-cocoa (nextgen SHA in
+    /// <c>BugseePackageVersion.IosSdkCommit</c>). Xcode consumes the vendored package
+    /// under Native~/ios/Bugsee because cocoa nextgen ships Package.swift as a release
+    /// template, not a resolvable SPM package. Flip <see cref="UseRemoteSpm"/> when a
+    /// binary feed (bugsee/spm or cocoa Package.swift) is ready.
     /// </summary>
     public static class BugseeIosSpmPostProcess
     {

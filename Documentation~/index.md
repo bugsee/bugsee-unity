@@ -151,7 +151,7 @@ Device/CI proof remains manual.
 ### Milestone S2 — Android C# file/line
 
 1. IL2CPP Android build; Create symbols.zip / **FULL** native debug symbols.
-2. NDK enabled (`bugsee-android-ndk:7.1.1` + Gradle `ndk { enabled = true }` on Unity 6+).
+2. NDK enabled (`bugsee-android-ndk:7.1.4` + Gradle `ndk { enabled = true }` on Unity 6+).
 3. Post-build uploads `elf` + `il2cpp-linemap` (multi-ABI UUIDs).
 4. Native fatal on device; viewer shows **C# file/line**.
 
@@ -163,10 +163,12 @@ Device/CI proof remains manual.
 4. **Mode B (in progress):** Release IL2CPP + uploaded dSYM/ELF + `il2cpp-linemap` → `LogException` on a **thrown** exception emits native IPs for worker LNM. Validate on device before treating as parity with Sentry.
 5. **Mode C:** MethodMap demangles mangled names when module UUID(s) match (names only if no addresses/lines).
 
+Managed error/crash **grouping** (one signature per event, Unity-primary when strong): [exception-signatures.md](exception-signatures.md).
+
 ## Native dependencies
 
-- **Android:** Maven `com.bugsee:bugsee-android:7.1.1` + `bugsee-android-ndk:7.1.1` via EDM4U (Gradle plugin `4.0.5`).
-- **iOS:** local Swift package under `Native~/ios/Bugsee` until nextgen is on [bugsee/spm](https://github.com/bugsee/spm). C bridge: `Plugins/iOS/BugseeUnityBridge.mm` + `BugseeUnityCallbacks.mm`.
+- **Android:** Maven `com.bugsee:bugsee-android:7.1.4` + `com.bugsee:bugsee-android-ndk:7.1.4` via EDM4U (Gradle plugin `4.0.6`). Core publishes no transitives; NDK is a separate artifact and must be declared. 7.1.4 types fragment secure-view overloads as `Object`, so Unity JNI does not need `androidx.fragment`.
+- **iOS:** native SDK pin is [`bugsee-cocoa`](https://github.com/bugsee/bugsee-cocoa) `nextgen` `@fe9ceb89`. Xcode links the vendored Swift package under `Native~/ios/Bugsee`. C bridge: `Plugins/iOS/BugseeUnityBridge.mm` + `BugseeUnityCallbacks.mm`.
 
 ### iOS bridge status
 

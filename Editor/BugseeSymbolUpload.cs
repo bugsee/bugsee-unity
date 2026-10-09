@@ -71,10 +71,10 @@ namespace Bugsee.Editor
             var roots = CollectRoots(report);
             UploadIfFound(roots, "**/mapping.txt", "proguard", version, build, preferNewest: true);
             // Unity "Create symbols.zip" / Gradle native debug symbols.
-            UploadSymbolsZipOrElf(roots, version, build);
+            UploadSymbolsZipOrElf(report, roots, version, build);
         }
 
-        static void UploadSymbolsZipOrElf(List<string> roots, string version, string build)
+        static void UploadSymbolsZipOrElf(BuildReport report, List<string> roots, string version, string build)
         {
             string bestZip = null;
             DateTime bestZipTime = DateTime.MinValue;
@@ -133,19 +133,28 @@ namespace Bugsee.Editor
             if (bestZip != null)
             {
                 // bugsee-cli --type elf accepts a zip of ELF objects (Unity symbols.zip layout).
+                // --uuid is the BUILD_UUID correlation key (required by CLI); each .so is still
+                // keyed by its own GNU build-id.
+                var buildUuid = BugseeBuildIdentity.ResolveBuildUuid(report);
                 Debug.Log($"Bugsee: uploading Android symbols zip via {BugseeCliRunner.CliPath}: {bestZip}");
-                var exit = BugseeCliRunner.Run(new[]
+                var args = new List<string>
                 {
                     "debug-files", "upload", bestZip,
                     "--type", "elf",
                     "--version", version,
                     "--build", build,
-                });
+                };
+                if (!string.IsNullOrEmpty(buildUuid))
+                {
+                    args.Add("--uuid");
+                    args.Add(buildUuid);
+                }
+                var exit = BugseeCliRunner.Run(args);
                 if (exit != 0)
                 {
                     Debug.LogWarning(
                         $"Bugsee: bugsee-cli elf upload failed (exit {exit}) — build continues. " +
-                        "Verify Unity symbols.zip layout (per-ABI folders with .so).");
+                        "Verify Unity symbols.zip layout (per-ABI folders with .so) and --uuid.");
                 }
                 return;
             }

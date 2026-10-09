@@ -40,17 +40,16 @@ Add the OpenUPM scoped registry to your project’s `Packages/manifest.json` if 
 
 | Platform | Integration | Current pin |
 |---|---|---|
-| **Android** | [EDM4U](https://github.com/googlesamples/unity-jar-resolver) → Maven Central | `bugsee-android:7.1.1` + `bugsee-android-ndk:7.1.1` |
-| **iOS** | Swift Package Manager + `Plugins/iOS/BugseeUnityBridge.mm` | **Local** package under `Native~/ios/Bugsee` until [`bugsee/spm`](https://github.com/bugsee/spm) |
+| **Android** | [EDM4U](https://github.com/googlesamples/unity-jar-resolver) → Maven Central | `bugsee-android:7.1.4` + `bugsee-android-ndk:7.1.4` |
+| **iOS** | Swift Package Manager + `Plugins/iOS/BugseeUnityBridge.mm` | [`bugsee-cocoa`](https://github.com/bugsee/bugsee-cocoa) `nextgen` `@fe9ceb89` |
 
 **Android stack**
 
 | Piece | Status |
 |---|---|
-| `bugsee-android` | Default via EDM **7.1.1** |
-| `bugsee-android-ndk` | Enabled (native fatal capture for IL2CPP primary LNM) |
-| Gradle plugin `4.0.5` | Applied on launcher by `BugseeAndroidGradleSetup` on Unity 6+ (`ndk { enabled = true }`) |
-| kotlin-stdlib | Still excluded in Unity `mainTemplate` if `.module` lists it |
+| `bugsee-android` | Default via EDM **7.1.4** (no Maven transitives) |
+| `bugsee-android-ndk` | Declared explicitly (native fatal capture for IL2CPP primary LNM) |
+| Gradle plugin `4.0.6` | Applied on launcher by `BugseeAndroidGradleSetup` on Unity 6+ (`ndk { enabled = true }`) |
 
 ### Refreshing native artifacts
 

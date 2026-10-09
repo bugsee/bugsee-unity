@@ -14,16 +14,15 @@ namespace Bugsee.Editor
     ///
     /// Plugin 4.x requires AGP ≥ 8.6 / Gradle ≥ 8.7 (Unity 6+). On Unity 2021.3 the
     /// plugin apply is skipped by default. EDM deps: <c>bugsee-android</c> +
-    /// <c>bugsee-android-ndk</c> 7.1.1. Gradle .module may still list kotlin-stdlib —
-    /// <see cref="EnsureKotlinStdlibExclusion"/> strips it for Unity D8.
+    /// <c>bugsee-android-ndk</c> 7.1.4 (core publishes no transitives; NDK is explicit).
     /// </summary>
     [InitializeOnLoad]
     sealed class BugseeAndroidGradleSetup : IPreprocessBuildWithReport
     {
         public int callbackOrder => 10;
 
-        public const string GradlePluginVersion = "4.0.5";
-        public const string SdkVersion = "7.1.1";
+        public const string GradlePluginVersion = "4.0.6";
+        public const string SdkVersion = "7.1.4";
 
         const string PrefForcePlugin = "Bugsee.Android.ForceGradlePlugin";
         const string Marker = "// Bugsee Gradle plugin";
@@ -75,7 +74,7 @@ namespace Bugsee.Editor
             bool applyPlugin = ShouldApplyGradlePlugin();
             WriteBaseProjectTemplate(applyPlugin);
             WriteLauncherTemplate(applyPlugin);
-            EnsureKotlinStdlibExclusion();
+            RemoveStaleKotlinStdlibExclusion();
 
             if (silent)
             {
@@ -97,11 +96,10 @@ namespace Bugsee.Editor
         }
 
         /// <summary>
-        /// bugsee-android publishes empty POM deps but Gradle Module Metadata may still
-        /// require kotlin-stdlib. Prefer .module over POM → Unity 2021.3 D8 fails.
-        /// Patch mainTemplate outside the EDM resolver markers so Force Resolve keeps it.
+        /// 7.1.4+ ships empty POM and Gradle .module metadata. Drop the kotlin-stdlib
+        /// exclusion previously patched into mainTemplate for older .module files.
         /// </summary>
-        static void EnsureKotlinStdlibExclusion()
+        static void RemoveStaleKotlinStdlibExclusion()
         {
             string path = Path.Combine(Application.dataPath, "Plugins", "Android", "mainTemplate.gradle");
             if (!File.Exists(path))
@@ -110,37 +108,37 @@ namespace Bugsee.Editor
             }
 
             string text = File.ReadAllText(path);
-            if (text.Contains(KotlinExcludeMarker))
+            int start = text.IndexOf(KotlinExcludeMarker, StringComparison.Ordinal);
+            if (start < 0)
             {
                 return;
             }
 
-            const string block =
-                "\n" + KotlinExcludeMarker + " still requires kotlin-stdlib 2.1\n" +
-                "// (POM is empty). Unity 2021.3 D8 cannot dex it — exclude while .module lists it.\n" +
-                "configurations.configureEach {\n" +
-                "    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib'\n" +
-                "    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'\n" +
-                "    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'\n" +
-                "}\n";
-
-            const string depsEnd = "**DEPS**}";
-            int idx = text.IndexOf(depsEnd, StringComparison.Ordinal);
-            if (idx >= 0)
+            if (start > 0 && text[start - 1] == '\n')
             {
-                text = text.Insert(idx + depsEnd.Length, block);
-                WriteIfChanged(path, text);
+                start--;
+            }
+
+            int brace = text.IndexOf("configurations.configureEach", start, StringComparison.Ordinal);
+            if (brace < 0)
+            {
                 return;
             }
 
-            // Fallback when Unity/EDM already expanded **DEPS**.
-            const string resolverExclusions = "// Android Resolver Exclusions Start";
-            idx = text.IndexOf(resolverExclusions, StringComparison.Ordinal);
-            if (idx >= 0)
+            int end = text.IndexOf('}', brace);
+            if (end < 0)
             {
-                text = text.Insert(idx, block + "\n");
-                WriteIfChanged(path, text);
+                return;
             }
+
+            end++;
+            if (end < text.Length && text[end] == '\n')
+            {
+                end++;
+            }
+
+            text = text.Remove(start, end - start);
+            WriteIfChanged(path, text);
         }
 
         static bool ShouldApplyGradlePlugin()

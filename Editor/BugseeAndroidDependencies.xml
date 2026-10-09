@@ -1,10 +1,12 @@
 <dependencies>
   <androidPackages>
     <!--
-      Android SDK 7.1.1 + NDK. POM deps are clean; Gradle .module metadata may still
-      list kotlin-stdlib — BugseeAndroidGradleSetup keeps the Unity exclusion.
+      Android SDK 7.1.4 publishes no Maven transitives (POM and Gradle .module are
+      empty). NDK is a separate artifact and is not pulled by the core AAR — declare
+      both. androidx.fragment is no longer required: 7.1.4 types fragment secure-view
+      overloads as Object so Unity JNI reflection can load Bugsee without Fragment.
     -->
-    <androidPackage spec="com.bugsee:bugsee-android:7.1.1" />
-    <androidPackage spec="com.bugsee:bugsee-android-ndk:7.1.1" />
+    <androidPackage spec="com.bugsee:bugsee-android:7.1.4" />
+    <androidPackage spec="com.bugsee:bugsee-android-ndk:7.1.4" />
   </androidPackages>
 </dependencies>

@@ -5,15 +5,15 @@ Legacy foundation: `cross/unity`. Min Unity: **2021.3**.
 
 ## Understanding
 
-- **What:** UPM-first Unity SDK whose public C# API mirrors Android SDK **7.x** (`Bugsee` facade + public `contracts`), with platform bridges for Android (EDM4U/Maven) and iOS (SPM; local package until nextgen is on `bugsee/spm`).
+- **What:** UPM-first Unity SDK whose public C# API mirrors Android SDK **7.x** (`Bugsee` facade + public `contracts`), with platform bridges for Android (EDM4U/Maven) and iOS (SPM; native pin is `bugsee-cocoa` nextgen).
 - **Why:** Replace legacy `.unitypackage` / `Assets/Plugins` distribution; align with 7.0 redesign and other wrappers (Flutter 7.x pattern).
 - **Who:** Unity game/app developers; Bugsee maintainers.
 - **Non-goals (initial implementation):** OpenUPM publish, dual release repo, Asset Store `.unitypackage`, full iOS nextgen API parity deep-dive before Android bridge works, RN 6.x bridge patterns.
 
 ## Assumptions
 
-1. Android pin: Maven `com.bugsee:bugsee-android:7.1.1` + `bugsee-android-ndk:7.1.1` via EDM4U; Gradle plugin `4.0.5`. Gradle `.module` may still list kotlin-stdlib — Unity `mainTemplate.gradle` keeps the exclusion. Feedback AAR stays optional.
-2. iOS: local SPM under `Native~/ios/Bugsee` until remote `github.com/bugsee/spm`.
+1. Android pin: Maven `com.bugsee:bugsee-android:7.1.4` + `bugsee-android-ndk:7.1.4` via EDM4U; Gradle plugin `4.0.6`. Core publishes no transitives (no kotlin-stdlib / fragment pull); NDK must be declared. Feedback AAR stays optional.
+2. iOS: pin [`bugsee/bugsee-cocoa`](https://github.com/bugsee/bugsee-cocoa) `nextgen` by commit (`IOS_SDK_COMMIT` in `Tools~/versions.env`). Xcode still consumes a vendored SPM wrapper under `Native~/ios/Bugsee` because cocoa’s `Package.swift` is a release template, not a consumable package.
 3. Public C# surface mirrors Android 7.0; intentional C#/.NET deviations allowed (see below).
 4. SDK-internal contracts (`capture` aggregators, most `contracts.internal.*` except what wrappers need for `BugseeWrapper`) are **not** public C# API.
 5. Optional Gradle network extensions (OkHttp/Ktor/Cronet) are out of default Unity deps unless explicitly added later.
@@ -36,6 +36,7 @@ Legacy foundation: `cross/unity`. Min Unity: **2021.3**.
 | `BugseeWrapper` | Unity implements + `Bugsee.setWrapper` | App-only listeners | Required wrapper contract for metadata, secure rects, report/lifecycle hooks, `requestData` |
 | Filters/handlers | First-class C# callbacks + JNI proxies | Omit (legacy gap) | Parity with Android/Flutter |
 | C# deviations | Allowed where idioms win | Pure Java-shaped API | Better Unity/.NET DX |
+| Managed exception signatures | One key per event; Unity primary when strong (RVA / file:line); weak = canonical method tokens; no append | Worker always rehash; dual Unity+native keys | Merge set must stay bounded; raw stacks are not device-stable. See `Documentation~/exception-signatures.md` |
 
 ### C# idiom deviations (approved)
 
@@ -88,7 +89,7 @@ Property / key naming currently follows **Android 7.0**. When the Bugsee **iOS**
 ## Native packaging (already scaffolded)
 
 - `package.json` → `com.bugsee.unity`, depends on `com.google.external-dependency-manager`
-- `Editor/BugseeAndroidDependencies.xml` → Maven 7.1.1 (+ NDK)
+- `Editor/BugseeAndroidDependencies.xml` → Maven 7.1.4 (+ NDK, both explicit)
 - `Native~/ios/Bugsee/Package.swift` + `Editor/BugseeIosSpmPostProcess.cs`
 - `Plugins/iOS/BugseeUnityBridge.mm` + `Plugins/Android/UnityManagedException.java`
 - `Tools~/scripts/update-native-sdks.sh` + `versions.env`

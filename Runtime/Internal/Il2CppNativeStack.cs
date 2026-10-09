@@ -1,9 +1,10 @@
 #if !UNITY_EDITOR && (UNITY_IOS || UNITY_ANDROID) && ENABLE_IL2CPP
-#define BUGSEE_IL2CPP_NATIVE_STACK 1
+#define BUGSEE_IL2CPP_NATIVE_STACK
 #endif
 
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 using UnityEngine;
 
 namespace Bugsee.Internal
@@ -123,7 +124,7 @@ namespace Bugsee.Internal
 
             // Some Unity builds append trailing zeros / padding in the C string.
             // Keep hex only.
-            var sb = new System.Text.StringBuilder(cleaned.Length);
+            var sb = new StringBuilder(cleaned.Length);
             for (var i = 0; i < cleaned.Length; i++)
             {
                 var c = cleaned[i];

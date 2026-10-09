@@ -53,6 +53,18 @@ namespace Bugsee.Editor
                 psi.EnvironmentVariables["BUGSEE_APP_TOKEN"] = token;
             }
 
+            var endpoint = Environment.GetEnvironmentVariable("BUGSEE_ENDPOINT");
+            if (!string.IsNullOrEmpty(endpoint))
+            {
+                psi.EnvironmentVariables["BUGSEE_ENDPOINT"] = endpoint;
+            }
+
+            var cliPathEnv = Environment.GetEnvironmentVariable("BUGSEE_CLI_PATH");
+            if (!string.IsNullOrEmpty(cliPathEnv))
+            {
+                psi.EnvironmentVariables["BUGSEE_CLI_PATH"] = cliPathEnv;
+            }
+
             try
             {
                 using (var proc = Process.Start(psi))

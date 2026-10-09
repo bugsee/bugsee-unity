@@ -4,17 +4,10 @@ apply plugin: 'com.android.library'
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
 // Android Resolver Dependencies Start
-    implementation 'com.bugsee:bugsee-android:7.0.4' // Packages/com.bugsee.unity/Editor/BugseeAndroidDependencies.xml
+    implementation 'com.bugsee:bugsee-android:7.1.4' // Packages/com.bugsee.unity/Editor/BugseeAndroidDependencies.xml
+    implementation 'com.bugsee:bugsee-android-ndk:7.1.4' // Packages/com.bugsee.unity/Editor/BugseeAndroidDependencies.xml
 // Android Resolver Dependencies End
 **DEPS**}
-
-// Bugsee: bugsee-android 7.0.4 Gradle .module still requires kotlin-stdlib 2.1
-// (POM is empty). Unity 2021.3 D8 cannot dex it — exclude until Android SDK 7.1.0.
-configurations.configureEach {
-    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib'
-    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
-    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
-}
 
 // Android Resolver Exclusions Start
 android {

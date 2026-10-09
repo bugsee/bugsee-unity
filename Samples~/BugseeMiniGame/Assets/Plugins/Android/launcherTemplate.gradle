@@ -45,7 +45,7 @@ android {
             minifyEnabled **MINIFY_RELEASE**
             proguardFiles getDefaultProguardFile('proguard-android.txt')**SIGNCONFIG**
             ndk {
-                debugSymbolLevel 'SYMBOL_TABLE'
+                debugSymbolLevel 'FULL'
             }
         }
     }**PACKAGING_OPTIONS****PLAY_ASSET_PACKS****SPLITS**

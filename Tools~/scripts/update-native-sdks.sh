@@ -3,7 +3,8 @@
 #
 # - Regenerates Runtime/BugseePackageVersion.cs
 # - Updates Editor/BugseeAndroidDependencies.xml Maven coordinates
-# - Copies a nextgen Bugsee.xcframework into Native~/ios/Bugsee/ (local SPM)
+# - Optionally copies a prebuilt Bugsee.xcframework into Native~/ios/Bugsee/
+#   (set IOS_XCFRAMEWORK_PATH). iOS source of truth is GitHub bugsee-cocoa.
 
 set -euo pipefail
 
@@ -25,7 +26,7 @@ XCFRAMEWORK_DEST="${LOCAL_SPM_DIR}/Bugsee.xcframework"
 
 echo "==> Package ${BUGSEE_PACKAGE_VERSION}"
 echo "    Android ${ANDROID_SDK_VERSION}"
-echo "    iOS source: ${IOS_SDK_SOURCE} (${IOS_SDK_BRANCH})"
+echo "    iOS ${IOS_SDK_REPO} ${IOS_SDK_BRANCH} @ ${IOS_SDK_COMMIT}"
 
 cat > "${RUNTIME_VERSION_CS}" <<EOF
 namespace Bugsee
@@ -38,7 +39,9 @@ namespace Bugsee
         public const string Version = "${BUGSEE_PACKAGE_VERSION}";
         public const string Build = "$(git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null || echo dev)";
         public const string AndroidSdkVersion = "${ANDROID_SDK_VERSION}";
-        public const string IosSdkSource = "${IOS_SDK_SOURCE}";
+        public const string IosSdkSource = "${IOS_SDK_REPO}";
+        public const string IosSdkBranch = "${IOS_SDK_BRANCH}";
+        public const string IosSdkCommit = "${IOS_SDK_COMMIT}";
     }
 }
 EOF
@@ -54,11 +57,25 @@ cat > "${ANDROID_DEPS_XML}" <<EOF
 EOF
 echo "Updated ${ANDROID_DEPS_XML}"
 
-# --- iOS local SPM xcframework ---
-SRC_XCF="${IOS_SDK_REPO_PATH}/${IOS_XCFRAMEWORK_PATH}"
-if [[ ! -d "${SRC_XCF}" ]]; then
+# --- iOS pin (GitHub bugsee-cocoa) + optional xcframework copy ---
+if command -v git >/dev/null 2>&1; then
+  REMOTE_SHA="$(git ls-remote "${IOS_SDK_REPO}" "refs/heads/${IOS_SDK_BRANCH}" 2>/dev/null | awk '{print $1}')"
+  if [[ -n "${REMOTE_SHA}" && "${REMOTE_SHA}" != "${IOS_SDK_COMMIT}" ]]; then
+    echo "WARNING: ${IOS_SDK_REPO} ${IOS_SDK_BRANCH} is ${REMOTE_SHA}," >&2
+    echo "         pin is ${IOS_SDK_COMMIT}. Update IOS_SDK_COMMIT in Tools~/versions.env if intended." >&2
+  elif [[ -z "${REMOTE_SHA}" ]]; then
+    echo "WARNING: could not resolve ${IOS_SDK_REPO} ${IOS_SDK_BRANCH} (offline or private clone needed)." >&2
+  else
+    echo "Verified ${IOS_SDK_BRANCH} @ ${IOS_SDK_COMMIT}"
+  fi
+fi
+
+SRC_XCF="${IOS_XCFRAMEWORK_PATH}"
+if [[ -z "${SRC_XCF}" ]]; then
+  echo "No IOS_XCFRAMEWORK_PATH set — skipping xcframework copy."
+  echo "Build ${IOS_SDK_REPO}@${IOS_SDK_COMMIT} and set IOS_XCFRAMEWORK_PATH to the SPM Bugsee.xcframework."
+elif [[ ! -d "${SRC_XCF}" ]]; then
   echo "WARNING: xcframework not found at ${SRC_XCF}" >&2
-  echo "         Build iOS SDK (${IOS_SDK_BRANCH}) and/or set IOS_SDK_REPO_PATH / IOS_XCFRAMEWORK_PATH." >&2
   echo "         Local SPM package will be incomplete until the framework is present." >&2
 else
   rm -rf "${XCFRAMEWORK_DEST}"

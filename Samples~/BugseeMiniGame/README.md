@@ -67,9 +67,8 @@ SetSecureRect / SetAttribute / SetUserIdentifier / Appearance open IMGUI forms f
 2. Set a real Bugsee app token on `MiniGameBootstrap`.
 3. Build & Run on device.
 
-EDM pulls `bugsee-android:7.1.1` + `bugsee-android-ndk:7.1.1`. Gradle `.module` may still
-list `kotlin-stdlib`; `mainTemplate.gradle` excludes it so Unity 2021.3 D8 can build.
-Gradle plugin `4.0.5` is applied on Unity 6+ launcher templates (`ndk { enabled = true }`).
+EDM pulls `bugsee-android:7.1.4` + `bugsee-android-ndk:7.1.4` (core publishes no transitives; NDK is explicit).
+Gradle plugin `4.0.6` is applied on Unity 6+ launcher templates (`ndk { enabled = true }`).
 
 ### EDM resolve fails with `org.codehaus.groovy.vmplugin.v7.Java7`
 

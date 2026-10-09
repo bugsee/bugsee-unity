@@ -60,10 +60,17 @@ namespace Bugsee.Platform.Android
             callback?.Call("onResult", (string)null);
         }
 
+        // Android SDK may pass Object as Map/null or as a JSON String; Unity JNI
+        // resolves the exact overload, so both signatures are required.
         public void onLifecycleEvent(string eventType, AndroidJavaObject data)
         {
             // Lifecycle is forwarded via LifecycleListenerProxy → Bugsee.HandleNativeLifecycle.
             // Keep this hook for future wrapper-only side effects (do not double-dispatch).
+        }
+
+        public void onLifecycleEvent(string eventType, string data)
+        {
+            // See AndroidJavaObject overload — do not double-dispatch.
         }
 
         public int[] getSecureRectangles(int display)

@@ -43,6 +43,22 @@ namespace Bugsee.Editor
         }
 
         /// <summary>
+        /// Correlation BUILD_UUID for <c>bugsee-cli --type elf --uuid</c>.
+        /// Per-.so GNU build-ids remain the real symbol keys.
+        /// </summary>
+        public static string ResolveBuildUuid(BuildReport report)
+        {
+            var env = Environment.GetEnvironmentVariable("BUGSEE_BUILD_UUID");
+            if (!string.IsNullOrEmpty(env))
+            {
+                return env.Trim();
+            }
+
+            // Prefer a stable dashed UUID when BUGSEE_BUILD_UUID is unset.
+            return Guid.NewGuid().ToString("D");
+        }
+
+        /// <summary>
         /// Persist discovered IL2CPP module UUID(s) so the runtime managed-exception
         /// payload can include <c>moduleUUID</c> for MethodMap / future LNM.
         /// </summary>

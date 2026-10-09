@@ -1,11 +1,11 @@
 // swift-tools-version:5.9
 import PackageDescription
 
-// Local Swift package used by the Unity iOS post-process until nextgen Bugsee
-// is published to https://github.com/bugsee/spm.
+// Local Swift package used by the Unity iOS post-process.
+// Native SDK pin: https://github.com/bugsee/bugsee-cocoa (nextgen, see Tools~/versions.env).
 //
 // Populate Bugsee.xcframework via:
-//   ./Tools~/scripts/update-native-sdks.sh
+//   IOS_XCFRAMEWORK_PATH=... ./Tools~/scripts/update-native-sdks.sh
 
 let package = Package(
     name: "Bugsee",
