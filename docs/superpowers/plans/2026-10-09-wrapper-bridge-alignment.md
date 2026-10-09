@@ -38,6 +38,7 @@
 - Span and transaction handle registry.
 - Declaring `bugsee-android-feedback` by default. `Bugsee.Feedback` stays a logged no-op when the artefact is absent.
 - IL2CPP symbol-upload changes. Phase B in `DESIGN.md` stays as it is.
+- Automatic capture of every `UnityWebRequest`. Unity 2021.3 has no process-wide completion event, and this package does not weave IL. Games record those calls with `AddNetworkEvent` (Task 12). `DESIGN.md` still describes the desired channel submit; this plan does not pretend a source-string check implements it.
 
 ## File structure
 
@@ -737,7 +738,7 @@ final class UnityWrapper implements com.bugsee.library.contracts.internal.Bugsee
         return map;
     }
 
-    public void requestData(String dataType, com.bugsee.library.contracts.internal.DataRequestResultCallback callback) {
+    public void requestData(String dataType, com.bugsee.library.contracts.common.DataRequestResultCallback callback) {
         if (callback != null) callback.onResult(null);
     }
 }
@@ -907,8 +908,7 @@ git commit -m "Register the iOS wrapper at load and hop launch onto main."
 - Modify: `Runtime/Platform/Android/AndroidBridge.cs` `Log`
 - Modify: `Runtime/Platform/IOS/IOSBridge.cs` `Log`
 - Create: `Runtime/Internal/HostLogForwarder.cs`
-- Create: `Runtime/Internal/HostNetworkForwarder.cs`
-- Modify: `Runtime/Internal/ExceptionPipeline.cs` (install both forwarders once; exceptions still use `logException`, not the channel)
+- Modify: `Runtime/Internal/ExceptionPipeline.cs` (install the log forwarder once; exceptions still use `logException`, not the channel)
 - Create: `Runtime/WrapperPolicy/ChannelSubmit.cs`
 - Create: `Tests~/WrapperPolicy/ChannelSubmitTests.cs`
 
@@ -917,10 +917,9 @@ git commit -m "Register the iOS wrapper at load and hop launch onto main."
 - Produces:
   - `ChannelSubmit.LogSourceForHostDebug()` returns `98`
   - `bool ChannelSubmit.NetworkRequiresFiltering()` returns `true`
-  - Android: `UnityWrapper.onWrapperChannelAvailable` stores the channel in a static volatile field before returning. New static `UnityWrapper.channelLog(String message, int level)` calls `channel.log(null, message, level, WrapperLogSource.Custom)` when the channel is non-null.
+  - Android: `UnityWrapper.onWrapperChannelAvailable` stores the channel in a static volatile field before returning. New static `UnityWrapper.channelLog(String message, int level, int source)` calls `channel.log(null, message, level, source)` when the channel is non-null, mapping `source` with `LogSource.fromRawValue` and defaulting to `Custom`. New static `UnityWrapper.channelAddNetwork(NetworkEvent event)` calls `channel.addNetworkEvent(event, true)` when the channel is non-null.
   - iOS exports: `void _bugsee_channel_log(const char *message, int level)`, `void _bugsee_channel_network(...)`, `void _bugsee_channel_breadcrumb(const char *name, int iosLevel)`. The log export calls `Wrapper`... from ObjC it passes `BGSLogEventSource` value `98` via `WrapperLogSourcePolicy` equivalent constant `98`, not a raw `0`.
-  - `Bugsee.Log` keeps using the public native `log` (app-curated, source Bugsee). A new internal `HostLogForwarder` subscribes `Application.logMessageReceived` (and wraps `Debug.unityLogger.logHandler` / `ILogHandler` when needed) so Unity `Debug` output hits the channel exports with `ChannelSubmit.LogSourceForHostDebug()`. `ExceptionPipeline` installs the forwarder once at startup; it does not retarget exception filing onto the channel.
-  - `HostNetworkForwarder` records finished `UnityWebRequest` calls through the same channel network submit as `AddNetworkEvent` (`requiresFiltering = true`). It does not call the public SDK `addNetworkEvent`. The iOS pre-`Launched` buffer from Task 12 sits in front of that submit, so startup requests are held rather than dropped.
+  - `Bugsee.Log` keeps using the public native `log` (app-curated, source Bugsee). A new internal `HostLogForwarder` subscribes `Application.logMessageReceived` (and wraps `Debug.unityLogger.logHandler` / `ILogHandler` when needed) so Unity `Debug` output hits the channel exports with `WrapperLogSourcePolicy.Resolve(null)`. `ExceptionPipeline` installs the forwarder once at startup; it does not retarget exception filing onto the channel. Automatic `UnityWebRequest` observation is out of scope.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -986,17 +985,13 @@ public void Android_channel_log_passes_custom_source()
 }
 ```
 
-iOS `onWrapperChannelAvailable:` stores `gChannel` in a static before returning, and does no other work. `_bugsee_channel_log` calls `[gChannel logWithTag:nil message:... level:... source:98]` when `gChannel` responds to the selector. `_bugsee_channel_network` calls `addNetworkEvent:requiresFiltering:` with `YES`.
+iOS `onWrapperChannelAvailable:` stores `gChannel` in a static before returning, and does no other work. `_bugsee_channel_log` calls `[gChannel logWithTag:nil message:... level:... source:]` with the source from `WrapperLogSourcePolicy.Resolve(null)` when `gChannel` responds to the selector. `_bugsee_channel_network` calls `addNetworkEvent:requiresFiltering:` with `YES`. Android `channelAddNetwork` is the twin of that export: source-test that `UnityWrapperProvider.java` contains `addNetworkEvent` and `true`.
 
 `IOSBridge` public `Log` stays on `_bugsee_log`. Add `internal void ChannelLog(string message, LogLevel level)` that P/Invokes `_bugsee_channel_log` after `WrapperLogSourcePolicy.Resolve(98)`.
 
 - [ ] **Step 4b: `HostLogForwarder`**
 
 Create `Runtime/Internal/HostLogForwarder.cs` with `static void InstallOnce(IBugseeNativeBridge bridge)` guarded by a process flag. Map `LogType` → `LogLevel`, call `bridge.ChannelLog` (add to `IBugseeNativeBridge` as internal). Subscribe in `Application.logMessageReceived` on the main thread. Add `HostLogForwarderSourceTests` asserting `HostLogForwarder.cs` contains `logMessageReceived` and `ExceptionPipeline.cs` calls `HostLogForwarder.InstallOnce`.
-
-- [ ] **Step 4c: `HostNetworkForwarder`**
-
-Create `Runtime/Internal/HostNetworkForwarder.cs`. On `UnityWebRequest` completion, build a factory `NetworkEvent` (method, URL, status, duration) and submit it through the channel with `ChannelSubmit.NetworkRequiresFiltering()`. Do not call public `Bugsee.addNetworkEvent`. `ExceptionPipeline` calls `HostNetworkForwarder.InstallOnce` beside the log forwarder. The iOS buffer in Task 12 wraps this same submit, so events during `Launching` wait until `Launched` and are dropped on `Stopped`. Add a source test asserting `HostNetworkForwarder.cs` contains `UnityWebRequest`.
 
 - [ ] **Step 5: Re-run ChannelSubmitTests and RegistrationSourceTests.** Expected: PASS.
 
@@ -1158,7 +1153,7 @@ git commit -m "Keep dying-process report work on the native side and attach by p
   - `void AddBreadcrumb(string category, string message, string levelName)`
   - `void AddNetworkEvent(INetworkEvent evt)` which submits through the channel with `ChannelSubmit.NetworkRequiresFiltering()`
 
-**Launch-gated network (iOS).** `DESIGN.md`: during `Launching`, iOS drops channel `addNetworkEvent`. Buffer both public `AddNetworkEvent` and `HostNetworkForwarder` submits until lifecycle reaches `Launched`, then flush in order. Drop the buffer on `Stopped`. Android submits immediately. Implement the buffer in `Runtime/WrapperPolicy/` or `Runtime/Internal/` (no `UnityEngine` in policy if possible — the lifecycle signal may live beside `HostNetworkForwarder`).
+**Launch-gated network (iOS).** `DESIGN.md`: during `Launching`, iOS drops channel `addNetworkEvent`. Buffer public `AddNetworkEvent` submits until lifecycle reaches `Launched`, then flush in order. Drop the buffer on `Stopped`. Android submits immediately through `UnityWrapper.channelAddNetwork`, which Task 9 adds next to `channelLog`. There is no automatic `UnityWebRequest` hook; the game calls `AddNetworkEvent`. Implement the buffer in `Runtime/WrapperPolicy/` or `Runtime/Internal/` (no `UnityEngine` in the policy type if the lifecycle signal can live beside the bridge).
 
 `AddBreadcrumb` parses `levelName` with `BreadcrumbLevelMap.TryParse`. An unknown name throws `ArgumentException` whose message is `"breadcrumb level"` and does not include `levelName` if you treat it as a value; the level name is a developer-chosen identifier and may appear (`"breadcrumb level 'verbose' is unknown"` is allowed). The iOS bridge passes `BreadcrumbLevelMap.ToIos`. The Android bridge passes `ToAndroid`.
 
@@ -1277,7 +1272,21 @@ namespace Bugsee.WrapperPolicy.Tests
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement `MarkedGradleBlock` and call it from `BugseeAndroidGradleSetup` instead of rewriting a template that already exists.** When the file is missing, keep today's full-template write, and write the marked plugin line (`// bugsee:gradle-plugin`) rather than only `// Bugsee Gradle plugin`. When the file exists, `Apply` and write only if the text changed. An existing file that already has `// Bugsee Gradle plugin` or an active `com.bugsee.android.gradle` line is already patched. Catch `InvalidOperationException` and `Debug.LogWarning` the exception message. Do not overwrite the customer's file in that case.
+- [ ] **Step 3: Implement `MarkedGradleBlock` and call it from `BugseeAndroidGradleSetup` instead of rewriting a template that already exists.**
+
+Base `plugins { }` files get only the marked id line (`id 'com.bugsee.android.gradle' version '…' apply false // bugsee:gradle-plugin`). Launcher files, whose anchor is `apply plugin: 'com.android.application'`, get the marked apply line **and** the ndk block:
+
+```
+apply plugin: 'com.bugsee.android.gradle' // bugsee:gradle-plugin
+
+bugsee {
+    ndk { enabled = true }
+} // bugsee:gradle-ndk
+```
+
+Do not insert `id … apply false` into a launcher file. `Apply` upserts both regions. A second apply does not duplicate the plugin line or the ndk block. When the file is missing, keep today's full-template write, using those marked lines. An existing file that already has `// Bugsee Gradle plugin`, `// bugsee:gradle-plugin`, or an active `com.bugsee.android.gradle` line is already patched. Catch `InvalidOperationException` and `Debug.LogWarning` the exception message. Do not overwrite the customer's file in that case.
+
+Add a test whose input is a default launcher (`apply plugin: 'com.android.application'` and no Bugsee block). The first `Apply` adds the apply line and the `bugsee { ndk { enabled = true } }` region. The second `Apply` returns the same text.
 
 - [ ] **Step 4: Re-run Step 2.** Expected: PASS.
 
@@ -1318,7 +1327,9 @@ Spec coverage against `DESIGN.md` wrapper contract:
 | Channel log source allow-list and missing → Custom | 1, 9 |
 | Network `requiresFiltering = true` | 9, 12 |
 | Hold iOS network until `Launched` | 12 |
-| Host `Debug` and `UnityWebRequest` on wrapper channel | 9, 12 |
+| Host `Debug` on wrapper channel | 9 |
+| Game-supplied network events (`AddNetworkEvent`), including `UnityWebRequest` the game records itself | 12 |
+| Automatic observation of every `UnityWebRequest` | out of scope (no global completion event) |
 | R8 keep `UnityWrapper`, Direct Boot provider | 7 |
 | Breadcrumb ints by name | 2, 12 |
 | `vh` answers null | 7 (`requestData` → `onResult(null)`) and existing iOS `requestDataWithType` |
@@ -1333,4 +1344,4 @@ Spec coverage against `DESIGN.md` wrapper contract:
 | Gradle anchor | 14 |
 | Do not drop an Android double unhandled report | no task changes `logUnhandledException` report count |
 
-Not in this plan, called out under Out of scope: `vh` tree walk, spans, feedback artefact, symbol upload.
+Not in this plan, called out under Out of scope: `vh` tree walk, spans, feedback artefact, symbol upload, automatic `UnityWebRequest` capture.
