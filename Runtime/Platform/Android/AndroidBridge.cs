@@ -69,6 +69,7 @@ namespace Bugsee.Platform.Android
         public void Launch(string appToken, IDictionary<string, object> options)
         {
             ManagedExceptionPayload.EnsureBuildIdentity();
+            DeleteCollectedDataLaunchGeneration.BumpForLaunch();
             EnsureWrapperRegistered();
             InstallDefaultListeners();
             using (var activity = CurrentActivity())
@@ -82,6 +83,7 @@ namespace Bugsee.Platform.Android
 
         public void Relaunch(IDictionary<string, object> options)
         {
+            DeleteCollectedDataLaunchGeneration.BumpForLaunch();
             using (var map = AndroidOptionsMapper.ToJavaMap(options))
             {
                 _bugsee.CallStatic("relaunch", map);
@@ -446,17 +448,21 @@ namespace Bugsee.Platform.Android
         {
             AndroidManagedReportUploadFence.Invalidate();
             _openReport = null;
+            var deleteGeneration = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
             if (GetLaunched())
             {
-                Stop(InvokeDeleteCollectedDataOnDevice);
+                Stop(() => InvokeDeleteCollectedDataOnDevice(deleteGeneration));
                 return;
             }
 
-            InvokeDeleteCollectedDataOnDevice();
+            InvokeDeleteCollectedDataOnDevice(deleteGeneration);
         }
 
-        void InvokeDeleteCollectedDataOnDevice()
+        void InvokeDeleteCollectedDataOnDevice(int deleteGeneration)
         {
+            if (!DeleteCollectedDataLaunchGeneration.ShouldRunDelete(deleteGeneration))
+                return;
+
             _bugsee.CallStatic(
                 "deleteCollectedDataOnDevice",
                 true,

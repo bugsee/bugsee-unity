@@ -202,8 +202,10 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             string android = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs"));
             string body = ExtractMethodBody(android, "public void DeleteCollectedDataOnDevice()");
-            Assert.That(body, Does.Contain("Stop(InvokeDeleteCollectedDataOnDevice)"));
-            string invoke = ExtractMethodBody(android, "void InvokeDeleteCollectedDataOnDevice()");
+            Assert.That(body, Does.Contain("CaptureForPendingDelete()"));
+            Assert.That(body, Does.Contain("InvokeDeleteCollectedDataOnDevice(deleteGeneration)"));
+            string invoke = ExtractMethodBody(android, "void InvokeDeleteCollectedDataOnDevice(int deleteGeneration)");
+            Assert.That(invoke, Does.Contain("ShouldRunDelete(deleteGeneration)"));
             Assert.That(invoke, Does.Contain("deleteCollectedDataOnDevice"));
             Assert.That(invoke, Does.Contain("true"));
             Assert.That(invoke, Does.Contain("BooleanCallback1Proxy"));
@@ -358,7 +360,49 @@ namespace Bugsee.WrapperPolicy.Tests
             string body = ExtractNativeFunctionBody(bridge, "_bugsee_delete_collected_data");
             Assert.That(body, Does.Contain("[Bugsee stop:"));
             Assert.That(body, Does.Contain("deleteCollectedDataOnDevice:YES"));
+            Assert.That(body, Does.Contain("shouldRun(capturedGeneration)"));
             Assert.That(body, Does.Contain("sharedInstance"));
+
+            string iosDelete = ExtractMethodBody(
+                File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs")),
+                "public void DeleteCollectedDataOnDevice()");
+            Assert.That(iosDelete, Does.Contain("CaptureForPendingDelete()"));
+            Assert.That(iosDelete, Does.Contain("ShouldRunDeleteCollectedDataNative"));
+        }
+
+        [Test]
+        public void Launch_and_relaunch_bump_delete_generation_before_native_call()
+        {
+            string android = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs"));
+            string androidLaunch = ExtractMethodBody(android, "public void Launch(string appToken, IDictionary<string, object> options)");
+            Assert.That(androidLaunch, Does.Contain("BumpForLaunch()"));
+            Assert.That(androidLaunch, Does.Contain("CallStatic(\"launch\""));
+            int launchIdx = androidLaunch.IndexOf("BumpForLaunch()", StringComparison.Ordinal);
+            int nativeLaunchIdx = androidLaunch.IndexOf("CallStatic(\"launch\"", StringComparison.Ordinal);
+            Assert.That(launchIdx, Is.LessThan(nativeLaunchIdx));
+
+            string androidRelaunch = ExtractMethodBody(android, "public void Relaunch(IDictionary<string, object> options)");
+            Assert.That(androidRelaunch, Does.Contain("BumpForLaunch()"));
+
+            string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
+            string iosLaunch = ExtractMethodBody(ios, "public void Launch(string appToken, IDictionary<string, object> options)");
+            Assert.That(iosLaunch, Does.Contain("BumpForLaunch()"));
+            Assert.That(iosLaunch, Does.Contain("_bugsee_launch"));
+            int iosBump = iosLaunch.IndexOf("BumpForLaunch()", StringComparison.Ordinal);
+            int iosNative = iosLaunch.IndexOf("_bugsee_launch", StringComparison.Ordinal);
+            Assert.That(iosBump, Is.LessThan(iosNative));
+        }
+
+        [Test]
+        public void Ios_breadcrumb_buffer_wiring()
+        {
+            string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
+            string add = ExtractMethodBody(ios, "public void AddBreadcrumb(string category, string message, string levelName)");
+            Assert.That(add, Does.Contain("_breadcrumbLaunchBuffer.Enqueue"));
+            Assert.That(add, Does.Not.Contain("_bugsee_channel_breadcrumb"));
+
+            string notify = ExtractMethodBody(ios, "public void NotifyLifecycle(string eventType)");
+            Assert.That(notify, Does.Contain("_breadcrumbLaunchBuffer.SetPhase"));
         }
 
         [Test]
@@ -386,6 +430,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string notify = ExtractMethodBody(ios, "public void NotifyLifecycle(string eventType)");
             Assert.That(notify, Does.Contain("NetworkLaunchPhase.Launched"));
             Assert.That(notify, Does.Contain("NetworkLaunchPhase.Stopped"));
+            Assert.That(notify, Does.Contain("_breadcrumbLaunchBuffer.SetPhase"));
 
             string launch = ExtractMethodBody(ios, "public void Launch(string appToken, IDictionary<string, object> options)");
             Assert.That(launch, Does.Contain("SetPhase(NetworkLaunchPhase.BeforeLaunched)"));

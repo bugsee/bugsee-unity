@@ -476,15 +476,23 @@ void _bugsee_free(char *ptr)
     }
 }
 
-void _bugsee_delete_collected_data(void)
+typedef int (*BugseeDeleteCollectedDataShouldRunFn)(int capturedGeneration);
+
+void _bugsee_delete_collected_data(int capturedGeneration, BugseeDeleteCollectedDataShouldRunFn shouldRun)
 {
     BugseeRunOnMain(^{
+        void (^runDeleteIfAllowed)(void) = ^{
+            if (shouldRun && !shouldRun(capturedGeneration)) {
+                return;
+            }
+            [Bugsee deleteCollectedDataOnDevice:YES completion:nil];
+        };
         if ([Bugsee sharedInstance] != nil) {
             [Bugsee stop:^{
-                [Bugsee deleteCollectedDataOnDevice:YES completion:nil];
+                runDeleteIfAllowed();
             }];
         } else {
-            [Bugsee deleteCollectedDataOnDevice:YES completion:nil];
+            runDeleteIfAllowed();
         }
     });
 }
@@ -556,6 +564,7 @@ void _bugsee_upload_managed_report(const char *reportJson,
 #else // !BUGSEE_IOS_SDK
 
 typedef void (*BugseeManagedReportCreateCallback)(int succeeded);
+typedef int (*BugseeDeleteCollectedDataShouldRunFn)(int capturedGeneration);
 
 extern "C" {
 
@@ -591,7 +600,11 @@ char *_bugsee_appearance_get_color(const char *propertyName) { (void)propertyNam
 void _bugsee_appearance_set_string(const char *propertyName, const char *propertyValue) { (void)propertyName; (void)propertyValue; }
 char *_bugsee_appearance_get_string(const char *propertyName) { (void)propertyName; return NULL; }
 void _bugsee_free(char *ptr) { (void)ptr; }
-void _bugsee_delete_collected_data(void) {}
+void _bugsee_delete_collected_data(int capturedGeneration, BugseeDeleteCollectedDataShouldRunFn shouldRun)
+{
+    (void)capturedGeneration;
+    (void)shouldRun;
+}
 void _bugsee_cancel_managed_report_upload(uint64_t uploadId) { (void)uploadId; }
 void _bugsee_invalidate_managed_report_uploads(void) {}
 void _bugsee_upload_managed_report(const char *reportJson,

@@ -25,6 +25,7 @@ namespace Bugsee.Platform.IOS
     sealed class IOSBridge : IBugseeNativeBridge
     {
         delegate void ManagedReportUploadNativeCallback(int succeeded, ulong uploadToken);
+        delegate int DeleteCollectedDataShouldRunNativeCallback(int capturedGeneration);
 
         ulong _inFlightUploadToken;
         ulong _managedReportUploadFence;
@@ -36,12 +37,15 @@ namespace Bugsee.Platform.IOS
         IosReport _openReport;
         IosLiveReport _openReportHandle;
         readonly NetworkEventLaunchBuffer<INetworkEvent> _networkLaunchBuffer = new NetworkEventLaunchBuffer<INetworkEvent>();
+        readonly NetworkEventLaunchBuffer<IosPendingBreadcrumb> _breadcrumbLaunchBuffer =
+            new NetworkEventLaunchBuffer<IosPendingBreadcrumb>();
 
         public bool IsSupported => true;
 
         public IOSBridge()
         {
             _networkLaunchBuffer.SetSubmitHandler(SubmitNetworkEventToChannel);
+            _breadcrumbLaunchBuffer.SetSubmitHandler(SubmitBreadcrumbToChannel);
         }
 
         public IFeedback Feedback { get; } = new IosFeedback();
@@ -54,7 +58,9 @@ namespace Bugsee.Platform.IOS
             if (!MainThreadDispatcher.RunSyncLifecycle(() =>
                 {
                     EnsureWrapperRegistered();
+                    DeleteCollectedDataLaunchGeneration.BumpForLaunch();
                     _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
+                    _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
                     _bugsee_launch(appToken, ToJsonObject(OptionPlatformGate.ForIos(options)));
                     _launched = true;
                     ExceptionPipeline.Install(this, options);
@@ -69,7 +75,9 @@ namespace Bugsee.Platform.IOS
         {
             if (!MainThreadDispatcher.RunSyncLifecycle(() =>
                 {
+                    DeleteCollectedDataLaunchGeneration.BumpForLaunch();
                     _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
+                    _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
                     _bugsee_relaunch(ToJsonObject(OptionPlatformGate.ForIos(options)));
                     ExceptionPipeline.Install(this, options);
                     HostLogForwarder.InstallOnce(this);
@@ -92,6 +100,7 @@ namespace Bugsee.Platform.IOS
                     _openReport = null;
                     _openReportHandle = null;
                     _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
+                    _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
                     completion?.Invoke();
                 }))
             {
@@ -132,13 +141,20 @@ namespace Bugsee.Platform.IOS
         public void NotifyLifecycle(string eventType)
         {
             if (eventType == LifecycleEvents.Launched)
+            {
                 _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Launched);
+                _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.Launched);
+            }
             else if (eventType == LifecycleEvents.Stopped)
+            {
                 _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
+                _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
+            }
         }
 
         public void DeleteCollectedDataOnDevice()
         {
+            var deleteGeneration = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
             if (GetLaunched())
             {
                 if (!MainThreadDispatcher.RunSyncLifecycle(() =>
@@ -150,8 +166,9 @@ namespace Bugsee.Platform.IOS
                         _openReport = null;
                         _openReportHandle = null;
                         _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
+                        _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
                         _launched = false;
-                        _bugsee_delete_collected_data();
+                        _bugsee_delete_collected_data(deleteGeneration, ShouldRunDeleteCollectedDataNative);
                     }))
                 {
                     Debug.LogError("[Bugsee] DeleteCollectedDataOnDevice timed out waiting for the Unity main thread.");
@@ -163,8 +180,12 @@ namespace Bugsee.Platform.IOS
             CancelManagedReportUpload();
             _openReport = null;
             _openReportHandle = null;
-            _bugsee_delete_collected_data();
+            _bugsee_delete_collected_data(deleteGeneration, ShouldRunDeleteCollectedDataNative);
         }
+
+        [MonoPInvokeCallback(typeof(DeleteCollectedDataShouldRunNativeCallback))]
+        static int ShouldRunDeleteCollectedDataNative(int capturedGeneration) =>
+            DeleteCollectedDataLaunchGeneration.ShouldRunDelete(capturedGeneration) ? 1 : 0;
 
         void CancelManagedReportUpload()
         {
@@ -238,10 +259,17 @@ namespace Bugsee.Platform.IOS
         public void AddBreadcrumb(string category, string message, string levelName)
         {
             var level = BreadcrumbLevelMap.ParseOrThrow(levelName);
-            _bugsee_channel_breadcrumb(
-                category ?? "",
-                message ?? "",
-                BreadcrumbLevelMap.ToIos(level));
+            _breadcrumbLaunchBuffer.Enqueue(new IosPendingBreadcrumb
+            {
+                Category = category ?? "",
+                Message = message ?? "",
+                IosLevel = BreadcrumbLevelMap.ToIos(level),
+            });
+        }
+
+        void SubmitBreadcrumbToChannel(IosPendingBreadcrumb breadcrumb)
+        {
+            _bugsee_channel_breadcrumb(breadcrumb.Category, breadcrumb.Message, breadcrumb.IosLevel);
         }
 
         public IBugseeExchangeFactory GetExchangeFactory() => IosExchangeFactory.Instance;
@@ -471,7 +499,9 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_channel_log(string message, int level, int source);
         [DllImport("__Internal")] static extern void _bugsee_channel_network(string eventJson, int requiresFiltering);
         [DllImport("__Internal")] static extern void _bugsee_channel_breadcrumb(string category, string message, int iosLevel);
-        [DllImport("__Internal")] static extern void _bugsee_delete_collected_data();
+        [DllImport("__Internal")] static extern void _bugsee_delete_collected_data(
+            int capturedGeneration,
+            DeleteCollectedDataShouldRunNativeCallback shouldRun);
         [DllImport("__Internal")] static extern void _bugsee_cancel_managed_report_upload(ulong uploadId);
         [DllImport("__Internal")] static extern void _bugsee_invalidate_managed_report_uploads();
         [DllImport("__Internal")] static extern void _bugsee_upload_managed_report(
