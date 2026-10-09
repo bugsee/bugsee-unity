@@ -24,10 +24,9 @@ namespace Bugsee.Platform.IOS
     /// </summary>
     sealed class IOSBridge : IBugseeNativeBridge
     {
-        delegate void ManagedReportUploadNativeCallback(int succeeded);
+        delegate void ManagedReportUploadNativeCallback(int succeeded, ulong uploadToken);
 
-        static IOSBridge _pendingManagedReportUpload;
-
+        ulong _inFlightUploadToken;
         int _reportUploadGeneration;
 
         bool _launched;
@@ -166,8 +165,11 @@ namespace Bugsee.Platform.IOS
         void CancelManagedReportUpload()
         {
             _reportUploadGeneration++;
-            _pendingManagedReportUpload = null;
-            _bugsee_cancel_managed_report_upload();
+            if (_inFlightUploadToken != 0)
+            {
+                _bugsee_cancel_managed_report_upload(_inFlightUploadToken);
+                _inFlightUploadToken = 0;
+            }
         }
 
         public IReport CreateReport()
@@ -185,9 +187,6 @@ namespace Bugsee.Platform.IOS
                 throw new ArgumentNullException(nameof(report));
             if (!ReferenceEquals(report, _openReportHandle))
                 throw new ArgumentException("Report was not created by CreateReport.", nameof(report));
-            if (ReferenceEquals(_pendingManagedReportUpload, this))
-                _bugsee_cancel_managed_report_upload();
-            _pendingManagedReportUpload = null;
             _reportUploadGeneration++;
             _openReport = null;
             _openReportHandle = null;
@@ -199,34 +198,31 @@ namespace Bugsee.Platform.IOS
                 throw new ArgumentException("Report was not created by CreateReport.", nameof(report));
             if (_openReport == null)
                 throw new InvalidOperationException("CreateReport failed.");
-            if (_pendingManagedReportUpload != null)
-                throw new InvalidOperationException("a report upload is already in progress");
             var json = _openReport.ToResultJson();
-            var generation = ++_reportUploadGeneration;
-            _pendingUploadGeneration = generation;
-            _pendingManagedReportUpload = this;
-            _bugsee_upload_managed_report(json, OnManagedReportCreateCompletion);
-        }
-
-        static int _pendingUploadGeneration;
-
-        [MonoPInvokeCallback(typeof(ManagedReportUploadNativeCallback))]
-        static void OnManagedReportCreateCompletion(int succeeded)
-        {
-            var bridge = _pendingManagedReportUpload;
-            var generation = _pendingUploadGeneration;
-            _pendingManagedReportUpload = null;
-            if (bridge == null)
-                return;
-            bridge.FinishManagedReportUpload(succeeded != 0, generation);
-        }
-
-        void FinishManagedReportUpload(bool succeeded, int generation)
-        {
-            if (generation != _reportUploadGeneration)
-                return;
+            var uploadToken = (ulong)++_reportUploadGeneration;
             _openReport = null;
             _openReportHandle = null;
+            _uploadCompletionBridge = this;
+            _inFlightUploadToken = uploadToken;
+            _bugsee_upload_managed_report(json, uploadToken, OnManagedReportCreateCompletion);
+        }
+
+        [MonoPInvokeCallback(typeof(ManagedReportUploadNativeCallback))]
+        static void OnManagedReportCreateCompletion(int succeeded, ulong uploadToken)
+        {
+            // Instance is resolved through the static bridge reference set at upload time.
+            if (_uploadCompletionBridge == null)
+                return;
+            _uploadCompletionBridge.HandleManagedReportCreateCompletion(succeeded != 0, uploadToken);
+        }
+
+        static IOSBridge _uploadCompletionBridge;
+
+        void HandleManagedReportCreateCompletion(bool succeeded, ulong uploadToken)
+        {
+            if (uploadToken != _inFlightUploadToken)
+                return;
+            _inFlightUploadToken = 0;
             if (!succeeded)
                 Debug.LogError("[Bugsee] CreateReport failed.");
         }
@@ -468,9 +464,10 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_channel_network(string eventJson, int requiresFiltering);
         [DllImport("__Internal")] static extern void _bugsee_channel_breadcrumb(string category, string message, int iosLevel);
         [DllImport("__Internal")] static extern void _bugsee_delete_collected_data();
-        [DllImport("__Internal")] static extern void _bugsee_cancel_managed_report_upload();
+        [DllImport("__Internal")] static extern void _bugsee_cancel_managed_report_upload(ulong uploadId);
         [DllImport("__Internal")] static extern void _bugsee_upload_managed_report(
             string reportJson,
+            ulong uploadId,
             ManagedReportUploadNativeCallback callback);
         [DllImport("__Internal")] static extern void _bugsee_trace(string name, string valueJson);
         [DllImport("__Internal")] static extern void _bugsee_event(string name, string paramsJson);

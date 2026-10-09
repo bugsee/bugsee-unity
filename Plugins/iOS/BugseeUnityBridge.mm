@@ -44,9 +44,24 @@ static void BugseeRunOnMain(dispatch_block_t block)
     }
 }
 
-typedef void (*BugseeManagedReportCreateCallback)(int succeeded);
+typedef void (*BugseeManagedReportCreateCallback)(int succeeded, uint64_t uploadToken);
 
-static BOOL gCancelManagedReportUpload;
+static uint64_t gActiveManagedReportUploadId;
+
+static BOOL BugseeManagedReportUploadStillActive(uint64_t uploadId)
+{
+    return uploadId != 0 && uploadId == gActiveManagedReportUploadId;
+}
+
+static void BugseeBridgeSetAttachmentFileNameIfNeeded(id attachment, NSString *displayName, NSString *fileName)
+{
+    if (!attachment || fileName.length == 0 || [fileName isEqualToString:displayName]) {
+        return;
+    }
+    if ([attachment conformsToProtocol:@protocol(BGSAttachmentContract)]) {
+        ((id<BGSAttachmentContract>)attachment).fileName = fileName;
+    }
+}
 
 static void BugseeBridgeApplyReportDict(id<BGSReportContract> report, NSDictionary *d)
 {
@@ -108,7 +123,8 @@ static void BugseeBridgeApplyReportDict(id<BGSReportContract> report, NSDictiona
             NSString *mime = [att[@"mimeType"] isKindOfClass:[NSString class]] ? att[@"mimeType"] : @"text/plain";
             id filePath = att[@"filePath"];
             if ([filePath isKindOfClass:[NSString class]] && [(NSString *)filePath length] > 0) {
-                [report addAttachmentWithFilePath:filePath name:fileName mimeType:mime move:NO];
+                id attachment = [report addAttachmentWithFilePath:filePath name:name mimeType:mime move:NO];
+                BugseeBridgeSetAttachmentFileNameIfNeeded(attachment, name, fileName);
                 continue;
             }
             NSData *data = nil;
@@ -123,7 +139,8 @@ static void BugseeBridgeApplyReportDict(id<BGSReportContract> report, NSDictiona
             if (!data) {
                 data = [NSData data];
             }
-            [report addAttachmentWithData:data name:fileName mimeType:mime];
+            id attachment = [report addAttachmentWithData:data name:name mimeType:mime];
+            BugseeBridgeSetAttachmentFileNameIfNeeded(attachment, name, fileName);
         }
     }
 }
@@ -454,31 +471,35 @@ void _bugsee_delete_collected_data(void)
     });
 }
 
-void _bugsee_cancel_managed_report_upload(void)
+void _bugsee_cancel_managed_report_upload(uint64_t uploadId)
 {
-    gCancelManagedReportUpload = YES;
+    if (gActiveManagedReportUploadId == uploadId) {
+        gActiveManagedReportUploadId = 0;
+    }
 }
 
-void _bugsee_upload_managed_report(const char *reportJson, BugseeManagedReportCreateCallback callback)
+void _bugsee_upload_managed_report(const char *reportJson,
+                                   uint64_t uploadId,
+                                   BugseeManagedReportCreateCallback callback)
 {
-    gCancelManagedReportUpload = NO;
+    gActiveManagedReportUploadId = uploadId;
     if (!reportJson) {
         if (callback) {
-            callback(0);
+            callback(0, uploadId);
         }
         return;
     }
     NSString *jsonCopy = [NSString stringWithUTF8String:reportJson];
     [Bugsee createReportWithCompletion:^(BugseeExtendedReport *_Nullable report) {
-        if (gCancelManagedReportUpload) {
+        if (!BugseeManagedReportUploadStillActive(uploadId)) {
             if (callback) {
-                callback(0);
+                callback(0, uploadId);
             }
             return;
         }
         if (!report) {
             if (callback) {
-                callback(0);
+                callback(0, uploadId);
             }
             return;
         }
@@ -486,10 +507,16 @@ void _bugsee_upload_managed_report(const char *reportJson, BugseeManagedReportCr
         if ([dict isKindOfClass:[NSDictionary class]]) {
             BugseeBridgeApplyReportDict((id<BGSReportContract>)report, dict);
         }
-        if (callback) {
-            callback(1);
+        if (!BugseeManagedReportUploadStillActive(uploadId)) {
+            if (callback) {
+                callback(0, uploadId);
+            }
+            return;
         }
-        if (!gCancelManagedReportUpload) {
+        if (callback) {
+            callback(1, uploadId);
+        }
+        if (BugseeManagedReportUploadStillActive(uploadId)) {
             [Bugsee uploadReport:report completion:nil];
         }
     }];
@@ -536,12 +563,15 @@ void _bugsee_appearance_set_string(const char *propertyName, const char *propert
 char *_bugsee_appearance_get_string(const char *propertyName) { (void)propertyName; return NULL; }
 void _bugsee_free(char *ptr) { (void)ptr; }
 void _bugsee_delete_collected_data(void) {}
-void _bugsee_cancel_managed_report_upload(void) {}
-void _bugsee_upload_managed_report(const char *reportJson, BugseeManagedReportCreateCallback callback)
+void _bugsee_cancel_managed_report_upload(uint64_t uploadId) { (void)uploadId; }
+void _bugsee_upload_managed_report(const char *reportJson,
+                                   uint64_t uploadId,
+                                   BugseeManagedReportCreateCallback callback)
 {
     (void)reportJson;
+    (void)uploadId;
     if (callback) {
-        callback(0);
+        callback(0, uploadId);
     }
 }
 

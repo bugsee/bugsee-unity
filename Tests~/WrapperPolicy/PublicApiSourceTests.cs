@@ -123,14 +123,30 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(upload, Does.Contain("createReportWithCompletion:"));
             Assert.That(upload, Does.Contain("uploadReport:"));
             Assert.That(upload, Does.Contain("BugseeExtendedReport"));
+            Assert.That(upload, Does.Contain("gActiveManagedReportUploadId"));
+            Assert.That(upload, Does.Not.Contain("gCancelManagedReportUpload"));
+            Assert.That(bridge, Does.Not.Contain("gCancelManagedReportUpload"));
 
             string apply = ExtractNativeFunctionBody(bridge, "BugseeBridgeApplyReportDict");
             Assert.That(apply, Does.Contain("[report clearAttachments]"));
-            Assert.That(apply, Does.Contain("addAttachmentWithData:"));
-            Assert.That(apply, Does.Contain(@"fileName"));
+            Assert.That(apply, Does.Contain("addAttachmentWithData:data name:name"));
+            Assert.That(apply, Does.Contain("BugseeBridgeSetAttachmentFileNameIfNeeded"));
             Assert.That(apply, Does.Not.Contain("createAndAddAttachmentWithName"));
             Assert.That(bridge, Does.Not.Contain("_bugsee_apply_open_report"));
             Assert.That(bridge, Does.Not.Contain("[Bugsee createReport]"));
+        }
+
+        [Test]
+        public void Ios_upload_report_clears_slot_before_native_upload()
+        {
+            string body = ExtractMethodBody(
+                File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs")),
+                "public void UploadReport(IReport report)");
+            Assert.That(body, Does.Contain("ToResultJson()"));
+            Assert.That(body, Does.Contain("_openReport = null"));
+            Assert.That(body, Does.Contain("_openReportHandle = null"));
+            Assert.That(body, Does.Contain("_bugsee_upload_managed_report"));
+            Assert.That(body, Does.Not.Contain("a report upload is already in progress"));
         }
 
         [Test]
