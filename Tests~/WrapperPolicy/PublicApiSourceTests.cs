@@ -364,6 +364,40 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Ios_json_encoding_escapes_controls_in_strings()
+        {
+            string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IosReport.cs"));
+            string body = ExtractMethodBody(ios, "internal static void AppendQuoted(StringBuilder sb, string value)");
+            Assert.That(body, Does.Contain("\\t"));
+            Assert.That(body, Does.Contain("\\b"));
+            Assert.That(body, Does.Contain("\\f"));
+            Assert.That(body, Does.Contain("c < '\\u0020'"));
+        }
+
+        [Test]
+        public void Ios_to_result_json_omits_untouched_labels_and_attachments()
+        {
+            string body = ExtractMethodBody(
+                File.ReadAllText(RepoFile("Runtime/Platform/IOS/IosReport.cs")),
+                "public string ToResultJson()");
+            Assert.That(body, Does.Contain("if (_labelsDirty)"));
+            Assert.That(body, Does.Contain("if (_attachmentsDirty)"));
+        }
+
+        [Test]
+        public void Ios_upload_skips_upload_when_json_deserializes_invalid()
+        {
+            string upload = ExtractMethodBody(
+                File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm")),
+                "_bugsee_upload_managed_report");
+            int uploadIdx = upload.IndexOf("uploadReport:", StringComparison.Ordinal);
+            int dictGuard = upload.IndexOf("isKindOfClass:[NSDictionary class]", StringComparison.Ordinal);
+            Assert.That(dictGuard, Is.GreaterThanOrEqualTo(0));
+            Assert.That(uploadIdx, Is.GreaterThan(dictGuard));
+            Assert.That(upload, Does.Contain("callback(0, uploadId)"));
+        }
+
+        [Test]
         public void Ios_live_report_wraps_attachment_list()
         {
             string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));

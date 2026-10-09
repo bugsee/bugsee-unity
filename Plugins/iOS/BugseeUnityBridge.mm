@@ -518,9 +518,13 @@ void _bugsee_upload_managed_report(const char *reportJson,
             return;
         }
         NSDictionary *dict = BugseeDeserializeJson(jsonCopy.UTF8String);
-        if ([dict isKindOfClass:[NSDictionary class]]) {
-            BugseeBridgeApplyReportDict((id<BGSReportContract>)report, dict);
+        if (![dict isKindOfClass:[NSDictionary class]]) {
+            if (callback) {
+                callback(0, uploadId);
+            }
+            return;
         }
+        BugseeBridgeApplyReportDict((id<BGSReportContract>)report, dict);
         if (!BugseeManagedReportUploadStillActive(uploadId, uploadFence)) {
             if (callback) {
                 callback(0, uploadId);
