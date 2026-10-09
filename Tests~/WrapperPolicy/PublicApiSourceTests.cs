@@ -265,8 +265,28 @@ namespace Bugsee.WrapperPolicy.Tests
             string android = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs"));
             string stop = ExtractMethodBody(android, "public void Stop(Action completion = null)");
             Assert.That(stop, Does.Contain("AndroidManagedReportUploadFence.Invalidate"));
+            Assert.That(stop, Does.Contain("_openReport = null"));
             string delete = ExtractMethodBody(android, "public void DeleteCollectedDataOnDevice()");
             Assert.That(delete, Does.Contain("AndroidManagedReportUploadFence.Invalidate"));
+            Assert.That(delete, Does.Contain("_openReport = null"));
+        }
+
+        [Test]
+        public void Ios_apply_report_dict_skips_unset_severity_zero()
+        {
+            string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
+            string body = ExtractNativeFunctionBody(bridge, "BugseeBridgeApplyReportDict");
+            Assert.That(body, Does.Contain("sevVal != 0"));
+            Assert.That(body, Does.Not.Match("report\\.severity\\s*=.*integerValue\\]"));
+        }
+
+        [Test]
+        public void Ios_to_result_json_omits_unset_severity_zero()
+        {
+            string body = ExtractMethodBody(
+                File.ReadAllText(RepoFile("Runtime/Platform/IOS/IosReport.cs")),
+                "public string ToResultJson()");
+            Assert.That(body, Does.Contain("if (_dto.severity != 0)"));
         }
 
         [Test]

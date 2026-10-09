@@ -90,7 +90,10 @@ static void BugseeBridgeApplyReportDict(id<BGSReportContract> report, NSDictiona
     }
     id sev = d[@"severity"];
     if ([sev respondsToSelector:@selector(integerValue)]) {
-        report.severity = (BugseeSeverityLevel)[sev integerValue];
+        NSInteger sevVal = [sev integerValue];
+        if (sevVal != 0) {
+            report.severity = (BugseeSeverityLevel)sevVal;
+        }
     }
 
     id labels = d[@"labels"];

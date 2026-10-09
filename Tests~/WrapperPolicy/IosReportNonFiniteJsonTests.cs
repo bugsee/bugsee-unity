@@ -1,3 +1,4 @@
+using Bugsee.Contracts.Options;
 using Bugsee.Platform.IOS;
 using NUnit.Framework;
 
@@ -26,6 +27,20 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(json, Does.Contain("\"ok\":42.5"));
             Assert.That(json, Does.Not.Contain("NaN"));
             Assert.That(json, Does.Not.Contain("Infinity"));
+        }
+
+        [Test]
+        public void ToResultJson_omits_severity_when_unset_zero()
+        {
+            var report = new IosReport(new IosReportDto());
+            string json = report.ToResultJson();
+
+            Assert.That(json, Does.Not.Contain("\"severity\""));
+
+            report.Severity = IssueSeverity.High;
+            json = report.ToResultJson();
+            Assert.That(json, Does.Contain("\"severity\":"));
+            Assert.That(json, Does.Contain("\"severity\":" + (int)IssueSeverity.High));
         }
     }
 }

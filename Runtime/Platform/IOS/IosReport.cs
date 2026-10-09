@@ -167,8 +167,12 @@ namespace Bugsee.Platform.IOS
             sb.Append('{');
             AppendString(sb, "summary", _dto.summary); sb.Append(',');
             AppendString(sb, "description", _dto.description); sb.Append(',');
-            AppendString(sb, "email", _dto.email); sb.Append(',');
-            sb.Append("\"severity\":").Append(_dto.severity);
+            AppendString(sb, "email", _dto.email);
+            if (_dto.severity != 0)
+            {
+                sb.Append(',');
+                sb.Append("\"severity\":").Append(_dto.severity);
+            }
 
             if (_labelsDirty)
             {

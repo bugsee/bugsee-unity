@@ -93,6 +93,7 @@ namespace Bugsee.Platform.Android
         public void Stop(Action completion = null)
         {
             AndroidManagedReportUploadFence.Invalidate();
+            _openReport = null;
             HostLogForwarder.Uninstall();
             ExceptionPipeline.Uninstall();
             if (completion == null)
@@ -444,6 +445,7 @@ namespace Bugsee.Platform.Android
         public void DeleteCollectedDataOnDevice()
         {
             AndroidManagedReportUploadFence.Invalidate();
+            _openReport = null;
             if (GetLaunched())
             {
                 Stop(InvokeDeleteCollectedDataOnDevice);
