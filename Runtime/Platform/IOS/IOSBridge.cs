@@ -155,15 +155,30 @@ namespace Bugsee.Platform.IOS
         public void Upload(string summary, string description, IssueSeverity severity, IList<string> labels) =>
             _bugsee_upload(summary ?? "", description ?? "", (int)severity, ToJsonStringArray(labels));
 
-        public void SetUserIdentifier(string userIdentifier) =>
-            _bugsee_set_email(userIdentifier ?? "");
+        public void SetUserIdentifier(string userIdentifier)
+        {
+            var normalized = UserIdentifierPolicy.ForSet(userIdentifier);
+            if (normalized == null)
+                ClearUserIdentifier();
+            else
+                _bugsee_set_email(normalized);
+        }
 
-        public string GetUserIdentifier() => ConsumeNativeString(_bugsee_get_email());
+        public string GetUserIdentifier() =>
+            UserIdentifierPolicy.ForGet(ConsumeNativeString(_bugsee_get_email()));
 
         public void ClearUserIdentifier() => _bugsee_clear_email();
 
-        public void SetAttribute(string key, object value) =>
+        public void SetAttribute(string key, object value)
+        {
+            var decision = AttributePolicy.Evaluate(key, value);
+            if (!decision.Accepted)
+                throw new ArgumentException(decision.Error, nameof(value));
+
             _bugsee_set_attribute(key ?? "", ToJsonValue(value));
+            if (GetAttribute(key) == null)
+                throw new ArgumentException("attribute '" + key + "' was dropped", nameof(value));
+        }
 
         public object GetAttribute(string key)
         {

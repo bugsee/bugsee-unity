@@ -28,7 +28,8 @@ namespace Bugsee.Contracts.Reporting
         void SetLabels(IEnumerable<string> labels);
 
         IReadOnlyList<IAttachment> Attachments { get; }
-        IAttachment CreateAndAddAttachment(string name);
+        IAttachment AddAttachmentFile(string path, string name, string mimeType);
+        IAttachment AddAttachmentBytes(byte[] data, string name, string mimeType);
         void ClearAttachments();
     }
 }

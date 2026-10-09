@@ -136,9 +136,26 @@ namespace Bugsee.Platform.IOS
 
         public IReadOnlyList<IAttachment> Attachments => _attachments;
 
-        public IAttachment CreateAndAddAttachment(string name)
+        public IAttachment AddAttachmentFile(string path, string name, string mimeType)
         {
+            if (string.IsNullOrEmpty(path))
+                return null;
             var att = new IosAttachment(name ?? "attachment");
+            att.Filename = name ?? "attachment";
+            att.MimeType = mimeType ?? "application/octet-stream";
+            att.SetFilePath(path);
+            _attachments.Add(att);
+            return att;
+        }
+
+        public IAttachment AddAttachmentBytes(byte[] data, string name, string mimeType)
+        {
+            if (data == null || data.Length == 0)
+                return null;
+            var att = new IosAttachment(name ?? "attachment");
+            att.Filename = name ?? "attachment";
+            att.MimeType = mimeType ?? "application/octet-stream";
+            att.SetData(data);
             _attachments.Add(att);
             return att;
         }
@@ -226,6 +243,7 @@ namespace Bugsee.Platform.IOS
 
     sealed class IosAttachment : IAttachment
     {
+        string _path;
         string _text;
         string _dataBase64;
         bool _isBinary;
@@ -243,6 +261,7 @@ namespace Bugsee.Platform.IOS
 
         public void SetData(byte[] data)
         {
+            _path = null;
             if (data == null || data.Length == 0)
             {
                 _text = "";
@@ -272,6 +291,15 @@ namespace Bugsee.Platform.IOS
         {
             _text = text ?? "";
             _dataBase64 = null;
+            _path = null;
+            _isBinary = false;
+        }
+
+        public void SetFilePath(string path)
+        {
+            _path = path;
+            _text = null;
+            _dataBase64 = null;
             _isBinary = false;
         }
 
@@ -282,13 +310,21 @@ namespace Bugsee.Platform.IOS
             Append("name", Name); sb.Append(',');
             Append("fileName", Filename); sb.Append(',');
             Append("mimeType", MimeType); sb.Append(',');
-            if (_isBinary && !string.IsNullOrEmpty(_dataBase64))
+            if (!string.IsNullOrEmpty(_path))
+            {
+                Append("path", _path);
+            }
+            else if (_isBinary && !string.IsNullOrEmpty(_dataBase64))
+            {
+                Append("dataBase64", _dataBase64);
+            }
+            else if (!string.IsNullOrEmpty(_dataBase64))
             {
                 Append("dataBase64", _dataBase64);
             }
             else
             {
-                Append("text", _text ?? "");
+                Append("dataBase64", Convert.ToBase64String(Encoding.UTF8.GetBytes(_text ?? "")));
             }
             sb.Append('}');
             return sb.ToString();

@@ -222,6 +222,12 @@ namespace Bugsee.Platform.IOS
         [MonoPInvokeCallback(typeof(ReportCb))]
         static void OnReport(long requestId, int phase, int isTerminating, string json)
         {
+            if (isTerminating != 0)
+            {
+                _bugsee_complete_report(requestId, null);
+                return;
+            }
+
             void Work()
             {
                 try
@@ -234,23 +240,6 @@ namespace Bugsee.Platform.IOS
                     if (handler == null)
                     {
                         _bugsee_complete_report(requestId, null);
-                        return;
-                    }
-
-                    // Terminating: sync handler + force complete (Android pattern).
-                    // Process may die; must not wait on async done().
-                    if (isTerminating != 0)
-                    {
-                        try
-                        {
-                            Action noop = () => { };
-                            if (phase == 0)
-                                handler.OnBeforeReportCreated(report, true, noop);
-                            else
-                                handler.OnAfterReportCreated(report, true, noop);
-                        }
-                        catch (Exception ex) { Debug.LogException(ex); }
-                        _bugsee_complete_report(requestId, report.ToResultJson());
                         return;
                     }
 
@@ -274,14 +263,10 @@ namespace Bugsee.Platform.IOS
                 }
             }
 
-            if (isTerminating != 0 || MainThreadDispatcher.IsMainThread)
-            {
+            if (MainThreadDispatcher.IsMainThread)
                 Work();
-            }
             else
-            {
                 MainThreadDispatcher.Run(Work);
-            }
         }
 
         [MonoPInvokeCallback(typeof(LifecycleCb))]

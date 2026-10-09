@@ -267,20 +267,24 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
             if (![item isKindOfClass:[NSDictionary class]]) continue;
             NSDictionary *att = (NSDictionary *)item;
             NSString *name = [att[@"name"] isKindOfClass:[NSString class]] ? att[@"name"] : @"attachment";
-            id<BGSAttachmentContract> created = [report createAndAddAttachmentWithName:name];
-            if (!created) continue;
-            id fileName = att[@"fileName"];
-            if ([fileName isKindOfClass:[NSString class]]) created.fileName = fileName;
-            id mime = att[@"mimeType"];
-            if ([mime isKindOfClass:[NSString class]]) created.mimeType = mime;
-            id text = att[@"text"];
-            if ([text isKindOfClass:[NSString class]]) {
-                created.data = [(NSString *)text dataUsingEncoding:NSUTF8StringEncoding];
+            NSString *mime = [att[@"mimeType"] isKindOfClass:[NSString class]] ? att[@"mimeType"] : @"application/octet-stream";
+            id pathVal = att[@"path"];
+            if ([pathVal isKindOfClass:[NSString class]] && [(NSString *)pathVal length] > 0) {
+                id reportObj = (id)report;
+                if ([reportObj respondsToSelector:@selector(addAttachmentWithFilePath:name:mimeType:move:)]) {
+                    [reportObj addAttachmentWithFilePath:(NSString *)pathVal name:name mimeType:mime move:NO];
+                }
+                continue;
             }
             id b64 = att[@"dataBase64"];
             if ([b64 isKindOfClass:[NSString class]] && [(NSString *)b64 length] > 0) {
                 NSData *decoded = [[NSData alloc] initWithBase64EncodedString:(NSString *)b64 options:0];
-                if (decoded) created.data = decoded;
+                if (decoded) {
+                    id reportObj = (id)report;
+                    if ([reportObj respondsToSelector:@selector(addAttachmentWithData:name:mimeType:)]) {
+                        [reportObj addAttachmentWithData:decoded name:name mimeType:mime];
+                    }
+                }
             }
         }
     }
@@ -352,6 +356,10 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
            completion:(BGSCallback)completion
 {
     if (!gReportCb) {
+        if (completion) completion();
+        return;
+    }
+    if (isTerminating) {
         if (completion) completion();
         return;
     }
