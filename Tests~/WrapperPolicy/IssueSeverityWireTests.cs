@@ -19,5 +19,19 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(IssueSeverityWire.TryFromWire(4, out var critical), Is.True);
             Assert.That(critical, Is.EqualTo(IssueSeverity.Critical));
         }
+
+        [Test]
+        public void FromIntValue_zero_honors_defaultValue()
+        {
+            Assert.That(IssueSeverityExtensions.FromIntValue(0, IssueSeverity.High), Is.EqualTo(IssueSeverity.High));
+        }
+
+        [Test]
+        public void Wire_zero_maps_to_null_severity_like_ios_report()
+        {
+            Assert.That(IssueSeverityWire.TryFromWire(0, out _), Is.False);
+            IssueSeverity? severity = IssueSeverityWire.TryFromWire(0, out var parsed) ? parsed : null;
+            Assert.That(severity, Is.Null);
+        }
     }
 }

@@ -1,4 +1,3 @@
-using System;
 using Bugsee.WrapperPolicy;
 
 namespace Bugsee.Contracts.Options
@@ -19,9 +18,7 @@ namespace Bugsee.Contracts.Options
             if (IssueSeverityWire.TryFromWire(value, out var severity))
                 return severity;
 
-            throw new ArgumentOutOfRangeException(
-                nameof(value),
-                "severity wire value is unset or out of range " + value);
+            return defaultValue;
         }
     }
 }
