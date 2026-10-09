@@ -13,7 +13,6 @@ namespace Bugsee.WrapperPolicy
         {
             return new HashSet<string>
             {
-                Options.DetectAndReportExit,
                 Options.DetectAndReportExitLowMemory,
                 Options.DetectAndReportExitNotResponding,
                 Options.DetectAndReportExitNotRespondingAsCrash,

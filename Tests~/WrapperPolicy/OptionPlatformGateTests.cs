@@ -39,7 +39,8 @@ namespace Bugsee.WrapperPolicy.Tests
                 if (field.FieldType != typeof(string))
                     continue;
                 var name = field.Name;
-                if (name.StartsWith("DetectAndReportExit", StringComparison.Ordinal))
+                if (name.StartsWith("DetectAndReportExit", StringComparison.Ordinal)
+                    && !string.Equals(name, nameof(Options.DetectAndReportExit), StringComparison.Ordinal))
                     expected.Add((string)field.GetValue(null));
             }
 
@@ -54,7 +55,8 @@ namespace Bugsee.WrapperPolicy.Tests
             var options = new Dictionary<string, object>
             {
                 [Options.CaptureVideo] = true,
-                [Options.DetectAndReportExit] = true,
+                [Options.DetectAndReportExit] = false,
+                [Options.DetectAndReportExitLowMemory] = true,
                 [Options.ReportingTriggerByNotification] = true,
                 [Options.Endpoint] = "https://example.test"
             };
@@ -63,7 +65,9 @@ namespace Bugsee.WrapperPolicy.Tests
 
             Assert.That(ios.ContainsKey(Options.CaptureVideo), Is.True);
             Assert.That(ios.ContainsKey(Options.Endpoint), Is.True);
-            Assert.That(ios.ContainsKey(Options.DetectAndReportExit), Is.False);
+            Assert.That(ios.ContainsKey(Options.DetectAndReportExit), Is.True);
+            Assert.That(ios[Options.DetectAndReportExit], Is.EqualTo(false));
+            Assert.That(ios.ContainsKey(Options.DetectAndReportExitLowMemory), Is.False);
             Assert.That(ios.ContainsKey(Options.ReportingTriggerByNotification), Is.False);
         }
 
