@@ -15,7 +15,7 @@ namespace Bugsee.Internal
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         static void Bootstrap()
         {
-            _mainThreadId = Thread.CurrentThread.ManagedThreadId;
+            AdoptMainThreadId();
             Ensure();
         }
 
@@ -28,15 +28,41 @@ namespace Bugsee.Internal
             return _instance;
         }
 
+        static void AdoptMainThreadId()
+        {
+            if (_mainThreadId == 0)
+            {
+                _mainThreadId = Thread.CurrentThread.ManagedThreadId;
+            }
+        }
+
         public static bool IsMainThread =>
-            Thread.CurrentThread.ManagedThreadId == _mainThreadId;
+            _mainThreadId != 0 && Thread.CurrentThread.ManagedThreadId == _mainThreadId;
+
+        static bool ShouldRunInline() => _mainThreadId == 0 || IsMainThread;
+
+        static void DrainQueueInline()
+        {
+            while (Queue.TryDequeue(out var pending))
+            {
+                try { pending(); }
+                catch (Exception ex) { Debug.LogException(ex); }
+            }
+        }
+
+        static void RunInlineOnMainThread(Action action)
+        {
+            AdoptMainThreadId();
+            DrainQueueInline();
+            action();
+        }
 
         public static void Run(Action action)
         {
             if (action == null) return;
-            if (IsMainThread)
+            if (ShouldRunInline())
             {
-                action();
+                RunInlineOnMainThread(action);
                 return;
             }
 
@@ -51,18 +77,32 @@ namespace Bugsee.Internal
         public static bool RunSync(Action action, int timeoutMs = 5000)
         {
             if (action == null) return true;
-            if (IsMainThread)
+            if (ShouldRunInline())
             {
-                action();
-                return true;
+                try
+                {
+                    RunInlineOnMainThread(action);
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogException(ex);
+                    throw;
+                }
             }
 
             Ensure();
             using (var done = new ManualResetEventSlim(false))
             {
                 Exception captured = null;
+                var cancelled = 0;
                 Queue.Enqueue(() =>
                 {
+                    if (Interlocked.CompareExchange(ref cancelled, 0, 0) != 0)
+                    {
+                        return;
+                    }
+
                     try { action(); }
                     catch (Exception ex) { captured = ex; }
                     finally { done.Set(); }
@@ -70,23 +110,27 @@ namespace Bugsee.Internal
 
                 if (!done.Wait(timeoutMs))
                 {
+                    Interlocked.Exchange(ref cancelled, 1);
                     return false;
                 }
+
                 if (captured != null)
                 {
                     throw captured;
                 }
+
                 return true;
             }
         }
 
         void Update()
         {
-            while (Queue.TryDequeue(out var action))
+            if (!IsMainThread)
             {
-                try { action(); }
-                catch (Exception ex) { Debug.LogException(ex); }
+                return;
             }
+
+            DrainQueueInline();
         }
     }
 }

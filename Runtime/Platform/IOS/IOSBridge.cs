@@ -35,33 +35,42 @@ namespace Bugsee.Platform.IOS
         public void Launch(string appToken, IDictionary<string, object> options)
         {
             ManagedExceptionPayload.EnsureBuildIdentity();
-            MainThreadDispatcher.RunSync(() =>
+            if (!MainThreadDispatcher.RunSync(() =>
+                {
+                    EnsureWrapperRegistered();
+                    _bugsee_launch(appToken, ToJsonObject(options));
+                    _launched = true;
+                    ExceptionPipeline.Install(this, options);
+                }))
             {
-                EnsureWrapperRegistered();
-                _bugsee_launch(appToken, ToJsonObject(options));
-                _launched = true;
-                ExceptionPipeline.Install(this, options);
-            });
+                Debug.LogError("[Bugsee] Launch timed out waiting for the Unity main thread.");
+            }
         }
 
         public void Relaunch(IDictionary<string, object> options)
         {
-            MainThreadDispatcher.RunSync(() =>
+            if (!MainThreadDispatcher.RunSync(() =>
+                {
+                    _bugsee_relaunch(ToJsonObject(options));
+                    ExceptionPipeline.Install(this, options);
+                }))
             {
-                _bugsee_relaunch(ToJsonObject(options));
-                ExceptionPipeline.Install(this, options);
-            });
+                Debug.LogError("[Bugsee] Relaunch timed out waiting for the Unity main thread.");
+            }
         }
 
         public void Stop(Action completion = null)
         {
-            MainThreadDispatcher.RunSync(() =>
+            if (!MainThreadDispatcher.RunSync(() =>
+                {
+                    ExceptionPipeline.Uninstall();
+                    _bugsee_stop();
+                    _launched = false;
+                    completion?.Invoke();
+                }))
             {
-                ExceptionPipeline.Uninstall();
-                _bugsee_stop();
-                _launched = false;
-                completion?.Invoke();
-            });
+                Debug.LogError("[Bugsee] Stop timed out waiting for the Unity main thread.");
+            }
         }
 
         public bool GetLaunched() => _launched && _bugsee_get_launched();
