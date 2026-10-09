@@ -41,6 +41,24 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Lifecycle_stopped_after_new_launch_does_not_clear_pending()
+        {
+            var delivered = new List<int>();
+            var buffer = new NetworkEventLaunchBuffer<int>();
+            buffer.SetSubmitHandler(v => delivered.Add(v));
+
+            buffer.SetPhase(NetworkLaunchPhase.Launched);
+            buffer.SetPhase(NetworkLaunchPhase.Stopped);
+            buffer.BeginNewLaunchCycle();
+            buffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
+            buffer.Enqueue(42);
+            buffer.SetPhaseFromLifecycle(NetworkLaunchPhase.Stopped);
+            buffer.SetPhaseFromLifecycle(NetworkLaunchPhase.Launched);
+
+            Assert.That(delivered, Is.EqualTo(new[] { 42 }));
+        }
+
+        [Test]
         public void Breadcrumb_buffer_stop_clears_pending_without_flush()
         {
             var delivered = new List<IosPendingBreadcrumb>();

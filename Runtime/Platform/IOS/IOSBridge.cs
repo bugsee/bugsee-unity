@@ -59,6 +59,8 @@ namespace Bugsee.Platform.IOS
                 {
                     EnsureWrapperRegistered();
                     DeleteCollectedDataLaunchGeneration.BumpForLaunch();
+                    _networkLaunchBuffer.BeginNewLaunchCycle();
+                    _breadcrumbLaunchBuffer.BeginNewLaunchCycle();
                     _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
                     _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
                     _bugsee_launch(appToken, ToJsonObject(OptionPlatformGate.ForIos(options)));
@@ -76,6 +78,8 @@ namespace Bugsee.Platform.IOS
             if (!MainThreadDispatcher.RunSyncLifecycle(() =>
                 {
                     DeleteCollectedDataLaunchGeneration.BumpForLaunch();
+                    _networkLaunchBuffer.BeginNewLaunchCycle();
+                    _breadcrumbLaunchBuffer.BeginNewLaunchCycle();
                     _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
                     _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
                     _bugsee_relaunch(ToJsonObject(OptionPlatformGate.ForIos(options)));
@@ -142,13 +146,13 @@ namespace Bugsee.Platform.IOS
         {
             if (eventType == LifecycleEvents.Launched)
             {
-                _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Launched);
-                _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.Launched);
+                _networkLaunchBuffer.SetPhaseFromLifecycle(NetworkLaunchPhase.Launched);
+                _breadcrumbLaunchBuffer.SetPhaseFromLifecycle(NetworkLaunchPhase.Launched);
             }
             else if (eventType == LifecycleEvents.Stopped)
             {
-                _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
-                _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
+                _networkLaunchBuffer.SetPhaseFromLifecycle(NetworkLaunchPhase.Stopped);
+                _breadcrumbLaunchBuffer.SetPhaseFromLifecycle(NetworkLaunchPhase.Stopped);
             }
         }
 

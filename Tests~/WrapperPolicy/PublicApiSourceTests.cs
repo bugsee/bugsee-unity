@@ -387,6 +387,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
             string iosLaunch = ExtractMethodBody(ios, "public void Launch(string appToken, IDictionary<string, object> options)");
             Assert.That(iosLaunch, Does.Contain("BumpForLaunch()"));
+            Assert.That(iosLaunch, Does.Contain("BeginNewLaunchCycle()"));
             Assert.That(iosLaunch, Does.Contain("_bugsee_launch"));
             int iosBump = iosLaunch.IndexOf("BumpForLaunch()", StringComparison.Ordinal);
             int iosNative = iosLaunch.IndexOf("_bugsee_launch", StringComparison.Ordinal);
@@ -402,7 +403,8 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(add, Does.Not.Contain("_bugsee_channel_breadcrumb"));
 
             string notify = ExtractMethodBody(ios, "public void NotifyLifecycle(string eventType)");
-            Assert.That(notify, Does.Contain("_breadcrumbLaunchBuffer.SetPhase"));
+            Assert.That(notify, Does.Contain("_breadcrumbLaunchBuffer.SetPhaseFromLifecycle"));
+            Assert.That(notify, Does.Contain("_networkLaunchBuffer.SetPhaseFromLifecycle"));
         }
 
         [Test]
@@ -430,7 +432,8 @@ namespace Bugsee.WrapperPolicy.Tests
             string notify = ExtractMethodBody(ios, "public void NotifyLifecycle(string eventType)");
             Assert.That(notify, Does.Contain("NetworkLaunchPhase.Launched"));
             Assert.That(notify, Does.Contain("NetworkLaunchPhase.Stopped"));
-            Assert.That(notify, Does.Contain("_breadcrumbLaunchBuffer.SetPhase"));
+            Assert.That(notify, Does.Contain("_breadcrumbLaunchBuffer.SetPhaseFromLifecycle"));
+            Assert.That(notify, Does.Contain("_networkLaunchBuffer.SetPhaseFromLifecycle"));
 
             string launch = ExtractMethodBody(ios, "public void Launch(string appToken, IDictionary<string, object> options)");
             Assert.That(launch, Does.Contain("SetPhase(NetworkLaunchPhase.BeforeLaunched)"));

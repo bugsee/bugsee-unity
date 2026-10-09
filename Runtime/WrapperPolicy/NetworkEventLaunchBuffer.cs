@@ -18,7 +18,13 @@ namespace Bugsee.WrapperPolicy
         readonly object _gate = new object();
         readonly List<T> _pending = new List<T>();
         NetworkLaunchPhase _phase = NetworkLaunchPhase.BeforeLaunched;
+        bool _lifecycleStoppedPendingAfterNewLaunch;
         Action<T> _submit;
+
+        /// <summary>
+        /// Call when Launch/Relaunch begins so a late native Stopped does not wipe pre-launch buffers.
+        /// </summary>
+        public void BeginNewLaunchCycle() => _lifecycleStoppedPendingAfterNewLaunch = true;
 
         public NetworkLaunchPhase Phase
         {
@@ -39,6 +45,7 @@ namespace Bugsee.WrapperPolicy
                 {
                     if (_phase == NetworkLaunchPhase.Launched)
                         return;
+                    _lifecycleStoppedPendingAfterNewLaunch = false;
                     _phase = NetworkLaunchPhase.Launched;
                     FlushPendingLocked();
                     return;
@@ -46,6 +53,36 @@ namespace Bugsee.WrapperPolicy
 
                 if (phase == NetworkLaunchPhase.Stopped)
                 {
+                    _lifecycleStoppedPendingAfterNewLaunch = false;
+                    _phase = NetworkLaunchPhase.Stopped;
+                    _pending.Clear();
+                    return;
+                }
+
+                if (phase == NetworkLaunchPhase.BeforeLaunched)
+                    _phase = NetworkLaunchPhase.BeforeLaunched;
+            }
+        }
+
+        public void SetPhaseFromLifecycle(NetworkLaunchPhase phase)
+        {
+            lock (_gate)
+            {
+                if (phase == NetworkLaunchPhase.Launched)
+                {
+                    if (_phase == NetworkLaunchPhase.Launched)
+                        return;
+                    _lifecycleStoppedPendingAfterNewLaunch = false;
+                    _phase = NetworkLaunchPhase.Launched;
+                    FlushPendingLocked();
+                    return;
+                }
+
+                if (phase == NetworkLaunchPhase.Stopped)
+                {
+                    if (_lifecycleStoppedPendingAfterNewLaunch && _phase == NetworkLaunchPhase.BeforeLaunched)
+                        return;
+                    _lifecycleStoppedPendingAfterNewLaunch = false;
                     _phase = NetworkLaunchPhase.Stopped;
                     _pending.Clear();
                     return;
