@@ -235,7 +235,9 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
     id email = d[@"email"];
     if ([email isKindOfClass:[NSString class]]) report.email = email;
     id sev = d[@"severity"];
-    if ([sev respondsToSelector:@selector(integerValue)]) report.severity = [sev integerValue];
+    if ([sev respondsToSelector:@selector(integerValue)]) {
+        report.severity = (BugseeSeverityLevel)[sev integerValue];
+    }
 
     id labels = d[@"labels"];
     if ([labels isKindOfClass:[NSArray class]]) {
@@ -351,7 +353,11 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
         NSMutableDictionary *entry = [NSMutableDictionary dictionary];
         entry[@"kind"] = @"report";
         if (report) entry[@"report"] = report;
-        entry[@"completion"] = completion ? [completion copy] : ^{};
+        if (completion) {
+            entry[@"completion"] = [completion copy];
+        } else {
+            entry[@"completion"] = ^{};
+        }
         gPending[@(requestId)] = entry;
     }
     NSString *json = BugseeUnityJsonString(BugseeUnityReportToDict(report));
@@ -526,6 +532,30 @@ void _bugsee_complete_report(int64_t requestId, const char *resultJson)
     }
     if (completion) completion();
 }
+
+#if defined(BUGSEE_UNITY_TESTS)
+const char *_bugsee_test_copy_wrapper_version(void)
+{
+    return gWrapperVersion ? strdup(gWrapperVersion.UTF8String) : NULL;
+}
+
+const char *_bugsee_test_copy_wrapper_build(void)
+{
+    return gWrapperBuild ? strdup(gWrapperBuild.UTF8String) : NULL;
+}
+
+int _bugsee_test_wrapper_installed(void)
+{
+    return gWrapper != nil;
+}
+
+const char *_bugsee_test_copy_context_value(const char *key)
+{
+    if (!gWrapperContext || !key) return NULL;
+    NSString *value = gWrapperContext[[NSString stringWithUTF8String:key]];
+    return value ? strdup(value.UTF8String) : NULL;
+}
+#endif
 
 } // extern "C"
 

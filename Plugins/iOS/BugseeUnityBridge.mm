@@ -99,7 +99,7 @@ void _bugsee_trace(const char *name, const char *valueJson)
     if (!value) {
         value = BugseeNSString(valueJson);
     }
-    [Bugsee traceKey:BugseeNSString(name) withValue:value];
+    [Bugsee trace:BugseeNSString(name) value:value];
 }
 
 void _bugsee_event(const char *name, const char *paramsJson)
@@ -107,11 +107,11 @@ void _bugsee_event(const char *name, const char *paramsJson)
     if (paramsJson) {
         id params = BugseeDeserializeJson(paramsJson);
         if ([params isKindOfClass:[NSDictionary class]]) {
-            [Bugsee registerEvent:BugseeNSString(name) withParams:params];
+            [Bugsee event:BugseeNSString(name) params:params];
             return;
         }
     }
-    [Bugsee registerEvent:BugseeNSString(name)];
+    [Bugsee event:BugseeNSString(name)];
 }
 
 void _bugsee_logException(const char *name, const char *reason, bool handled)
