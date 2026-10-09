@@ -195,16 +195,24 @@ namespace Bugsee.Platform.Android
     {
         readonly AndroidManagedReport _snapshot;
         readonly AndroidJavaClass _bugsee;
+        readonly ulong _uploadFence;
 
-        public ReportCreationListenerProxy(AndroidManagedReport snapshot, AndroidJavaClass bugsee)
+        public ReportCreationListenerProxy(
+            AndroidManagedReport snapshot,
+            AndroidJavaClass bugsee,
+            ulong uploadFence)
             : base("com.bugsee.library.contracts.reporting.ReportCreationListener")
         {
             _snapshot = snapshot;
             _bugsee = bugsee;
+            _uploadFence = uploadFence;
         }
 
         public void onCreated(AndroidJavaObject report)
         {
+            if (!AndroidManagedReportUploadFence.IsActive(_uploadFence))
+                return;
+
             if (report == null)
             {
                 Debug.LogError("[Bugsee] CreateReport failed.");
@@ -213,7 +221,11 @@ namespace Bugsee.Platform.Android
 
             try
             {
+                if (!AndroidManagedReportUploadFence.IsActive(_uploadFence))
+                    return;
                 _snapshot.ApplyTo(report);
+                if (!AndroidManagedReportUploadFence.IsActive(_uploadFence))
+                    return;
                 _bugsee.CallStatic("upload", report);
             }
             catch (Exception ex)

@@ -190,12 +190,27 @@ namespace Bugsee.Platform.Android
         }
     }
 
+    /// <summary>Upload generation fence; Stop/Delete invalidate in-flight createReport callbacks.</summary>
+    internal static class AndroidManagedReportUploadFence
+    {
+        static ulong _fence;
+
+        public static ulong Current => _fence;
+
+        public static void Invalidate() => checked { _fence++; }
+
+        public static bool IsActive(ulong captured) => captured == _fence;
+    }
+
     /// <summary>Managed report snapshot; native Report is created at upload.</summary>
     sealed class AndroidManagedReport : IReport
     {
         readonly Dictionary<string, object> _attributes = new Dictionary<string, object>();
         readonly List<string> _labels = new List<string>();
         readonly List<AndroidManagedAttachment> _attachments = new List<AndroidManagedAttachment>();
+        bool _emailAssigned;
+        bool _attributesDirty;
+        bool _labelsDirty;
 
         public string Id => "";
 
@@ -203,7 +218,18 @@ namespace Bugsee.Platform.Android
 
         public string Summary { get; set; }
         public string Description { get; set; }
-        public string Email { get; set; }
+
+        public string Email
+        {
+            get => _email;
+            set
+            {
+                _email = value;
+                _emailAssigned = true;
+            }
+        }
+
+        string _email;
 
         public IssueSeverity? Severity { get; set; }
 
@@ -219,28 +245,43 @@ namespace Bugsee.Platform.Android
         {
             if (string.IsNullOrEmpty(name)) return;
             _attributes[name] = value;
+            _attributesDirty = true;
         }
 
         public void RemoveAttribute(string name)
         {
             if (name == null) return;
             _attributes.Remove(name);
+            _attributesDirty = true;
         }
 
-        public void ClearAllAttributes() => _attributes.Clear();
+        public void ClearAllAttributes()
+        {
+            _attributes.Clear();
+            _attributesDirty = true;
+        }
 
         public IReadOnlyList<string> Labels => _labels;
 
         public void AddLabel(string label)
         {
-            if (!string.IsNullOrEmpty(label)) _labels.Add(label);
+            if (!string.IsNullOrEmpty(label))
+            {
+                _labels.Add(label);
+                _labelsDirty = true;
+            }
         }
 
-        public void ClearLabels() => _labels.Clear();
+        public void ClearLabels()
+        {
+            _labels.Clear();
+            _labelsDirty = true;
+        }
 
         public void SetLabels(IEnumerable<string> labels)
         {
             _labels.Clear();
+            _labelsDirty = true;
             if (labels == null) return;
             foreach (var label in labels)
             {
@@ -265,23 +306,31 @@ namespace Bugsee.Platform.Android
                 return;
 
             var report = new AndroidReport(javaReport);
-            report.Summary = Summary ?? "";
-            report.Description = Description ?? "";
-            report.Email = Email ?? "";
+            if (Summary != null)
+                report.Summary = Summary;
+            if (Description != null)
+                report.Description = Description;
+            if (_emailAssigned)
+                report.Email = Email;
             if (Severity.HasValue)
                 report.Severity = Severity;
 
-            report.ClearAllAttributes();
-            foreach (var kv in _attributes)
+            if (_attributesDirty)
             {
-                if (kv.Key == null) continue;
-                report.SetAttribute(kv.Key, kv.Value);
+                report.ClearAllAttributes();
+                foreach (var kv in _attributes)
+                {
+                    if (kv.Key == null) continue;
+                    report.SetAttribute(kv.Key, kv.Value);
+                }
             }
 
-            report.ClearLabels();
-            report.SetLabels(_labels);
+            if (_labelsDirty)
+            {
+                report.ClearLabels();
+                report.SetLabels(_labels);
+            }
 
-            report.ClearAttachments();
             for (var i = 0; i < _attachments.Count; i++)
                 _attachments[i].ApplyTo(report);
         }

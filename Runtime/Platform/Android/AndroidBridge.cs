@@ -92,6 +92,7 @@ namespace Bugsee.Platform.Android
 
         public void Stop(Action completion = null)
         {
+            AndroidManagedReportUploadFence.Invalidate();
             HostLogForwarder.Uninstall();
             ExceptionPipeline.Uninstall();
             if (completion == null)
@@ -442,6 +443,7 @@ namespace Bugsee.Platform.Android
 
         public void DeleteCollectedDataOnDevice()
         {
+            AndroidManagedReportUploadFence.Invalidate();
             if (GetLaunched())
             {
                 Stop(InvokeDeleteCollectedDataOnDevice);
@@ -490,9 +492,10 @@ namespace Bugsee.Platform.Android
                 throw new InvalidOperationException("CreateReport failed.");
             var snapshot = _openReport;
             _openReport = null;
+            var uploadFence = AndroidManagedReportUploadFence.Current;
             _bugsee.CallStatic(
                 "createReport",
-                new ReportCreationListenerProxy(snapshot, _bugsee));
+                new ReportCreationListenerProxy(snapshot, _bugsee, uploadFence));
         }
 
         public void AddBreadcrumb(string category, string message, string levelName)

@@ -241,6 +241,35 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Android_apply_to_overlays_only_set_fields()
+        {
+            string apply = ExtractMethodBody(
+                File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidReport.cs")),
+                "internal void ApplyTo(AndroidJavaObject javaReport)");
+            Assert.That(apply, Does.Contain("if (Summary != null)"));
+            Assert.That(apply, Does.Contain("if (_emailAssigned)"));
+            Assert.That(apply, Does.Contain("if (_attributesDirty)"));
+            Assert.That(apply, Does.Not.Contain("Email ?? \"\""));
+            Assert.That(apply, Does.Not.Contain("Summary ?? \"\""));
+            Assert.That(apply, Does.Not.Contain("ClearAttachments()"));
+        }
+
+        [Test]
+        public void Android_report_upload_fenced_across_stop_and_delete()
+        {
+            string callbacks = File.ReadAllText(RepoFile("Runtime/Platform/Android/Proxies/CallbackProxies.cs"));
+            string onCreated = ExtractMethodBody(callbacks, "public void onCreated(AndroidJavaObject report)");
+            Assert.That(onCreated, Does.Contain("AndroidManagedReportUploadFence.IsActive"));
+            Assert.That(onCreated, Does.Contain("CallStatic(\"upload\""));
+
+            string android = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs"));
+            string stop = ExtractMethodBody(android, "public void Stop(Action completion = null)");
+            Assert.That(stop, Does.Contain("AndroidManagedReportUploadFence.Invalidate"));
+            string delete = ExtractMethodBody(android, "public void DeleteCollectedDataOnDevice()");
+            Assert.That(delete, Does.Contain("AndroidManagedReportUploadFence.Invalidate"));
+        }
+
+        [Test]
         public void Ios_delete_chains_stop_completion_before_delete_when_instance_exists()
         {
             string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
