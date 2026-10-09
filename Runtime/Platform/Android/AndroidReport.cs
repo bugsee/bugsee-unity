@@ -206,10 +206,12 @@ namespace Bugsee.Platform.Android
     sealed class AndroidManagedReport : IReport
     {
         readonly Dictionary<string, object> _attributes = new Dictionary<string, object>();
+        readonly HashSet<string> _removedAttributes = new HashSet<string>();
         readonly List<string> _labels = new List<string>();
         readonly List<AndroidManagedAttachment> _attachments = new List<AndroidManagedAttachment>();
         bool _emailAssigned;
-        bool _attributesDirty;
+        bool _attributesOverlayDirty;
+        bool _attributesClearAll;
         bool _labelsDirty;
         bool _attachmentsDirty;
 
@@ -246,20 +248,24 @@ namespace Bugsee.Platform.Android
         {
             if (string.IsNullOrEmpty(name)) return;
             _attributes[name] = value;
-            _attributesDirty = true;
+            _removedAttributes.Remove(name);
+            _attributesOverlayDirty = true;
         }
 
         public void RemoveAttribute(string name)
         {
             if (name == null) return;
             _attributes.Remove(name);
-            _attributesDirty = true;
+            _removedAttributes.Add(name);
+            _attributesOverlayDirty = true;
         }
 
         public void ClearAllAttributes()
         {
             _attributes.Clear();
-            _attributesDirty = true;
+            _removedAttributes.Clear();
+            _attributesClearAll = true;
+            _attributesOverlayDirty = false;
         }
 
         public IReadOnlyList<string> Labels => _labels;
@@ -323,9 +329,19 @@ namespace Bugsee.Platform.Android
             if (Severity.HasValue)
                 report.Severity = Severity;
 
-            if (_attributesDirty)
+            if (_attributesClearAll)
             {
                 report.ClearAllAttributes();
+                foreach (var kv in _attributes)
+                {
+                    if (kv.Key == null) continue;
+                    report.SetAttribute(kv.Key, kv.Value);
+                }
+            }
+            else if (_attributesOverlayDirty)
+            {
+                foreach (var name in _removedAttributes)
+                    report.RemoveAttribute(name);
                 foreach (var kv in _attributes)
                 {
                     if (kv.Key == null) continue;

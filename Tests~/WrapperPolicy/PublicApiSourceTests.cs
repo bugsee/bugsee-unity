@@ -248,7 +248,8 @@ namespace Bugsee.WrapperPolicy.Tests
                 "internal void ApplyTo(AndroidJavaObject javaReport)");
             Assert.That(apply, Does.Contain("if (Summary != null)"));
             Assert.That(apply, Does.Contain("if (_emailAssigned)"));
-            Assert.That(apply, Does.Contain("if (_attributesDirty)"));
+            Assert.That(apply, Does.Contain("if (_attributesClearAll)"));
+            Assert.That(apply, Does.Contain("else if (_attributesOverlayDirty)"));
             Assert.That(apply, Does.Contain("if (_attachmentsDirty)"));
             Assert.That(apply, Does.Contain("report.ClearAttachments()"));
             Assert.That(apply, Does.Not.Contain("Email ?? \"\""));
