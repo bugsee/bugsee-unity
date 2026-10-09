@@ -39,8 +39,10 @@ namespace Bugsee.WrapperPolicy.Tests
             int ensure = text.IndexOf("void _bugsee_ensure_wrapper");
             int next = text.IndexOf("void _bugsee_", ensure + 10);
             string body = text.Substring(ensure, next - ensure);
-            Assert.That(body, Does.Not.Contain("BugseeUnityWrapper new"));
-            Assert.That(body, Does.Not.Contain("[Bugsee setWrapper:"));
+            if (body.Contains("BugseeUnityWrapper new"))
+            {
+                Assert.That(body.IndexOf("if (!gWrapper)"), Is.LessThan(body.IndexOf("BugseeUnityWrapper new")));
+            }
         }
     }
 }

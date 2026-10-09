@@ -46,40 +46,31 @@ extern "C" {
 
 void _bugsee_launch(const char *appToken, const char *optionsJson)
 {
-    NSString *token = BugseeNSString(appToken);
-    NSString *optionsStr = optionsJson ? [NSString stringWithUTF8String:optionsJson] : nil;
-    BugseeRunOnMain(^{
-        NSDictionary *dict = nil;
-        if (optionsStr) {
-            id parsed = BugseeDeserializeJson(optionsStr.UTF8String);
-            if ([parsed isKindOfClass:[NSDictionary class]]) {
-                dict = parsed;
-            }
+    NSDictionary *dict = nil;
+    if (optionsJson) {
+        id parsed = BugseeDeserializeJson(optionsJson);
+        if ([parsed isKindOfClass:[NSDictionary class]]) {
+            dict = parsed;
         }
-        [Bugsee launchWithToken:token andOptions:dict];
-    });
+    }
+    [Bugsee launchWithToken:BugseeNSString(appToken) andOptions:dict];
 }
 
 void _bugsee_relaunch(const char *optionsJson)
 {
-    NSString *optionsStr = optionsJson ? [NSString stringWithUTF8String:optionsJson] : nil;
-    BugseeRunOnMain(^{
-        NSDictionary *dict = nil;
-        if (optionsStr) {
-            id parsed = BugseeDeserializeJson(optionsStr.UTF8String);
-            if ([parsed isKindOfClass:[NSDictionary class]]) {
-                dict = parsed;
-            }
+    NSDictionary *dict = nil;
+    if (optionsJson) {
+        id parsed = BugseeDeserializeJson(optionsJson);
+        if ([parsed isKindOfClass:[NSDictionary class]]) {
+            dict = parsed;
         }
-        [Bugsee relaunchWithDictionaryOptions:dict];
-    });
+    }
+    [Bugsee relaunchWithDictionaryOptions:dict];
 }
 
 void _bugsee_stop(void)
 {
-    BugseeRunOnMain(^{
-        [Bugsee stop:nil];
-    });
+    [Bugsee stop:nil];
 }
 
 bool _bugsee_get_launched(void)

@@ -36,8 +36,8 @@ static BugseeUnityLifecycleCb gLifecycleCb = NULL;
 static NSMutableDictionary<NSNumber *, NSMutableDictionary *> *gPending;
 static int64_t gNextRequestId = 1;
 static NSObject *gLock;
-static NSString *gWrapperVersion = nil;
-static NSString *gWrapperBuild = nil;
+static NSString *gWrapperVersion = @"0.1.0";
+static NSString *gWrapperBuild = @"dev";
 static NSDictionary<NSString *, NSString *> *gWrapperContext = nil;
 
 @class BugseeUnityWrapper;
@@ -393,9 +393,9 @@ void _bugsee_ensure_wrapper(const char *version, const char *build)
     if (version) gWrapperVersion = [NSString stringWithUTF8String:version];
     if (build) gWrapperBuild = [NSString stringWithUTF8String:build];
     if (!gWrapper) {
-        NSLog(@"[Bugsee] ensure-wrapper");
-        return;
+        gWrapper = [BugseeUnityWrapper new];
     }
+    [Bugsee setWrapper:gWrapper];
 }
 
 void _bugsee_set_wrapper_context(const char *json)
@@ -406,7 +406,6 @@ void _bugsee_set_wrapper_context(const char *json)
     }
     NSDictionary *parsed = BugseeUnityParseJson(json);
     if (![parsed isKindOfClass:[NSDictionary class]]) {
-        gWrapperContext = @{};
         return;
     }
     NSMutableDictionary<NSString *, NSString *> *out = [NSMutableDictionary dictionary];

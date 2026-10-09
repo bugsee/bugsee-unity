@@ -35,24 +35,33 @@ namespace Bugsee.Platform.IOS
         public void Launch(string appToken, IDictionary<string, object> options)
         {
             ManagedExceptionPayload.EnsureBuildIdentity();
-            EnsureWrapperRegistered();
-            _bugsee_launch(appToken, ToJsonObject(options));
-            _launched = true;
-            ExceptionPipeline.Install(this, options);
+            MainThreadDispatcher.RunSync(() =>
+            {
+                EnsureWrapperRegistered();
+                _bugsee_launch(appToken, ToJsonObject(options));
+                _launched = true;
+                ExceptionPipeline.Install(this, options);
+            });
         }
 
         public void Relaunch(IDictionary<string, object> options)
         {
-            _bugsee_relaunch(ToJsonObject(options));
-            ExceptionPipeline.Install(this, options);
+            MainThreadDispatcher.RunSync(() =>
+            {
+                _bugsee_relaunch(ToJsonObject(options));
+                ExceptionPipeline.Install(this, options);
+            });
         }
 
         public void Stop(Action completion = null)
         {
-            ExceptionPipeline.Uninstall();
-            _bugsee_stop();
-            _launched = false;
-            completion?.Invoke();
+            MainThreadDispatcher.RunSync(() =>
+            {
+                ExceptionPipeline.Uninstall();
+                _bugsee_stop();
+                _launched = false;
+                completion?.Invoke();
+            });
         }
 
         public bool GetLaunched() => _launched && _bugsee_get_launched();
