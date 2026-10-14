@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "dependencies": {
+    ".NETStandard,Version=v2.1": {
+      "UnityEngine.Modules": {
+        "type": "Direct",
+        "requested": "[2021.3.33, )",
+        "resolved": "2021.3.33",
+        "contentHash": "7NtoEnLcehfJIW+DL9awtXAHj3SJcQBWOTPePwA6LmeWVz9YbHoSzs2uEOCt5meWokUqCWMVmqBT1Heu5ouWDw=="
+      }
+    }
+  }
+}

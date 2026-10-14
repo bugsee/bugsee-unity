@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Mirrors Editor/Bugsee.Editor.asmdef (references Bugsee.Runtime only). See Bugsee.Runtime.csproj. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>Bugsee.Editor</AssemblyName>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <NoWarn>$(NoWarn);CS1591;CS0618;CS0649;CS0169;CS0414;CS0436;NU1701;NETSDK1138</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Community repackagings on nuget.org, pinned by exact version and lock file. -->
+    <PackageReference Include="UnityEngine.Modules" Version="2021.3.33" PrivateAssets="all" />
+    <PackageReference Include="UnityTechnologies.UnityEditor" Version="2020.2.2.1" PrivateAssets="all" />
+    <ProjectReference Include="..\Runtime\Bugsee.Runtime.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\..\..\Editor\**\*.cs" />
+    <Compile Include="UnityEditorXcodeStubs.cs" />
+    <Compile Include="UnityEditorStubs.cs" />
+  </ItemGroup>
+</Project>
