@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Bugsee.Contracts.Options;
 using Bugsee.Platform;
 using UnityEngine;
+using EchoOutcome = Bugsee.WrapperPolicy.LogExceptionEcho.Outcome;
 
 namespace Bugsee.Internal
 {
@@ -23,7 +24,6 @@ namespace Bugsee.Internal
         readonly IBugseeNativeBridge _bridge;
         readonly ILogHandler _inner;
         readonly bool _treatUnityLogExceptionAsFatal;
-        int _reentrancy;
         string _lastDedupeKey;
         double _lastDedupeTime;
 
@@ -131,8 +131,21 @@ namespace Bugsee.Internal
             // Unity routes both Debug.LogException and many uncaught main-thread
             // exceptions here. Default non-fatal; opt into fatal via launch option.
             var fatal = _treatUnityLogExceptionAsFatal;
-            Report(exception, handled: !fatal, source: "LogException", syncFlush: fatal);
-            _inner.LogException(exception, context);
+            var outcome = Report(exception, handled: !fatal, source: "LogException", syncFlush: fatal);
+            // Unity echoes this exception into logMessageReceivedThreaded as text, on this thread, from inside the
+            // next call. Expect it there so the callback can drop the second copy when this path delivered it, or
+            // skipped it as a duplicate (the first call delivered it). If Report skipped a nested call or the send
+            // failed or timed out, the echo is the only report left.
+            if (!global::Bugsee.WrapperPolicy.LogExceptionEcho.ShouldExpect(outcome))
+            {
+                _inner.LogException(exception, context);
+                return;
+            }
+
+            using (global::Bugsee.WrapperPolicy.LogExceptionEcho.Expect(exception))
+            {
+                _inner.LogException(exception, context);
+            }
         }
 
         void OnLogMessageReceivedThreaded(string condition, string stackTrace, LogType type)
@@ -142,8 +155,13 @@ namespace Bugsee.Internal
                 return;
             }
 
-            // ILogHandler.LogException already reported Debug.LogException path —
-            // dedupe Unity-routed uncaught exceptions that also hit this callback.
+            // ILogHandler.LogException already reported the Debug.LogException path; this is its echo.
+            if (global::Bugsee.WrapperPolicy.LogExceptionEcho.IsEcho(condition))
+            {
+                return;
+            }
+
+            // Unity-routed uncaught exceptions that hit this callback more than once.
             var key = (condition ?? "") + "\n" + (stackTrace ?? "");
             if (IsDuplicate(key))
             {
@@ -177,44 +195,59 @@ namespace Bugsee.Internal
         }
 #endif
 
-        void Report(Exception exception, bool handled, string source, bool syncFlush = false)
+        // Per thread: a counter shared by all threads made a Debug.LogException on thread B skip Report while
+        // thread A was inside it, and (with the echo below) the exception was then never reported at all.
+        [ThreadStatic]
+        static int _reportDepth;
+
+        /// <summary>
+        /// Delivered when <see cref="DispatchPayload"/> delivered it; Duplicate when the same exception (type,
+        /// message and stack of the whole chain) was just reported; NotDelivered when it was skipped as a nested call, or the send failed or timed out.
+        /// </summary>
+        EchoOutcome Report(Exception exception, bool handled, string source, bool syncFlush = false)
         {
             if (exception == null)
             {
-                return;
+                return EchoOutcome.NotDelivered;
             }
 
-            if (Interlocked.Increment(ref _reentrancy) > 1)
+            if (_reportDepth > 0)
             {
-                Interlocked.Decrement(ref _reentrancy);
-                return;
+                return EchoOutcome.NotDelivered;
             }
 
+            _reportDepth++;
             try
             {
-                var key = exception.GetType().FullName + "\n" + (exception.StackTrace ?? "") + "\n" + source;
-                if (IsDuplicate(key))
+                if (IsDuplicate(global::Bugsee.WrapperPolicy.LogExceptionEcho.DuplicateKey(exception, source)))
                 {
-                    return;
+                    return EchoOutcome.Duplicate;
                 }
 
                 var payload = ManagedExceptionPayload.FromException(exception);
-                DispatchPayload(payload, handled, syncFlush || !handled);
+                return DispatchPayload(payload, handled, syncFlush || !handled)
+                    ? EchoOutcome.Delivered
+                    : EchoOutcome.NotDelivered;
             }
             finally
             {
-                Interlocked.Decrement(ref _reentrancy);
+                _reportDepth--;
             }
         }
 
-        void DispatchPayload(ManagedExceptionPayload.Payload payload, bool handled, bool syncFlush)
+        /// <summary>
+        /// True when the payload was sent, or queued for the main thread on the non-blocking path (where the echo
+        /// would only be queued behind it). False when there was nothing to send, the send threw, or a sync flush
+        /// timed out.
+        /// </summary>
+        bool DispatchPayload(ManagedExceptionPayload.Payload payload, bool handled, bool syncFlush)
         {
             if (payload == null || _bridge == null)
             {
-                return;
+                return false;
             }
 
-            void Send()
+            bool Send()
             {
                 try
                 {
@@ -226,34 +259,40 @@ namespace Bugsee.Internal
                     {
                         _bridge.LogUnhandledExceptionPayload(payload, null);
                     }
+                    return true;
                 }
                 catch (Exception ex)
                 {
                     // Never re-enter pipeline via Debug.LogException.
                     try { _inner.LogFormat(LogType.Warning, null, "Bugsee ExceptionPipeline: {0}", ex.Message); }
                     catch { /* ignore */ }
+                    return false;
                 }
             }
 
             if (MainThreadDispatcher.IsMainThread)
             {
-                Send();
-                return;
+                return Send();
             }
 
             if (syncFlush)
             {
-                MainThreadDispatcher.RunSync(Send, 4000);
+                // On a timeout the queued Send may still run later; reporting twice beats losing the crash.
+                var sent = false;
+                var completed = MainThreadDispatcher.RunSync(() => { sent = Send(); }, 4000);
+                return completed && sent;
             }
-            else
-            {
-                MainThreadDispatcher.Run(Send);
-            }
+
+            MainThreadDispatcher.Run(() => Send());
+            return true;
         }
+
+        // Time.realtimeSinceStartup throws off the main thread, and log callbacks arrive on any thread.
+        static readonly System.Diagnostics.Stopwatch DedupeClock = System.Diagnostics.Stopwatch.StartNew();
 
         bool IsDuplicate(string key)
         {
-            var now = (double)Time.realtimeSinceStartup;
+            var now = DedupeClock.Elapsed.TotalSeconds;
             lock (Gate)
             {
                 if (_lastDedupeKey == key && (now - _lastDedupeTime) < 0.75)
