@@ -310,8 +310,10 @@ namespace Bugsee.Editor
             sb.AppendLine("set -e");
             sb.AppendLine("# Bugsee archive-time symbol upload (dSYM + il2cpp-linemap).");
             sb.AppendLine("# Never fail the Archive — swallow CLI errors.");
-            sb.AppendLine("if [ \"${CONFIGURATION}\" != \"Release\" ] && [ \"${BUGSEE_UPLOAD_ON_DEBUG}\" != \"1\" ]; then");
-            sb.AppendLine("  echo \"Bugsee: skip symbol upload for ${CONFIGURATION} (set BUGSEE_UPLOAD_ON_DEBUG=1 to force).\"");
+            // Debug builds are the ones tested on devices (Unity's Development Build), and a crash from one is
+            // unsymbolicated without its dSYM, so every configuration uploads. Opt out per build environment.
+            sb.AppendLine("if [ \"${CONFIGURATION}\" = \"Debug\" ] && [ \"${BUGSEE_SKIP_UPLOAD_ON_DEBUG}\" = \"1\" ]; then");
+            sb.AppendLine("  echo \"Bugsee: skip symbol upload for Debug (BUGSEE_SKIP_UPLOAD_ON_DEBUG=1).\"");
             sb.AppendLine("  exit 0");
             sb.AppendLine("fi");
             sb.AppendLine("if [ -z \"${BUGSEE_APP_TOKEN}\" ]; then");
@@ -341,6 +343,11 @@ namespace Bugsee.Editor
             sb.AppendLine("    echo \"Bugsee: uploading UnityFramework dSYM ${UF_DSYM}\"");
             sb.AppendLine("    upload \"${CLI}\" debug-files upload \"${UF_DSYM}\" --type dsym --version \"${VERSION}\" --build \"${BUILD}\"");
             sb.AppendLine("  fi");
+            sb.AppendLine("fi");
+            // Unity exports Debug with DEBUG_INFORMATION_FORMAT=dwarf, which writes no dSYM: say so rather than
+            // finish as if the crash symbols were uploaded.
+            sb.AppendLine("if [ ! -d \"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}\" ] && [ ! -d \"${DWARF_DSYM_FOLDER_PATH}/UnityFramework.framework.dSYM\" ]; then");
+            sb.AppendLine("  echo \"warning: Bugsee: no dSYM for ${CONFIGURATION} in ${DWARF_DSYM_FOLDER_PATH}; set DEBUG_INFORMATION_FORMAT=dwarf-with-dsym to symbolicate its crashes.\"");
             sb.AppendLine("fi");
             sb.AppendLine("");
             sb.AppendLine("# --- il2cpp-linemap (UUID from UnityFramework binary / dSYM) ---");
