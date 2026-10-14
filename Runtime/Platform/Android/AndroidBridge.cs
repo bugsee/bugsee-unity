@@ -295,7 +295,14 @@ namespace Bugsee.Platform.Android
             }
         }
 
-        public void TestCrash() => _bugsee.CallStatic("testCrash");
+        // Not Bugsee.testCrash() directly: thrown over JNI on Unity's thread it never goes uncaught.
+        public void TestCrash()
+        {
+            using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
+            {
+                wrapper.CallStatic("testCrash");
+            }
+        }
 
         public void ShowReportDialog(string summary, string description, IssueSeverity severity, IList<string> labels)
         {
