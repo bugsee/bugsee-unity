@@ -126,7 +126,9 @@ namespace Bugsee.Sample
 #elif UNITY_IOS && !UNITY_EDITOR
                 var iosOptions = new IOSLaunchOptions
                 {
-                    CaptureVideo = true,
+                    // The iOS Simulator crashes the SDK's Unity video capture (it reads a private "iosurface" key the
+                    // simulator's texture lacks), so a simulator run sets BUGSEE_E2E_VIDEO=0.
+                    CaptureVideo = Environment.GetEnvironmentVariable("BUGSEE_E2E_VIDEO") != "0",
                     CaptureLogs = true,
                     CaptureNetwork = true,
                     ReportingTriggerByShake = true,
@@ -149,15 +151,25 @@ namespace Bugsee.Sample
 
                 // Auto e2e matrix when endpoint override is set (device → local appserver).
                 // Scenarios via Android intent extra "bugsee_e2e" (default: sig).
-                //   handled | unhandled | crash | sig | pipeline
-                if (!string.IsNullOrWhiteSpace(endpointOverride))
+                //   handled | unhandled | crash | sig | pipeline | native | abort | fatal | java | hang | upload | none
+                // Armed when an endpoint override is set or the extra is given explicitly.
+                var requestedScenario = ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO");
+                var launchRun = ReadE2EValue("bugsee_e2e_run", "BUGSEE_E2E_RUN");
+                if (requestedScenario != null && !ConsumeE2ERun(launchRun))
                 {
-                    _e2eScenario = ReadAndroidE2EScenario();
+                    // Android restarts the activity after a crash with the SAME intent extras, so without this a
+                    // killer scenario would fire again in every restarted process (a crash loop).
+                    Debug.Log("[BugseeSample] E2E run " + launchRun + " already ran (restart after a crash): arming nothing");
+                    requestedScenario = "none";
+                }
+                if (!string.IsNullOrWhiteSpace(endpointOverride) || requestedScenario != null)
+                {
+                    _e2eScenario = requestedScenario ?? "sig";
                     _e2eArmed = true;
                     _e2ePhase = 0;
                     _e2eTimer = 0f;
                     _e2eRunId = DateTime.UtcNow.ToString("HHmmss");
-                    Debug.Log("[BugseeSample] E2E armed scenario=" + _e2eScenario + " runId=" + _e2eRunId);
+                    Debug.Log("[BugseeSample] E2E armed scenario=" + _e2eScenario + " runId=" + _e2eRunId + " run=" + (launchRun ?? "-"));
                 }
 
                 SetStatus("Launch ok (token set)");
@@ -224,6 +236,31 @@ namespace Bugsee.Sample
                         _pendingE2EFire = "C:crash";
                     }
                     break;
+                // Real process-killing failures, one per run, for the crash/symbolication matrix:
+                //   native = SIGSEGV in libunity, abort = SIGABRT, fatal = Unity fatal error,
+                //   java = uncaught RuntimeException on the Android main thread, hang = blocked main thread.
+                case "native":
+                case "abort":
+                case "fatal":
+                case "java":
+                case "hang":
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 99;
+                        _pendingE2EFire = "K:" + _e2eScenario;
+                    }
+                    break;
+                case "upload":
+                    // A plain manual report: tells "no report is ever sent" from "only handled exceptions are not".
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 99;
+                        _pendingE2EFire = "L:e2e-upload-" + _e2eRunId;
+                    }
+                    break;
+                case "none":
+                    // Recovery launch: arm nothing, only let the SDK recover and upload what the last run left.
+                    break;
                 case "sig":
                 default:
                     if (_e2ePhase == 0 && _e2eTimer >= 5f)
@@ -250,6 +287,8 @@ namespace Bugsee.Sample
         void PumpPendingE2EFire(string pending)
         {
             if (string.IsNullOrEmpty(pending) || pending.Length < 2) return;
+            // The SDK's state at the moment of the call: a report made while it is still Launching is retained, not sent.
+            Debug.Log("[BugseeSample] sdk status=" + Bugsee.Status + " launched=" + Bugsee.IsLaunched + " fire=" + pending);
             var kind = pending[0];
             var marker = pending.Length > 2 ? pending.Substring(2) : pending;
             switch (kind)
@@ -271,10 +310,55 @@ namespace Bugsee.Sample
                     SetStatus("E2E native TestCrash");
                     Bugsee.TestCrash();
                     break;
+                case 'K':
+                    FireProcessFailure(marker);
+                    break;
+                case 'L':
+                    SetStatus("E2E manual upload " + marker);
+                    Bugsee.Upload(marker, "uploaded by the e2e harness");
+                    break;
             }
         }
 
-        static string ReadAndroidE2EScenario()
+        void FireProcessFailure(string scenario)
+        {
+            SetStatus("E2E process failure: " + scenario);
+            switch (scenario)
+            {
+                case "native":
+                    UnityEngine.Diagnostics.Utils.ForceCrash(UnityEngine.Diagnostics.ForcedCrashCategory.AccessViolation);
+                    break;
+                case "abort":
+                    UnityEngine.Diagnostics.Utils.ForceCrash(UnityEngine.Diagnostics.ForcedCrashCategory.Abort);
+                    break;
+                case "fatal":
+                    UnityEngine.Diagnostics.Utils.ForceCrash(UnityEngine.Diagnostics.ForcedCrashCategory.FatalError);
+                    break;
+                case "java":
+                    Bugsee.TestCrash();
+                    break;
+                case "hang":
+                    // The SDK's hang/ANR detection watches the Android MAIN looper. This code runs on Unity's own
+                    // thread (UnityMain), so sleeping here would stall the game but never be seen as a hang.
+                    // Block the Android UI thread instead; longer than the SDK's hang threshold. That can also raise
+                    // an ANR, and the process may then be killed: the run script does not judge liveness for hang.
+#if UNITY_ANDROID && !UNITY_EDITOR
+                    using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+                    using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
+                    {
+                        activity.Call("runOnUiThread", new AndroidJavaRunnable(() => System.Threading.Thread.Sleep(20000)));
+                    }
+#else
+                    System.Threading.Thread.Sleep(20000);
+#endif
+                    break;
+            }
+        }
+
+        // An intent extra (Android) or environment variable (iOS), trimmed and lower-cased, or null when there is
+        // none. "bugsee_e2e" / BUGSEE_E2E_SCENARIO names the scenario; "bugsee_e2e_run" / BUGSEE_E2E_RUN is a
+        // unique id per launch from the run script.
+        static string ReadE2EValue(string androidExtra, string iosVariable)
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
             try
@@ -283,17 +367,45 @@ namespace Bugsee.Sample
                 using (var activity = unityPlayer.GetStatic<AndroidJavaObject>("currentActivity"))
                 using (var intent = activity.Call<AndroidJavaObject>("getIntent"))
                 {
-                    var scenario = intent?.Call<string>("getStringExtra", "bugsee_e2e");
-                    if (!string.IsNullOrWhiteSpace(scenario))
-                        return scenario.Trim().ToLowerInvariant();
+                    var value = intent?.Call<string>("getStringExtra", androidExtra);
+                    if (!string.IsNullOrWhiteSpace(value))
+                        return value.Trim().ToLowerInvariant();
                 }
             }
             catch (Exception ex)
             {
-                Debug.LogWarning("[BugseeSample] bugsee_e2e intent read failed: " + ex.Message);
+                Debug.LogWarning("[BugseeSample] " + androidExtra + " intent read failed: " + ex.Message);
             }
 #endif
-            return "sig";
+#if UNITY_IOS && !UNITY_EDITOR
+            // iOS has no intent extras: `SIMCTL_CHILD_BUGSEE_E2E_SCENARIO=native xcrun simctl launch ...` (or the
+            // scheme's environment variables on a device run) reaches the app as BUGSEE_E2E_SCENARIO.
+            var fromEnvironment = Environment.GetEnvironmentVariable(iosVariable);
+            if (!string.IsNullOrWhiteSpace(fromEnvironment))
+                return fromEnvironment.Trim().ToLowerInvariant();
+#endif
+            return null;
+        }
+
+        // Records the launch's run id as done BEFORE its scenario fires, in a file written synchronously so it
+        // survives the crash. False when this run id already ran, i.e. this process is the OS restarting the
+        // activity with the same extras. A launch without a run id (a manual `am start`) always fires, and is not
+        // protected against that restart.
+        static bool ConsumeE2ERun(string run)
+        {
+            if (string.IsNullOrEmpty(run)) return true;
+            var path = System.IO.Path.Combine(Application.persistentDataPath, "bugsee_e2e_last_run");
+            try
+            {
+                if (System.IO.File.Exists(path) && System.IO.File.ReadAllText(path).Trim() == run)
+                    return false;
+                System.IO.File.WriteAllText(path, run);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[BugseeSample] e2e run marker failed: " + ex.Message);
+            }
+            return true;
         }
 
         // Dedicated throw sites so stack frames (hence worker signatures) stay stable.

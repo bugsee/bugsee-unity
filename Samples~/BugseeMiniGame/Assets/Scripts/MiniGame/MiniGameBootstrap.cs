@@ -114,13 +114,32 @@ namespace Bugsee.Sample
             BugseeActionForms.Ensure(bootstrap);
         }
 
+        [System.Serializable]
+        sealed class BuildOverride
+        {
+            public string token;
+            public string endpoint;
+        }
+
+        // Token/endpoint injected at build time by Editor/E2EBuild (git-ignored Resources file),
+        // so a validation build never needs credentials in the scene.
+        static BuildOverride LoadBuildOverride()
+        {
+            var asset = Resources.Load<TextAsset>("BugseeE2E");
+            return asset == null ? null : JsonUtility.FromJson<BuildOverride>(asset.text);
+        }
+
         string ResolveAppToken()
         {
+            var injected = LoadBuildOverride();
+            if (injected != null && !string.IsNullOrWhiteSpace(injected.token)) return injected.token.Trim();
             return string.IsNullOrWhiteSpace(bugseeAppToken) ? "" : bugseeAppToken.Trim();
         }
 
         string ResolveEndpoint()
         {
+            var injected = LoadBuildOverride();
+            if (injected != null && !string.IsNullOrWhiteSpace(injected.endpoint)) return injected.endpoint.Trim();
             return string.IsNullOrWhiteSpace(bugseeEndpoint) ? "" : bugseeEndpoint.Trim();
         }
 
