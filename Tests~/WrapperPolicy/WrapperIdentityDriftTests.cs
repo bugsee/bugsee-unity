@@ -56,10 +56,15 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             var android = Capture("Tools~/versions.env", "ANDROID_SDK_VERSION=\"([^\"]+)\"");
             Assert.That(Capture("Runtime/BugseePackageVersion.cs", "AndroidSdkVersion = \"([^\"]+)\""), Is.EqualTo(android));
-            Assert.That(Capture("Editor/BugseeAndroidDependencies.xml", "bugsee-android:([^\"]+)\""), Is.EqualTo(android));
-            Assert.That(Capture("Editor/BugseeAndroidDependencies.xml", "bugsee-android-ndk:([^\"]+)\""), Is.EqualTo(android),
-                "the NDK artifact must track the core version");
-            Assert.That(Capture("Editor/BugseeAndroidGradleSetup.cs", "SdkVersion = \"([^\"]+)\""), Is.EqualTo(android));
+            // The Maven dependencies are declared from BugseePackageVersion at build time (no XML any more), so
+            // both artifacts take the one version above.
+            var injector = File.ReadAllText(RepoFile("Editor/BugseeAndroidMavenDependencies.cs"));
+            Assert.That(injector, Does.Contain("BugseePackageVersion.AndroidSdkVersion"));
+            Assert.That(injector, Does.Contain("BugseePackageVersion.AndroidMavenArtifact"));
+            Assert.That(injector, Does.Contain("BugseePackageVersion.AndroidNdkArtifact"),
+                "the NDK artifact must be declared with the core one");
+            Assert.That(File.ReadAllText(RepoFile("Editor/BugseeAndroidGradleSetup.cs")),
+                Does.Contain("SdkVersion = BugseePackageVersion.AndroidSdkVersion;"));
             Assert.That(Capture("Tests~/Android/wrapper/build.gradle", "bugsee-android:([^\"]+)\""), Is.EqualTo(android));
 
             var ios = Capture("Tools~/versions.env", "IOS_SDK_VERSION=\"([^\"]+)\"");
