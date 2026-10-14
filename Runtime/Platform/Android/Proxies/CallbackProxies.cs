@@ -120,22 +120,22 @@ namespace Bugsee.Platform.Android
         {
         }
 
-        public void onEvent(string eventType, AndroidJavaObject data)
+        // One overload only. With two (AndroidJavaObject / string) Unity's JNI cannot choose when the
+        // data is null and throws "Ambiguous overloads found for onEvent". `object` accepts a Java
+        // map, a string (Android may pass the data as a JSON String) and null.
+        public void onEvent(string eventType, object data)
         {
-            // Unbox on the calling (often background) thread so we don't retain
-            // a Java local ref across the main-thread hop.
             object managedData = null;
-            try { managedData = AndroidJavaConverters.UnboxLifecycleData(data); }
+            try
+            {
+                var javaData = data as AndroidJavaObject;
+                // Unbox on the calling (often background) thread so we don't retain
+                // a Java local ref across the main-thread hop.
+                managedData = javaData != null ? AndroidJavaConverters.UnboxLifecycleData(javaData) : data;
+            }
             catch (Exception ex) { Debug.LogException(ex); }
 
             DispatchLifecycle(eventType, managedData);
-        }
-
-        // Android may pass Object as a JSON String; Unity JNI matches that exact
-        // signature and otherwise logs "No such proxy method: onEvent(String,String)".
-        public void onEvent(string eventType, string data)
-        {
-            DispatchLifecycle(eventType, data);
         }
 
         static void DispatchLifecycle(string eventType, object managedData)
@@ -171,15 +171,24 @@ namespace Bugsee.Platform.Android
             _onResult = onResult;
         }
 
-        public void run(AndroidJavaObject value)
+        // Callback1<Boolean>.run is generic, so the SDK passes a java.lang.Boolean; Unity hands it
+        // over already unboxed as System.Boolean (a run(AndroidJavaObject) overload is never matched:
+        // "No such proxy method: run(System.Boolean)"). `object` covers both shapes and null.
+        public void run(object value)
         {
-            if (value == null)
+            if (value is bool flag)
             {
-                _onResult?.Invoke(false);
+                _onResult?.Invoke(flag);
                 return;
             }
 
-            _onResult?.Invoke(value.Call<bool>("booleanValue"));
+            if (value is AndroidJavaObject javaBoolean)
+            {
+                _onResult?.Invoke(javaBoolean.Call<bool>("booleanValue"));
+                return;
+            }
+
+            _onResult?.Invoke(false);
         }
     }
 

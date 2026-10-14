@@ -203,19 +203,41 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Android_delete_collected_data_stops_then_deletes()
         {
             string android = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs"));
-            string body = ExtractMethodBody(android, "public void DeleteCollectedDataOnDevice()");
-            Assert.That(body, Does.Contain("CaptureForPendingDelete()"));
-            Assert.That(body, Does.Contain("InvokeDeleteCollectedDataOnDevice(deleteGeneration)"));
-            string invoke = ExtractMethodBody(android, "void InvokeDeleteCollectedDataOnDevice(int deleteGeneration)");
-            Assert.That(invoke, Does.Contain("ShouldRunDelete(deleteGeneration)"));
-            Assert.That(invoke, Does.Contain("deleteCollectedDataOnDevice"));
-            Assert.That(invoke, Does.Contain("true"));
-            Assert.That(invoke, Does.Contain("BooleanCallback1Proxy"));
+            string body = ExtractMethodBody(android, "internal void DeleteCollectedDataOnDevice(Action<bool> completion)");
+            Assert.That(body, Does.Contain("Lifecycle.DeleteCollectedData(completion)"));
+            Assert.That(body, Does.Contain("MainThreadDispatcher.Run("));
 
             string callback = File.ReadAllText(RepoFile("Runtime/Platform/Android/Proxies/CallbackProxies.cs"));
             Assert.That(callback, Does.Contain("BooleanCallback1Proxy"));
             Assert.That(callback, Does.Contain("com.bugsee.library.contracts.common.Callback1"));
-            Assert.That(callback, Does.Contain("public void run(AndroidJavaObject value)"));
+            // Unity passes Callback1<Boolean>'s argument already unboxed (System.Boolean), so a
+            // run(AndroidJavaObject) overload is never matched on device ("No such proxy method").
+            Assert.That(callback, Does.Contain("public void run(object value)"));
+            Assert.That(callback, Does.Not.Contain("public void run(AndroidJavaObject value)"));
+
+            // One onEvent overload: with two, Unity's JNI cannot choose when the data is null ("Ambiguous overloads").
+            Assert.That(callback, Does.Contain("public void onEvent(string eventType, object data)"));
+            Assert.That(callback, Does.Not.Contain("public void onEvent(string eventType, string data)"));
+            Assert.That(callback, Does.Not.Contain("public void onEvent(string eventType, AndroidJavaObject data)"));
+
+            // Launch/Relaunch/Stop/Delete all go through AndroidLifecycleMachine on the main thread; the ordering,
+            // stale-result and deadline rules are covered by AndroidLaunchStatePolicyTests.
+            string bridge = android;
+            Assert.That(ExtractMethodBody(bridge, "internal void Launch(string appToken, IDictionary<string, object> options, Action<bool> completion)"),
+                Does.Contain("MainThreadDispatcher.Run(() => Lifecycle.Launch(appToken, options, completion))"));
+            Assert.That(ExtractMethodBody(bridge, "internal void Relaunch(IDictionary<string, object> options, Action<bool> completion)"),
+                Does.Contain("Lifecycle.Relaunch(options, completion)"));
+            Assert.That(ExtractMethodBody(bridge, "public void Stop(Action completion = null)"),
+                Does.Contain("Lifecycle.Stop(completion)"));
+            foreach (var call in new[] { "\"launch\"", "\"relaunch\"", "\"stop\"", "\"deleteCollectedDataOnDevice\"" })
+                Assert.That(System.Text.RegularExpressions.Regex.Matches(bridge, "CallStatic\\(" + System.Text.RegularExpressions.Regex.Escape(call)).Count,
+                    Is.EqualTo(1), call + " is only called by the lifecycle machine's native side");
+            // Every SDK lifecycle callback reaches the machine on the main thread.
+            Assert.That(System.Text.RegularExpressions.Regex.Matches(bridge, "new BooleanCallback1Proxy\\(OnMain\\(done\\)\\)").Count, Is.EqualTo(3));
+            Assert.That(bridge, Does.Contain("new RunnableProxy(() => MainThreadDispatcher.Run(done))"));
+            Assert.That(bridge, Does.Contain("_bridge.Lifecycle.Tick()"));
+            Assert.That(System.Text.RegularExpressions.Regex.IsMatch(bridge,
+                @"""deleteCollectedDataOnDevice"",\s*true,\s*true,"), Is.True, "includingIntermediate and includingBundles");
         }
 
         [Test]
@@ -391,18 +413,11 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Launch_and_relaunch_bump_delete_generation_before_native_call()
+        public void Launch_and_relaunch_bump_delete_generation()
         {
+            // Android orders a delete before any later Launch (AndroidLifecycleMachine), so it needs no generation.
             string android = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs"));
-            string androidLaunch = ExtractMethodBody(android, "public void Launch(string appToken, IDictionary<string, object> options)");
-            Assert.That(androidLaunch, Does.Contain("BumpForLaunch()"));
-            Assert.That(androidLaunch, Does.Contain("CallStatic(\"launch\""));
-            int launchIdx = androidLaunch.IndexOf("BumpForLaunch()", StringComparison.Ordinal);
-            int nativeLaunchIdx = androidLaunch.IndexOf("CallStatic(\"launch\"", StringComparison.Ordinal);
-            Assert.That(launchIdx, Is.LessThan(nativeLaunchIdx));
-
-            string androidRelaunch = ExtractMethodBody(android, "public void Relaunch(IDictionary<string, object> options)");
-            Assert.That(androidRelaunch, Does.Contain("BumpForLaunch()"));
+            Assert.That(android, Does.Not.Contain("DeleteCollectedDataLaunchGeneration"));
 
             string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
             string iosLaunch = ExtractMethodBody(ios, "public void Launch(string appToken, IDictionary<string, object> options)");
