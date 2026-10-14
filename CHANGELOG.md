@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Documented what `Launch`, `Relaunch`, `Stop` and `DeleteCollectedDataOnDevice` guarantee on each platform, the 10 s soft and 60 s hard deadlines, and the residual races: iOS, a late native stop (or wipe) can still affect a `Launch` made after the 60 s give-up; Android, a late launch/relaunch result after the hard reset is ignored when no stop intent is set, a queued `Launch` can run while a native delete is still wiping after the reset, and a delete handed to native can finish after its 10 s warning.
+
 - Android Mono builds cannot symbolicate native frames inside the Mono runtime (`libmonobdwgc-2.0.so`, `libmono-native.so`, `libMonoPosixHelper.so`): Unity 2021.3 has no Mono ARM64 and those libraries have no GNU build-id. IL2CPP is the supported configuration for fully symbolicated native crashes. Documented in the Player Settings checklist, and a Mono Android build now logs a one-time warning at build time regardless of symbol upload settings (the build is never failed).
 
 ### Fixed
@@ -28,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ExceptionPipeline managed capture (`CaptureManagedExceptions`) with UnityManagedException JSON-in-reason.
 - `Bugsee.LogUnhandledException` on Android and iOS.
 - `Bugsee.LaunchAsync`, `RelaunchAsync` (`Task<bool>`) and `StopAsync` (`Task`) on iOS and Android: they complete when the SDK has answered. `StopAsync` faults with `TimeoutException` when the SDK has not reported the stop within 10 s of the call (the native stop may still be running, and later launches stay deferred until it reports, or 60 s pass); on iOS it also faults when the main thread did not take the call within 5 s. The existing `Launch`/`Relaunch`/`Stop` signatures are unchanged.
-- On Android, `LaunchAsync`/`RelaunchAsync` complete true when the SDK accepted the launch and false when it refused it or the request was superseded; if the SDK gives no answer within 10 s they complete true when it is already Launching/Launched, otherwise false; `StopAsync` is not dropped by a Launch that follows it, and the 10 s deadline counts from each call, also for one that joins a stop already in flight. Android queues the call to the main thread and never refuses it, so a stalled main thread leaves the Task pending.
+- On Android, `LaunchAsync`/`RelaunchAsync` complete true when the SDK accepted the launch and false when it refused it or the request was superseded; if the SDK gives no answer within 10 s they complete true when it is already Launching/Launched, otherwise false; `StopAsync` is not dropped by a Launch that follows it, and the 10 s deadline counts from each call, also for one that joins a stop already in flight. Android hands every lifecycle call to the Unity main thread (from another thread it is queued there and never refused), so a stalled main thread leaves the Task pending.
 - Editor IL2CPP linemap upload (`BugseeIl2CppLinemapUpload`) and symbol orchestrator (`BugseeSymbolUpload`: ELF / ProGuard / archive dSYM).
 - Hang / ANR / OOM launch-option docs and sample defaults.
 - iOS bridge depth: identity get/set, attribute get, appearance, report/upload labels.
@@ -74,7 +76,8 @@ Behaviour changes to be aware of. 0.1.0 is not released, so these correct earlie
   the SDK still stopping waits for that stop (up to 10 s) instead of stopping it again; if it never
   stops, or the SDK reports the wipe failed, a warning is logged and a waiting `Launch` still proceeds.
 - Android `Launch`, `Relaunch` and `DeleteCollectedDataOnDevice` run one at a time, in request order, on the main
-  thread, and `Stop` is never queued (calls from other threads are asynchronous): a `Launch` or `Relaunch` during a stop is deferred, a
+  thread, while `Stop` is not held in that order (it starts or joins a native stop at once, and drops queued
+  `Launch`/`Relaunch` requests; only the hand-off from another thread is queued, as for every Android lifecycle call): a `Launch` or `Relaunch` during a stop is deferred, a
   `Relaunch` is ignored with a warning unless the SDK is `Launched`, a refused `Launch` no longer cancels a pending
   delete, and a late launch result after a newer `Stop` is stopped again. In-flight operations answer their callers
   after 10 s and are abandoned after 60 s.

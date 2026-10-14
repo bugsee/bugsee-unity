@@ -52,6 +52,11 @@ namespace Bugsee
         /// Launch Bugsee. Pass typed <see cref="AndroidLaunchOptions"/> /
         /// <see cref="IOSLaunchOptions"/> / <see cref="OptionsBuilder"/> (implicit
         /// conversion), a <see cref="Dictionary{TKey,TValue}"/>, or omit for native defaults.
+        /// Does not wait for the SDK to finish launching; on iOS, off the Unity main thread, it waits up to 5 s for
+        /// the main thread to take the call and does not run if that times out (logged). A Launch made while a stop
+        /// is in flight waits for it, and a Launch while the SDK is already running ignores the new token and
+        /// native options (stop first; on iOS the managed capture options are still applied again). Ordering rules
+        /// differ per platform: see the lifecycle section of the documentation.
         /// </summary>
         public static void Launch(string appToken, Dictionary<string, object> options = null)
         {
@@ -62,22 +67,35 @@ namespace Bugsee
             Bridge.Launch(appToken, options);
         }
 
+        /// <summary>
+        /// Relaunch the SDK with new options. Does not wait for the SDK, and waits for a stop in flight like
+        /// <see cref="Launch"/> (the same 5 s main-thread hand-off applies on iOS). Android ignores it with a
+        /// warning unless the SDK is Launched. See <see cref="RelaunchAsync"/> for the result.
+        /// </summary>
         public static void Relaunch(Dictionary<string, object> options = null) =>
             Bridge.Relaunch(options);
 
         /// <summary>
-        /// Stop Bugsee. <paramref name="completion"/> runs once the SDK has finished stopping. It does not run if
-        /// a Launch/Relaunch starts a new session first, or if the stop itself did not run (on iOS, when called
-        /// off the main thread and the Unity main thread did not take it within 5 s; an error is logged). Use
-        /// <see cref="StopAsync"/> to be told about that failure.
+        /// Stop Bugsee. <paramref name="completion"/> runs once the SDK has finished stopping. A Launch/Relaunch
+        /// requested during the stop waits for it, and the completion runs before that Launch does. If the
+        /// completion itself calls Launch, that later request replaces the waiting one (it completes false) and is
+        /// the one that starts. On iOS the completion is dropped if the stop itself did not run (called off the main thread and the Unity main thread
+        /// did not take it within 5 s; an error is logged), or if an earlier completion of the same stop already
+        /// launched. Use <see cref="StopAsync"/> to be told about the first case. If the SDK has not reported the stop within 10 s of
+        /// the call, the completion runs anyway with a warning (a Launch still waits for the stop); after 60 s the
+        /// wrapper stops waiting for the stop. Residual race after that: on iOS a late native stop can still stop a
+        /// Launch made after the 60 s give-up.
         /// </summary>
         public static void Stop(Action completion = null) => Bridge.Stop(completion);
 
         /// <summary>
         /// <see cref="Launch"/> that completes with the SDK's answer: true when it accepted the launch, false
-        /// when it refused it or the launch never ran (a later Launch, Relaunch, Stop or Delete cancelled it while
-        /// it waited for a stop in flight). Never blocks the calling thread; awaited from the Unity main thread,
-        /// the continuation resumes there.
+        /// when it refused it or the launch never ran (a later request cancelled it while it waited
+        /// for a stop in flight; which requests do, differs per platform, see the lifecycle section of the
+        /// documentation). If the SDK gives no answer within 10 s the result is true when its status
+        /// is Launching/Launched and false otherwise. Does not wait for the SDK; on iOS, off the Unity main thread, it
+        /// waits up to 5 s for the main thread to take the call (false if it does not). Awaited from the Unity main
+        /// thread, the continuation resumes there.
         /// </summary>
         public static Task<bool> LaunchAsync(string appToken, Dictionary<string, object> options = null)
         {
@@ -165,6 +183,14 @@ namespace Bugsee
         public static void AddNetworkEvent(INetworkEvent networkEvent) =>
             Bridge.AddNetworkEvent(networkEvent);
 
+        /// <summary>
+        /// Delete the data collected on the device, including finished report bundles. Stops the SDK first if it
+        /// is not stopped (joining a stop in flight) and leaves it stopped: Launch again to resume. It has no
+        /// result; a failure is logged. On Android it runs in request order with Launch/Relaunch (ones requested
+        /// earlier run first); on iOS a Launch/Relaunch requested after it waits for the wipe. A delete already
+        /// handed to the native SDK can finish after the 10 s warning, and after the 60 s hard deadline an Android
+        /// Launch can run while a native delete is still wiping.
+        /// </summary>
         public static void DeleteCollectedDataOnDevice() =>
             Bridge.DeleteCollectedDataOnDevice();
 
