@@ -9,7 +9,8 @@ namespace Bugsee.WrapperPolicy.Tests
 {
     public class OptionPlatformGateTests
     {
-        const string ForIosJsonCall = "ToJsonObject(OptionPlatformGate.ForIos(options))";
+        // wrapper_info is added after the platform gate, so Android-only keys are still stripped first.
+        const string ForIosJsonCall = "ToJsonObject(WithWrapperInfo(OptionPlatformGate.ForIos(options)))";
 
         static string FindRepoRoot()
         {

@@ -173,7 +173,23 @@ namespace Bugsee.Platform.IOS
             }
 
             var ios = result as IosNetworkEvent ?? managed;
-            _bugsee_complete_filter(requestId, 1, ToNativeMapJson(ios.ToResultJson(), "headers"));
+            if (ReferenceEquals(ios, managed))
+            {
+                // Stage is read-only, so the SDK's own type string goes back unchanged.
+                _bugsee_complete_filter(requestId, 1, ToNativeMapJson(ios.ToResultJson(), "headers"));
+                return;
+            }
+
+            // A replacement event (e.g. from the exchange factory) stores the managed stage name; the SDK only
+            // recognises its own types, so map it the same way channel submit does.
+            var nativeStage = IosNetworkEvent.ToNativeStage(ios.Stage);
+            if (nativeStage == null)
+            {
+                _bugsee_complete_filter(requestId, FilterCompletion.Drop, null);
+                return;
+            }
+
+            _bugsee_complete_filter(requestId, 1, ToNativeMapJson(ios.ToChannelJson(nativeStage, 0), "headers"));
         }
 
         static void CompleteLog(long requestId, string json, EventFilter<ILogEvent> filter)

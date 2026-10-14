@@ -597,6 +597,31 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Ios_launch_sends_wrapper_info_and_typed_channel_stages()
+        {
+            string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
+
+            string launch = ExtractMethodBody(ios, "void LaunchNow(string appToken, IDictionary<string, object> options, Action<bool> started)");
+            Assert.That(launch, Does.Contain("WithWrapperInfo("));
+            string relaunch = ExtractMethodBody(ios, "void RelaunchNow(IDictionary<string, object> options, Action<bool> started)");
+            Assert.That(relaunch, Does.Contain("WithWrapperInfo("));
+            Assert.That(ios, Does.Contain("\"wrapper_info\""));
+            Assert.That(ios, Does.Contain("IosNetworkEvent.ToNativeStage"));
+
+            // The SDK's constants are begin="before", complete, cancel, error (BugseeConstants.m), and
+            // timestamps are Unix milliseconds: "begin" and a /1000 were both wrong on the first attempt.
+            string events = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IosExchangeEvents.cs"));
+            Assert.That(events, Does.Contain("case NetworkEventStage.RequestStarted: return \"before\";"));
+            Assert.That(events, Does.Contain("case NetworkEventStage.RequestCompleted: return \"complete\";"));
+            Assert.That(events, Does.Contain("case NetworkEventStage.RequestAborted: return \"cancel\";"));
+            Assert.That(events, Does.Contain("case NetworkEventStage.RequestErrored: return \"error\";"));
+            Assert.That(events, Does.Not.Contain("return \"begin\""));
+            string callbacks = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityCallbacks.mm"));
+            Assert.That(callbacks, Does.Contain("event.timestamp = [timestampMs doubleValue];"));
+            Assert.That(callbacks, Does.Not.Contain("/ 1000.0"));
+        }
+
+        [Test]
         public void Ios_breadcrumb_bridge_passes_ToIos_mapping()
         {
             string body = ExtractMethodBody(

@@ -152,6 +152,12 @@ static void BugseeUnityApplyNetworkDict(BugseeNetworkEvent *event, NSDictionary 
     id stage = d[@"stage"];
     if ([stage isKindOfClass:[NSString class]]) event.bugseeNetworkEventType = stage;
 
+    id timestampMs = d[@"timestampMs"];
+    if ([timestampMs respondsToSelector:@selector(doubleValue)] && [timestampMs doubleValue] > 0) {
+        // Unix milliseconds, the SDK's own unit (BugseeGetCurrentTimeStampMs).
+        event.timestamp = [timestampMs doubleValue];
+    }
+
     id body = d[@"body"];
     if ([body isKindOfClass:[NSString class]]) {
         event.body = [(NSString *)body dataUsingEncoding:NSUTF8StringEncoding];
