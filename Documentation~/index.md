@@ -183,4 +183,8 @@ Managed error/crash **grouping** (one signature per event, Unity-primary when st
 
 Wired: Launch/Stop, blackout, log/trace/event, exceptions (JSON-in-reason), TestCrash, report/upload (+ labels), identity (email API), attributes, secure rects, appearance colors/strings, feedback UI, network/log/breadcrumb filters, report handler (via `BugseeWrapper`), lifecycle listener (via wrapper `onLifecycleEvent` → `Bugsee.LifecycleEvent` / `ILifecycleEventListener`).
 
+### Attributes
+
+`SetAttribute` accepts a string (up to 1024 UTF-16 units), a bool or a number within the signed 64-bit range; anything else throws `ArgumentException`. `GetAttribute` returns the kind that was set: `string`, `bool`, an integer or a `double`. The numeric width is not promised (Android returns the boxed type that was set, with `sbyte`/`ushort` stored as `int`, `uint`/`ulong` as `long` and `decimal` as `double`; iOS returns `long` or `double`), and a 1.0 set as floating point stays floating. A container set natively reads as a `Dictionary` on Android and as JSON text on iOS. On iOS the bridge returns the value as a type tag and payload (`s:`, `b:`, `i:`, `d:`, `j:`; see `AttributeWire`); the SDK stores the plain value, so reports show it unwrapped.
+
 Full product documentation: [docs.bugsee.com/sdk/unity](https://docs.bugsee.com/sdk/unity/).

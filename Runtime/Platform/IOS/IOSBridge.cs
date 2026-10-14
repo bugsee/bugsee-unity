@@ -678,16 +678,15 @@ namespace Bugsee.Platform.IOS
             if (!decision.Accepted)
                 throw new ArgumentException(decision.Error, nameof(value));
 
-            _bugsee_set_attribute(key ?? "", ToJsonValue(value));
+            _bugsee_set_attribute(key ?? "", AttributeWire.ToJson(value));
             if (GetAttribute(key) == null)
                 throw new ArgumentException("attribute '" + key + "' was dropped", nameof(value));
         }
 
         public object GetAttribute(string key)
         {
-            // Containers come back as JSON; scalars come back as their text form, so a string "1",
-            // the number 1 and the bool true all read as "1" (Android returns typed values).
-            return ConsumeNativeString(_bugsee_get_attribute(key ?? ""));
+            // Typed like Android: string, bool, long or double; a container set natively reads as its JSON text.
+            return AttributeWire.Decode(ConsumeNativeString(_bugsee_get_attribute(key ?? "")));
         }
 
         public void ClearAttribute(string key) => _bugsee_clear_attribute(key ?? "");

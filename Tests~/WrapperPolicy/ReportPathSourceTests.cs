@@ -194,6 +194,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(readBack, Is.GreaterThan(nativeSet));
             Assert.That(androidSetAttr, Does.Contain("attribute '"));
             Assert.That(androidSetAttr, Does.Contain("' was dropped"));
+            Assert.That(androidSetAttr, Does.Contain("Box(AttributeWire.ToBoxable(value))"));
 
             string androidSetUser = ExtractMethodBody(android, "public void SetUserIdentifier(string userIdentifier)");
             Assert.That(androidSetUser, Does.Contain("UserIdentifierPolicy.ForSet"));
@@ -210,6 +211,9 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(readBack, Is.GreaterThan(nativeSet));
             Assert.That(iosSetAttr, Does.Contain("attribute '"));
             Assert.That(iosSetAttr, Does.Contain("' was dropped"));
+            Assert.That(iosSetAttr, Does.Contain("_bugsee_set_attribute(key ?? \"\", AttributeWire.ToJson(value))"));
+            string iosGetAttr = ExtractMethodBody(ios, "public object GetAttribute(string key)");
+            Assert.That(iosGetAttr, Does.Contain("AttributeWire.Decode(ConsumeNativeString(_bugsee_get_attribute("));
 
             string iosSetUser = ExtractMethodBody(ios, "public void SetUserIdentifier(string userIdentifier)");
             Assert.That(iosSetUser, Does.Contain("UserIdentifierPolicy.ForSet"));

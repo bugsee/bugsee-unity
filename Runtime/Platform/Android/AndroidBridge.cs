@@ -355,7 +355,7 @@ namespace Bugsee.Platform.Android
             if (!decision.Accepted)
                 throw new ArgumentException(decision.Error, nameof(value));
 
-            _bugsee.CallStatic("setAttribute", key, Box(value));
+            _bugsee.CallStatic("setAttribute", key, Box(AttributeWire.ToBoxable(value)));
             if (GetAttribute(key) == null)
                 throw new ArgumentException("attribute '" + key + "' was dropped", nameof(value));
         }

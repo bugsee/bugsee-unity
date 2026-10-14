@@ -93,7 +93,7 @@ namespace Bugsee.Platform.Android
 
         public void SetAttribute(string name, object value)
         {
-            using (var boxed = AndroidJavaConverters.Box(value))
+            using (var boxed = AndroidJavaConverters.Box(AttributeWire.ToBoxable(value)))
                 _report.Call("setAttribute", name, boxed);
         }
 
