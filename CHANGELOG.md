@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - Unreleased
 
+### Changed
+
+- Android Mono builds cannot symbolicate native frames inside the Mono runtime (`libmonobdwgc-2.0.so`, `libmono-native.so`, `libMonoPosixHelper.so`): Unity 2021.3 has no Mono ARM64 and those libraries have no GNU build-id. IL2CPP is the supported configuration for fully symbolicated native crashes. Documented in the Player Settings checklist, and a Mono Android build now logs a one-time warning at build time regardless of symbol upload settings (the build is never failed).
+
 ### Fixed
 
 - Android Gradle injection now supports Kotlin-DSL projects (`build.gradle.kts`, `settings.gradle.kts`; dependencies are written as `implementation("g:a:v")`), and respects `repositoriesMode`: `mavenCentral()` is added to the settings repositories, also to root `allprojects` under `PREFER_PROJECT`/unset, and never to project repositories under `FAIL_ON_PROJECT_REPOS`. Bugsee declarations in `compileOnly`/test configurations or `exclude(...)` no longer count as the project declaring the SDK; `mavenCentral { ... }` blocks and a missing settings `repositories` block under `PREFER_SETTINGS`/`FAIL_ON_PROJECT_REPOS` are handled. Verified against the Unity 2021.3.45 Gradle templates only; Unity 2022 and Unity 6 layouts are reconstructed (Groovy, same shape), not built.
