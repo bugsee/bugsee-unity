@@ -393,7 +393,8 @@ namespace Bugsee.Platform.IOS
 
         public object GetAttribute(string key)
         {
-            // Native returns JSON when possible, otherwise description text.
+            // Containers come back as JSON; scalars come back as their text form, so a string "1",
+            // the number 1 and the bool true all read as "1" (Android returns typed values).
             return ConsumeNativeString(_bugsee_get_attribute(key ?? ""));
         }
 
