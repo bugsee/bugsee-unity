@@ -3,6 +3,7 @@
 #
 # - Regenerates Runtime/BugseePackageVersion.cs (also the Android Maven coordinates that
 #   Editor/BugseeAndroidMavenDependencies.cs declares in the generated Gradle project)
+# - Rewrites the pins listed in Tools~/scripts/native-pins.txt (docs, CHANGELOG, Tests~/iOS/run-tests.sh, ...)
 # - Verifies the iOS SPM tag on github.com/bugsee/spm (no local xcframework copy)
 
 set -euo pipefail
@@ -17,6 +18,69 @@ fi
 
 # shellcheck disable=SC1090
 source "${VERSIONS_FILE}"
+
+# Pins spelled out in docs, test scaffolding and editor constants (list: native-pins.txt).
+# The drift test in Tests~/WrapperPolicy fails on any of them that disagrees with versions.env.
+# This runs first and checks every entry before anything is written (here or by the generators below), so a
+# bad entry never leaves a half-applied bump.
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "python3 is required to rewrite the pins listed in Tools~/scripts/native-pins.txt" >&2
+  exit 1
+fi
+python3 - "${ROOT_DIR}" "${ANDROID_SDK_VERSION}" "${IOS_SDK_VERSION}" "${ANDROID_GRADLE_PLUGIN_VERSION}" <<'PY'
+import os, re, sys
+root, android, ios, plugin = sys.argv[1:5]
+want = {"android": android, "ios": ios, "gradleplugin": plugin}
+with open(os.path.join(root, "Tools~", "scripts", "native-pins.txt"), encoding="utf-8") as f:
+    entries = [l.rstrip("\r\n").split("|", 2) for l in f if l.strip() and not l.startswith("#")]
+
+def region(rel, text):
+    # CHANGELOG: only the first (current) version section; released sections keep their history.
+    if rel != "CHANGELOG.md":
+        return 0, len(text)
+    start = text.find("\n## [")
+    if start < 0:
+        return 0, len(text)
+    end = text.find("\n## [", start + 1)
+    return start, len(text) if end < 0 else end
+
+texts, errors = {}, []
+for kind, rel, pattern in entries:
+    if kind not in want:
+        errors.append(f"unknown kind {kind!r} in native-pins.txt")
+        continue
+    if rel not in texts:
+        with open(os.path.join(root, rel), encoding="utf-8", newline="") as f:
+            texts[rel] = f.read()
+    lo, hi = region(rel, texts[rel])
+    # A new release heading leaves the CHANGELOG's first section without the pins: nothing to rewrite there.
+    if rel != "CHANGELOG.md" and not re.search(pattern, texts[rel][lo:hi]):
+        errors.append(f"native-pins.txt: {rel} has no match for {pattern}")
+if errors:
+    sys.exit("\n".join(errors))
+
+for kind, rel, pattern in entries:
+    text = texts[rel]
+    lo, hi = region(rel, text)
+    out, last = [], 0
+    for m in re.finditer(pattern, text[lo:hi]):
+        out += [text[last:lo + m.start(1)], want[kind]]
+        last = lo + m.end(1)
+    out.append(text[last:])
+    texts[rel] = "".join(out)
+
+for rel, text in texts.items():
+    path = os.path.join(root, rel)
+    with open(path, encoding="utf-8", newline="") as f:
+        if f.read() == text:
+            continue
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        f.write(text)
+    print(f"Updated {rel}")
+    if rel == "Tests~/iOS/run-tests.sh":
+        print("WARNING: Tests~/iOS/run-tests.sh now downloads a different zip. Update its CHECKSUM (sha256 of the zip) by hand.", file=sys.stderr)
+PY
+
 
 RUNTIME_VERSION_CS="${ROOT_DIR}/Runtime/BugseePackageVersion.cs"
 
