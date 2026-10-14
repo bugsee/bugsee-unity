@@ -15,7 +15,10 @@ namespace Bugsee.WrapperPolicy
         // Every dSYM in DWARF_DSYM_FOLDER_PATH is uploaded, not only the app's and UnityFramework's: Xcode also copies
         // there the dSYMs shipped inside the xcframeworks the app embeds, Bugsee.framework.dSYM among them. Without
         // that one, a crash with a Bugsee frame on the stack (the SDK's own capture code, Bugsee.testCrash) stays
-        // "missing_sym" and those frames show as bare addresses.
+        // "missing_sym" and those frames show as bare addresses. (Xcode's ProcessXCFramework step copies it there
+        // before the target's Run Scripts, for xcodebuild build and archive alike.) Should a layout lack that copy,
+        // the dSYM is taken from the xcframework itself: the SPM checkout in DerivedData or a local package inside
+        // the exported project, in the slice for PLATFORM_NAME.
         //
         // Unity exports Debug with DEBUG_INFORMATION_FORMAT=dwarf, which writes no dSYM for the app or
         // UnityFramework: say so rather than finish as if the crash symbols were uploaded.
@@ -45,6 +48,24 @@ if [ -n ""${DWARF_DSYM_FOLDER_PATH}"" ] && [ -d ""${DWARF_DSYM_FOLDER_PATH}"" ];
     echo ""Bugsee: uploading dSYM ${DSYM}""
     upload ""${CLI}"" debug-files upload ""${DSYM}"" --type dsym --version ""${VERSION}"" --build ""${BUILD}""
   done
+fi
+# Fallback for a layout where Xcode did not copy the SDK's dSYM next to the app's: take it from the xcframework
+# itself (remote SPM checkout in DerivedData, or a local package in the exported project), slice for this platform.
+if [ ! -d ""${DWARF_DSYM_FOLDER_PATH}/Bugsee.framework.dSYM"" ]; then
+  case ""${PLATFORM_NAME}"" in
+    iphonesimulator) SLICE='ios-*simulator' ;;
+    *) SLICE='ios-arm64' ;;
+  esac
+  SDK_DSYM=""""
+  for ROOT in ""${BUILD_DIR%Build/*}SourcePackages/artifacts"" ""${PROJECT_DIR}""; do
+    [ -n ""${ROOT}"" ] && [ -d ""${ROOT}"" ] || continue
+    SDK_DSYM=$(find ""${ROOT}"" -type d -path ""*/Bugsee.xcframework/${SLICE}/dSYMs/Bugsee.framework.dSYM"" 2>/dev/null | head -n1 || true)
+    [ -n ""${SDK_DSYM}"" ] && break
+  done
+  if [ -n ""${SDK_DSYM}"" ]; then
+    echo ""Bugsee: uploading SDK dSYM ${SDK_DSYM}""
+    upload ""${CLI}"" debug-files upload ""${SDK_DSYM}"" --type dsym --version ""${VERSION}"" --build ""${BUILD}""
+  fi
 fi
 if [ ! -d ""${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}"" ] && [ ! -d ""${DWARF_DSYM_FOLDER_PATH}/UnityFramework.framework.dSYM"" ]; then
   echo ""warning: Bugsee: no dSYM for ${CONFIGURATION} in ${DWARF_DSYM_FOLDER_PATH}; set DEBUG_INFORMATION_FORMAT=dwarf-with-dsym to symbolicate its crashes.""
