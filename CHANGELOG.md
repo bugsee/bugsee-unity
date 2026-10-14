@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - iOS SPM-only native SDK: Xcode resolves [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta6` + `Plugins/iOS/BugseeUnityBridge.mm` P/Invoke bridge (7.x selectors; iOS 15 deployment target).
 - ExceptionPipeline managed capture (`CaptureManagedExceptions`) with UnityManagedException JSON-in-reason.
 - `Bugsee.LogUnhandledException` on Android and iOS.
+- `Bugsee.LaunchAsync`, `RelaunchAsync` (`Task<bool>`) and `StopAsync` (`Task`) on iOS: they complete when the SDK has answered. `StopAsync` faults with `TimeoutException` when the stop could not be started (the main thread did not take the call within 5 s) and also when the SDK has not reported the stop within 10 s; in that second case the native stop may still be running, and later launches stay deferred until it reports (or 60 s pass). The existing `Launch`/`Relaunch`/`Stop` signatures are unchanged.
 - Editor IL2CPP linemap upload (`BugseeIl2CppLinemapUpload`) and symbol orchestrator (`BugseeSymbolUpload`: ELF / ProGuard / archive dSYM).
 - Hang / ANR / OOM launch-option docs and sample defaults.
 - iOS bridge depth: identity get/set, attribute get, appearance, report/upload labels.
@@ -22,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Tools~/scripts/validate-field-symbols.sh` for S1/S2 prerequisite checks.
 - IL2CPP native stack capture (`Il2CppNativeStack`) for managed Mode B file/line (`il2cpp_native_stack_trace`; UUID matches Bugsee symbol upload).
 - Nested `cause` (InnerException / Aggregate) in UnityManagedException JSON.
+- Sample: configurable e2e build helper, crash scenarios (`native`, `abort`, `fatal`, `java`, `hang`) and `Tools~/scripts/e2e-android.sh`, which checks device, SDK launch and process death by pid change.
 - Docs: competitor matrix + Mode A/B/C for managed C# class/line (Mode B marked in progress until field-proven).
 - Pre-launch native wrapper registration: one process-lifetime wrapper is registered before SDK launch—Android `UnityWrapperProvider` (`ContentProvider`, `initOrder` 200), iOS bridge `+load`—instead of constructing a second wrapper from C# `Launch`.
 - Wrapper-channel submit: host logs and game-supplied network events go through the stored wrapper channel (Android `UnityWrapper.channelLog` / `channelAddNetwork`; iOS P/Invoke twins), not the public Bugsee log or `addNetworkEvent` APIs.
@@ -29,6 +31,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fail-closed filter callbacks: network, log, and breadcrumb filters that throw drop the event instead of forwarding the original line.
 - Severity `0` is unset, not `VeryLow`: omitted from create-report JSON; `IReport.Severity` is `IssueSeverity?`.
 - Public facade: `DeleteCollectedDataOnDevice`, `CreateReport`, `AddBreadcrumb`, and `AddNetworkEvent`.
+
+### Changed
+
+Behaviour changes to be aware of. 0.1.0 is not released, so these correct earlier unreleased work.
+
+- Native SDKs: Android `bugsee-android` / `bugsee-android-ndk` 7.4.1 and iOS `bugsee/spm` 7.0.0-beta6.
+- Android `DeleteCollectedDataOnDevice` now stops the SDK whenever it is not stopped and also deletes finished
+  report bundles, **including reports that were not uploaded yet**. Before, it kept all finished bundles
+  (the native two-argument overload does not delete them) and could delete before the SDK had stopped.
+- Android `TestCrash` now crashes the app with an uncaught exception thrown on the Android main looper, and
+  returns before the process dies. Before, the exception came back to C# as a caught `AndroidJavaException`: no
+  crash was reported and the app kept running.
+- iOS `IsLaunched` is now true only while the SDK is in its `Launched` state (it is false during the short
+  `Launching` window), and `Status` reports the SDK's own state, including `Launching` and `Stopping`.
+  `Stop(completion)` runs the completion when the SDK reports the stop finished, and only one native stop runs at
+  a time: a second `Stop` or a delete during it waits for it. A `Launch` or `Relaunch` requested while a stop is
+  in flight is deferred until it finishes (the latest request wins; a later `Stop` or delete cancels it). A
+  completion is dropped when a `Launch` or `Relaunch` happened before the stop finished, and when the stop could
+  not be started because the main thread did not take the call within 5 s. After 10 s the call's own completion
+  runs with a warning while the native stop stays in flight (launches stay deferred); after 60 s the wait is
+  abandoned and deferred launches run.
+- Android `Launch`, `Relaunch` and `DeleteCollectedDataOnDevice` run one at a time, in request order, on the main
+  thread, and `Stop` is never queued (calls from other threads are asynchronous): a `Launch` or `Relaunch` during a stop is deferred, a
+  `Relaunch` is ignored with a warning unless the SDK is `Launched`, a refused `Launch` no longer cancels a pending
+  delete, and a late launch result after a newer `Stop` is stopped again. In-flight operations answer their callers
+  after 10 s and are abandoned after 60 s.
+- iOS wrapper-channel network events are sent with the SDK's own event types (`before`, `complete`, `cancel`,
+  `error`) and a Unix-millisecond timestamp. Events with a stage iOS cannot represent (`Redirect`,
+  `RequestTimingsReceived` and `WebSocket`) are **dropped with a warning**.
+- iOS `GetAttribute` returns the text form of a scalar (`"1"` for the number 1, the string "1" and the bool true;
+  `"0"` for false). Android returns typed values.
+- iOS launch and relaunch now send `wrapper_info` (type, version, build, metal, fps) unless the caller supplied
+  one. This changes the SDK's video capture to its Unity path. `fps` is `Application.targetFrameRate` (30 when
+  unset), never above `Screen.currentResolution.refreshRate` because the SDK uses it as a frame-skip divisor; it
+  is read once at launch. A caller-supplied `wrapper_info` is kept only when it is a map whose `type` is a
+  non-empty string; anything else is replaced, with a warning. Not yet validated on a device.
+- Android lifecycle events reach C# through the wrapper only, so events fired before C# starts (auto-launch,
+  crash recovery) are replayed once, in order, when the listener is attached.
+- `Debug.LogException` called from a background thread now reports (it used to throw `UnityException` from the
+  dedupe clock and report nothing).
+
+### Fixed
+
+- iOS: `SetAttribute`/`GetAttribute` crashed on string, number and bool values (`NSJSONSerialization` rejects a
+  bare scalar).
+- iOS: the wrapper channel survives `Stop` and `DeleteCollectedDataOnDevice`; the SDK never redelivers it, so
+  clearing it silenced channel logs, network events and breadcrumbs for every later launch.
+- iOS: `DeleteCollectedDataOnDevice` could leave the managed hooks installed over a stopped SDK while it was
+  still launching; `Relaunch` never marked the SDK as launched.
+- iOS: launch options with a tab or other control character, nested maps or lists, enums, or NaN/Infinity now
+  produce valid JSON (they used to produce JSON the SDK rejected, so launch options silently fell back to
+  defaults).
+- iOS: the managed-upload cancel state is lock-guarded; the no-SDK stub compiles.
+- iOS: the injected "Bugsee Upload Symbols" Run Script failed every iOS build with "Permission denied" (the script is
+  written without an executable bit); it now runs through `sh` and cannot fail the build.
+- iOS: dSYMs are generated for every build configuration of Unity-iPhone and UnityFramework
+  (`DEBUG_INFORMATION_FORMAT=dwarf-with-dsym`, `GCC_GENERATE_DEBUGGING_SYMBOLS=YES`; opt out with
+  `BUGSEE_NO_DSYM_FORCE` or the Bugsee > iOS menu toggle).
+- iOS: the "Bugsee Upload Symbols" Run Script uploads for every Xcode configuration, Debug included (it used to
+  skip all but Release unless `BUGSEE_UPLOAD_ON_DEBUG=1`); `BUGSEE_SKIP_UPLOAD_ON_DEBUG=1` skips Debug. An export
+  appended over one made by an earlier version has its old failing phase replaced.
+- Android: the pre-launch wrapper provider is injected into the generated manifest. Unity 2021.3 does not merge
+  a package's loose `Plugins/Android/AndroidManifest.xml`, so it was missing from the APK and early registration
+  never happened (a crash recovered on the next start was assembled without the wrapper).
+- Android: the JNI completion callbacks work: `BooleanCallback1Proxy` never matched the unboxed `Boolean` the SDK
+  passes (so the delete completion never fired), and the lifecycle listener threw "Ambiguous overloads" at launch.
+- Android: `Relaunch` does nothing (with a warning) unless the SDK is `Launched`, as the native call would never
+  call back, and a refused `Launch` no longer cancels a pending delete.
+- Android: a launch the SDK refuses (made before a stop finished, empty or invalid token) switches the managed
+  capture hooks off, without affecting a later launch that works.
+- Android: the early wrapper reports the real version and build instead of `"unknown"`.
+- Android: the runtime assembly did not compile (`=> checked { ... }` is not valid C#); two scripts lacked `.meta`
+  files.
+- Exception capture: every main-thread `Debug.LogException` was reported twice (once as an exception, once from
+  Unity's log text, with different signatures); the log text is now recognised as the echo of the exception
+  (per thread, around the inner `LogException` call), and an exception whose send failed is still reported by
+  the echo.
+- Android symbols: the R8 mapping Unity writes as `<player>_mapping.txt` was never uploaded; the wrong build's
+  symbols zip or mapping could be chosen (another configuration's files looked newer); the IL2CPP linemap was
+  skipped for want of a module id, which is now read from this build's symbols zip.
+- `Tools~/scripts/update-native-sdks.sh` no longer stops on an offline `git ls-remote` before writing the Android
+  identity file (`UnityWrapperIdentity.java`), so Java and C# keep agreeing on the version.
 
 ### Notes
 
