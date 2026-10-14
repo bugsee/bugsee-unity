@@ -478,39 +478,103 @@ void _bugsee_feedback_set_greeting(const char *message)
     NSLog(@"[Bugsee] Feedback greeting is not in the core 7.x SPM package; install the Feedback module to enable it.");
 }
 
-static id<BGSAppearance> BugseeAppearanceOrNil(void)
+// Unity property name -> BugseeTheme property (the 7.x iOS theme API; there is no BGSAppearance object).
+// Names with no row have no iOS equivalent and are skipped.
+typedef struct {
+    const char *name;
+    const char *themeKey;
+} BugseeThemeProperty;
+
+static const BugseeThemeProperty kBugseeThemeProperties[] = {
+    { "Report::ActionBarColor", "reportNavigationBarColor" },
+    { "Report::EditTextBackgroundColor", "reportCellBackgroundColor" },
+    { "Report::VersionColor", "reportVersionColor" },
+    { "Report::TextColor", "reportTextColor" },
+    { "Report::HintColor", "reportPlaceholderColor" },
+    { "Report::BackgroundColor", "reportBackgroundColor" },
+    { "Report::SummaryPlaceholder", "reportSummaryPlaceholder" },
+    { "Report::DescriptionPlaceholder", "reportDescriptionPlaceholder" },
+    { "Report::LabelsPlaceholder", "reportLabelsPlaceholder" },
+    { "Report::EmailPlaceholder", "reportEmailPlaceholder" },
+    { "Feedback::ActionBarColor", "feedbackBarsColor" },
+    { "Feedback::BackgroundColor", "feedbackBackgroundColor" },
+    { "Feedback::IncomingBubbleColor", "feedbackIncomingBubbleColor" },
+    { "Feedback::OutgoingBubbleColor", "feedbackOutgoingBubbleColor" },
+    { "Feedback::IncomingTextColor", "feedbackIncomingTextColor" },
+    { "Feedback::OutgoingTextColor", "feedbackOutgoingTextColor" },
+    { "Feedback::TitleTextColor", "feedbackTitleTextColor" },
+    { "Feedback::EmailSkipTextColor", "feedbackEmailSkipColor" },
+    { "Feedback::EmailBackgroundColor", "feedbackEmailBackgroundColor" },
+    { "Feedback::EmailContinueNotActiveColor", "feedbackEmailContinueNotActiveColor" },
+    { "Feedback::EmailContinueActiveColor", "feedbackEmailContinueActiveColor" },
+    { "Feedback::InputTextColor", "feedbackInputTextColor" },
+};
+
+static NSString *BugseeThemeKey(NSString *name)
 {
-    id appearance = [Bugsee getAppearance];
-    if ([appearance conformsToProtocol:@protocol(BGSAppearance)]) {
-        return (id<BGSAppearance>)appearance;
+    for (size_t i = 0; i < sizeof(kBugseeThemeProperties) / sizeof(kBugseeThemeProperties[0]); i++) {
+        if ([name isEqualToString:@(kBugseeThemeProperties[i].name)]) {
+            return @(kBugseeThemeProperties[i].themeKey);
+        }
     }
-    static BOOL logged;
-    if (!logged) {
-        NSLog(@"[Bugsee] getAppearance does not implement BGSAppearance; color/string property APIs are skipped.");
-        logged = YES;
+    static NSMutableSet<NSString *> *logged;
+    @synchronized([Bugsee class]) {
+        if (!logged) {
+            logged = [NSMutableSet set];
+        }
+        if (name && ![logged containsObject:name]) {
+            [logged addObject:name];
+            NSLog(@"[Bugsee] Appearance property %@ has no iOS equivalent; skipped.", name);
+        }
     }
     return nil;
 }
 
-void _bugsee_appearance_set_color(const char *propertyName, int r, int g, int b, int a)
+// Theme properties are nonatomic and read on the main thread: run the access there.
+static void BugseeThemeSync(dispatch_block_t block)
 {
-    NSString *name = BugseeNSString(propertyName);
-    id<BGSAppearance> appearance = BugseeAppearanceOrNil();
-    if (!name || !appearance) {
-        return;
+    if ([NSThread isMainThread]) {
+        block();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), block);
     }
-    UIColor *color = [UIColor colorWithRed:r / 255.0 green:g / 255.0 blue:b / 255.0 alpha:a / 255.0];
-    [appearance setColor:color forProperty:name];
+}
+
+static int BugseeThemeSet(const char *propertyName, NSString *suffix, id value)
+{
+    NSString *key = BugseeThemeKey(BugseeNSString(propertyName));
+    if (!key || ![key hasSuffix:suffix]) {
+        return 0;
+    }
+    BugseeThemeSync(^{
+        [[Bugsee getAppearance] setValue:value forKey:key];
+    });
+    return 1;
+}
+
+static id BugseeThemeGet(const char *propertyName, NSString *suffix)
+{
+    NSString *key = BugseeThemeKey(BugseeNSString(propertyName));
+    if (!key || ![key hasSuffix:suffix]) {
+        return nil;
+    }
+    __block id value = nil;
+    BugseeThemeSync(^{
+        value = [[Bugsee getAppearance] valueForKey:key];
+    });
+    return value;
+}
+
+// Return 1 when the property exists on iOS and the theme was updated.
+int _bugsee_appearance_set_color(const char *propertyName, int r, int g, int b, int a)
+{
+    return BugseeThemeSet(propertyName, @"Color",
+                          [UIColor colorWithRed:r / 255.0 green:g / 255.0 blue:b / 255.0 alpha:a / 255.0]);
 }
 
 char *_bugsee_appearance_get_color(const char *propertyName)
 {
-    NSString *name = BugseeNSString(propertyName);
-    id<BGSAppearance> appearance = BugseeAppearanceOrNil();
-    if (!name || !appearance) {
-        return NULL;
-    }
-    UIColor *value = [appearance colorForProperty:name];
+    UIColor *value = BugseeThemeGet(propertyName, @"Color");
     if (!value) {
         return NULL;
     }
@@ -523,24 +587,15 @@ char *_bugsee_appearance_get_color(const char *propertyName)
     return BugseeCopyUTF8(hex);
 }
 
-void _bugsee_appearance_set_string(const char *propertyName, const char *propertyValue)
+// NULL restores the SDK's default text.
+int _bugsee_appearance_set_string(const char *propertyName, const char *propertyValue)
 {
-    NSString *name = BugseeNSString(propertyName);
-    id<BGSAppearance> appearance = BugseeAppearanceOrNil();
-    if (!name || !appearance) {
-        return;
-    }
-    [appearance setString:BugseeNSString(propertyValue) ?: @"" forProperty:name];
+    return BugseeThemeSet(propertyName, @"Placeholder", BugseeNSString(propertyValue));
 }
 
 char *_bugsee_appearance_get_string(const char *propertyName)
 {
-    NSString *name = BugseeNSString(propertyName);
-    id<BGSAppearance> appearance = BugseeAppearanceOrNil();
-    if (!name || !appearance) {
-        return NULL;
-    }
-    return BugseeCopyUTF8([appearance stringForProperty:name]);
+    return BugseeCopyUTF8(BugseeThemeGet(propertyName, @"Placeholder"));
 }
 
 void _bugsee_free(char *ptr)
@@ -701,9 +756,9 @@ void _bugsee_set_secure_buffer(int display, int *packed, int packedLength)
 void _bugsee_capture_view_hierarchy(void) {}
 void _bugsee_feedback_show(void) {}
 void _bugsee_feedback_set_greeting(const char *message) { (void)message; }
-void _bugsee_appearance_set_color(const char *propertyName, int r, int g, int b, int a) { (void)propertyName; (void)r; (void)g; (void)b; (void)a; }
+int _bugsee_appearance_set_color(const char *propertyName, int r, int g, int b, int a) { (void)propertyName; (void)r; (void)g; (void)b; (void)a; return 0; }
 char *_bugsee_appearance_get_color(const char *propertyName) { (void)propertyName; return NULL; }
-void _bugsee_appearance_set_string(const char *propertyName, const char *propertyValue) { (void)propertyName; (void)propertyValue; }
+int _bugsee_appearance_set_string(const char *propertyName, const char *propertyValue) { (void)propertyName; (void)propertyValue; return 0; }
 char *_bugsee_appearance_get_string(const char *propertyName) { (void)propertyName; return NULL; }
 void _bugsee_free(char *ptr) { (void)ptr; }
 void _bugsee_delete_collected_data(int capturedGeneration, BugseeDeleteCollectedDataShouldRunFn shouldRun)
