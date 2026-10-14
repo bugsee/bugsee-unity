@@ -76,7 +76,14 @@ namespace Bugsee.Platform.Android
             }
         }
 
-        public IReadOnlyDictionary<string, object> Attributes => new Dictionary<string, object>();
+        public IReadOnlyDictionary<string, object> Attributes
+        {
+            get
+            {
+                using (var map = _report.Call<AndroidJavaObject>("getAttributes"))
+                    return AndroidJavaConverters.MapToDictionary(map);
+            }
+        }
 
         public object GetAttribute(string name)
         {
@@ -125,8 +132,26 @@ namespace Bugsee.Platform.Android
             }
         }
 
-        public IReadOnlyList<IAttachment> Attachments => new List<IAttachment>();
+        public IReadOnlyList<IAttachment> Attachments
+        {
+            get
+            {
+                var list = new List<IAttachment>();
+                using (var javaList = _report.Call<AndroidJavaObject>("getAttachments"))
+                {
+                    if (javaList == null) return list;
+                    var size = javaList.Call<int>("size");
+                    for (var i = 0; i < size; i++)
+                    {
+                        var att = javaList.Call<AndroidJavaObject>("get", i);
+                        if (att != null) list.Add(new AndroidAttachment(att));
+                    }
+                }
+                return list;
+            }
+        }
 
+        // addAttachment returns null when the report refuses it (not live, attachment limit); keep that as null.
         public IAttachment AddAttachmentFile(string path, string name, string mimeType)
         {
             if (string.IsNullOrEmpty(path))
@@ -162,22 +187,30 @@ namespace Bugsee.Platform.Android
             _attachment = attachment;
         }
 
+        // The Java setters are fluent (return Attachment); a void-typed JNI call would not resolve them.
+        void Set(string method, string value)
+        {
+            using (_attachment.Call<AndroidJavaObject>(method, value))
+            {
+            }
+        }
+
         public string Name
         {
             get => _attachment.Call<string>("getName");
-            set => _attachment.Call("setName", value);
+            set => Set("setName", value);
         }
 
         public string Filename
         {
             get => _attachment.Call<string>("getFileName", (string)null);
-            set => _attachment.Call("setFileName", value);
+            set => Set("setFileName", value);
         }
 
         public string MimeType
         {
             get => _attachment.Call<string>("getMimeType");
-            set => _attachment.Call("setMimeType", value);
+            set => Set("setMimeType", value);
         }
 
         public void SetData(byte[] data)

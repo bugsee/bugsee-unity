@@ -182,6 +182,7 @@ namespace Bugsee.Platform.Android
             target.ErrorShortMessage = source.ErrorShortMessage;
             target.ErrorDescription = source.ErrorDescription;
             target.Headers = source.Headers;
+            target.IsOverride = source.IsOverride;
         }
 
         public void Log(string message, LogLevel level)
