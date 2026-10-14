@@ -40,14 +40,14 @@ Add the OpenUPM scoped registry to your project’s `Packages/manifest.json` if 
 
 | Platform | Integration | Current pin |
 |---|---|---|
-| **Android** | [EDM4U](https://github.com/googlesamples/unity-jar-resolver) → Maven Central | `bugsee-android:7.3.0` + `bugsee-android-ndk:7.3.0` |
-| **iOS** | Swift Package Manager + `Plugins/iOS/BugseeUnityBridge.mm` | [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta5` |
+| **Android** | [EDM4U](https://github.com/googlesamples/unity-jar-resolver) → Maven Central | `bugsee-android:7.4.1` + `bugsee-android-ndk:7.4.1` |
+| **iOS** | Swift Package Manager + `Plugins/iOS/BugseeUnityBridge.mm` | [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta6` |
 
 **Android stack**
 
 | Piece | Status |
 |---|---|
-| `bugsee-android` | Default via EDM **7.3.0** (no Maven transitives) |
+| `bugsee-android` | Default via EDM **7.4.1** (no Maven transitives) |
 | `bugsee-android-ndk` | Declared explicitly (native fatal capture for IL2CPP primary LNM) |
 | Gradle plugin `4.0.8` | Applied on launcher by `BugseeAndroidGradleSetup` on Unity 6+ (`ndk { enabled = true }`) |
 

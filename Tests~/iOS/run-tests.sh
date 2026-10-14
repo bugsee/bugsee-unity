@@ -3,9 +3,9 @@ set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
 BUILD="$ROOT/Tests~/iOS/.build"
-ZIP="$BUILD/Bugsee-7.0.0-beta5.zip"
-URL="https://download.bugsee.com/sdk/ios/spm/Bugsee-7.0.0-beta5.zip"
-CHECKSUM="af8f9670fddd3f94d7ee7d7fe2b3696c2d9f46ad49e5e523758a10e29f6f8123"
+ZIP="$BUILD/Bugsee-7.0.0-beta6.zip"
+URL="https://download.bugsee.com/sdk/ios/spm/Bugsee-7.0.0-beta6.zip"
+CHECKSUM="a5dbd8a7681fbda9ce269431a1babc37ea054da99b79092bb8453962e0f117ad"
 
 mkdir -p "$BUILD"
 if [ ! -f "$ZIP" ] || ! printf '%s  %s\n' "$CHECKSUM" "$ZIP" | shasum -a 256 -c - >/dev/null 2>&1; then

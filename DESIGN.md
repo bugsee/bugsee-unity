@@ -12,8 +12,8 @@ Legacy foundation: `cross/unity`. Min Unity: **2021.3**.
 
 ## Assumptions
 
-1. Android pin: Maven `com.bugsee:bugsee-android:7.3.0` + `bugsee-android-ndk:7.3.0` via EDM4U; Gradle plugin `4.0.8`. Core publishes no transitives (no kotlin-stdlib / fragment pull); NDK must be declared. Feedback AAR stays optional.
-2. iOS: SPM-only. Pin [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta5` (`IOS_SDK_VERSION` in `Tools~/versions.env`). Xcode resolves the remote package at export; no CocoaPods and no vendored xcframework.
+1. Android pin: Maven `com.bugsee:bugsee-android:7.4.1` + `bugsee-android-ndk:7.4.1` via EDM4U; Gradle plugin `4.0.8`. Core publishes no transitives (no kotlin-stdlib / fragment pull); NDK must be declared. Feedback AAR stays optional.
+2. iOS: SPM-only. Pin [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta6` (`IOS_SDK_VERSION` in `Tools~/versions.env`). Xcode resolves the remote package at export; no CocoaPods and no vendored xcframework.
 3. Public C# surface mirrors Android 7.0; intentional C#/.NET deviations allowed (see below).
 4. SDK-internal contracts (`capture` aggregators, most `contracts.internal.*` except what wrappers need for `BugseeWrapper`) are **not** public C# API.
 5. Optional Gradle network extensions (OkHttp/Ktor/Cronet) are out of default Unity deps unless explicitly added later.
@@ -89,8 +89,8 @@ Property / key naming currently follows **Android 7.0**. When the Bugsee **iOS**
 ## Native packaging (already scaffolded)
 
 - `package.json` → `com.bugsee.unity`, depends on `com.google.external-dependency-manager`
-- `Editor/BugseeAndroidDependencies.xml` → Maven 7.3.0 (+ NDK, both explicit)
-- `Editor/BugseeIosSpmPostProcess.cs` → remote SPM `github.com/bugsee/spm` `7.0.0-beta5`
+- `Editor/BugseeAndroidDependencies.xml` → Maven 7.4.1 (+ NDK, both explicit)
+- `Editor/BugseeIosSpmPostProcess.cs` → remote SPM `github.com/bugsee/spm` `7.0.0-beta6`
 - `Plugins/iOS/BugseeUnityBridge.mm` + `Plugins/Android/UnityManagedException.java`
 - `Tools~/scripts/update-native-sdks.sh` + `versions.env`
 
