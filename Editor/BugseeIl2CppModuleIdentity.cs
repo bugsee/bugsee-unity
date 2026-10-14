@@ -3,6 +3,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using Bugsee.WrapperPolicy;
+using UnityEditor;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
@@ -28,6 +30,24 @@ namespace Bugsee.Editor
         {
             var found = new List<string>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // Android: the player output is an APK holding only stripped copies, and the unstripped
+            // libil2cpp.so Unity writes beside it lives inside this build's symbols zip. Read it first, so a
+            // stale loose library from an earlier build or an old Gradle export cannot supply the id. The id
+            // is the same GNU build-id the device reports in a crash.
+            if (report.summary.platform == BuildTarget.Android)
+            {
+                var zip = BugseeSymbolUpload.FindSymbolsZip(report);
+                if (zip != null)
+                {
+                    TryCollectFromSymbolsZip(zip, found, seen);
+                    if (found.Count > 0)
+                    {
+                        return found;
+                    }
+                }
+            }
+
             var candidates = new List<(string path, DateTime mtime, int score)>();
 
             foreach (var root in BuildRoots(report))
@@ -79,7 +99,45 @@ namespace Bugsee.Editor
                     break;
                 }
             }
+
             return found;
+        }
+
+        // The GNU build-id note is in the first read-only segment (found through the program headers), a few
+        // hundred bytes into the file; the first MiB covers it. A note past the buffer is skipped safely.
+        const int ElfPrefixBytes = 1024 * 1024;
+
+        static void TryCollectFromSymbolsZip(string zipPath, List<string> found, HashSet<string> seen)
+        {
+            try
+            {
+                using (var archive = new System.IO.Compression.ZipArchive(File.OpenRead(zipPath), System.IO.Compression.ZipArchiveMode.Read))
+                {
+                    foreach (var entry in archive.Entries)
+                    {
+                        if (!BuildArtifactChoice.IsIl2CppLibraryName(entry.Name)) continue;
+                        using (var stream = entry.Open())
+                        {
+                            var prefix = new byte[Math.Min(ElfPrefixBytes, (int)Math.Min(entry.Length, int.MaxValue))];
+                            var read = 0;
+                            while (read < prefix.Length)
+                            {
+                                var n = stream.Read(prefix, read, prefix.Length - read);
+                                if (n <= 0) break;
+                                read += n;
+                            }
+
+                            if (!BuildArtifactChoice.LooksLikeElf(prefix)) continue;
+                            var id = TryReadElfBuildId(prefix);
+                            if (!string.IsNullOrEmpty(id) && seen.Add(id)) found.Add(id);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"Bugsee: reading IL2CPP identity from the symbols zip failed: {ex.Message}");
+            }
         }
 
         static void CollectCandidateBinaries(string root, List<(string path, DateTime mtime, int score)> into)
@@ -156,19 +214,16 @@ namespace Bugsee.Editor
             return score;
         }
 
+        // Only this build's own IL2CPP output folder, the same one the line map is taken from (see
+        // BuildArtifactChoice.Il2CppOutputRoot): never the project cwd (stale Library/Bee binaries) and never the
+        // output's parent, where a sibling build's libil2cpp.so would key this build's line map to its module id.
         static IEnumerable<string> BuildRoots(BuildReport report)
         {
-            // Only scan the player output tree — never the whole project cwd
-            // (that pulls stale Library/Bee binaries and poisons UUID identity).
-            if (!string.IsNullOrEmpty(report.summary.outputPath))
+            var root = BuildArtifactChoice.Il2CppOutputRoot(
+                report.summary.outputPath, BugseeSymbolUpload.OutputIsDirectory(report));
+            if (root != null)
             {
-                var outPath = report.summary.outputPath;
-                yield return outPath;
-                var parent = Path.GetDirectoryName(outPath);
-                if (!string.IsNullOrEmpty(parent))
-                {
-                    yield return parent;
-                }
+                yield return root;
             }
         }
 
