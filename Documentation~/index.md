@@ -115,6 +115,7 @@ Failure policy: **never fail the Unity build**. Missing maps/UUIDs/CLI → warn 
 2. Enable source mapping / Script Debugging as needed for LineNumberMappings generation
 3. Archive in Xcode (dSYM + UUID for `UnityFramework` are available at archive time)
 4. Ensure `BUGSEE_APP_TOKEN` is visible to the Xcode Run Script phase
+5. The iOS export sets `DEBUG_INFORMATION_FORMAT=dwarf-with-dsym` on every configuration of Unity-iPhone and UnityFramework, so Debug builds have a dSYM too. `dsymutil` on UnityFramework adds time to each Debug build; to keep Unity's own setting, tick **Bugsee → iOS → Keep Xcode Debug Info Format (skip dSYM force)** or set `BUGSEE_NO_DSYM_FORCE` in the Editor's environment (CI)
 
 ### Script Debugging vs dSYM
 
