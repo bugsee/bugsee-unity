@@ -82,7 +82,7 @@ namespace Bugsee.Platform.IOS
                     continue;
                 }
 
-                parts.Add(JsonString(kv.Key) + ":" + JsonString(kv.Value.ToString()));
+                parts.Add(JsonWire.String(kv.Key) + ":" + JsonWire.String(kv.Value.ToString()));
             }
 
             return "{" + string.Join(",", parts.ToArray()) + "}";
@@ -385,7 +385,7 @@ namespace Bugsee.Platform.IOS
                 var v = ExtractStringField(obj, "value");
                 if (k != null)
                 {
-                    parts.Add(JsonString(k) + ":" + (v == null ? "null" : JsonString(v)));
+                    parts.Add(JsonWire.String(k) + ":" + (v == null ? "null" : JsonWire.String(v)));
                 }
                 i = objEnd + 1;
             }
@@ -443,11 +443,6 @@ namespace Bugsee.Platform.IOS
                 .Replace("\\\\", "\\")
                 .Replace("\\n", "\n")
                 .Replace("\\r", "\r");
-        }
-
-        static string JsonString(string s)
-        {
-            return "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
         }
 
         [Serializable]

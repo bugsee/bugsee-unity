@@ -3,6 +3,9 @@ using Bugsee.Contracts.Options;
 
 namespace Bugsee.WrapperPolicy
 {
+    /// <summary>
+    /// Options the iOS SDK has no counterpart for (absent from its headers and binary as of 7.0.0-beta6).
+    /// </summary>
     public static class OptionPlatformGate
     {
         static readonly HashSet<string> AndroidOnlyKeys = BuildAndroidOnlyKeys();
@@ -27,6 +30,12 @@ namespace Bugsee.WrapperPolicy
                 Options.DetectAndReportExitUnknown,
                 Options.ReportingTriggerByNotification,
                 Options.ReportingTriggerByBroadcast,
+                Options.CaptureLogsUseAllSources,
+                Options.CaptureRespectFlagSecure,
+                Options.CaptureVideoMode,
+                Options.CaptureVideoUsingCustomMuxer,
+                Options.ReportProcessingInProcess,
+                Options.WebViewDomainAllowlist,
             };
         }
 
