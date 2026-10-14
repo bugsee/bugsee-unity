@@ -52,8 +52,8 @@ Behaviour changes to be aware of. 0.1.0 is not released, so these correct earlie
   not be started because the main thread did not take the call within 5 s. After 10 s the call's own completion
   runs with a warning while the native stop stays in flight (launches stay deferred); after 60 s the wait is
   abandoned and deferred launches run.
-- Android `Launch`, `Relaunch`, `Stop` and `DeleteCollectedDataOnDevice` are serialized in request order on the
-  main thread (calls from other threads are asynchronous): a `Launch` or `Relaunch` during a stop is deferred, a
+- Android `Launch`, `Relaunch` and `DeleteCollectedDataOnDevice` run one at a time, in request order, on the main
+  thread, and `Stop` is never queued (calls from other threads are asynchronous): a `Launch` or `Relaunch` during a stop is deferred, a
   `Relaunch` is ignored with a warning unless the SDK is `Launched`, a refused `Launch` no longer cancels a pending
   delete, and a late launch result after a newer `Stop` is stopped again. In-flight operations answer their callers
   after 10 s and are abandoned after 60 s.
@@ -111,8 +111,8 @@ Behaviour changes to be aware of. 0.1.0 is not released, so these correct earlie
 - Android symbols: the R8 mapping Unity writes as `<player>_mapping.txt` was never uploaded; the wrong build's
   symbols zip or mapping could be chosen (another configuration's files looked newer); the IL2CPP linemap was
   skipped for want of a module id, which is now read from this build's symbols zip.
-- `Tools~/scripts/update-native-sdks.sh` keeps the Maven comment in `BugseeAndroidDependencies.xml` and no longer
-  stops on an offline `git ls-remote` before writing the Android identity file.
+- `Tools~/scripts/update-native-sdks.sh` no longer stops on an offline `git ls-remote` before writing the Android
+  identity file (`UnityWrapperIdentity.java`), so Java and C# keep agreeing on the version.
 
 ### Notes
 
