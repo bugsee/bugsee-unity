@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using System;
+using Bugsee.WrapperPolicy;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -34,7 +35,7 @@ namespace Bugsee.Editor
                 return;
             }
 
-            var version = BugseeBuildIdentity.ResolveVersion();
+            var version = BugseeBuildIdentity.ResolveVersion(report);
             var build = BugseeBuildIdentity.ResolveBuildNumber(report);
 
             switch (report.summary.platform)
@@ -70,15 +71,19 @@ namespace Bugsee.Editor
         static void UploadAndroidSymbols(BuildReport report, string version, string build)
         {
             var roots = CollectRoots(report);
-            UploadIfFound(roots, "**/mapping.txt", "proguard", version, build, preferNewest: true);
+            // Unity writes the R8 mapping beside the player as "<name>_mapping.txt" (a bare "mapping.txt" never
+            // matches it). Only this build's own file is uploaded, see BuildArtifactChoice.
+            var stem = OutputStem(report);
+            var allowGeneric = OutputIsDirectory(report);
+            UploadIfFound(roots, "*mapping.txt", "proguard", version, build,
+                path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric));
             // Unity "Create symbols.zip" / Gradle native debug symbols.
             UploadSymbolsZipOrElf(report, roots, version, build);
         }
 
         static void UploadSymbolsZipOrElf(BuildReport report, List<string> roots, string version, string build)
         {
-            string bestZip = null;
-            DateTime bestZipTime = DateTime.MinValue;
+            var bestZip = FindSymbolsZip(report);
             var elfDirs = new List<string>();
 
             foreach (var root in roots)
@@ -90,28 +95,6 @@ namespace Bugsee.Editor
 
                 try
                 {
-                    foreach (var zip in Directory.EnumerateFiles(root, "*.zip", SearchOption.AllDirectories))
-                    {
-                        var name = Path.GetFileName(zip);
-                        if (name.IndexOf("symbols", StringComparison.OrdinalIgnoreCase) < 0
-                            && name.IndexOf("native-debug", StringComparison.OrdinalIgnoreCase) < 0)
-                        {
-                            continue;
-                        }
-                        if (IsExcludedPath(zip))
-                        {
-                            continue;
-                        }
-                        DateTime mtime;
-                        try { mtime = File.GetLastWriteTimeUtc(zip); }
-                        catch { mtime = DateTime.MinValue; }
-                        if (bestZip == null || mtime >= bestZipTime)
-                        {
-                            bestZip = zip;
-                            bestZipTime = mtime;
-                        }
-                    }
-
                     foreach (var so in Directory.EnumerateFiles(root, "libil2cpp.so", SearchOption.AllDirectories))
                     {
                         if (IsExcludedPath(so))
@@ -187,16 +170,15 @@ namespace Bugsee.Editor
 
         static void UploadIfFound(
             List<string> roots,
-            string fileName,
+            string pattern,
             string type,
             string version,
             string build,
-            bool preferNewest)
+            Func<string, int> rank)
         {
-            // fileName may be a plain name (mapping.txt)
-            var plain = fileName.Replace("**/", "");
             string best = null;
-            DateTime bestTime = DateTime.MinValue;
+            var bestRank = BuildArtifactChoice.Reject;
+            var bestTime = DateTime.MinValue;
             foreach (var root in roots)
             {
                 if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
@@ -205,23 +187,25 @@ namespace Bugsee.Editor
                 }
                 try
                 {
-                    foreach (var file in Directory.EnumerateFiles(root, plain, SearchOption.AllDirectories))
+                    foreach (var file in Directory.EnumerateFiles(root, pattern, SearchOption.AllDirectories))
                     {
                         if (IsExcludedPath(file))
+                        {
+                            continue;
+                        }
+                        var fileRank = rank(file);
+                        if (fileRank == BuildArtifactChoice.Reject)
                         {
                             continue;
                         }
                         DateTime mtime;
                         try { mtime = File.GetLastWriteTimeUtc(file); }
                         catch { mtime = DateTime.MinValue; }
-                        if (best == null || mtime >= bestTime)
+                        if (best == null || BuildArtifactChoice.Better(fileRank, mtime, bestRank, bestTime))
                         {
                             best = file;
+                            bestRank = fileRank;
                             bestTime = mtime;
-                        }
-                        if (!preferNewest)
-                        {
-                            break;
                         }
                     }
                 }
@@ -247,18 +231,111 @@ namespace Bugsee.Editor
             }
         }
 
+        /// <summary>
+        /// This build's symbols zip, or null. Shared by the upload and by the IL2CPP module-id lookup so both
+        /// use the same file.
+        /// </summary>
+        internal static string FindSymbolsZip(BuildReport report)
+        {
+            var stem = OutputStem(report);
+            var allowGeneric = OutputIsDirectory(report);
+            // Unity puts the scripting backend in the zip name; matching it keeps the other backend's zip of the
+            // same player, version and code (a reused output folder) from being chosen by modification time.
+            // Version, code and backend are the build-time values, not whatever a later postprocessor set.
+            var names = BugseeBuildIdentity.AndroidNameSettings(report);
+            string best = null;
+            var bestRank = BuildArtifactChoice.Reject;
+            var bestTime = DateTime.MinValue;
+            foreach (var root in CollectRoots(report))
+            {
+                if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    foreach (var zip in Directory.EnumerateFiles(root, "*.zip", SearchOption.AllDirectories))
+                    {
+                        if (IsExcludedPath(zip))
+                        {
+                            continue;
+                        }
+                        var rank = BuildArtifactChoice.SymbolsZipRank(
+                            zip, stem, allowGeneric, names.BundleVersion, names.VersionCode, names.Backend);
+                        if (rank == BuildArtifactChoice.Reject)
+                        {
+                            continue;
+                        }
+                        DateTime mtime;
+                        try { mtime = File.GetLastWriteTimeUtc(zip); }
+                        catch { mtime = DateTime.MinValue; }
+                        if (best == null || BuildArtifactChoice.Better(rank, mtime, bestRank, bestTime))
+                        {
+                            best = zip;
+                            bestRank = rank;
+                            bestTime = mtime;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"Bugsee: Android symbols zip scan failed under {root}: {ex.Message}");
+                }
+            }
+
+            return best;
+        }
+
+        /// <summary>
+        /// Name of the player being built ("MyGame" for MyGame.apk, "proj" for an exported project folder).
+        /// Unity names the symbols zip and the R8 mapping after it, which tells this build's files apart from
+        /// other builds' in the same folder.
+        /// </summary>
+        internal static string OutputStem(BuildReport report)
+        {
+            var path = report?.summary.outputPath;
+            if (string.IsNullOrEmpty(path)) return null;
+            if (OutputIsDirectory(report))
+            {
+                return Path.GetFileName(path.TrimEnd('/', '\\'));
+            }
+
+            return Path.GetFileNameWithoutExtension(path);
+        }
+
+        /// <summary>An exported project (Android Gradle project, Xcode folder), not a single APK/AAB file.</summary>
+        internal static bool OutputIsDirectory(BuildReport report)
+        {
+            var path = report?.summary.outputPath;
+            return !string.IsNullOrEmpty(path)
+                && (Directory.Exists(path) || path.EndsWith("/", StringComparison.Ordinal) || path.EndsWith("\\", StringComparison.Ordinal));
+        }
+
+        // A single APK/AAB sits among its siblings in one folder, so that folder is searched (by exact name, see
+        // BuildArtifactChoice). An exported project is a folder of its own: search only inside it, never its
+        // parent, where sibling exports and unrelated builds live.
         static List<string> CollectRoots(BuildReport report)
         {
             var roots = new List<string>();
-            if (!string.IsNullOrEmpty(report.summary.outputPath))
+            var output = report.summary.outputPath;
+            if (string.IsNullOrEmpty(output))
             {
-                roots.Add(report.summary.outputPath);
-                var parent = Path.GetDirectoryName(report.summary.outputPath);
-                if (!string.IsNullOrEmpty(parent))
-                {
-                    roots.Add(parent);
-                }
+                return roots;
             }
+
+            if (OutputIsDirectory(report))
+            {
+                roots.Add(output);
+                return roots;
+            }
+
+            var parent = Path.GetDirectoryName(output);
+            if (!string.IsNullOrEmpty(parent))
+            {
+                roots.Add(parent);
+            }
+
             return roots;
         }
 

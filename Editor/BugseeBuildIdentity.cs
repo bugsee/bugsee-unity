@@ -1,7 +1,9 @@
 #if UNITY_EDITOR
 using System;
 using System.IO;
+using Bugsee.WrapperPolicy;
 using UnityEditor;
+using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
 
@@ -13,9 +15,31 @@ namespace Bugsee.Editor
         const string ResourcesFolder = "Assets/Resources";
         const string ModuleUuidAsset = "BugseeIl2CppModuleUuids.txt";
 
-        public static string ResolveVersion() =>
+        /// <summary>Android name settings as they were at the end of preprocess (see BugseeBuildSettingsSnapshot).</summary>
+        internal static PlayerNameSettings Recorded;
+
+        /// <summary>
+        /// The version, code and backend Unity named this Android build's files with: the values recorded for this
+        /// output at preprocess, or the live Player Settings when none were (BuildArtifactChoice.BuildTimeSettings).
+        /// </summary>
+        internal static PlayerNameSettings AndroidNameSettings(BuildReport report)
+        {
+            var output = report?.summary.outputPath;
+            return BuildArtifactChoice.BuildTimeSettings(Recorded, output, LiveAndroidNameSettings(output));
+        }
+
+        internal static PlayerNameSettings LiveAndroidNameSettings(string outputPath) =>
+            new PlayerNameSettings(
+                outputPath,
+                PlayerSettings.bundleVersion,
+                PlayerSettings.Android.bundleVersionCode,
+                PlayerSettings.GetScriptingBackend(NamedBuildTarget.Android).ToString());
+
+        public static string ResolveVersion(BuildReport report) =>
             Environment.GetEnvironmentVariable("BUGSEE_VERSION")
-            ?? PlayerSettings.bundleVersion
+            ?? (report?.summary.platform == BuildTarget.Android
+                ? AndroidNameSettings(report).BundleVersion
+                : PlayerSettings.bundleVersion)
             ?? "0.0.0";
 
         public static string ResolveBuildNumber(BuildReport report)
@@ -36,7 +60,7 @@ namespace Bugsee.Editor
                     }
                     break;
                 case BuildTarget.Android:
-                    return PlayerSettings.Android.bundleVersionCode.ToString();
+                    return AndroidNameSettings(report).VersionCode.ToString();
             }
 
             return DateTime.UtcNow.ToString("yyyyMMddHHmmss");
@@ -83,6 +107,23 @@ namespace Bugsee.Editor
             {
                 Debug.LogWarning($"Bugsee: failed writing runtime module UUID file: {ex.Message}");
             }
+        }
+    }
+
+    /// <summary>
+    /// Records the Android version, code and backend at the end of preprocess. Unity names the symbols zip from
+    /// these during the build; a postprocess callback ordered before Bugsee's (a version-code incrementor) can
+    /// change them before the upload looks for the zip. Last in preprocess so preprocess-time bumps are included.
+    /// </summary>
+    sealed class BugseeBuildSettingsSnapshot : IPreprocessBuildWithReport
+    {
+        public int callbackOrder => int.MaxValue;
+
+        public void OnPreprocessBuild(BuildReport report)
+        {
+            BugseeBuildIdentity.Recorded = report.summary.platform == BuildTarget.Android
+                ? BugseeBuildIdentity.LiveAndroidNameSettings(report.summary.outputPath)
+                : null;
         }
     }
 }
