@@ -605,33 +605,50 @@ void _bugsee_free(char *ptr)
     }
 }
 
-typedef int (*BugseeDeleteCollectedDataShouldRunFn)(int capturedGeneration);
+// Deletes after the SDK is stopped, and reports the token back once the SDK says the wipe finished (its files
+// are cleared on a background thread), so the managed side can hold a following Launch until then. wiped is 1
+// when the SDK reported the wipe done, 0 when it failed or never ran (the SDK did not finish stopping).
+typedef void (*BugseeDeleteCompletionFn)(int token, int wiped);
 
-void _bugsee_delete_collected_data(int capturedGeneration, BugseeDeleteCollectedDataShouldRunFn shouldRun)
+void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completion)
 {
     BugseeRunOnMain(^{
-        BOOL (^allowed)(void) = ^BOOL {
-            return !shouldRun || shouldRun(capturedGeneration);
+        void (^runDelete)(void) = ^{
+            [Bugsee deleteCollectedDataOnDevice:YES completion:^(BOOL success) {
+                if (completion) {
+                    completion(token, success ? 1 : 0);
+                }
+            }];
         };
-        void (^runDeleteIfAllowed)(void) = ^{
-            if (!allowed()) {
-                return;
-            }
-            [Bugsee deleteCollectedDataOnDevice:YES completion:nil];
-        };
-        // A Launch since the delete was requested owns the SDK now: do not stop it.
-        if (!allowed()) {
-            return;
-        }
         // Only a running SDK is stopped: on a stopped one the stop's block may land after a launch that follows
         // this call on the main thread, and the wipe would then be skipped.
         Bugsee *instance = [Bugsee sharedInstance];
-        if (instance != nil && instance.status != BugseeStatusStopped) {
+        BugseeStatus status = instance != nil ? instance.status : BugseeStatusStopped;
+        if (status == BugseeStatusStopping) {
+            // A stop is already running (the managed side gave up waiting for it): a second [Bugsee stop:] could
+            // land on a launch made after that, so wait for the stop that is running instead.
+            __block void (^waitForStopped)(int) = nil;
+            waitForStopped = ^(int remainingTries) {
+                if (instance.status == BugseeStatusStopping && remainingTries > 0) {
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(100 * NSEC_PER_MSEC)), dispatch_get_main_queue(), ^{
+                        waitForStopped(remainingTries - 1);
+                    });
+                    return;
+                }
+                if (instance.status == BugseeStatusStopped) {
+                    runDelete();
+                } else if (completion) {
+                    completion(token, 0);
+                }
+                waitForStopped = nil;
+            };
+            waitForStopped(100);
+        } else if (status != BugseeStatusStopped) {
             [Bugsee stop:^{
-                runDeleteIfAllowed();
+                runDelete();
             }];
         } else {
-            runDeleteIfAllowed();
+            runDelete();
         }
     });
 }
@@ -707,7 +724,6 @@ void _bugsee_upload_managed_report(const char *reportJson,
 #else // !BUGSEE_IOS_SDK
 
 typedef void (*BugseeManagedReportCreateCallback)(int succeeded, uint64_t uploadToken);
-typedef int (*BugseeDeleteCollectedDataShouldRunFn)(int capturedGeneration);
 
 extern "C" {
 
@@ -761,11 +777,8 @@ char *_bugsee_appearance_get_color(const char *propertyName) { (void)propertyNam
 int _bugsee_appearance_set_string(const char *propertyName, const char *propertyValue) { (void)propertyName; (void)propertyValue; return 0; }
 char *_bugsee_appearance_get_string(const char *propertyName) { (void)propertyName; return NULL; }
 void _bugsee_free(char *ptr) { (void)ptr; }
-void _bugsee_delete_collected_data(int capturedGeneration, BugseeDeleteCollectedDataShouldRunFn shouldRun)
-{
-    (void)capturedGeneration;
-    (void)shouldRun;
-}
+typedef void (*BugseeDeleteCompletionFn)(int token, int wiped);
+void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completion) { if (completion) completion(token, 0); }
 void _bugsee_cancel_managed_report_upload(uint64_t uploadId) { (void)uploadId; }
 void _bugsee_invalidate_managed_report_uploads(void) {}
 void _bugsee_upload_managed_report(const char *reportJson,

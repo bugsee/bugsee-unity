@@ -25,8 +25,8 @@ namespace Bugsee.Platform.IOS
     sealed class IOSBridge : IBugseeNativeBridge, ILifecycleResultBridge
     {
         delegate void ManagedReportUploadNativeCallback(int succeeded, ulong uploadToken);
-        delegate int DeleteCollectedDataShouldRunNativeCallback(int capturedGeneration);
         delegate void StopNativeCallback(int token);
+        delegate void DeleteNativeCallback(int token, int wiped);
         delegate void LaunchStartedNativeCallback(int token, int success);
 
         ulong _inFlightUploadToken;
@@ -240,10 +240,10 @@ namespace Bugsee.Platform.IOS
 
         // Main thread only (inside a lifecycle closure). True when then waits on a native stop in flight; false
         // when it has already run.
-        bool StopNativeThen(Action then, Action dropped = null)
+        bool StopNativeThen(Action then, Action dropped = null, bool first = false)
         {
             var generation = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
-            var joined = StopWaiters.TryJoin(then, generation, out var cancelledLaunch, dropped);
+            var joined = StopWaiters.TryJoin(then, generation, out var cancelledLaunch, dropped, first);
             cancelledLaunch?.Invoke(false);
             if (joined) return true;
             // Already stopped: nothing will be reported, so run now. ([Bugsee stop:] on a stopped SDK still
@@ -255,7 +255,7 @@ namespace Bugsee.Platform.IOS
                 return false;
             }
 
-            var token = StopWaiters.Begin(then, generation, dropped);
+            var token = StopWaiters.Begin(then, generation, dropped, first);
             GiveUpIfStopNotReported(token);
             _bugsee_stop(token, OnNativeStopped);
             return true;
@@ -333,6 +333,26 @@ namespace Bugsee.Platform.IOS
                 // Settled on the main thread, where Launch bumps the generation, so a Launch queued ahead of
                 // this report is seen.
                 MainThreadDispatcher.Run(() => CompleteStop(token));
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+        }
+
+        // The wipe finished (wiped) or did not happen. The deferred launch is released either way, so nothing waits
+        // forever; a wipe that did not happen is logged, as DeleteCollectedDataOnDevice has no result to carry it.
+        [MonoPInvokeCallback(typeof(DeleteNativeCallback))]
+        static void OnNativeDeleted(int token, int wiped)
+        {
+            try
+            {
+                MainThreadDispatcher.Run(() =>
+                {
+                    if (wiped == 0)
+                        Debug.LogWarning("[Bugsee] DeleteCollectedDataOnDevice did not wipe the collected data: the SDK reported a failure or had not finished stopping.");
+                    CompleteStop(token);
+                });
             }
             catch (Exception ex)
             {
@@ -426,40 +446,45 @@ namespace Bugsee.Platform.IOS
 
         public void DeleteCollectedDataOnDevice()
         {
-            var deleteGeneration = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
             // One path, decided inside the main-thread closure and not on the SDK's state: Launch always installs
             // the managed hooks, even when the SDK then refuses it (status stays Stopped), so they are torn down
             // unconditionally (uninstalling is idempotent), and the SDK's status is not read off-thread. The
             // delete waits on the shared native stop (joining one already in flight); the native delete only
-            // stops an SDK that is not already stopped.
+            // stops an SDK that is not already stopped. Requests run in order, as on Android: a delete is never
+            // skipped because a Launch follows it (that Launch waits for the stop and so runs after the wipe), and
+            // one requested after a Launch wipes that session.
             if (!MainThreadDispatcher.RunSyncLifecycle(() =>
                 {
-                    // A Launch/Relaunch since the delete was requested (queued ahead of this closure, or on the
-                    // main thread while a background caller waited) owns the SDK now: tearing it down would stop
-                    // the new session, and the wipe would be skipped anyway.
-                    if (!DeleteCollectedDataLaunchGeneration.RunIfCurrent(deleteGeneration, () =>
-                        {
-                            HostLogForwarder.Uninstall();
-                            ExceptionPipeline.Uninstall();
-                            CancelManagedReportUpload();
-                            _openReport?.ReleaseSnapshotFiles();
-                            _openReport = null;
-                            _openReportHandle = null;
-                            _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
-                            _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
-                            StopNativeThen(() =>
-                                _bugsee_delete_collected_data(deleteGeneration, ShouldRunDeleteCollectedDataNative));
-                        }))
-                        Debug.LogWarning("[Bugsee] DeleteCollectedDataOnDevice was overtaken by a later Launch; nothing was deleted.");
+                    HostLogForwarder.Uninstall();
+                    ExceptionPipeline.Uninstall();
+                    CancelManagedReportUpload();
+                    _openReport?.ReleaseSnapshotFiles();
+                    _openReport = null;
+                    _openReportHandle = null;
+                    _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
+                    _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
+                    if (StopWaiters.TryCoalesceWipe()) return;
+                    StopNativeThen(BeginNativeDelete, first: true);
                 }))
             {
                 Debug.LogError("[Bugsee] DeleteCollectedDataOnDevice timed out waiting for the Unity main thread.");
             }
         }
 
-        [MonoPInvokeCallback(typeof(DeleteCollectedDataShouldRunNativeCallback))]
-        static int ShouldRunDeleteCollectedDataNative(int capturedGeneration) =>
-            DeleteCollectedDataLaunchGeneration.ShouldRunDelete(capturedGeneration) ? 1 : 0;
+        // Main thread only. The wipe is a native operation in flight like a stop: a Launch or Relaunch requested
+        // meanwhile waits for the SDK to report it finished (it clears its files on a background thread), so a
+        // new session never starts, or has capture files deleted, under a running wipe. Same hard deadline as a
+        // stop, so nothing waits forever; no soft one, as no caller waits for the wipe.
+        // A Delete that follows one still wiping is the same wipe, so it starts no second one (two would release a
+        // deferred Launch at the later one's report, under the first one's file pass).
+        static void BeginNativeDelete()
+        {
+            if (StopWaiters.TryCoalesceWipe()) return;
+            var generation = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
+            var token = StopWaiters.Begin(null, generation, holdsLaunch: true);
+            GiveUpIfStopNotReported(token);
+            _bugsee_delete_collected_data(token, OnNativeDeleted);
+        }
 
         void CancelManagedReportUpload()
         {
@@ -822,9 +847,7 @@ namespace Bugsee.Platform.IOS
             string message,
             int iosLevel,
             double timestampUnixSeconds);
-        [DllImport("__Internal")] static extern void _bugsee_delete_collected_data(
-            int capturedGeneration,
-            DeleteCollectedDataShouldRunNativeCallback shouldRun);
+        [DllImport("__Internal")] static extern void _bugsee_delete_collected_data(int token, DeleteNativeCallback completion);
         [DllImport("__Internal")] static extern void _bugsee_cancel_managed_report_upload(ulong uploadId);
         [DllImport("__Internal")] static extern void _bugsee_invalidate_managed_report_uploads();
         [DllImport("__Internal")] static extern void _bugsee_upload_managed_report(

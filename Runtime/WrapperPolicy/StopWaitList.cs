@@ -14,9 +14,14 @@ namespace Bugsee.WrapperPolicy
     /// A Launch/Relaunch that arrives while a native stop is in flight is deferred until it finishes, because
     /// the SDK keeps a launch that completes after a stop stopped. The latest request wins: a later
     /// Launch/Relaunch replaces a deferred one, and a later Stop or Delete cancels it. When the stop finishes the
-    /// waiters run in arrival order, then the deferred launch, which is by construction the latest request; it
+    /// waiters run in arrival order (first waiters ahead of the rest), then the deferred launch, which is by construction the latest request; it
     /// is cancelled instead if a waiter has made a newer request meanwhile (a completion that launches or stops
     /// again was called later still). A cancelled launch is told so (<c>false</c>), so nothing waits on it.
+    /// </para>
+    /// <para>
+    /// A Delete joins as a <c>first</c> waiter: it runs before the other waiters and is never dropped, because a
+    /// wipe must happen in request order and not silently not happen. A completion that relaunches (a Stop
+    /// requested before the Delete) was by request order a later request, so the wipe goes ahead of it.
     /// </para>
     /// </summary>
     internal sealed class StopWaitList
@@ -25,11 +30,13 @@ namespace Bugsee.WrapperPolicy
         {
             public Action Run;
             public Action Dropped;
+            public bool First;
         }
 
         sealed class Pending
         {
             public int Generation;
+            public bool HoldsLaunch;
             public readonly List<Waiter> Waiters = new List<Waiter>();
         }
 
@@ -49,7 +56,8 @@ namespace Bugsee.WrapperPolicy
         /// A deferred launch is cancelled either way (it comes back in <paramref name="cancelledLaunch"/>, for
         /// the caller to call with <c>false</c> outside any lock): this request is newer.
         /// </summary>
-        public bool TryJoin(Action waiter, int generation, out Action<bool> cancelledLaunch, Action dropped = null)
+        public bool TryJoin(Action waiter, int generation, out Action<bool> cancelledLaunch, Action dropped = null,
+            bool first = false)
         {
             lock (_gate)
             {
@@ -59,23 +67,46 @@ namespace Bugsee.WrapperPolicy
                     || !_pending.TryGetValue(_inFlightToken, out var pending)
                     || pending.Generation != generation)
                     return false;
-                Add(pending, waiter, dropped);
+                Add(pending, waiter, dropped, first);
                 return true;
             }
         }
 
-        /// <summary>Records a new native stop in flight and returns the token to pass to it.</summary>
-        public int Begin(Action waiter, int generation, Action dropped = null)
+        /// <summary>
+        /// Records a new native operation in flight (a stop, or with <paramref name="holdsLaunch"/> a data wipe)
+        /// and returns the token to pass to it. A wipe is the same request as the Delete that started it, so it
+        /// does not count as a newer one: a launch deferred behind it stays deferred, and runs when the wipe is
+        /// reported (<see cref="Complete"/>), not when the stop before it finished.
+        /// </summary>
+        public int Begin(Action waiter, int generation, Action dropped = null, bool first = false,
+            bool holdsLaunch = false)
         {
             lock (_gate)
             {
-                _intent++;
+                if (!holdsLaunch) _intent++;
                 var token = ++_lastToken;
-                var pending = new Pending { Generation = generation };
-                Add(pending, waiter, dropped);
+                var pending = new Pending { Generation = generation, HoldsLaunch = holdsLaunch };
+                Add(pending, waiter, dropped, first);
                 _pending[token] = pending;
                 _inFlightToken = token;
                 return token;
+            }
+        }
+
+        /// <summary>
+        /// True when a wipe begun with <c>holdsLaunch</c> is the operation in flight and no launch is waiting on
+        /// it: a consecutive Delete is then the same wipe (Android coalesces them too), so the caller starts no
+        /// second one. Not a new request, so the intent is unchanged. False when a launch is deferred behind the
+        /// wipe: a Delete after that launch is a newer request and joins as usual, cancelling it.
+        /// </summary>
+        public bool TryCoalesceWipe()
+        {
+            lock (_gate)
+            {
+                return _inFlightToken != 0
+                    && _deferredLaunch == null
+                    && _pending.TryGetValue(_inFlightToken, out var pending)
+                    && pending.HoldsLaunch;
             }
         }
 
@@ -126,6 +157,12 @@ namespace Bugsee.WrapperPolicy
             var dropped = false;
             foreach (var waiter in pending.Waiters)
             {
+                if (!waiter.First) continue;
+                if (waiter.Run != null) run(waiter.Run);
+            }
+            foreach (var waiter in pending.Waiters)
+            {
+                if (waiter.First) continue;
                 if (!dropped && currentGeneration() != pending.Generation) dropped = true;
                 var action = dropped ? waiter.Dropped : waiter.Run;
                 if (action != null) run(action);
@@ -136,6 +173,14 @@ namespace Bugsee.WrapperPolicy
                 bool latest;
                 lock (_gate)
                 {
+                    if (_intent == launchIntent && _inFlightToken != 0
+                        && _pending.TryGetValue(_inFlightToken, out var next) && next.HoldsLaunch)
+                    {
+                        // A waiter started the wipe: the launch waits for it.
+                        _deferredLaunch = launch;
+                        _deferredLaunchIntent = launchIntent;
+                        return dropped;
+                    }
                     latest = _intent == launchIntent && _inFlightToken == 0;
                 }
                 run(() => launch(latest));
@@ -152,10 +197,10 @@ namespace Bugsee.WrapperPolicy
             }
         }
 
-        static void Add(Pending pending, Action waiter, Action dropped)
+        static void Add(Pending pending, Action waiter, Action dropped, bool first)
         {
             if (waiter != null || dropped != null)
-                pending.Waiters.Add(new Waiter { Run = waiter, Dropped = dropped });
+                pending.Waiters.Add(new Waiter { Run = waiter, Dropped = dropped, First = first });
         }
 
         Action<bool> TakeDeferredLaunch()

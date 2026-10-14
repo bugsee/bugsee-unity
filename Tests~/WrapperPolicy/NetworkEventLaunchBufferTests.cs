@@ -8,43 +8,11 @@ namespace Bugsee.WrapperPolicy.Tests
     public class NetworkEventLaunchBufferTests
     {
         [Test]
-        public void Delete_generation_launch_bump_invalidates_pending_delete()
+        public void Delete_generation_launch_bump_changes_the_captured_generation()
         {
             var captured = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
             DeleteCollectedDataLaunchGeneration.BumpForLaunch();
-            Assert.That(DeleteCollectedDataLaunchGeneration.ShouldRunDelete(captured), Is.False);
-        }
-
-        [Test]
-        public void Delete_generation_runs_when_generation_matches_current()
-        {
-            var captured = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
-            Assert.That(DeleteCollectedDataLaunchGeneration.ShouldRunDelete(captured), Is.True);
-            DeleteCollectedDataLaunchGeneration.BumpForLaunch();
-            var afterLaunch = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
-            Assert.That(DeleteCollectedDataLaunchGeneration.ShouldRunDelete(afterLaunch), Is.True);
-        }
-
-        [Test]
-        public void A_delete_whose_generation_went_stale_before_its_body_runs_does_nothing()
-        {
-            // Delete captured on a background thread, then a Launch runs on the main thread before the Delete's
-            // closure: the teardown (and its native stop) must not run against the new session.
-            var captured = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
-            DeleteCollectedDataLaunchGeneration.BumpForLaunch();
-            var ran = false;
-            Assert.That(DeleteCollectedDataLaunchGeneration.RunIfCurrent(captured, () => ran = true), Is.False);
-            Assert.That(ran, Is.False);
-        }
-
-        [Test]
-        public void A_delete_in_its_own_generation_runs_its_body()
-        {
-            // Includes a launch the SDK refused in the same generation: its hooks still need tearing down.
-            var captured = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
-            var ran = false;
-            Assert.That(DeleteCollectedDataLaunchGeneration.RunIfCurrent(captured, () => ran = true), Is.True);
-            Assert.That(ran, Is.True);
+            Assert.That(DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete(), Is.Not.EqualTo(captured));
         }
 
         [Test]
