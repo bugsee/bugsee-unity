@@ -216,7 +216,10 @@ namespace Bugsee.Platform.Android
 
         public static ulong Current => _fence;
 
-        public static void Invalidate() => checked { _fence++; }
+        public static void Invalidate()
+        {
+            checked { _fence++; }
+        }
 
         public static bool IsActive(ulong captured) => captured == _fence;
     }
