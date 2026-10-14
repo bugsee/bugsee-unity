@@ -26,3 +26,7 @@ Recordings/
 *.ipa
 
 .DS_Store
+
+# Build-time credentials injected by Editor/E2EBuild (never commit)
+Assets/Resources/BugseeE2E.json
+Assets/Resources/BugseeE2E.json.meta
