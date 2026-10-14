@@ -116,6 +116,35 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Facade_launch_options_are_null_until_launched_and_read_only()
+        {
+            string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));
+            string body = ExtractMethodBody(facade, "public static IReadOnlyDictionary<string, object> GetLaunchOptions()");
+            Assert.That(body, Does.Contain("LaunchOptionsWire.Normalize(Bridge.GetLaunched() ? Bridge.GetLaunchOptions() : null)"));
+            Assert.That(body, Does.Contain("new ReadOnlyDictionary<string, object>"));
+        }
+
+        [Test]
+        public void Facade_notify_requires_a_title_and_cleans_the_fields_before_the_bridge()
+        {
+            string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));
+            string body = ExtractMethodBody(facade, "public static void Notify(");
+            Assert.That(body, Does.Contain("NotifyPolicy.HasTitle(title)"));
+            Assert.That(body, Does.Contain("Bridge.Notify(title, body, severity, NotifyPolicy.CleanFields(fields), urgent)"));
+        }
+
+        [Test]
+        public void Notify_reaches_the_native_five_argument_overloads()
+        {
+            string android = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs"));
+            Assert.That(ExtractMethodBody(android, "public void Notify("), Does.Contain("_bugsee.CallStatic(\"notify\", title, NotifyPolicy.Body(body), sev, javaFields, urgent)"));
+            string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
+            string native = ExtractNativeFunctionBody(bridge, "_bugsee_notify");
+            Assert.That(native, Does.Contain("notifyWithTitle:titleStr"));
+            Assert.That(native, Does.Contain("urgent:urgent != 0"));
+        }
+
+        [Test]
         public void Facade_async_lifecycle_uses_the_result_bridge_and_never_blocks()
         {
             string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));

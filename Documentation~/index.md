@@ -218,4 +218,14 @@ Wired: Launch/Stop, blackout, log/trace/event, exceptions (JSON-in-reason), Test
 
 `SetAttribute` accepts a string (up to 1024 UTF-16 units), a bool or a number within the signed 64-bit range; anything else throws `ArgumentException`. `GetAttribute` returns the kind that was set: `string`, `bool`, an integer or a `double`. The numeric width is not promised (Android returns the boxed type that was set, with `sbyte`/`ushort` stored as `int`, `uint`/`ulong` as `long` and `decimal` as `double`; iOS returns `long` or `double`), and a 1.0 set as floating point stays floating. A container set natively reads as a `Dictionary` on Android and as JSON text on iOS. On iOS the bridge returns the value as a type tag and payload (`s:`, `b:`, `i:`, `d:`, `j:`; see `AttributeWire`); the SDK stores the plain value, so reports show it unwrapped.
 
+### Launch options and notifications
+
+`Bugsee.GetLaunchOptions()` returns the options the SDK is running with (its defaults with the ones given to `Launch` merged over them) as a read-only snapshot, or `null` while the SDK is not launched. Keys are each platform's own option names, so they are not the same on Android and iOS. Values are `string`, `bool`, `long` or `double` on both platforms (the SDK's narrower `int`/`float` defaults are widened), or a nested `Dictionary<string, object>` / `List<object>`; a value with no such form (a date, a Java array) reads as its text. The SDK's internal keys (those starting with two dollar signs) are not included.
+
+`Bugsee.Notify(title, body = null, severity = IssueSeverity.Medium, fields = null, urgent = false)` relays a lightweight notification to the app's messaging integrations without creating a report (no video, logs or events). It is stored offline and sent in batches; `urgent` asks for immediate delivery. A call with an empty title, or before the SDK is launched, is ignored by the native SDK (the title case also logs a Unity warning). `fields` are extra string pairs; entries with a null key or value are dropped. The severity is always sent, so the native default for the shorter overloads is not used.
+
+### APM (not exposed yet)
+
+Both native SDKs have `startTransaction` / `startSpan` / `getActiveSpan`, but the Unity package does not expose them yet: a span is a live native object (it needs a handle that crosses JNI and P/Invoke and a lifetime rule), the active span is per native thread (not propagated across `dispatch_async` on iOS), and the no-op behaviour when APM is disabled is only documented on iOS. See the proposal on the tracking issue.
+
 Full product documentation: [docs.bugsee.com/sdk/unity](https://docs.bugsee.com/sdk/unity/).

@@ -25,6 +25,7 @@ namespace Bugsee.Platform.EditorStub
         public void Stop(Action completion = null) => completion?.Invoke();
         public bool GetLaunched() => false;
         public BugseeStatus GetStatus() => BugseeStatus.Stopped;
+        public IReadOnlyDictionary<string, object> GetLaunchOptions() => null;
 
         bool _blackout;
         public void StartBlackout() => _blackout = true;
@@ -45,6 +46,7 @@ namespace Bugsee.Platform.EditorStub
         public void TestCrash() { }
         public void ShowReportDialog(string summary, string description, IssueSeverity severity, IList<string> labels) { }
         public void Upload(string summary, string description, IssueSeverity severity, IList<string> labels) { }
+        public void Notify(string title, string body, IssueSeverity severity, IDictionary<string, string> fields, bool urgent) { }
         public void SetUserIdentifier(string userIdentifier) { }
         public string GetUserIdentifier() => null;
         public void ClearUserIdentifier() { }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Threading.Tasks;
 using Bugsee.Contracts.Appearance;
 using Bugsee.Contracts.Exchange;
@@ -165,6 +166,20 @@ namespace Bugsee
 
         public static BugseeStatus Status => Bridge.GetStatus();
 
+        /// <summary>
+        /// The options the SDK is running with: its defaults with the ones passed to <see cref="Launch"/> merged over
+        /// them, as a read-only snapshot (changing it changes nothing). Null while the SDK is not launched. Keys are
+        /// the native SDK's own option names and differ between Android and iOS; values are string, bool, long,
+        /// double (or a nested dictionary or list); narrower numeric types are widened the same way on both platforms. The
+        /// SDK's internal keys (starting with a double dollar sign) are left out. A value with no such form, such as a
+        /// Java array, reads as its text.
+        /// </summary>
+        public static IReadOnlyDictionary<string, object> GetLaunchOptions()
+        {
+            var options = LaunchOptionsWire.Normalize(Bridge.GetLaunched() ? Bridge.GetLaunchOptions() : null);
+            return options == null ? null : new ReadOnlyDictionary<string, object>(options);
+        }
+
         public static void StartBlackout() => Bridge.StartBlackout();
 
         public static void EndBlackout() => Bridge.EndBlackout();
@@ -238,6 +253,28 @@ namespace Bugsee
 
         /// <summary>Upload a report created with <see cref="CreateReport"/>.</summary>
         public static void Upload(IReport report) => Bridge.UploadReport(report);
+
+        /// <summary>
+        /// Relay a lightweight notification to the app's messaging integrations, without creating a report (no video,
+        /// logs or events are attached). It is stored offline and uploaded in batches. Ignored, with a native warning,
+        /// when <paramref name="title"/> is empty or the SDK is not launched. <paramref name="urgent"/> asks for
+        /// delivery without waiting for the batch; <paramref name="fields"/> are extra string key/value pairs
+        /// (entries with a null key or value are dropped).
+        /// </summary>
+        public static void Notify(
+            string title,
+            string body = null,
+            IssueSeverity severity = IssueSeverity.Medium,
+            IDictionary<string, string> fields = null,
+            bool urgent = false)
+        {
+            if (!NotifyPolicy.HasTitle(title))
+            {
+                Debug.LogWarning("[Bugsee] Notify ignored: a title is required.");
+                return;
+            }
+            Bridge.Notify(title, body, severity, NotifyPolicy.CleanFields(fields), urgent);
+        }
 
         public static void SetUserIdentifier(string userIdentifier) =>
             Bridge.SetUserIdentifier(userIdentifier);

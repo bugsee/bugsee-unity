@@ -430,6 +430,73 @@ void _bugsee_upload(const char *summary, const char *description, int severity, 
                        labels:labels];
 }
 
+// NSJSONSerialization throws on anything outside the JSON types (NSDate, NSData, blocks, non-string keys,
+// NaN), and launch options can hold such values, so a value it cannot take crosses as its description.
+static id BugseeJsonSafe(id value, int depth)
+{
+    if (!value || value == [NSNull null] || depth > 16) {
+        return [NSNull null];
+    }
+    if ([value isKindOfClass:[NSString class]]) {
+        return value;
+    }
+    if ([value isKindOfClass:[NSNumber class]]) {
+        double d = [value doubleValue];
+        return (isnan(d) || isinf(d)) ? [NSNull null] : value;
+    }
+    if ([value isKindOfClass:[NSDictionary class]]) {
+        NSMutableDictionary *out = [NSMutableDictionary dictionaryWithCapacity:[value count]];
+        [value enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+            NSString *name = [key isKindOfClass:[NSString class]] ? key : [key description];
+            out[name] = BugseeJsonSafe(obj, depth + 1);
+        }];
+        return out;
+    }
+    if ([value isKindOfClass:[NSArray class]] || [value isKindOfClass:[NSSet class]]) {
+        NSMutableArray *out = [NSMutableArray arrayWithCapacity:[value count]];
+        for (id item in value) {
+            [out addObject:BugseeJsonSafe(item, depth + 1)];
+        }
+        return out;
+    }
+    return [value description];
+}
+
+char *_bugsee_get_launch_options(void)
+{
+    NSDictionary *options = [Bugsee getLaunchOptions];
+    id safe = BugseeJsonSafe(options, 0);
+    if (![safe isKindOfClass:[NSDictionary class]] || ![NSJSONSerialization isValidJSONObject:safe]) {
+        return NULL;
+    }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:safe options:0 error:nil];
+    NSString *json = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
+    return BugseeCopyUTF8(json);
+}
+
+void _bugsee_notify(const char *title, const char *body, int severity, const char *fieldsJson, int urgent)
+{
+    NSString *titleStr = BugseeNSString(title);
+    if (titleStr.length == 0) {
+        return;
+    }
+    NSMutableDictionary<NSString *, NSString *> *fields = nil;
+    id parsed = BugseeDeserializeJson(fieldsJson);
+    if ([parsed isKindOfClass:[NSDictionary class]]) {
+        fields = [NSMutableDictionary dictionary];
+        [parsed enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+            if ([key isKindOfClass:[NSString class]] && [obj isKindOfClass:[NSString class]]) {
+                fields[key] = obj;
+            }
+        }];
+    }
+    [Bugsee notifyWithTitle:titleStr
+                       body:BugseeNSString(body)
+                   severity:(BugseeSeverityLevel)severity
+                     fields:fields
+                     urgent:urgent != 0];
+}
+
 void _bugsee_set_attribute(const char *key, const char *valueJson)
 {
     id value = valueJson ? BugseeDeserializeJson(valueJson) : nil;
@@ -820,6 +887,8 @@ void _bugsee_logException(const char *name, const char *reason, bool handled, co
 void _bugsee_test_crash(void) {}
 void _bugsee_show_report(const char *summary, const char *description, int severity, const char *labelsJson) { (void)summary; (void)description; (void)severity; (void)labelsJson; }
 void _bugsee_upload(const char *summary, const char *description, int severity, const char *labelsJson) { (void)summary; (void)description; (void)severity; (void)labelsJson; }
+char *_bugsee_get_launch_options(void) { return NULL; }
+void _bugsee_notify(const char *title, const char *body, int severity, const char *fieldsJson, int urgent) { (void)title; (void)body; (void)severity; (void)fieldsJson; (void)urgent; }
 void _bugsee_set_attribute(const char *key, const char *valueJson) { (void)key; (void)valueJson; }
 char *_bugsee_get_attribute(const char *key) { (void)key; return NULL; }
 void _bugsee_clear_attribute(const char *key) { (void)key; }
