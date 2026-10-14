@@ -140,6 +140,17 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Ios_cancel_invalidates_native_uploads_before_deleting_snapshot_files()
+        {
+            string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
+            string cancel = ExtractMethodBody(ios, "void CancelManagedReportUpload()");
+            int invalidate = cancel.IndexOf("_bugsee_invalidate_managed_report_uploads();", StringComparison.Ordinal);
+            int release = cancel.IndexOf("ReleaseAllUploadSnapshotReports();", StringComparison.Ordinal);
+            Assert.That(invalidate, Is.GreaterThanOrEqualTo(0));
+            Assert.That(release, Is.GreaterThan(invalidate));
+        }
+
+        [Test]
         public void Ios_upload_report_clears_slot_before_native_upload()
         {
             string body = ExtractMethodBody(
