@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - Unreleased
 
+### Changed
+
+- Android Mono builds cannot symbolicate native frames inside the Mono runtime (`libmonobdwgc-2.0.so`, `libmono-native.so`, `libMonoPosixHelper.so`): Unity 2021.3 has no Mono ARM64 and those libraries have no GNU build-id. IL2CPP is the supported configuration for fully symbolicated native crashes. Documented in the Player Settings checklist, and a Mono Android build now logs a one-time warning at build time regardless of symbol upload settings (the build is never failed).
+
 ### Fixed
 
 - iOS appearance setters and getters were a no-op because `+[Bugsee getAppearance]` returns a `BugseeTheme`, not a `BGSAppearance`. They now map onto `BugseeTheme` (report/feedback colors, report placeholders). Properties with no iOS equivalent are skipped and read back null: Report `ActionBarTextColor`, `ActionBarButtonBackgroundClickedColor`, `SeverityLabelActiveColor`; Feedback `ActionBarButtonBackgroundClickedColor`, `DateTextColor`, `EmailSkipBackgroundClickedColor`, `EmailContinueClickedColor`, `InputTextHintColor`, `BottomDelimiterColor`, `LoadingBarBackgroundColor`, `LoadingTextColor`, `ErrorTextColor`, `VersionChangedBackgroundColor`, `VersionChangedTextColor`; `Notification::Title`.
