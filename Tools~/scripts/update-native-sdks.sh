@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Refresh native SDK pins and artifacts for com.bugsee.unity.
 #
-# - Regenerates Runtime/BugseePackageVersion.cs
-# - Updates Editor/BugseeAndroidDependencies.xml Maven coordinates
+# - Regenerates Runtime/BugseePackageVersion.cs (also the Android Maven coordinates that
+#   Editor/BugseeAndroidMavenDependencies.cs declares in the generated Gradle project)
 # - Verifies the iOS SPM tag on github.com/bugsee/spm (no local xcframework copy)
 
 set -euo pipefail
@@ -19,7 +19,6 @@ fi
 source "${VERSIONS_FILE}"
 
 RUNTIME_VERSION_CS="${ROOT_DIR}/Runtime/BugseePackageVersion.cs"
-ANDROID_DEPS_XML="${ROOT_DIR}/Editor/BugseeAndroidDependencies.xml"
 
 echo "==> Package ${BUGSEE_PACKAGE_VERSION}"
 echo "    Android ${ANDROID_SDK_VERSION}"
@@ -36,6 +35,9 @@ namespace Bugsee
         public const string Version = "${BUGSEE_PACKAGE_VERSION}";
         public const string Build = "$(git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null || echo dev)";
         public const string AndroidSdkVersion = "${ANDROID_SDK_VERSION}";
+        public const string AndroidMavenGroup = "${ANDROID_MAVEN_GROUP}";
+        public const string AndroidMavenArtifact = "${ANDROID_MAVEN_ARTIFACT}";
+        public const string AndroidNdkArtifact = "${ANDROID_NDK_ARTIFACT}";
         public const string IosSdkSource = "${IOS_SDK_REPO}";
         public const string IosSdkVersion = "${IOS_SDK_VERSION}";
         public const string IosSdkCommit = "${IOS_SDK_COMMIT}";
@@ -43,22 +45,6 @@ namespace Bugsee
 }
 EOF
 echo "Updated ${RUNTIME_VERSION_CS}"
-
-cat > "${ANDROID_DEPS_XML}" <<EOF
-<dependencies>
-  <androidPackages>
-    <!--
-      Android SDK ${ANDROID_SDK_VERSION} publishes no Maven transitives (POM and Gradle .module are
-      empty). NDK is a separate artifact and is not pulled by the core AAR — declare
-      both. androidx.fragment is not required: fragment secure-view overloads are typed
-      as Object so Unity JNI reflection can load Bugsee without Fragment.
-    -->
-    <androidPackage spec="${ANDROID_MAVEN_GROUP}:${ANDROID_MAVEN_ARTIFACT}:${ANDROID_SDK_VERSION}" />
-    <androidPackage spec="${ANDROID_MAVEN_GROUP}:${ANDROID_NDK_ARTIFACT}:${ANDROID_SDK_VERSION}" />
-  </androidPackages>
-</dependencies>
-EOF
-echo "Updated ${ANDROID_DEPS_XML}"
 
 # --- iOS SPM pin (github.com/bugsee/spm) ---
 if command -v git >/dev/null 2>&1; then

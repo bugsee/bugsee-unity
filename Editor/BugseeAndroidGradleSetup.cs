@@ -14,8 +14,8 @@ namespace Bugsee.Editor
     /// Instrumentation only runs on <c>com.android.application</c> (not unityLibrary).
     ///
     /// Plugin 4.x requires AGP ≥ 8.6 / Gradle ≥ 8.7 (Unity 6+). On Unity 2021.3 the
-    /// plugin apply is skipped by default. EDM deps: <c>bugsee-android</c> +
-    /// <c>bugsee-android-ndk</c> 7.4.1 (core publishes no transitives; NDK is explicit).
+    /// plugin apply is skipped by default. The runtime AARs (<c>bugsee-android</c> +
+    /// <c>bugsee-android-ndk</c>) are declared by <see cref="BugseeAndroidMavenDependencies"/>.
     /// </summary>
     [InitializeOnLoad]
     sealed class BugseeAndroidGradleSetup : IPreprocessBuildWithReport
@@ -23,7 +23,7 @@ namespace Bugsee.Editor
         public int callbackOrder => 10;
 
         public const string GradlePluginVersion = "4.0.8";
-        public const string SdkVersion = "7.4.1";
+        public const string SdkVersion = BugseePackageVersion.AndroidSdkVersion;
 
         const string PrefForcePlugin = "Bugsee.Android.ForceGradlePlugin";
         const string KotlinExcludeMarker = "// Bugsee: bugsee-android Gradle .module";
@@ -91,7 +91,7 @@ namespace Bugsee.Editor
             {
                 Debug.LogWarning(
                     "[Bugsee] Bugsee Gradle plugin not applied (needs AGP 8.6+ / Unity 6+). " +
-                    "EDM still resolves bugsee-android + bugsee-android-ndk; enable Custom Gradle templates for NDK plugin.");
+                    "bugsee-android + bugsee-android-ndk are still declared in the generated Gradle project.");
             }
         }
 
