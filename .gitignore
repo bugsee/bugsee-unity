@@ -48,6 +48,9 @@ Tests~/**/.build/
 Tests~/**/bin/
 Tests~/**/obj/
 Tests~/Android/local.properties
+!Tools~/CompileCheck/**/*.csproj
+Tools~/CompileCheck/**/bin/
+Tools~/CompileCheck/**/obj/
 
 # Packaging
 *.unitypackage

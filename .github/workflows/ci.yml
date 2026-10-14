@@ -30,6 +30,23 @@ jobs:
       - name: Test
         run: dotnet test Tests~/WrapperPolicy/Bugsee.WrapperPolicy.Tests.csproj --nologo --configuration Release
 
+  unity-compile:
+    name: Unity C# compile check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Compile Runtime and Editor per Unity define set
+        run: sh Tools~/scripts/compile-check.sh
+
   android:
     name: Android wrapper tests
     runs-on: ubuntu-latest
