@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using Bugsee.WrapperPolicy;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -279,18 +280,21 @@ namespace Bugsee.Editor
 
             const string phaseName = "Bugsee Upload Symbols";
             // Write a dedicated shell script and add a run-script phase.
-            // Duplicate phases on re-export are annoying but harmless (token-gated).
 
             var scriptsDir = Path.Combine(pathToBuiltProject, "BugseeScripts");
             Directory.CreateDirectory(scriptsDir);
             var scriptPath = Path.Combine(scriptsDir, "upload-symbols.sh");
             File.WriteAllText(scriptPath, BuildArchiveScript(), new UTF8Encoding(false));
 
-            project.AddShellScriptBuildPhase(
-                target,
-                phaseName,
-                "/bin/sh",
-                "\"${PROJECT_DIR}/BugseeScripts/upload-symbols.sh\"\n");
+            // Run it through sh: a file written from C# has no executable bit, so invoking the path directly
+            // fails the whole build with "Permission denied" (Debug and Release alike, before the script's own
+            // "never fail the build" handling can run). The "||" keeps a failing upload from failing the build.
+            const string shellScript =
+                "/bin/sh \"${PROJECT_DIR}/BugseeScripts/upload-symbols.sh\" || echo \"Bugsee: symbol upload script failed (the build continues).\"\n";
+            // An "Append" export keeps the phase an earlier package version added (the bare-path one fails), and
+            // AddShellScriptBuildPhase reuses a phase only when its script is identical: update it in place first.
+            project.ReadFromString(XcodeShellScriptPhase.RewriteScript(project.WriteToString(), phaseName, shellScript));
+            project.AddShellScriptBuildPhase(target, phaseName, "/bin/sh", shellScript);
             project.WriteToFile(projectPath);
             Debug.Log(
                 "[Bugsee] Injected Xcode Run Script 'Bugsee Upload Symbols' for archive-time " +
