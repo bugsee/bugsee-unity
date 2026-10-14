@@ -477,11 +477,6 @@ void _bugsee_register_unity_callbacks(BugseeUnityFilterCb filterCb,
     gLifecycleCb = lifecycleCb;
 }
 
-void _bugsee_clear_wrapper_channel(void)
-{
-    gChannel = nil;
-}
-
 void _bugsee_set_secure_buffer(int display, int *packed, int packedLength)
 {
     if (!packed || packedLength < 2) return;
@@ -747,7 +742,6 @@ const char *_bugsee_test_copy_context_value(const char *key)
 
 extern "C" {
 void _bugsee_register_unity_callbacks(void *a, void *b, void *c) { (void)a; (void)b; (void)c; }
-void _bugsee_clear_wrapper_channel(void) {}
 void _bugsee_channel_log(const char *message, int level, int source) { (void)message; (void)level; (void)source; }
 void _bugsee_channel_network(const char *eventJson, int requiresFiltering) { (void)eventJson; (void)requiresFiltering; }
 void _bugsee_channel_breadcrumb(const char *category, const char *message, int iosLevel, double timestampUnixSeconds)

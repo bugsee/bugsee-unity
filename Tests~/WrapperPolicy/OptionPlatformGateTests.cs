@@ -147,11 +147,11 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             string text = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
             Assert.That(
-                CountOccurrences(text, "_bugsee_launch(appToken, " + ForIosJsonCall + ")"),
+                CountOccurrences(text, "_bugsee_launch(appToken, " + ForIosJsonCall + ","),
                 Is.EqualTo(1),
                 "Launch must JSON-encode OptionPlatformGate.ForIos(options)");
             Assert.That(
-                CountOccurrences(text, "_bugsee_relaunch(" + ForIosJsonCall + ")"),
+                CountOccurrences(text, "_bugsee_relaunch(" + ForIosJsonCall + ","),
                 Is.EqualTo(1),
                 "Relaunch must JSON-encode OptionPlatformGate.ForIos(options)");
         }

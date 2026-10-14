@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Bugsee.Contracts.Appearance;
 using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Feedback;
@@ -64,7 +65,81 @@ namespace Bugsee
         public static void Relaunch(Dictionary<string, object> options = null) =>
             Bridge.Relaunch(options);
 
+        /// <summary>
+        /// Stop Bugsee. <paramref name="completion"/> runs once the SDK has finished stopping. It does not run if
+        /// a Launch/Relaunch starts a new session first, or if the stop itself did not run (on iOS, when called
+        /// off the main thread and the Unity main thread did not take it within 5 s; an error is logged). Use
+        /// <see cref="StopAsync"/> to be told about that failure.
+        /// </summary>
         public static void Stop(Action completion = null) => Bridge.Stop(completion);
+
+        /// <summary>
+        /// <see cref="Launch"/> that completes with the SDK's answer: true when it accepted the launch, false
+        /// when it refused it or the launch never ran (a later Launch, Relaunch, Stop or Delete cancelled it while
+        /// it waited for a stop in flight). Never blocks the calling thread; awaited from the Unity main thread,
+        /// the continuation resumes there.
+        /// </summary>
+        public static Task<bool> LaunchAsync(string appToken, Dictionary<string, object> options = null)
+        {
+            if (string.IsNullOrEmpty(appToken))
+                throw new ArgumentException("appToken is required", nameof(appToken));
+
+            MainThreadDispatcher.Ensure();
+            var result = new TaskCompletionSource<bool>();
+            if (Bridge is ILifecycleResultBridge bridge)
+            {
+                bridge.Launch(appToken, options, accepted => result.TrySetResult(accepted));
+            }
+            else
+            {
+                Bridge.Launch(appToken, options);
+                result.TrySetResult(IsStartingOrLaunched(Bridge.GetStatus()));
+            }
+            return result.Task;
+        }
+
+        /// <summary><see cref="Relaunch"/> that completes with the SDK's answer, as <see cref="LaunchAsync"/>.</summary>
+        public static Task<bool> RelaunchAsync(Dictionary<string, object> options = null)
+        {
+            var result = new TaskCompletionSource<bool>();
+            if (Bridge is ILifecycleResultBridge bridge)
+            {
+                bridge.Relaunch(options, accepted => result.TrySetResult(accepted));
+            }
+            else
+            {
+                Bridge.Relaunch(options);
+                result.TrySetResult(IsStartingOrLaunched(Bridge.GetStatus()));
+            }
+            return result.Task;
+        }
+
+        /// <summary>
+        /// <see cref="Stop"/> that completes once the SDK has finished stopping. Unlike a Stop completion it
+        /// completes even when a Launch follows before it does. Faults with <see cref="TimeoutException"/> if the
+        /// stop could not be handed to the Unity main thread, or the SDK has not reported it within 10 s (a Launch
+        /// still waits for that stop).
+        /// </summary>
+        public static Task StopAsync()
+        {
+            var result = new TaskCompletionSource<bool>();
+            if (Bridge is ILifecycleResultBridge bridge)
+            {
+                bridge.Stop(ran =>
+                {
+                    if (ran) result.TrySetResult(true);
+                    else result.TrySetException(new TimeoutException("Stop did not finish in time."));
+                });
+            }
+            else
+            {
+                Bridge.Stop(() => result.TrySetResult(true));
+            }
+            return result.Task;
+        }
+
+        static bool IsStartingOrLaunched(BugseeStatus status) =>
+            status == BugseeStatus.Launching || status == BugseeStatus.Launched;
 
         public static bool IsLaunched => Bridge.GetLaunched();
 

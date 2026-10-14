@@ -22,16 +22,17 @@ namespace Bugsee.Platform.IOS
     /// Native crash reporting is owned by the iOS SDK when
     /// <see cref="Options.DetectAndReportCrash"/> is enabled at Launch.
     /// </summary>
-    sealed class IOSBridge : IBugseeNativeBridge
+    sealed class IOSBridge : IBugseeNativeBridge, ILifecycleResultBridge
     {
         delegate void ManagedReportUploadNativeCallback(int succeeded, ulong uploadToken);
         delegate int DeleteCollectedDataShouldRunNativeCallback(int capturedGeneration);
+        delegate void StopNativeCallback(int token);
+        delegate void LaunchStartedNativeCallback(int token, int success);
 
         ulong _inFlightUploadToken;
         ulong _managedReportUploadFence;
         int _reportUploadGeneration;
 
-        bool _launched;
         bool _blackout;
         IosAppearance _appearance;
         IosReport _openReport;
@@ -54,71 +55,335 @@ namespace Bugsee.Platform.IOS
 
         public void EnsureWrapperRegistered() => IosNativeCallbacks.EnsureWrapper();
 
-        public void Launch(string appToken, IDictionary<string, object> options)
+        public void Launch(string appToken, IDictionary<string, object> options) => Launch(appToken, options, null);
+
+        void ILifecycleResultBridge.Launch(string appToken, IDictionary<string, object> options, Action<bool> started) =>
+            Launch(appToken, options, started);
+
+        void Launch(string appToken, IDictionary<string, object> options, Action<bool> started)
         {
             ManagedExceptionPayload.EnsureBuildIdentity();
             if (!MainThreadDispatcher.RunSyncLifecycle(() =>
-                {
-                    EnsureWrapperRegistered();
-                    DeleteCollectedDataLaunchGeneration.BumpForLaunch();
-                    _networkLaunchBuffer.BeginNewLaunchCycle();
-                    _breadcrumbLaunchBuffer.BeginNewLaunchCycle();
-                    _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
-                    _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
-                    _bugsee_launch(appToken, ToJsonObject(OptionPlatformGate.ForIos(options)));
-                    _launched = true;
-                    ExceptionPipeline.Install(this, options);
-                    HostLogForwarder.InstallOnce(this);
-                }))
+                    LaunchOrDefer("Launch", () => LaunchNow(appToken, options, started), started)))
             {
                 Debug.LogError("[Bugsee] Launch timed out waiting for the Unity main thread.");
+                RunResult(started, false);
             }
         }
 
-        public void Relaunch(IDictionary<string, object> options)
+        public void Relaunch(IDictionary<string, object> options) => Relaunch(options, null);
+
+        void ILifecycleResultBridge.Relaunch(IDictionary<string, object> options, Action<bool> started) =>
+            Relaunch(options, started);
+
+        void Relaunch(IDictionary<string, object> options, Action<bool> started)
         {
             if (!MainThreadDispatcher.RunSyncLifecycle(() =>
-                {
-                    DeleteCollectedDataLaunchGeneration.BumpForLaunch();
-                    _networkLaunchBuffer.BeginNewLaunchCycle();
-                    _breadcrumbLaunchBuffer.BeginNewLaunchCycle();
-                    _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
-                    _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
-                    _bugsee_relaunch(ToJsonObject(OptionPlatformGate.ForIos(options)));
-                    ExceptionPipeline.Install(this, options);
-                    HostLogForwarder.InstallOnce(this);
-                }))
+                    LaunchOrDefer("Relaunch", () => RelaunchNow(options, started), started)))
             {
                 Debug.LogError("[Bugsee] Relaunch timed out waiting for the Unity main thread.");
+                RunResult(started, false);
             }
         }
 
-        public void Stop(Action completion = null)
+        // Main thread only. A launch made while a native stop is in flight would race it (the SDK keeps a launch
+        // that completes after a stop stopped), so it waits for that stop; the latest Launch/Relaunch/Stop/Delete
+        // request wins (StopWaitList).
+        void LaunchOrDefer(string name, Action launchNow, Action<bool> started)
+        {
+            var deferred = StopWaiters.TryDeferLaunch(run =>
+            {
+                if (run)
+                {
+                    launchNow();
+                    return;
+                }
+                Debug.Log("[Bugsee] " + name + " was cancelled by a later Launch, Relaunch, Stop or Delete.");
+                RunResult(started, false);
+            }, out var cancelled);
+            cancelled?.Invoke(false);
+            if (deferred)
+            {
+                Debug.Log("[Bugsee] " + name + " waits for the stop in flight to finish.");
+                return;
+            }
+            launchNow();
+        }
+
+        void LaunchNow(string appToken, IDictionary<string, object> options, Action<bool> started)
+        {
+            EnsureWrapperRegistered();
+            DeleteCollectedDataLaunchGeneration.BumpForLaunch();
+            _networkLaunchBuffer.BeginNewLaunchCycle();
+            _breadcrumbLaunchBuffer.BeginNewLaunchCycle();
+            _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
+            _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
+            var startedToken = RegisterLaunchResult(started);
+            _bugsee_launch(appToken, ToJsonObject(OptionPlatformGate.ForIos(options)),
+                startedToken, startedToken == 0 ? null : (LaunchStartedNativeCallback)OnNativeStarted);
+            ExceptionPipeline.Install(this, options);
+            HostLogForwarder.InstallOnce(this);
+        }
+
+        void RelaunchNow(IDictionary<string, object> options, Action<bool> started)
+        {
+            DeleteCollectedDataLaunchGeneration.BumpForLaunch();
+            _networkLaunchBuffer.BeginNewLaunchCycle();
+            _breadcrumbLaunchBuffer.BeginNewLaunchCycle();
+            _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
+            _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
+            var startedToken = RegisterLaunchResult(started);
+            _bugsee_relaunch(ToJsonObject(OptionPlatformGate.ForIos(options)),
+                startedToken, startedToken == 0 ? null : (LaunchStartedNativeCallback)OnNativeStarted);
+            ExceptionPipeline.Install(this, options);
+            HostLogForwarder.InstallOnce(this);
+        }
+
+        public void Stop(Action completion = null) => Stop(completion, null);
+
+        void ILifecycleResultBridge.Stop(Action<bool> finished) => Stop(null, finished);
+
+        // completion is the public Stop's: dropped if a Launch follows before it runs. finished (StopAsync) runs
+        // either way, so nothing awaits forever.
+        void Stop(Action completion, Action<bool> finished)
         {
             if (!MainThreadDispatcher.RunSyncLifecycle(() =>
                 {
                     HostLogForwarder.Uninstall();
                     ExceptionPipeline.Uninstall();
-                    _bugsee_clear_wrapper_channel();
-                    _bugsee_stop();
-                    _launched = false;
                     CancelManagedReportUpload();
                     _openReport?.ReleaseSnapshotFiles();
                     _openReport = null;
                     _openReportHandle = null;
                     _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
                     _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
-                    completion?.Invoke();
+
+                    // The wrapper channel is deliberately kept: the SDK drops calls made after stop
+                    // and re-registering the same wrapper never hands out a new one, so clearing it
+                    // here would silence the channel for every later launch.
+                    StopWithSoftDeadline(completion, finished);
                 }))
             {
-                Debug.LogError("[Bugsee] Stop timed out waiting for the Unity main thread.");
+                // The body was skipped, so nothing is in flight and no deadline is armed. StopAsync is told it
+                // failed. The public completion is dropped, not run: it cannot tell success from failure, and
+                // one that relaunches (Stop(() => Launch(t))) would act on a session that was never stopped.
+                if (finished != null)
+                {
+                    Debug.LogError("[Bugsee] Stop timed out waiting for the Unity main thread; it did not run.");
+                    RunResult(finished, false);
+                }
+                else
+                {
+                    Debug.LogError("[Bugsee] Stop timed out waiting for the Unity main thread; it did not run"
+                        + (completion != null ? " and its completion was dropped." : "."));
+                }
             }
         }
 
-        public bool GetLaunched() => _launched && _bugsee_get_launched();
+        // One native stop at a time: a Stop or Delete while one is in flight waits on it rather than issuing a
+        // nested [Bugsee stop:], and a Launch or Relaunch waits for it to finish. Waiters are matched to the
+        // native callback by token, and dropped if a Launch or Relaunch has started a new session since (same
+        // fence as the pending GDPR delete).
+        //
+        // Two deadlines for a stop the SDK does not report:
+        // - soft (StopSoftDeadlineMs after each Stop call): that call's completion runs, or StopAsync faults, with
+        //   a warning, so no caller waits forever. The stop stays in flight: a Launch made by that completion or
+        //   later is still deferred, and a further Stop still joins instead of issuing a second native stop.
+        // - hard (StopHardDeadlineMs after the native stop began): the bridge gives up on the stop. The remaining
+        //   waiters (a Delete) and the deferred launch run with a warning, and a late report is ignored by token.
+        //   Residual race, accepted only after this long: if the native stop is in fact still running, it can
+        //   stop the launch made now (beta5 keeps a launch that completes after a stop stopped).
+        static readonly StopWaitList StopWaiters = new StopWaitList();
+        static readonly OneShotCallbacks<bool> LaunchResults = new OneShotCallbacks<bool>();
+        static readonly OneShotCallbacks<bool> StopCompletions = new OneShotCallbacks<bool>();
+        const int StopSoftDeadlineMs = 10000;
+        const int StopHardDeadlineMs = 60000;
+        const int LaunchResultTimeoutMs = 10000;
 
-        public BugseeStatus GetStatus() =>
-            GetLaunched() ? BugseeStatus.Launched : BugseeStatus.Stopped;
+        // Main thread only. The caller's completion is held once, by token, so the soft deadline and the SDK's
+        // report cannot both run it: true from the report, false from the deadline.
+        void StopWithSoftDeadline(Action completion, Action<bool> finished)
+        {
+            if (completion == null && finished == null)
+            {
+                StopNativeThen(null);
+                return;
+            }
+
+            var token = StopCompletions.Register(stopped =>
+            {
+                if (finished != null) RunResult(finished, stopped);
+                else RunCompletion(completion);
+            });
+            Action run = () =>
+            {
+                if (StopCompletions.TryTake(token, out var callback)) callback(true);
+            };
+            // Dropped (a Launch came first): the public completion is not run; StopAsync still completes.
+            Action dropped = () =>
+            {
+                if (StopCompletions.TryTake(token, out var callback) && finished != null) callback(true);
+            };
+            if (StopNativeThen(run, dropped)) ArmStopSoftDeadline(token);
+        }
+
+        static void ArmStopSoftDeadline(int token)
+        {
+            AfterOnMainThread(StopSoftDeadlineMs, () =>
+            {
+                if (!StopCompletions.TryTake(token, out var callback)) return;
+                Debug.LogWarning("[Bugsee] The SDK has not reported that stop finished after "
+                    + StopSoftDeadlineMs / 1000 + " s; running the Stop completion now. Launch still waits for the stop.");
+                callback(false);
+            });
+        }
+
+        // Main thread only (inside a lifecycle closure). True when then waits on a native stop in flight; false
+        // when it has already run.
+        bool StopNativeThen(Action then, Action dropped = null)
+        {
+            var generation = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
+            var joined = StopWaiters.TryJoin(then, generation, out var cancelledLaunch, dropped);
+            cancelledLaunch?.Invoke(false);
+            if (joined) return true;
+            // Already stopped: nothing will be reported, so run now. ([Bugsee stop:] on a stopped SDK still
+            // calls its block, measured on beta6; this only avoids depending on that.)
+            if (GetStatus() == BugseeStatus.Stopped)
+            {
+                _bugsee_stop(0, null);
+                RunCompletion(then);
+                return false;
+            }
+
+            var token = StopWaiters.Begin(then, generation, dropped);
+            GiveUpIfStopNotReported(token);
+            _bugsee_stop(token, OnNativeStopped);
+            return true;
+        }
+
+        static void GiveUpIfStopNotReported(int token)
+        {
+            AfterOnMainThread(StopHardDeadlineMs, () =>
+            {
+                if (!StopWaiters.IsPending(token)) return;
+                Debug.LogWarning("[Bugsee] The SDK has not reported that stop finished after "
+                    + StopHardDeadlineMs / 1000 + " s; giving up on it and running what waits for it.");
+                CompleteStop(token);
+            });
+        }
+
+        static void AfterOnMainThread(int delayMs, Action action)
+        {
+            var timer = default(System.Threading.Timer);
+            timer = new System.Threading.Timer(_ =>
+            {
+                try
+                {
+                    MainThreadDispatcher.Run(() =>
+                    {
+                        try { action(); }
+                        catch (Exception ex) { Debug.LogException(ex); }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogException(ex);
+                }
+                finally
+                {
+                    timer?.Dispose();
+                }
+            }, null, delayMs, System.Threading.Timeout.Infinite);
+        }
+
+        // Main thread only.
+        static void CompleteStop(int token)
+        {
+            // The generation is read again before each waiter: a completion that relaunches (the documented
+            // Stop(() => Launch(...))) must not have its new session stopped by a Delete that joined the same stop.
+            if (StopWaiters.Complete(
+                    token, DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete, RunCompletion))
+                Debug.LogWarning("[Bugsee] Stop finished after a later Launch; its remaining completions were dropped.");
+        }
+
+        // The user's completion must never throw out of here: this runs inside a reverse P/Invoke from an
+        // Objective-C block, where an unhandled managed exception is fatal under IL2CPP.
+        static void RunCompletion(Action completion)
+        {
+            if (completion == null) return;
+            try { completion(); }
+            catch (Exception ex) { Debug.LogException(ex); }
+        }
+
+        static void RunResult(Action<bool> callback, bool value)
+        {
+            if (callback == null) return;
+            try { callback(value); }
+            catch (Exception ex) { Debug.LogException(ex); }
+        }
+
+        // Native stop is asynchronous; run the caller's completion once teardown has finished.
+        [MonoPInvokeCallback(typeof(StopNativeCallback))]
+        static void OnNativeStopped(int token)
+        {
+            // Nothing may escape a reverse P/Invoke from an Objective-C block (fatal under IL2CPP), including
+            // the dispatcher's own setup.
+            try
+            {
+                // Settled on the main thread, where Launch bumps the generation, so a Launch queued ahead of
+                // this report is seen.
+                MainThreadDispatcher.Run(() => CompleteStop(token));
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+        }
+
+        // 0 when nobody waits for the result, so the plain Launch keeps the SDK call without a started block.
+        // If the SDK never answers, the result is read from its status at the deadline.
+        int RegisterLaunchResult(Action<bool> started)
+        {
+            if (started == null) return 0;
+            var token = LaunchResults.Register(started);
+            AfterOnMainThread(LaunchResultTimeoutMs, () =>
+            {
+                if (!LaunchResults.TryTake(token, out var callback)) return;
+                var status = GetStatus();
+                Debug.LogWarning("[Bugsee] The SDK has not answered the launch after "
+                    + LaunchResultTimeoutMs / 1000 + " s; taking its status (" + status + ") as the answer.");
+                RunResult(callback, status == BugseeStatus.Launching || status == BugseeStatus.Launched);
+            });
+            return token;
+        }
+
+        [MonoPInvokeCallback(typeof(LaunchStartedNativeCallback))]
+        static void OnNativeStarted(int token, int success)
+        {
+            try
+            {
+                MainThreadDispatcher.Run(() =>
+                {
+                    if (LaunchResults.TryTake(token, out var callback)) RunResult(callback, success != 0);
+                });
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+        }
+
+        public bool GetLaunched() => GetStatus() == BugseeStatus.Launched;
+
+        // The SDK owns the state, including Launching and Stopping, so a launch it refused reads as Stopped
+        // and so does anything before the first Launch (a nil instance answers 0).
+        public BugseeStatus GetStatus()
+        {
+            var native = _bugsee_get_status();
+            return native >= 0 && native <= (int)BugseeStatus.Stopping
+                ? (BugseeStatus)native
+                : BugseeStatus.Stopped;
+        }
 
         public void StartBlackout()
         {
@@ -162,36 +427,34 @@ namespace Bugsee.Platform.IOS
         public void DeleteCollectedDataOnDevice()
         {
             var deleteGeneration = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
-            if (GetLaunched())
-            {
-                if (!MainThreadDispatcher.RunSyncLifecycle(() =>
-                    {
-                        HostLogForwarder.Uninstall();
-                        ExceptionPipeline.Uninstall();
-                        _bugsee_clear_wrapper_channel();
-                        CancelManagedReportUpload();
-                        _openReport?.ReleaseSnapshotFiles();
-                        _openReport = null;
-                        _openReportHandle = null;
-                        _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
-                        _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
-                        _launched = false;
-                        _bugsee_delete_collected_data(deleteGeneration, ShouldRunDeleteCollectedDataNative);
-                    }))
+            // One path, decided inside the main-thread closure and not on the SDK's state: Launch always installs
+            // the managed hooks, even when the SDK then refuses it (status stays Stopped), so they are torn down
+            // unconditionally (uninstalling is idempotent), and the SDK's status is not read off-thread. The
+            // delete waits on the shared native stop (joining one already in flight); the native delete only
+            // stops an SDK that is not already stopped.
+            if (!MainThreadDispatcher.RunSyncLifecycle(() =>
                 {
-                    Debug.LogError("[Bugsee] DeleteCollectedDataOnDevice timed out waiting for the Unity main thread.");
-                }
-
-                return;
+                    // A Launch/Relaunch since the delete was requested (queued ahead of this closure, or on the
+                    // main thread while a background caller waited) owns the SDK now: tearing it down would stop
+                    // the new session, and the wipe would be skipped anyway.
+                    if (!DeleteCollectedDataLaunchGeneration.RunIfCurrent(deleteGeneration, () =>
+                        {
+                            HostLogForwarder.Uninstall();
+                            ExceptionPipeline.Uninstall();
+                            CancelManagedReportUpload();
+                            _openReport?.ReleaseSnapshotFiles();
+                            _openReport = null;
+                            _openReportHandle = null;
+                            _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
+                            _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
+                            StopNativeThen(() =>
+                                _bugsee_delete_collected_data(deleteGeneration, ShouldRunDeleteCollectedDataNative));
+                        }))
+                        Debug.LogWarning("[Bugsee] DeleteCollectedDataOnDevice was overtaken by a later Launch; nothing was deleted.");
+                }))
+            {
+                Debug.LogError("[Bugsee] DeleteCollectedDataOnDevice timed out waiting for the Unity main thread.");
             }
-
-            CancelManagedReportUpload();
-            _openReport?.ReleaseSnapshotFiles();
-            _openReport = null;
-            _openReportHandle = null;
-            _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
-            _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
-            _bugsee_delete_collected_data(deleteGeneration, ShouldRunDeleteCollectedDataNative);
         }
 
         [MonoPInvokeCallback(typeof(DeleteCollectedDataShouldRunNativeCallback))]
@@ -551,11 +814,12 @@ namespace Bugsee.Platform.IOS
             return "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r") + "\"";
         }
 
-        [DllImport("__Internal")] static extern void _bugsee_launch(string appToken, string optionsJson);
-        [DllImport("__Internal")] static extern void _bugsee_relaunch(string optionsJson);
-        [DllImport("__Internal")] static extern void _bugsee_stop();
-        [DllImport("__Internal")] static extern void _bugsee_clear_wrapper_channel();
-        [DllImport("__Internal")] static extern bool _bugsee_get_launched();
+        [DllImport("__Internal")] static extern void _bugsee_launch(
+            string appToken, string optionsJson, int startedToken, LaunchStartedNativeCallback started);
+        [DllImport("__Internal")] static extern void _bugsee_relaunch(
+            string optionsJson, int startedToken, LaunchStartedNativeCallback started);
+        [DllImport("__Internal")] static extern void _bugsee_stop(int token, StopNativeCallback completion);
+        [DllImport("__Internal")] static extern int _bugsee_get_status();
         [DllImport("__Internal")] static extern void _bugsee_start_blackout();
         [DllImport("__Internal")] static extern void _bugsee_end_blackout();
         [DllImport("__Internal")] static extern void _bugsee_log(string message, int level);

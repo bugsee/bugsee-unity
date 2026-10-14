@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#import <Foundation/Foundation.h>
 
 extern "C" {
 void _bugsee_set_wrapper_context(const char *json);
@@ -12,6 +13,37 @@ const char *_bugsee_test_copy_context_value(const char *key);
 void _bugsee_set_attribute(const char *key, const char *valueJson);
 char *_bugsee_get_attribute(const char *key);
 void _bugsee_clear_attribute(const char *key);
+typedef void (*BugseeLaunchStartedFn)(int token, int success);
+void _bugsee_launch(const char *appToken, const char *optionsJson, int startedToken, BugseeLaunchStartedFn started);
+void _bugsee_relaunch(const char *optionsJson, int startedToken, BugseeLaunchStartedFn started);
+typedef void (*BugseeStopCompletionFn)(int token);
+void _bugsee_stop(int token, BugseeStopCompletionFn completion);
+}
+
+static int gStartedToken;
+static int gStartedCount;
+static int gStoppedToken;
+
+static void OnStarted(int token, int success)
+{
+    (void)success;
+    gStartedToken = token;
+    gStartedCount++;
+}
+
+static void OnStopped(int token)
+{
+    gStoppedToken = token;
+}
+
+// Spins the main run loop until the condition holds or the time is up.
+static int waitFor(int (^condition)(void), double seconds)
+{
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:seconds];
+    while (!condition() && [deadline timeIntervalSinceNow] > 0) {
+        [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    }
+    return condition();
 }
 
 static void expect(int condition, const char *message)
@@ -79,6 +111,17 @@ int main(void)
         free(attr);
         _bugsee_clear_attribute(c.name);
     }
+    // Lifecycle against the real SDK: answers come back with the caller's token.
+    _bugsee_launch("00000000-0000-0000-0000-000000000000", "{\"max_recording_time\":60}", 41, OnStarted);
+    expect(waitFor(^{ return gStartedCount == 1 ? 1 : 0; }, 5) && gStartedToken == 41,
+           "launch reports the SDK's started answer with its token");
+    _bugsee_stop(7, OnStopped);
+    expect(waitFor(^{ return gStoppedToken == 7 ? 1 : 0; }, 5), "stop reports completion with its token");
+    _bugsee_relaunch(NULL, 42, OnStarted);
+    expect(waitFor(^{ return gStartedCount == 2 ? 1 : 0; }, 5) && gStartedToken == 42,
+           "relaunch reports the SDK's started answer with its token");
+    _bugsee_launch("00000000-0000-0000-0000-000000000000", NULL, 0, NULL);
+    expect(gStartedCount == 2, "a launch without a started callback calls nothing back");
 
     printf("ios bridge tests passed\n");
     return 0;
