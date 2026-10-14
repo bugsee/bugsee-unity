@@ -132,7 +132,18 @@ namespace Bugsee.WrapperPolicy
             bool trailingNewline = buildGradle.EndsWith("\n", StringComparison.Ordinal);
 
             bool hasRegion = TryFindDependencyRegion(lines, out int regionStart, out int regionEnd);
-            var foreign = FindProjectDeclarations(lines, hasRegion ? regionStart : -1, hasRegion ? regionEnd : -1);
+            var foreign = FindProjectDeclarations(lines, hasRegion ? regionStart : -1, hasRegion ? regionEnd : -1, group);
+
+            bool hasDirect = foreign.Exists(d => !d.Nested);
+            if (foreign.Count > 0 && !hasDirect)
+            {
+                // Declared only inside if/else/with blocks: do not inject a duplicate or override the project's
+                // condition, but a block we cannot evaluate is never a reason to delete an earlier injection.
+                result.Status = DependencyStatus.DeclaredByProject;
+                ReportProjectDeclarations(result, foreign, version);
+                result.Text = buildGradle;
+                return result;
+            }
 
             if (foreign.Count > 0)
             {
@@ -231,12 +242,25 @@ namespace Bugsee.WrapperPolicy
             }
 
             int reposClose = FindBlockClose(lines, reposOpen);
-            for (int i = reposOpen + 1; i < reposClose; i++)
+            if (BlockDeclaresMavenCentral(lines, reposOpen, reposClose))
             {
-                if (DeclaresMavenCentral(lines[i]))
+                return RepositoryStatus.AlreadyPresent;
+            }
+
+            if (reposOpen == reposClose)
+            {
+                // `repositories { google() }` on one line: a new line would be a sibling statement, and a
+                // line comment would swallow the closing brace, so declare it inside the braces.
+                int word = lines[reposOpen].IndexOf("repositories", StringComparison.Ordinal);
+                int brace = word < 0 ? -1 : lines[reposOpen].IndexOf('{', word);
+                if (brace < 0)
                 {
-                    return RepositoryStatus.AlreadyPresent;
+                    return RepositoryStatus.BlockNotFound;
                 }
+
+                lines[reposOpen] = lines[reposOpen].Insert(brace + 1, " mavenCentral();");
+                updated = JoinLines(lines, newline, gradle.EndsWith("\n", StringComparison.Ordinal));
+                return RepositoryStatus.Inserted;
             }
 
             string indent = LeadingWhitespace(lines[reposOpen]) + "    ";
@@ -429,64 +453,504 @@ namespace Bugsee.WrapperPolicy
             public bool IsNdk;
             public string Version;
             public string Line;
+
+            /// <summary>Found inside an if/else/with/for/while block: enough to skip injecting, never to remove an earlier injection.</summary>
+            public bool Nested;
         }
 
-        static List<Declaration> FindProjectDeclarations(List<string> lines, int skipStart, int skipEnd)
+        /// <summary>
+        /// The Bugsee declarations a project makes itself, found in one pass over the file. Only a statement
+        /// directly inside a top-level <c>dependencies { }</c> block counts, and only when its configuration is
+        /// <c>implementation</c>, <c>api</c>, <c>runtimeOnly</c>, <c>compile</c> or <c>runtime</c> (or the
+        /// <c>debug</c> / <c>release</c> prefixed <c>Implementation</c>/<c>Api</c>/<c>RuntimeOnly</c>; other flavor
+        /// prefixes are not recognised, which at worst injects a duplicate of the same coordinate) and the Bugsee
+        /// coordinate is a direct argument of it: a coordinate string, a <c>group</c>/<c>name</c> map pair, a map
+        /// <c>name</c> naming a local AAR, or <c>files('...bugsee-android...aar')</c>. Anything else (other
+        /// configurations, <c>exclude</c>, <c>platform</c>, <c>fileTree</c>, <c>constraints</c>,
+        /// <c>resolutionStrategy</c>, variables, println) is not a declaration, because an earlier injection is
+        /// removed when one is found.
+        /// </summary>
+        static List<Declaration> FindProjectDeclarations(List<string> lines, int skipStart, int skipEnd, string group)
         {
             var found = new List<Declaration>();
-            var inBlockComment = new LexState();
+            var lex = new LexState();
+            var text = new StringBuilder();
             for (int i = 0; i < lines.Count; i++)
             {
-                string code = StripComments(lines[i], ref inBlockComment);
-                if (i >= skipStart && i <= skipEnd)
-                {
-                    continue;
-                }
+                string code = StripComments(lines[i], ref lex);
+                text.Append(i >= skipStart && i <= skipEnd ? string.Empty : code).Append('\n');
+            }
 
-                int search = 0;
-                while (search < code.Length)
+            string src = text.ToString();
+            int depth = 0;
+            bool inDeps = false;
+            var statement = new StringBuilder();
+            char quote = '\0';
+            for (int i = 0; i < src.Length; i++)
+            {
+                char c = src[i];
+                if (quote != '\0')
                 {
-                    int at = code.IndexOf(CoreArtifactToken, search, StringComparison.Ordinal);
-                    if (at < 0)
+                    if (c == '\n')
                     {
-                        break;
-                    }
+                        quote = '\0';
+                        if (inDeps)
+                        {
+                            statement.Append(c);
+                        }
 
-                    search = at + CoreArtifactToken.Length;
-                    if (at > 0 && IsArtifactChar(code[at - 1]))
-                    {
                         continue;
                     }
 
-                    var declaration = Classify(code, at);
-                    if (declaration != null && !IsOtherConfiguration(code.Substring(0, at)))
+                    if (inDeps)
                     {
-                        declaration.Line = lines[i].Trim();
-                        found.Add(declaration);
+                        statement.Append(c);
                     }
+
+                    if (c == '\\' && i + 1 < src.Length && src[i + 1] != '\n')
+                    {
+                        i++;
+                        if (inDeps)
+                        {
+                            statement.Append(src[i]);
+                        }
+                    }
+                    else if (c == quote)
+                    {
+                        quote = '\0';
+                    }
+
+                    continue;
+                }
+
+                if (c == '\n')
+                {
+                    if (inDeps && depth == 1)
+                    {
+                        string pending = statement.ToString().TrimEnd();
+                        if (pending.EndsWith(",", StringComparison.Ordinal) ||
+                            pending.EndsWith("\\", StringComparison.Ordinal))
+                        {
+                            statement.Append(c);
+                        }
+                        else
+                        {
+                            FlushStatement(statement, group, found);
+                        }
+                    }
+                    else if (inDeps)
+                    {
+                        statement.Append(c);
+                    }
+
+                    continue;
+                }
+
+                if (c == '\'' || c == '"')
+                {
+                    quote = c;
+                    if (inDeps)
+                    {
+                        statement.Append(c);
+                    }
+                }
+                else if (c == '(' || c == '{' || c == '[')
+                {
+                    if (!inDeps && depth == 0 && c == '{' && HeadIdentifier(src, i) == "dependencies")
+                    {
+                        inDeps = true;
+                        statement.Clear();
+                    }
+                    else if (inDeps)
+                    {
+                        statement.Append(c);
+                    }
+
+                    depth++;
+                }
+                else if (c == ')' || c == '}' || c == ']')
+                {
+                    depth = Math.Max(0, depth - 1);
+                    if (inDeps && depth == 0)
+                    {
+                        FlushStatement(statement, group, found);
+                        inDeps = false;
+                    }
+                    else if (inDeps)
+                    {
+                        statement.Append(c);
+                    }
+                }
+                else if (c == ';' && inDeps && depth == 1)
+                {
+                    FlushStatement(statement, group, found);
+                }
+                else if (inDeps && !(statement.Length == 0 && char.IsWhiteSpace(c)))
+                {
+                    statement.Append(c);
                 }
             }
 
             return found;
         }
 
-        /// <summary>
-        /// True when the call or configuration the coordinate belongs to is one that does not put the SDK on the
-        /// app's runtime classpath: <c>exclude</c>, <c>compileOnly*</c>, test configurations (<c>testImplementation</c>,
-        /// <c>androidTestImplementation</c>, ...) and annotation-processor configurations. <paramref name="before"/>
-        /// is the code of the line up to the coordinate. A coordinate with no call before it (a continuation line)
-        /// counts as a declaration.
-        /// </summary>
-        static bool IsOtherConfiguration(string before)
+        static string HeadIdentifier(string code, int opener)
         {
-            // Drop string contents (they hold group names such as "com.bugsee") and the keys of map notation.
-            var sb = new StringBuilder();
-            char quote = '\0';
-            foreach (char c in before)
+            int k = opener - 1;
+            while (k >= 0 && char.IsWhiteSpace(code[k]))
             {
+                k--;
+            }
+
+            int end = k + 1;
+            while (k >= 0 && (char.IsLetterOrDigit(code[k]) || code[k] == '_'))
+            {
+                k--;
+            }
+
+            return code.Substring(k + 1, end - k - 1);
+        }
+
+        static void FlushStatement(StringBuilder statement, string group, List<Declaration> found)
+        {
+            string text = statement.ToString().Trim();
+            statement.Clear();
+            if (text.Length == 0)
+            {
+                return;
+            }
+
+            string display = Collapse(text);
+            var direct = ParseDeclarations(text, group);
+            foreach (var declaration in direct)
+            {
+                declaration.Line = display;
+                found.Add(declaration);
+            }
+
+            if (direct.Count == 0)
+            {
+                CollectNested(text, group, display, found, 0);
+            }
+        }
+
+        /// <summary>A statement as one short line for messages: whitespace collapsed, long text cut.</summary>
+        static string Collapse(string statement)
+        {
+            string text = System.Text.RegularExpressions.Regex.Replace(statement.Trim(), @"\s+", " ");
+            return text.Length <= 160 ? text : text.Substring(0, 157) + "...";
+        }
+
+        static bool IsControlFlow(string statement)
+        {
+            string name = ReadIdentifier(statement, 0, out _);
+            return name == "if" || name == "else" || name == "with" || name == "for" || name == "while";
+        }
+
+        static string ReadIdentifier(string text, int start, out int end)
+        {
+            end = start;
+            while (end < text.Length && (char.IsLetterOrDigit(text[end]) || text[end] == '_'))
+            {
+                end++;
+            }
+
+            return text.Substring(start, end - start);
+        }
+
+        /// <summary>
+        /// Declarations inside the body of an if/else/with/for/while statement, found with the same strict
+        /// rules as top-level ones but marked <see cref="Declaration.Nested"/>.
+        /// </summary>
+        static void CollectNested(string statement, string group, string display, List<Declaration> found, int level)
+        {
+            if (level > 8 || !IsControlFlow(statement))
+            {
+                return;
+            }
+
+            string t = statement.TrimStart();
+            string name = ReadIdentifier(t, 0, out int i);
+            if (name == "else")
+            {
+                int j = SkipWhitespace(t, i);
+                if (ReadIdentifier(t, j, out int afterIf) == "if")
+                {
+                    i = afterIf;
+                }
+            }
+
+            i = SkipWhitespace(t, i);
+            if (i < t.Length && t[i] == '(')
+            {
+                int close = MatchingClose(t, i);
+                if (close < 0)
+                {
+                    return;
+                }
+
+                i = SkipWhitespace(t, close + 1);
+            }
+
+            string body;
+            if (i < t.Length && t[i] == '{')
+            {
+                int close = MatchingClose(t, i);
+                body = close < 0 ? t.Substring(i + 1) : t.Substring(i + 1, close - i - 1);
+                if (close >= 0 && t.Substring(close + 1).TrimStart().StartsWith("else", StringComparison.Ordinal))
+                {
+                    CollectNested(t.Substring(close + 1).TrimStart(), group, display, found, level + 1);
+                }
+            }
+            else
+            {
+                body = t.Substring(i);
+            }
+
+            foreach (string inner in SplitStatements(body))
+            {
+                var declarations = ParseDeclarations(inner.Trim(), group);
+                foreach (var declaration in declarations)
+                {
+                    declaration.Line = Collapse(inner);
+                    declaration.Nested = true;
+                    found.Add(declaration);
+                }
+
+                if (declarations.Count == 0)
+                {
+                    CollectNested(inner.Trim(), group, display, found, level + 1);
+                }
+            }
+        }
+
+        /// <summary>Splits at newlines and semicolons outside strings and brackets; a trailing comma or backslash continues the statement.</summary>
+        static List<string> SplitStatements(string body)
+        {
+            var parts = new List<string>();
+            var current = new StringBuilder();
+            int depth = 0;
+            char quote = '\0';
+            for (int i = 0; i < body.Length; i++)
+            {
+                char c = body[i];
                 if (quote != '\0')
                 {
-                    if (c == quote)
+                    if (c == '\n')
+                    {
+                        quote = '\0';
+                    }
+                    else if (c == '\\' && i + 1 < body.Length)
+                    {
+                        current.Append(c);
+                        c = body[++i];
+                    }
+                    else if (c == quote)
+                    {
+                        quote = '\0';
+                    }
+
+                    current.Append(c);
+                    continue;
+                }
+
+                if (c == '\'' || c == '"')
+                {
+                    quote = c;
+                }
+                else if (c == '(' || c == '[' || c == '{')
+                {
+                    depth++;
+                }
+                else if (c == ')' || c == ']' || c == '}')
+                {
+                    depth = Math.Max(0, depth - 1);
+                }
+                else if (depth == 0 && (c == '\n' || c == ';'))
+                {
+                    string pending = current.ToString().TrimEnd();
+                    if (c == '\n' && (pending.EndsWith(",", StringComparison.Ordinal) ||
+                                      pending.EndsWith("\\", StringComparison.Ordinal)))
+                    {
+                        current.Append(c);
+                        continue;
+                    }
+
+                    if (pending.Length > 0)
+                    {
+                        parts.Add(pending);
+                    }
+
+                    current.Clear();
+                    continue;
+                }
+
+                current.Append(c);
+            }
+
+            if (current.ToString().Trim().Length > 0)
+            {
+                parts.Add(current.ToString());
+            }
+
+            return parts;
+        }
+
+        static bool IsRuntimeConfiguration(string name)
+        {
+            switch (name)
+            {
+                case "implementation":
+                case "api":
+                case "runtimeOnly":
+                case "compile":
+                case "runtime":
+                case "debugImplementation":
+                case "releaseImplementation":
+                case "debugApi":
+                case "releaseApi":
+                case "debugRuntimeOnly":
+                case "releaseRuntimeOnly":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        static List<Declaration> ParseDeclarations(string statement, string group)
+        {
+            var result = new List<Declaration>();
+            int p = 0;
+            while (p < statement.Length && (char.IsLetterOrDigit(statement[p]) || statement[p] == '_'))
+            {
+                p++;
+            }
+
+            if (p == 0 || !IsRuntimeConfiguration(statement.Substring(0, p)))
+            {
+                return result;
+            }
+
+            if (p < statement.Length && !char.IsWhiteSpace(statement[p]) && statement[p] != '(' &&
+                statement[p] != '\'' && statement[p] != '"')
+            {
+                return result;
+            }
+
+            string rest = statement.Substring(p).TrimStart();
+            string args;
+            if (rest.StartsWith("(", StringComparison.Ordinal))
+            {
+                int close = MatchingClose(rest, 0);
+                args = close < 0 ? rest.Substring(1) : rest.Substring(1, close - 1);
+            }
+            else
+            {
+                args = rest;
+            }
+
+            string mapGroup = null;
+            string mapName = null;
+            foreach (string raw in SplitTopLevel(args))
+            {
+                string arg = raw.Trim();
+                string literal = AsLiteral(arg);
+                if (literal != null)
+                {
+                    string[] parts = literal.Split(':');
+                    if (parts.Length >= 2 && parts[0] == group)
+                    {
+                        string artifact = parts[1] + (parts.Length > 2 ? ":" + parts[2].Split('@')[0] : string.Empty);
+                        AddIfBugsee(result, artifact);
+                    }
+
+                    continue;
+                }
+
+                var pair = System.Text.RegularExpressions.Regex.Match(arg, @"^(group|name)\s*[:=]\s*(.+)$", System.Text.RegularExpressions.RegexOptions.Singleline);
+                if (pair.Success)
+                {
+                    string value = AsLiteral(pair.Groups[2].Value.Trim());
+                    if (value != null)
+                    {
+                        if (pair.Groups[1].Value == "group")
+                        {
+                            mapGroup = value;
+                        }
+                        else
+                        {
+                            mapName = value;
+                        }
+                    }
+
+                    continue;
+                }
+
+                var files = System.Text.RegularExpressions.Regex.Match(arg, @"^files\s*\((.*)\)$", System.Text.RegularExpressions.RegexOptions.Singleline);
+                if (files.Success)
+                {
+                    foreach (string file in SplitTopLevel(files.Groups[1].Value))
+                    {
+                        string path = AsLiteral(file.Trim());
+                        if (path == null || !path.EndsWith(".aar", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        AddIfBugsee(result, path.Substring(path.LastIndexOfAny(new[] { '/', '\\' }) + 1));
+                    }
+                }
+            }
+
+            if (mapName != null && (mapGroup == null || mapGroup == group))
+            {
+                AddIfBugsee(result, mapName);
+            }
+
+            return result;
+        }
+
+        static void AddIfBugsee(List<Declaration> result, string artifactAndVersion)
+        {
+            if (!artifactAndVersion.StartsWith(CoreArtifactToken, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            var declaration = Classify(artifactAndVersion, 0);
+            if (declaration != null)
+            {
+                result.Add(declaration);
+            }
+        }
+
+        /// <summary>The content of <paramref name="arg"/> when it is exactly one quoted string literal, else null.</summary>
+        static string AsLiteral(string arg)
+        {
+            if (arg.Length < 2 || (arg[0] != '\'' && arg[0] != '"') || arg[arg.Length - 1] != arg[0])
+            {
+                return null;
+            }
+
+            string inner = arg.Substring(1, arg.Length - 2);
+            return inner.IndexOf(arg[0]) >= 0 ? null : inner;
+        }
+
+        /// <summary>Index of the bracket closing the one at <paramref name="open"/> (strings skipped), or -1.</summary>
+        static int MatchingClose(string s, int open)
+        {
+            int depth = 0;
+            char quote = '\0';
+            for (int i = open; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (quote != '\0')
+                {
+                    if (c == '\\')
+                    {
+                        i++;
+                    }
+                    else if (c == quote)
                     {
                         quote = '\0';
                     }
@@ -497,45 +961,77 @@ namespace Bugsee.WrapperPolicy
                 if (c == '\'' || c == '"')
                 {
                     quote = c;
-                    sb.Append(' ');
+                }
+                else if (c == '(' || c == '[' || c == '{')
+                {
+                    depth++;
+                }
+                else if (c == ')' || c == ']' || c == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        return i;
+                    }
+                }
+            }
+
+            return -1;
+        }
+
+        /// <summary>Splits at commas outside strings and brackets; a top-level <c>{</c> (a trailing closure) ends the list.</summary>
+        static List<string> SplitTopLevel(string args)
+        {
+            var parts = new List<string>();
+            var current = new StringBuilder();
+            int depth = 0;
+            char quote = '\0';
+            for (int i = 0; i < args.Length; i++)
+            {
+                char c = args[i];
+                if (quote != '\0')
+                {
+                    current.Append(c);
+                    if (c == '\\' && i + 1 < args.Length)
+                    {
+                        current.Append(args[++i]);
+                    }
+                    else if (c == quote)
+                    {
+                        quote = '\0';
+                    }
+
                     continue;
                 }
 
-                sb.Append(c);
-            }
-
-            string name = null;
-            foreach (System.Text.RegularExpressions.Match m in
-                     System.Text.RegularExpressions.Regex.Matches(sb.ToString(), @"[A-Za-z_][A-Za-z0-9_]*"))
-            {
-                switch (m.Value)
+                if (c == '\'' || c == '"')
                 {
-                    case "group":
-                    case "name":
-                    case "module":
-                    case "version":
-                    case "ext":
-                    case "classifier":
-                        continue;
+                    quote = c;
+                }
+                else if (c == '{' && depth == 0)
+                {
+                    break;
+                }
+                else if (c == '(' || c == '[' || c == '{')
+                {
+                    depth++;
+                }
+                else if (c == ')' || c == ']' || c == '}')
+                {
+                    depth--;
+                }
+                else if (c == ',' && depth == 0)
+                {
+                    parts.Add(current.ToString());
+                    current.Clear();
+                    continue;
                 }
 
-                name = m.Value;
+                current.Append(c);
             }
 
-            if (name == null)
-            {
-                return false;
-            }
-
-            string lower = name.ToLowerInvariant();
-            return lower == "exclude" ||
-                   lower.Contains("compileonly") ||
-                   lower.StartsWith("test", StringComparison.Ordinal) ||
-                   lower.StartsWith("androidtest", StringComparison.Ordinal) ||
-                   lower.StartsWith("unittest", StringComparison.Ordinal) ||
-                   lower.Contains("annotationprocessor") ||
-                   lower.StartsWith("kapt", StringComparison.Ordinal) ||
-                   lower.StartsWith("ksp", StringComparison.Ordinal);
+            parts.Add(current.ToString());
+            return parts;
         }
 
         /// <summary>
@@ -607,7 +1103,7 @@ namespace Bugsee.WrapperPolicy
                 hasNdk |= declaration.IsNdk;
                 if (declaration.Version == null ||
                     string.Equals(declaration.Version, version, StringComparison.Ordinal) ||
-                    !reported.Add(declaration.Line))
+                    !reported.Add(declaration.Line + "|" + declaration.IsNdk))
                 {
                     continue;
                 }
@@ -633,13 +1129,239 @@ namespace Bugsee.WrapperPolicy
             }
         }
 
-        static bool DeclaresMavenCentral(string line)
+        /// <summary>
+        /// True when a repositories block declares a Maven Central that serves the Bugsee artifacts: an unfiltered
+        /// <c>mavenCentral()</c>, or a <c>mavenCentral { content { ... } }</c> whose include filters cover
+        /// <c>com.bugsee:bugsee-android</c> and <c>bugsee-android-ndk</c> and whose exclude filters do not touch
+        /// them. A filter that cannot be read (version filters, unparsable regex) counts as not serving them, and the
+        /// caller then adds the marked unfiltered <c>mavenCentral()</c> (Gradle unions repositories).
+        /// </summary>
+        static bool BlockDeclaresMavenCentral(List<string> lines, int open, int close)
         {
-            var inBlockComment = new LexState();
-            string code = StripComments(line, ref inBlockComment);
-            return System.Text.RegularExpressions.Regex.IsMatch(code, @"\bmavenCentral\s*[({]") ||
-                   code.IndexOf("repo.maven.apache.org/maven2", StringComparison.Ordinal) >= 0 ||
-                   code.IndexOf("repo1.maven.org/maven2", StringComparison.Ordinal) >= 0;
+            var lex = new LexState();
+            var text = new StringBuilder();
+            for (int i = open; i <= close; i++)
+            {
+                text.Append(StripComments(lines[i], ref lex)).Append('\n');
+            }
+
+            // The text between the braces of the repositories block, so a one-line block or a
+            // `repositories { mavenCentral()` first line is scanned too.
+            string whole = text.ToString();
+            string wholeMasked = MaskStrings(whole);
+            int braceOpen = wholeMasked.IndexOf('{');
+            if (braceOpen < 0)
+            {
+                return false;
+            }
+
+            int braceClose = MatchingClose(wholeMasked, braceOpen);
+            string block = braceClose < 0 ? whole.Substring(braceOpen + 1) : whole.Substring(braceOpen + 1, braceClose - braceOpen - 1);
+            string masked = MaskStrings(block);
+
+            // exclusiveContent { forRepository { mavenCentral() } filter { ... } }: the filter decides.
+            var exclusive = new List<int[]>();
+            foreach (System.Text.RegularExpressions.Match m in
+                     System.Text.RegularExpressions.Regex.Matches(masked, @"\bexclusiveContent\s*\{"))
+            {
+                int openAt = m.Index + m.Length - 1;
+                int closeAt = MatchingClose(masked, openAt);
+                exclusive.Add(new[] { openAt, closeAt < 0 ? block.Length : closeAt });
+            }
+
+            // maven { url 'https://repo.maven.apache.org/maven2' [content { ... }] }
+            foreach (System.Text.RegularExpressions.Match m in
+                     System.Text.RegularExpressions.Regex.Matches(masked, @"\bmaven\s*\{"))
+            {
+                int openAt = m.Index + m.Length - 1;
+                int closeAt = MatchingClose(masked, openAt);
+                string body = closeAt < 0 ? block.Substring(openAt + 1) : block.Substring(openAt + 1, closeAt - openAt - 1);
+                if ((body.IndexOf("repo.maven.apache.org/maven2", StringComparison.Ordinal) >= 0 ||
+                     body.IndexOf("repo1.maven.org/maven2", StringComparison.Ordinal) >= 0) &&
+                    ContentFilterServesBugsee(body, "content") &&
+                    ExclusiveFiltersServe(block, exclusive, m.Index))
+                {
+                    return true;
+                }
+            }
+
+            foreach (System.Text.RegularExpressions.Match m in
+                     System.Text.RegularExpressions.Regex.Matches(masked, @"\bmavenCentral\b"))
+            {
+                int p = SkipWhitespace(block, m.Index + m.Length);
+                if (p < block.Length && block[p] == '(')
+                {
+                    int closeParen = MatchingClose(block, p);
+                    if (closeParen < 0 || block.Substring(p + 1, closeParen - p - 1).Trim().Length > 0)
+                    {
+                        continue;
+                    }
+
+                    p = SkipWhitespace(block, closeParen + 1);
+                }
+
+                bool served = true;
+                if (p < block.Length && block[p] == '{')
+                {
+                    int closeBrace = MatchingClose(masked, p);
+                    string body = closeBrace < 0 ? block.Substring(p + 1) : block.Substring(p + 1, closeBrace - p - 1);
+                    served = ContentFilterServesBugsee(body, "content");
+                }
+
+                served &= ExclusiveFiltersServe(block, exclusive, m.Index);
+                if (served)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>True unless the repository at <paramref name="index"/> sits in an <c>exclusiveContent</c> whose <c>filter</c> does not serve Bugsee.</summary>
+        static bool ExclusiveFiltersServe(string block, List<int[]> exclusive, int index)
+        {
+            foreach (int[] span in exclusive)
+            {
+                if (index > span[0] && index < span[1] &&
+                    !ContentFilterServesBugsee(
+                        block.Substring(span[0] + 1, span[1] - span[0] - 1), "filter", requireFilter: true))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>The text with the contents of string literals blanked, so names inside strings are not matched.</summary>
+        static string MaskStrings(string code)
+        {
+            var sb = new StringBuilder(code.Length);
+            char quote = '\0';
+            for (int i = 0; i < code.Length; i++)
+            {
+                char c = code[i];
+                if (quote != '\0')
+                {
+                    if (c == '\\' && i + 1 < code.Length)
+                    {
+                        sb.Append("  ");
+                        i++;
+                    }
+                    else if (c == quote || c == '\n')
+                    {
+                        quote = '\0';
+                        sb.Append(c);
+                    }
+                    else
+                    {
+                        sb.Append(' ');
+                    }
+
+                    continue;
+                }
+
+                if (c == '\'' || c == '"')
+                {
+                    quote = c;
+                }
+
+                sb.Append(c);
+            }
+
+            return sb.ToString();
+        }
+
+        static int SkipWhitespace(string s, int p)
+        {
+            while (p < s.Length && char.IsWhiteSpace(s[p]))
+            {
+                p++;
+            }
+
+            return p;
+        }
+
+        static bool ContentFilterServesBugsee(string body, string filterName, bool requireFilter = false)
+        {
+            var content = System.Text.RegularExpressions.Regex.Match(body, @"\b" + filterName + @"\s*\{");
+            if (!content.Success)
+            {
+                return !requireFilter;
+            }
+
+            int open = content.Index + content.Length - 1;
+            int closeBrace = MatchingClose(body, open);
+            string filter = closeBrace < 0 ? body.Substring(open + 1) : body.Substring(open + 1, closeBrace - open - 1);
+
+            bool anyInclude = false;
+            bool coversCore = false;
+            bool coversNdk = false;
+            foreach (System.Text.RegularExpressions.Match call in System.Text.RegularExpressions.Regex.Matches(
+                         filter,
+                         @"\b(include|exclude)(Group|GroupAndSubgroups|GroupByRegex|Module|ModuleByRegex|Version|VersionByRegex)\s*\(?\s*(['""])(.*?)\3(?:\s*,\s*(['""])(.*?)\5)?"))
+            {
+                bool include = call.Groups[1].Value == "include";
+                string kind = call.Groups[2].Value;
+                string first = call.Groups[4].Value.Replace("\\\\", "\\");
+                string second = call.Groups[6].Success ? call.Groups[6].Value.Replace("\\\\", "\\") : null;
+                if (kind.StartsWith("Version", StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                bool core = FilterMatches(kind, first, second, CoreArtifactToken);
+                bool ndk = FilterMatches(kind, first, second, NdkArtifactToken);
+                if (!include)
+                {
+                    if (core || ndk)
+                    {
+                        return false;
+                    }
+
+                    continue;
+                }
+
+                anyInclude = true;
+                coversCore |= core;
+                coversNdk |= ndk;
+            }
+
+            return !anyInclude || (coversCore && coversNdk);
+        }
+
+        /// <summary>True when a content-filter call (kind, first and optional second string) matches the Bugsee group and <paramref name="artifact"/>; an unparsable regex matches.</summary>
+        static bool FilterMatches(string kind, string first, string second, string artifact)
+        {
+            const string bugseeGroup = "com.bugsee";
+            switch (kind)
+            {
+                case "Group":
+                    return first == bugseeGroup;
+                case "GroupAndSubgroups":
+                    return bugseeGroup == first || bugseeGroup.StartsWith(first + ".", StringComparison.Ordinal);
+                case "GroupByRegex":
+                    return RegexMatches(first, bugseeGroup);
+                case "Module":
+                    return first == bugseeGroup && second == artifact;
+                case "ModuleByRegex":
+                    return RegexMatches(first, bugseeGroup) && second != null && RegexMatches(second, artifact);
+                default:
+                    return true;
+            }
+        }
+
+        static bool RegexMatches(string pattern, string input)
+        {
+            try
+            {
+                return System.Text.RegularExpressions.Regex.IsMatch(input, "^(?:" + pattern + ")$");
+            }
+            catch (ArgumentException)
+            {
+                return true;
+            }
         }
 
         /// <summary>Index of the line opening a depth-0 <c>name {</c> block, or -1.</summary>

@@ -417,5 +417,496 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(result.Text.IndexOf("val notes"), Is.LessThan(result.Text.IndexOf("bugsee:maven-dependencies begin")));
             Assert.That(result.Text, Does.StartWith(gradle.Substring(0, gradle.IndexOf("dependencies {\n    implementation(fileTree"))));
         }
+
+        static readonly string[] WrappedNonRuntime =
+        {
+            "    implementation(\"com.example:lib:1\") { exclude(\n        group = \"com.bugsee\",\n        module = \"bugsee-android\"\n    ) }",
+            "    implementation(\"com.example:lib:1\") {\n        exclude(\n            group = \"com.bugsee\",\n            module = \"bugsee-android\"\n        )\n    }",
+            "    compileOnly(\n        \"com.bugsee:bugsee-android:7.4.1\"\n    )",
+            "    testImplementation(\n        group = \"com.bugsee\",\n        name = \"bugsee-android-ndk\",\n        version = \"7.4.1\"\n    )",
+            "    implementation('com.example:lib:1') {\n        exclude group: 'com.bugsee',\n                module: 'bugsee-android'\n    }",
+            "    compileOnly(\n        'com.bugsee:bugsee-android:7.4.1'\n    )",
+        };
+
+        [TestCaseSource(nameof(WrappedNonRuntime))]
+        public void Wrapped_exclusions_and_other_configurations_are_not_project_declarations(string declaration)
+        {
+            string gradle = "dependencies {\n" + declaration + "\n}\n";
+
+            Assert.That(ApplyGroovy(gradle).Status, Is.EqualTo(GradleMavenInjection.DependencyStatus.Injected));
+            Assert.That(ApplyKts(gradle).Status, Is.EqualTo(GradleMavenInjection.DependencyStatus.Injected));
+        }
+
+        [TestCaseSource(nameof(WrappedNonRuntime))]
+        public void A_previously_injected_region_survives_wrapped_non_runtime_mentions(string declaration)
+        {
+            string first = ApplyKts("dependencies {\n" + declaration + "\n}\n").Text;
+            string again = ApplyKts(first).Text;
+
+            Assert.That(again, Is.EqualTo(first));
+            Assert.That(again, Does.Contain("// bugsee:maven-dependencies begin"));
+            Assert.That(again, Does.Contain(KtsCore));
+        }
+
+        [Test]
+        public void Wrapped_runtime_declaration_is_a_project_declaration_and_replaces_the_injection()
+        {
+            string injected = ApplyKts("dependencies {\n}\n").Text;
+            string withProject = injected.Replace(
+                "dependencies {\n",
+                "dependencies {\n    implementation(\n        group = \"com.bugsee\",\n        name = \"bugsee-android\",\n        version = \"7.4.1\"\n    )\n");
+            var result = ApplyKts(withProject);
+
+            Assert.That(result.Status, Is.EqualTo(GradleMavenInjection.DependencyStatus.DeclaredByProject));
+            Assert.That(result.Text, Does.Not.Contain("bugsee:maven-dependencies"));
+
+            string wrappedString = "dependencies {\n    implementation(\n        \"com.bugsee:bugsee-android:7.4.1\"\n    )\n}\n";
+            Assert.That(ApplyKts(wrappedString).Status, Is.EqualTo(GradleMavenInjection.DependencyStatus.DeclaredByProject));
+            Assert.That(ApplyGroovy(wrappedString).Status, Is.EqualTo(GradleMavenInjection.DependencyStatus.DeclaredByProject));
+        }
+
+        [Test]
+        public void Filtered_maven_central_that_excludes_the_bugsee_group_still_gets_an_unfiltered_one()
+        {
+            const string root =
+                "allprojects {\n" +
+                "    repositories {\n" +
+                "        mavenCentral {\n" +
+                "            content { includeGroupByRegex(\"androidx.*\") }\n" +
+                "        }\n" +
+                "    }\n" +
+                "}\n";
+
+            var status = GradleMavenInjection.EnsureMavenCentral(root, "allprojects", out string updated);
+
+            Assert.That(status, Is.EqualTo(GradleMavenInjection.RepositoryStatus.Inserted));
+            Assert.That(updated, Does.Contain("    repositories {\n        mavenCentral() // bugsee:maven-repository\n        mavenCentral {"));
+            Assert.That(
+                GradleMavenInjection.EnsureMavenCentral(updated, "allprojects", out _),
+                Is.EqualTo(GradleMavenInjection.RepositoryStatus.AlreadyPresent));
+        }
+
+        [Test]
+        public void Plain_maven_central_next_to_a_filtered_one_counts()
+        {
+            const string root =
+                "allprojects {\n" +
+                "    repositories {\n" +
+                "        mavenCentral()\n" +
+                "        google {\n            content { includeGroup(\"androidx\") }\n        }\n" +
+                "    }\n" +
+                "}\n";
+
+            Assert.That(
+                GradleMavenInjection.EnsureMavenCentral(root, "allprojects", out _),
+                Is.EqualTo(GradleMavenInjection.RepositoryStatus.AlreadyPresent));
+        }
+
+        // Mentions of the SDK that are not a runtime declaration: an earlier injection must survive them.
+        static readonly string[] NotDeclarations =
+        {
+            "dependencies {\n    compileOnly files('libs/bugsee-android-7.4.1.aar')\n}\n",
+            "dependencies {\n    testImplementation platform('com.bugsee:bugsee-android:7.4.1')\n}\n",
+            "dependencies {\n    implementation platform('com.bugsee:bugsee-android:7.4.1')\n}\n",
+            "dependencies {\n    compileOnly fileTree(dir:'libs', include:['bugsee-android-7.4.1.aar'])\n}\n",
+            "dependencies {\n    implementation(fileTree(mapOf(\"dir\" to \"libs\", \"exclude\" to listOf(\"bugsee-android-7.4.1.aar\"))))\n}\n",
+            "dependencies {\n    constraints {\n        implementation(\"com.bugsee:bugsee-android:7.4.1\")\n    }\n}\n",
+            "val bugsee = \"com.bugsee:bugsee-android:7.4.1\"\ndependencies {\n    compileOnly(bugsee)\n}\n",
+            "def bugsee = 'com.bugsee:bugsee-android:7.4.1'\ndependencies {\n    compileOnly bugsee\n}\n",
+            "configurations.all {\n    resolutionStrategy {\n        force 'com.bugsee:bugsee-android:7.4.1'\n    }\n}\ndependencies {\n}\n",
+            "dependencies {\n    println 'bugsee-android'\n}\n",
+            "dependencies {\n    fooImplementation 'com.bugsee:bugsee-android:7.4.1'\n}\n",
+            "dependencies {\n    implementation 'org.example:lib:1', 'org.example:bugsee-android:1'\n}\n",
+        };
+
+        [TestCaseSource(nameof(NotDeclarations))]
+        public void Non_declaration_mentions_are_injected_next_to_and_never_remove_an_earlier_injection(string gradle)
+        {
+            foreach (bool kotlin in new[] { false, true })
+            {
+                var first = kotlin ? ApplyKts(gradle) : ApplyGroovy(gradle);
+                Assert.That(first.Status, Is.EqualTo(GradleMavenInjection.DependencyStatus.Injected));
+                Assert.That(first.Warnings, Is.Empty);
+
+                var second = kotlin ? ApplyKts(first.Text) : ApplyGroovy(first.Text);
+                Assert.That(second.Status, Is.EqualTo(GradleMavenInjection.DependencyStatus.AlreadyInjected));
+                Assert.That(second.Text, Is.EqualTo(first.Text));
+            }
+        }
+
+        [TestCase("    implementation files('libs/bugsee-android-7.3.0.aar')")]
+        [TestCase("    debugImplementation 'com.bugsee:bugsee-android:7.3.0'")]
+        [TestCase("    releaseImplementation(\"com.bugsee:bugsee-android:7.3.0\")")]
+        [TestCase("    implementation 'org.example:lib:1', 'com.bugsee:bugsee-android:7.3.0'")]
+        [TestCase("    implementation(\"com.bugsee:bugsee-android:7.3.0\") { exclude(group = \"x\") }")]
+        public void Direct_arguments_of_a_runtime_configuration_are_declarations(string declaration)
+        {
+            string gradle = "dependencies {\n" + declaration + "\n}\n";
+
+            Assert.That(ApplyGroovy(gradle).Status, Is.EqualTo(GradleMavenInjection.DependencyStatus.DeclaredByProject));
+            Assert.That(ApplyKts(gradle).Status, Is.EqualTo(GradleMavenInjection.DependencyStatus.DeclaredByProject));
+        }
+
+        [Test]
+        public void Statement_scanning_is_linear_in_the_number_of_wrapped_lines()
+        {
+            var sb = new System.Text.StringBuilder("dependencies {\n");
+            for (int i = 0; i < 1400; i++)
+            {
+                sb.Append("    implementation(\n        \"com.example:lib").Append(i).Append(":1\"\n    )\n");
+            }
+
+            sb.Append("}\n");
+            string gradle = sb.ToString();
+            Assert.That(gradle.Split('\n').Length, Is.GreaterThan(4000));
+
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var first = ApplyKts(gradle);
+            var second = ApplyKts(first.Text);
+            watch.Stop();
+
+            Assert.That(first.Status, Is.EqualTo(GradleMavenInjection.DependencyStatus.Injected));
+            Assert.That(second.Status, Is.EqualTo(GradleMavenInjection.DependencyStatus.AlreadyInjected));
+            Assert.That(watch.ElapsedMilliseconds, Is.LessThan(1000));
+        }
+
+        static string Repos(string mavenCentral)
+        {
+            return "allprojects {\n    repositories {\n        " + mavenCentral + "\n    }\n}\n";
+        }
+
+        [TestCase("mavenCentral {\n            content { excludeGroup(\"com.bugsee\") }\n        }")]
+        [TestCase("mavenCentral { content { excludeGroup(\"com.bugsee\") } }")]
+        [TestCase("mavenCentral {\n            content {\n                excludeGroupAndSubgroups(\"com\")\n            }\n        }")]
+        [TestCase("mavenCentral { content { excludeGroupByRegex(\"com\\\\.bug.*\") } }")]
+        [TestCase("mavenCentral { content { includeGroup(\"com.bugsee.other\") } }")]
+        [TestCase("mavenCentral { content { includeGroup(\"androidx.core\") } }")]
+        [TestCase("mavenCentral { content { includeGroup(\"com.bugsee\"); excludeGroup(\"com.bugsee\") } }")]
+        [TestCase("mavenCentral { content { includeModule(\"com.bugsee\", \"bugsee-android\") } }")]
+        [TestCase("mavenCentral { content { includeVersion(\"com.bugsee\", \"bugsee-android\", \"7.4.1\") } }")]
+        [TestCase("mavenCentral() { content { includeGroup(\"androidx.core\") } }")]
+        public void Filters_that_do_not_serve_the_bugsee_artifacts_get_an_unfiltered_repository(string repository)
+        {
+            var status = GradleMavenInjection.EnsureMavenCentral(Repos(repository), "allprojects", out string updated);
+
+            Assert.That(status, Is.EqualTo(GradleMavenInjection.RepositoryStatus.Inserted));
+            Assert.That(updated, Does.Contain("mavenCentral() // bugsee:maven-repository"));
+        }
+
+        [TestCase("mavenCentral()")]
+        [TestCase("mavenCentral() ; google()")]
+        [TestCase("mavenCentral()   // plain")]
+        [TestCase("mavenCentral { }")]
+        [TestCase("mavenCentral { content { includeGroup(\"com.bugsee\") } }")]
+        [TestCase("mavenCentral { content { includeGroupByRegex(\"com\\\\.bugsee.*\") } }")]
+        [TestCase("mavenCentral { content { includeGroupAndSubgroups(\"com\") } }")]
+        [TestCase("mavenCentral { content { includeModule(\"com.bugsee\", \"bugsee-android\"); includeModule(\"com.bugsee\", \"bugsee-android-ndk\") } }")]
+        [TestCase("mavenCentral { content { excludeGroup(\"com.other\") } }")]
+        public void Filters_that_serve_the_bugsee_artifacts_count_as_declared(string repository)
+        {
+            Assert.That(
+                GradleMavenInjection.EnsureMavenCentral(Repos(repository), "allprojects", out _),
+                Is.EqualTo(GradleMavenInjection.RepositoryStatus.AlreadyPresent));
+        }
+
+        [TestCase("maven { url \"https://repo.example.com/artifactory/mavenCentral\" }")]
+        [TestCase("maven { name = \"mavenCentral\"; url = uri(\"https://repo.example.com/x\") }")]
+        [TestCase("maven {\n            url 'https://repo.maven.apache.org/maven2'\n            content { includeGroupByRegex(\"androidx.*\") }\n        }")]
+        [TestCase("maven {\n            url 'https://repo1.maven.org/maven2'\n            content { excludeGroup(\"com.bugsee\") }\n        }")]
+        [TestCase("exclusiveContent {\n            forRepository { mavenCentral() }\n            filter { includeGroupByRegex(\"androidx.*\") }\n        }")]
+        [TestCase("exclusiveContent {\n            forRepository { mavenCentral() }\n        }")]
+        public void Look_alikes_and_filtered_repositories_get_an_unfiltered_one(string repository)
+        {
+            var status = GradleMavenInjection.EnsureMavenCentral(Repos(repository), "allprojects", out string updated);
+
+            Assert.That(status, Is.EqualTo(GradleMavenInjection.RepositoryStatus.Inserted));
+            Assert.That(updated, Does.Contain("mavenCentral() // bugsee:maven-repository"));
+        }
+
+        [TestCase("maven { url 'https://repo.maven.apache.org/maven2' }")]
+        [TestCase("maven {\n            url 'https://repo.maven.apache.org/maven2'\n            content { includeGroup(\"com.bugsee\") }\n        }")]
+        [TestCase("mavenCentral { url = uri(\"https://nexus.corp/repository/maven-public\") }")]
+        [TestCase("mavenCentral { metadataSources { gradleMetadata() } }")]
+        [TestCase("exclusiveContent {\n            forRepository { mavenCentral() }\n            filter { includeGroup(\"com.bugsee\") }\n        }")]
+        [TestCase("mavenCentral()\n        exclusiveContent {\n            forRepository { maven { url \"https://private\" } }\n            filter { includeGroup(\"com.private\") }\n        }")]
+        public void Unfiltered_or_bugsee_serving_repositories_count_as_declared(string repository)
+        {
+            Assert.That(
+                GradleMavenInjection.EnsureMavenCentral(Repos(repository), "allprojects", out _),
+                Is.EqualTo(GradleMavenInjection.RepositoryStatus.AlreadyPresent));
+        }
+
+        [TestCase("exclusiveContent {\n            forRepository { maven { url \"https://repo.maven.apache.org/maven2\" } }\n            filter { includeGroupByRegex(\"androidx.*\") }\n        }")]
+        [TestCase("exclusiveContent {\n            forRepository { maven { url 'https://repo1.maven.org/maven2' } }\n        }")]
+        public void Exclusive_content_filters_apply_to_central_by_url(string repository)
+        {
+            var status = GradleMavenInjection.EnsureMavenCentral(Repos(repository), "allprojects", out string updated);
+
+            Assert.That(status, Is.EqualTo(GradleMavenInjection.RepositoryStatus.Inserted));
+            Assert.That(updated, Does.Contain("mavenCentral() // bugsee:maven-repository"));
+        }
+
+        [Test]
+        public void Unfiltered_central_by_url_and_serving_exclusive_content_stay_declared()
+        {
+            Assert.That(
+                GradleMavenInjection.EnsureMavenCentral(
+                    Repos("maven { url \"https://repo.maven.apache.org/maven2\" }"), "allprojects", out _),
+                Is.EqualTo(GradleMavenInjection.RepositoryStatus.AlreadyPresent));
+            Assert.That(
+                GradleMavenInjection.EnsureMavenCentral(
+                    Repos("exclusiveContent {\n            forRepository { maven { url \"https://repo.maven.apache.org/maven2\" } }\n            filter { includeGroup(\"com.bugsee\") }\n        }"),
+                    "allprojects", out _),
+                Is.EqualTo(GradleMavenInjection.RepositoryStatus.AlreadyPresent));
+        }
+
+        static readonly string[] ConditionalDeclarations =
+        {
+            "dependencies {\n    if (project.hasProperty('enableBugsee')) {\n        implementation 'com.bugsee:bugsee-android:7.3.0'\n        implementation 'com.bugsee:bugsee-android-ndk:7.3.0'\n    } else {\n        implementation fileTree(dir: 'libs', include: ['*.jar'])\n    }\n}\n",
+            "dependencies {\n    if (hasProperty(\"enableBugsee\")) {\n        implementation(\"com.bugsee:bugsee-android:7.3.0\")\n        implementation(\"com.bugsee:bugsee-android-ndk:7.3.0\")\n    }\n}\n",
+            "dependencies {\n    if (cond) {\n    } else if (other) {\n        api 'com.bugsee:bugsee-android:7.3.0'\n        api 'com.bugsee:bugsee-android-ndk:7.3.0'\n    }\n}\n",
+            "dependencies {\n    project.with {\n    }\n    with(project) {\n        implementation 'com.bugsee:bugsee-android:7.3.0'\n        implementation 'com.bugsee:bugsee-android-ndk:7.3.0'\n    }\n}\n",
+            "dependencies {\n    if (cond) {\n        if (inner) {\n            implementation 'com.bugsee:bugsee-android:7.3.0'\n            implementation 'com.bugsee:bugsee-android-ndk:7.3.0'\n        }\n    }\n}\n",
+        };
+
+        [TestCaseSource(nameof(ConditionalDeclarations))]
+        public void Declarations_inside_control_flow_block_injection_but_not_an_existing_injection(string gradle)
+        {
+            foreach (bool kotlin in new[] { false, true })
+            {
+                var plain = kotlin ? ApplyKts(gradle) : ApplyGroovy(gradle);
+                Assert.That(plain.Status, Is.EqualTo(GradleMavenInjection.DependencyStatus.DeclaredByProject));
+                Assert.That(plain.Text, Is.EqualTo(gradle));
+                Assert.That(plain.Warnings, Has.Count.EqualTo(2), "one differing-version warning per artifact");
+
+                // An earlier injection stays: a conditional declaration is never a reason to delete it.
+                string injected = "dependencies {\n    // bugsee:maven-dependencies begin (com.bugsee.unity)\n" +
+                    KtsCore + "\n" + KtsNdk + "\n    // bugsee:maven-dependencies end\n" + gradle.Substring("dependencies {\n".Length);
+                var again = kotlin ? ApplyKts(injected) : ApplyGroovy(injected);
+                Assert.That(again.Text, Is.EqualTo(injected));
+            }
+        }
+
+        [TestCase("dependencies {\n    if (cond) {\n        compileOnly 'com.bugsee:bugsee-android:7.4.1'\n        testImplementation 'com.bugsee:bugsee-android:7.4.1'\n    }\n}\n")]
+        [TestCase("dependencies {\n    if (cond) {\n        constraints {\n            implementation 'com.bugsee:bugsee-android:7.4.1'\n        }\n        implementation platform('com.bugsee:bugsee-android:7.4.1')\n    }\n}\n")]
+        [TestCase("dependencies {\n    if (cond) {\n        implementation('com.example:x:1') { exclude group: 'com.bugsee', module: 'bugsee-android' }\n    }\n}\n")]
+        [TestCase("dependencies {\n    configurations.all {\n        implementation 'com.bugsee:bugsee-android:7.4.1'\n    }\n}\n")]
+        public void Control_flow_blocks_with_only_non_declarations_are_still_injected(string gradle)
+        {
+            Assert.That(ApplyGroovy(gradle).Status, Is.EqualTo(GradleMavenInjection.DependencyStatus.Injected));
+            Assert.That(ApplyKts(gradle).Status, Is.EqualTo(GradleMavenInjection.DependencyStatus.Injected));
+        }
+
+        [Test]
+        public void Exclusive_content_module_filter_that_misses_the_ndk_inserts_for_central_by_url()
+        {
+            string repository =
+                "exclusiveContent {\n" +
+                "            forRepository { maven { url 'https://repo.maven.apache.org/maven2' } }\n" +
+                "            filter { includeModule(\"com.bugsee\", \"bugsee-android\") }\n" +
+                "        }";
+
+            Assert.That(
+                GradleMavenInjection.EnsureMavenCentral(Repos(repository), "allprojects", out _),
+                Is.EqualTo(GradleMavenInjection.RepositoryStatus.Inserted));
+        }
+
+        [Test]
+        public void Wrapped_declarations_are_reported_with_their_whole_text_and_one_warning_per_artifact()
+        {
+            const string gradle =
+                "dependencies {\n" +
+                "    implementation(\n" +
+                "        \"com.bugsee:bugsee-android:7.3.0\"\n" +
+                "    )\n" +
+                "    implementation(\n" +
+                "        \"com.bugsee:bugsee-android-ndk:7.3.0\"\n" +
+                "    )\n" +
+                "}\n";
+            var result = ApplyKts(gradle);
+
+            Assert.That(result.Warnings, Has.Count.EqualTo(2));
+            Assert.That(result.Warnings[0], Does.Contain("implementation( \"com.bugsee:bugsee-android:7.3.0\" )"));
+            Assert.That(result.Warnings[1], Does.Contain("bugsee-android-ndk:7.3.0"));
+        }
+
+        [TestCase("repositories { mavenCentral() }")]
+        [TestCase("repositories { google(); mavenCentral() }")]
+        [TestCase("repositories { mavenCentral(); google() } // c")]
+        [TestCase("repositories { mavenCentral {} }")]
+        public void Single_line_repositories_with_central_are_present_and_untouched(string repositories)
+        {
+            string gradle = "allprojects {\n    " + repositories + "\n}\n";
+
+            Assert.That(
+                GradleMavenInjection.EnsureMavenCentral(gradle, "allprojects", out string updated),
+                Is.EqualTo(GradleMavenInjection.RepositoryStatus.AlreadyPresent));
+            Assert.That(updated, Is.EqualTo(gradle));
+        }
+
+        [TestCase("repositories { google() }", "repositories { mavenCentral(); google() }")]
+        [TestCase("repositories {}", "repositories { mavenCentral();}")]
+        [TestCase("repositories { google(); jcenter() }", "repositories { mavenCentral(); google(); jcenter() }")]
+        public void Single_line_repositories_without_central_get_it_inside_the_braces(string repositories, string expected)
+        {
+            string gradle = "allprojects {\n    " + repositories + "\n}\n";
+
+            var status = GradleMavenInjection.EnsureMavenCentral(gradle, "allprojects", out string updated);
+
+            Assert.That(status, Is.EqualTo(GradleMavenInjection.RepositoryStatus.Inserted));
+            Assert.That(updated, Is.EqualTo("allprojects {\n    " + expected + "\n}\n"));
+            Assert.That(
+                GradleMavenInjection.EnsureMavenCentral(updated, "allprojects", out string twice),
+                Is.EqualTo(GradleMavenInjection.RepositoryStatus.AlreadyPresent));
+            Assert.That(twice, Is.EqualTo(updated));
+        }
+
+        [Test]
+        public void Central_on_the_opening_line_of_a_multi_line_block_counts()
+        {
+            const string gradle =
+                "dependencyResolutionManagement {\n" +
+                "    repositories { mavenCentral()\n" +
+                "        google()\n" +
+                "    }\n" +
+                "}\n";
+
+            Assert.That(
+                GradleMavenInjection.EnsureMavenCentral(gradle, "dependencyResolutionManagement", out _),
+                Is.EqualTo(GradleMavenInjection.RepositoryStatus.AlreadyPresent));
+        }
+    }
+
+    /// <summary>
+    /// Runs the injector over the real Gradle templates shipped with Unity 2021.3.45f1 (skipped when that editor
+    /// is not installed): results must be stable, balanced, and keep the marked lines in the intended blocks.
+    /// </summary>
+    public class UnityShippedTemplateTests
+    {
+        const string TemplateDir =
+            "/Applications/Unity/Hub/Editor/2021.3.45f1/PlaybackEngines/AndroidPlayer/Tools/GradleTemplates";
+
+        static readonly string[] Artifacts = { "bugsee-android", "bugsee-android-ndk" };
+
+        static string Read(string name)
+        {
+            string path = System.IO.Path.Combine(TemplateDir, name);
+            if (!System.IO.File.Exists(path))
+            {
+                Assert.Ignore("Unity 2021.3.45f1 templates not installed: " + path);
+            }
+
+            return System.IO.File.ReadAllText(path);
+        }
+
+        static void AssertBalanced(string text)
+        {
+            int depth = 0;
+            foreach (char c in text)
+            {
+                if (c == '{') depth++;
+                if (c == '}') depth--;
+                Assert.That(depth, Is.GreaterThanOrEqualTo(0));
+            }
+
+            Assert.That(depth, Is.EqualTo(0));
+        }
+
+        /// <summary>The head line of the innermost block open at <paramref name="marker"/>.</summary>
+        static string EnclosingBlock(string text, string marker)
+        {
+            var heads = new System.Collections.Generic.List<string>();
+            foreach (string line in text.Split('\n'))
+            {
+                if (line.Contains(marker))
+                {
+                    return heads.Count == 0 ? string.Empty : heads[heads.Count - 1];
+                }
+
+                foreach (char c in line)
+                {
+                    if (c == '{')
+                    {
+                        heads.Add(line.Trim());
+                    }
+                    else if (c == '}' && heads.Count > 0)
+                    {
+                        heads.RemoveAt(heads.Count - 1);
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        [TestCase("mainTemplate.gradle")]
+        [TestCase("launcherTemplate.gradle")]
+        [TestCase("libTemplate.gradle")]
+        [TestCase("baseProjectTemplate.gradle")]
+        [TestCase("settingsTemplate.gradle")]
+        [TestCase("gradleTemplate.properties")]
+        public void Dependency_injection_is_stable_balanced_and_inside_the_dependencies_block(string name)
+        {
+            string template = Read(name);
+            if (name.EndsWith(".properties"))
+            {
+                return;
+            }
+
+            foreach (var dsl in new[] { GradleMavenInjection.GradleDsl.Groovy, GradleMavenInjection.GradleDsl.Kotlin })
+            {
+                var first = GradleMavenInjection.ApplyDependencies(template, "com.bugsee", Artifacts, "7.4.1", dsl);
+                var second = GradleMavenInjection.ApplyDependencies(first.Text, "com.bugsee", Artifacts, "7.4.1", dsl);
+
+                Assert.That(second.Text, Is.EqualTo(first.Text));
+                AssertBalanced(first.Text);
+                Assert.That(first.Text, Does.Contain("bugsee:maven-dependencies begin"));
+                Assert.That(EnclosingBlock(first.Text, "bugsee:maven-dependencies begin"), Does.StartWith("dependencies"));
+            }
+        }
+
+        [TestCase("settingsTemplate.gradle", "dependencyResolutionManagement")]
+        [TestCase("baseProjectTemplate.gradle", "allprojects")]
+        [TestCase("mainTemplate.gradle", "allprojects")]
+        [TestCase("launcherTemplate.gradle", "allprojects")]
+        public void Repository_edit_is_stable_balanced_and_never_a_stray_statement(string name, string outer)
+        {
+            string template = Read(name);
+            var status = GradleMavenInjection.EnsureMavenCentral(template, outer, out string updated);
+            var again = GradleMavenInjection.EnsureMavenCentral(updated, outer, out string twice);
+
+            AssertBalanced(updated);
+            Assert.That(twice, Is.EqualTo(updated));
+            if (status == GradleMavenInjection.RepositoryStatus.BlockNotFound)
+            {
+                Assert.That(updated, Is.EqualTo(template));
+            }
+            else
+            {
+                Assert.That(again, Is.EqualTo(GradleMavenInjection.RepositoryStatus.AlreadyPresent));
+                Assert.That(updated.Contains("mavenCentral()"));
+            }
+
+            if (status == GradleMavenInjection.RepositoryStatus.Inserted)
+            {
+                Assert.That(EnclosingBlock(updated, "bugsee:maven-repository"), Does.StartWith("repositories"));
+            }
+        }
+
+        [Test]
+        public void Settings_template_without_central_gets_it_in_the_project_repositories()
+        {
+            string settings = Read("settingsTemplate.gradle");
+            int project = settings.IndexOf("dependencyResolutionManagement", System.StringComparison.Ordinal);
+            string stripped = settings.Substring(0, project) +
+                              settings.Substring(project).Replace("        mavenCentral()\n", string.Empty);
+
+            var result = GradleMavenInjection.EnsureProjectRepositories(stripped, null);
+
+            Assert.That(result.SettingsStatus, Is.EqualTo(GradleMavenInjection.RepositoryStatus.Inserted));
+            AssertBalanced(result.Settings);
+            Assert.That(EnclosingBlock(result.Settings, "bugsee:maven-repository"), Does.StartWith("repositories"));
+            Assert.That(result.Settings.IndexOf("bugsee:maven-repository"), Is.GreaterThan(project));
+        }
     }
 }
