@@ -5,14 +5,14 @@ Legacy foundation: `cross/unity`. Min Unity: **2021.3**.
 
 ## Understanding
 
-- **What:** UPM-first Unity SDK whose public C# API mirrors Android SDK **7.x** (`Bugsee` facade + public `contracts`), with platform bridges for Android (EDM4U/Maven) and iOS (remote SPM `github.com/bugsee/spm`).
+- **What:** UPM-first Unity SDK whose public C# API mirrors Android SDK **7.x** (`Bugsee` facade + public `contracts`), with platform bridges for Android (Maven, declared in the generated Gradle project) and iOS (remote SPM `github.com/bugsee/spm`).
 - **Why:** Replace legacy `.unitypackage` / `Assets/Plugins` distribution; align with 7.0 redesign and other wrappers (Flutter 7.x pattern).
 - **Who:** Unity game/app developers; Bugsee maintainers.
 - **Non-goals (initial implementation):** OpenUPM publish, dual release repo, Asset Store `.unitypackage`, full iOS nextgen API parity deep-dive before Android bridge works, RN 6.x bridge patterns.
 
 ## Assumptions
 
-1. Android pin: Maven `com.bugsee:bugsee-android:7.4.1` + `bugsee-android-ndk:7.4.1` via EDM4U; Gradle plugin `4.0.8`. Core publishes no transitives (no kotlin-stdlib / fragment pull); NDK must be declared. Feedback AAR stays optional.
+1. Android pin: Maven `com.bugsee:bugsee-android:7.4.1` + `bugsee-android-ndk:7.4.1`, injected into the generated `unityLibrary/build.gradle` by an `IPostGenerateGradleAndroidProject` step (no EDM4U, no custom templates); Gradle plugin `4.0.8`. Core publishes no transitives (no kotlin-stdlib / fragment pull); NDK must be declared. Feedback AAR stays optional.
 2. iOS: SPM-only. Pin [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta6` (`IOS_SDK_VERSION` in `Tools~/versions.env`). Xcode resolves the remote package at export; no CocoaPods and no vendored xcframework.
 3. Public C# surface mirrors Android 7.0; intentional C#/.NET deviations allowed (see below).
 4. SDK-internal contracts (`capture` aggregators, most `contracts.internal.*` except what wrappers need for `BugseeWrapper`) are **not** public C# API.
@@ -23,7 +23,7 @@ Legacy foundation: `cross/unity`. Min Unity: **2021.3**.
 | Decision | Choice | Alternatives | Why |
 |---|---|---|---|
 | Repo layout | UPM package at repo root | `package/` subfolder; Sentry dual-repo | Simplest Git URL install |
-| Android natives | EDM4U → Maven | Vendored Unity AAR | Matches Flutter/RN 7.x; smaller git |
+| Android natives | Maven, declared by a post-generate Gradle step | EDM4U (needs OpenUPM scoped registry + resolve step); vendored Unity AAR | Install is just the UPM package; matches Flutter/RN 7.x; smaller repo |
 | iOS natives | Remote SPM `github.com/bugsee/spm` | Vendored xcframework; CocoaPods | iOS 7.x is SPM-only |
 | Min Unity | 2021.3 | 2018.3 / Unity 6 only | SPM `PBXProject` APIs + practical floor |
 | Primary C# API | Android 7.0 mirror | Keep legacy `BugseePlugin` names | Clean 7.0 surface; legacy shims optional later |
@@ -88,8 +88,8 @@ Property / key naming currently follows **Android 7.0**. When the Bugsee **iOS**
 
 ## Native packaging (already scaffolded)
 
-- `package.json` → `com.bugsee.unity`, depends on `com.google.external-dependency-manager`
-- `Editor/BugseeAndroidDependencies.xml` → Maven 7.4.1 (+ NDK, both explicit)
+- `package.json` → `com.bugsee.unity`, no package dependencies
+- `Editor/BugseeAndroidMavenDependencies.cs` → declares Maven 7.4.1 (+ NDK, both explicit) in the generated Gradle project; text edits in `Runtime/WrapperPolicy/GradleMavenInjection.cs`. A project-declared Bugsee dependency (EDM4U, custom template, local AAR) is kept and a version mismatch warned about
 - `Editor/BugseeIosSpmPostProcess.cs` → remote SPM `github.com/bugsee/spm` `7.0.0-beta6`
 - `Plugins/iOS/BugseeUnityBridge.mm` + `Plugins/Android/UnityManagedException.java`
 - `Tools~/scripts/update-native-sdks.sh` + `versions.env`
@@ -149,7 +149,7 @@ Runtime/
     └── BugseeBehaviour.cs                # GameObject host if needed
 ```
 
-**Editor/**: EDM deps, Gradle NDK enablement, iOS SPM post-process, IL2CPP linemap + symbol orchestrator (dSYM/ELF/ProGuard).
+**Editor/**: Android Maven dependency injection, Gradle NDK enablement, iOS SPM post-process, IL2CPP linemap + symbol orchestrator (dSYM/ELF/ProGuard).
 
 **Samples~/BugseeMiniGame/**: standalone Unity 2021.3 QA project (`file:../../..` → this package, relative to `Packages/`). Uses the `~` suffix so UPM does not import the minigame (avoids nested `Library` / duplicate `PlayerSettings`). Arena + Bugsee HUD + in-world stations.
 

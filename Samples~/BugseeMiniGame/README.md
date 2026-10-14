@@ -15,7 +15,7 @@ Every action is reachable without passing through any other.
 1. Unity Hub → **Open** → select this folder (`Samples~/BugseeMiniGame`).
 2. Use Unity **2021.3** (matches the SDK package).
 3. Package Manager resolves `com.bugsee.unity` via `file:../../..` (repo root; path is relative to `Packages/`).
-4. EDM4U (`com.google.external-dependency-manager`) comes from the OpenUPM scoped registry already listed in `Packages/manifest.json`.
+4. Nothing else to install: the package has no dependencies (no EDM4U, no scoped registry).
 
 ## Set your app token
 
@@ -63,22 +63,13 @@ SetSecureRect / SetAttribute / SetUserIdentifier / Appearance open IMGUI forms f
 
 ## Build Android
 
-1. Switch platform to Android; resolve EDM4U dependencies when prompted.
+1. Switch platform to Android.
 2. Set a real Bugsee app token on `MiniGameBootstrap`.
 3. Build & Run on device.
 
-EDM pulls `bugsee-android:7.4.1` + `bugsee-android-ndk:7.4.1` (core publishes no transitives; NDK is explicit).
+Each build declares `bugsee-android:7.4.1` + `bugsee-android-ndk:7.4.1` in the generated
+`unityLibrary/build.gradle` (core publishes no transitives; NDK is explicit); no custom Gradle templates are needed.
 Gradle plugin `4.0.8` is applied on Unity 6+ launcher templates (`ndk { enabled = true }`).
-
-### EDM resolve fails with `org.codehaus.groovy.vmplugin.v7.Java7`
-
-EDM4U’s Android resolver runs **Gradle 5.1.1** under `Temp/PlayServicesResolverGradle`. That process uses the editor’s environment `JAVA_HOME` / PATH `java`, **not** the JDK path shown under External Tools.
-
-If your Mac’s default `java` is 17 or 21, resolve crashes even when “JDK Installed with Unity” is checked.
-
-The `com.bugsee.unity` Editor script `BugseeEdmJavaHomeBootstrap` pins `JAVA_HOME` to Unity’s Android OpenJDK on load. After scripts recompile, run:
-
-**Assets → External Dependency Manager → Android Resolver → Force Resolve**
 
 ## Character
 

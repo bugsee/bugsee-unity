@@ -21,8 +21,5 @@
     "email": "support@bugsee.com",
     "url": "https://www.bugsee.com"
   },
-  "type": "library",
-  "dependencies": {
-    "com.google.external-dependency-manager": "1.2.188"
-  }
+  "type": "library"
 }

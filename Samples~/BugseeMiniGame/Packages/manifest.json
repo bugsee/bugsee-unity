@@ -1,13 +1,4 @@
 {
-  "scopedRegistries": [
-    {
-      "name": "package.openupm.com",
-      "url": "https://package.openupm.com",
-      "scopes": [
-        "com.google.external-dependency-manager"
-      ]
-    }
-  ],
   "dependencies": {
     "com.bugsee.unity": "file:../../..",
     "com.unity.modules.androidjni": "1.0.0",

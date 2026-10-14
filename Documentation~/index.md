@@ -5,9 +5,8 @@ Bug reporting, crash capture, and session replay for Unity games and apps on iOS
 ## Requirements
 
 - Unity **2021.3** or newer
-- [External Dependency Manager for Unity (EDM4U)](https://github.com/googlesamples/unity-jar-resolver) (declared as a package dependency)
 - iOS builds: Xcode with Swift Package Manager support; **iOS 15+** (Bugsee 7.0.0-beta6); `bugsee-cli` on the PATH for archive-time symbol upload
-- Android builds: custom Gradle templates enabled (EDM4U will prompt as needed); `bugsee-cli` on the PATH for Editor symbol upload
+- Android builds: nothing to set up (no EDM4U, no custom Gradle templates; the build needs Maven Central, which Unity's Gradle project already lists); `bugsee-cli` on the PATH for Editor symbol upload
 
 ## Installation
 
@@ -16,6 +15,13 @@ Package Manager → **+** → **Add package from git URL**:
 ```
 https://github.com/bugsee/bugsee-unity.git
 ```
+
+That is all: there is no scoped registry to add and no dependency-resolve step. On Android, every build
+declares `com.bugsee:bugsee-android` and `com.bugsee:bugsee-android-ndk` in the generated
+`unityLibrary/build.gradle` (and adds `mavenCentral()` to the project repositories if Unity's Gradle layout
+lacks it). Projects that use EDM4U for other SDKs are unaffected. If the project already declares the Bugsee
+Android SDK itself (EDM4U, a custom `mainTemplate.gradle`, a local AAR), that declaration wins: nothing is added
+next to it, and the build log warns if its version differs from the package's pin or the NDK artifact is missing.
 
 ## Launch
 
@@ -168,7 +174,7 @@ Managed error/crash **grouping** (one signature per event, Unity-primary when st
 
 ## Native dependencies
 
-- **Android:** Maven `com.bugsee:bugsee-android:7.4.1` + `com.bugsee:bugsee-android-ndk:7.4.1` via EDM4U (Gradle plugin `4.0.8`). Core publishes no transitives; NDK is a separate artifact and must be declared. Fragment secure-view overloads are typed as `Object`, so Unity JNI does not need `androidx.fragment`.
+- **Android:** Maven `com.bugsee:bugsee-android:7.4.1` + `com.bugsee:bugsee-android-ndk:7.4.1`, declared in the generated Gradle project by `Editor/BugseeAndroidMavenDependencies.cs` (Gradle plugin `4.0.8`). Core publishes no transitives; NDK is a separate artifact and must be declared. Fragment secure-view overloads are typed as `Object`, so Unity JNI does not need `androidx.fragment`.
 - **iOS:** SPM-only. Xcode resolves [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta6` (iOS 15+). C bridge: `Plugins/iOS/BugseeUnityBridge.mm` + `BugseeUnityCallbacks.mm`.
 
 ### iOS bridge status

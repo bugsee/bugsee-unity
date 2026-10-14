@@ -4,16 +4,7 @@
       "version": "file:../../..",
       "depth": 0,
       "source": "local",
-      "dependencies": {
-        "com.google.external-dependency-manager": "1.2.188"
-      }
-    },
-    "com.google.external-dependency-manager": {
-      "version": "1.2.188",
-      "depth": 1,
-      "source": "registry",
-      "dependencies": {},
-      "url": "https://package.openupm.com"
+      "dependencies": {}
     },
     "com.unity.modules.androidjni": {
       "version": "1.0.0",
