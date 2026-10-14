@@ -65,7 +65,9 @@ namespace Bugsee.WrapperPolicy.Tests
 
         public void InstallHooks(IDictionary<string, object> options) { HooksInstalled = true; HookOptions = options; }
         public void UninstallHooks() => HooksInstalled = false;
-        public void ScheduleTick(TimeSpan delay) { }
+        public Func<TimeSpan> Clock = () => TimeSpan.Zero;
+        public readonly List<TimeSpan> ScheduledTicks = new List<TimeSpan>();
+        public void ScheduleTick(TimeSpan delay) => ScheduledTicks.Add(Clock() + delay);
         public void Warn(string message) => Warnings.Add(message);
         public void Error(Exception exception) => throw exception;
 
@@ -116,6 +118,7 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             _sdk = new FakeAndroidSdk();
             _now = TimeSpan.Zero;
+            _sdk.Clock = () => _now;
             _machine = new AndroidLifecycleMachine(_sdk, () => _now);
         }
 
@@ -125,6 +128,21 @@ namespace Bugsee.WrapperPolicy.Tests
             _sdk.FinishLaunch();
             Assert.That(_sdk.Current, Is.EqualTo(BugseeStatus.Launched));
             _sdk.Calls.Clear();
+        }
+
+        // Time passes, but Tick runs only when a tick the machine scheduled falls due (as in AndroidBridge).
+        void AdvanceFiringScheduledTicks(TimeSpan to)
+        {
+            while (true)
+            {
+                var due = _sdk.ScheduledTicks.FindAll(t => t <= to);
+                if (due.Count == 0) break;
+                due.Sort();
+                _sdk.ScheduledTicks.Remove(due[0]);
+                _now = due[0] > _now ? due[0] : _now;
+                _machine.Tick();
+            }
+            _now = to;
         }
 
         void Elapse(TimeSpan by)
@@ -274,6 +292,260 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(_sdk.Warnings, Has.Some.Contains("Stop did not complete"));
             _sdk.FinishStop(); // late
             Assert.That(stopped, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Stop_result_is_true_when_the_sdk_finishes_and_runs_once()
+        {
+            Launched();
+            var results = new List<bool>();
+            _machine.Stop(null, results.Add);
+            Assert.That(results, Is.Empty);
+            _sdk.FinishStop();
+            Assert.That(results, Is.EqualTo(new[] { true }));
+            Elapse(AndroidLifecycleMachine.HardTimeout);
+            Assert.That(results, Is.EqualTo(new[] { true }), "no late deadline answer");
+        }
+
+        [Test]
+        public void A_stop_that_joins_a_slow_stop_has_its_own_soft_deadline()
+        {
+            Launched();
+            var plain = 0;
+            _machine.Stop(() => plain++); // t=0, the SDK never reports
+            AdvanceFiringScheduledTicks(TimeSpan.FromSeconds(12));
+            Assert.That(plain, Is.EqualTo(1), "the first Stop was answered at 10 s");
+
+            var results = new List<bool>();
+            _machine.Stop(null, results.Add); // joins at t=12
+            AdvanceFiringScheduledTicks(TimeSpan.FromSeconds(21));
+            Assert.That(results, Is.Empty, "not before its own 10 s");
+            AdvanceFiringScheduledTicks(TimeSpan.FromSeconds(22.1));
+            Assert.That(results, Is.EqualTo(new[] { false }), "answered 10 s after the join, not at the hard deadline");
+        }
+
+        [Test]
+        public void A_waiter_joined_just_before_the_hard_reset_is_not_told_the_stop_finished()
+        {
+            Launched();
+            _machine.Stop();
+            AdvanceFiringScheduledTicks(TimeSpan.FromSeconds(55));
+            var results = new List<bool>();
+            _machine.Stop(null, results.Add);
+            AdvanceFiringScheduledTicks(AndroidLifecycleMachine.HardTimeout + TimeSpan.FromSeconds(1));
+            Assert.That(results, Is.EqualTo(new[] { false }));
+        }
+
+        [Test]
+        public void A_stop_that_joins_just_before_the_first_ones_deadline_still_gets_its_own_10_seconds()
+        {
+            Launched();
+            _machine.Stop(); // t=0
+            AdvanceFiringScheduledTicks(TimeSpan.FromSeconds(9));
+            var results = new List<bool>();
+            _machine.Stop(null, results.Add); // joins at t=9
+            AdvanceFiringScheduledTicks(TimeSpan.FromSeconds(10.5));
+            Assert.That(results, Is.Empty, "the first stop's deadline does not answer it");
+            AdvanceFiringScheduledTicks(TimeSpan.FromSeconds(19.1));
+            Assert.That(results, Is.EqualTo(new[] { false }));
+        }
+
+        [Test]
+        public void Launch_without_a_callback_is_answered_true_at_the_soft_deadline_when_the_sdk_is_launching()
+        {
+            bool? launched = null;
+            var answers = 0;
+            _machine.Launch("t1", OptionsA, ok => { launched = ok; answers++; });
+            Assert.That(_sdk.Current, Is.EqualTo(BugseeStatus.Launching));
+            Elapse(AndroidLifecycleMachine.OperationTimeout);
+            Assert.That(launched, Is.True, "the SDK accepted it; only the callback is missing");
+            Assert.That(_sdk.Warnings, Has.Some.Contains("reported as started"));
+            _sdk.FinishLaunch();
+            Assert.That(answers, Is.EqualTo(1), "answered once");
+        }
+
+        [Test]
+        public void Launch_is_answered_false_at_the_soft_deadline_when_the_sdk_is_not_running()
+        {
+            bool? launched = null;
+            _machine.Launch("t1", OptionsA, ok => launched = ok);
+            _sdk.Current = BugseeStatus.Stopped; // e.g. stopped by something else; no callback
+            Elapse(AndroidLifecycleMachine.OperationTimeout);
+            Assert.That(launched, Is.False);
+            Assert.That(_sdk.Warnings, Has.Some.Contains("reported as failed"));
+        }
+
+        [Test]
+        public void Relaunch_is_answered_true_at_the_soft_deadline_when_its_continuation_is_launching()
+        {
+            Launched();
+            bool? relaunched = null;
+            _machine.Relaunch(OptionsB, ok => relaunched = ok);
+            _sdk.FinishStop(); // the continuation launch() now runs and never reports
+            Assert.That(_sdk.Current, Is.EqualTo(BugseeStatus.Launching));
+            Elapse(AndroidLifecycleMachine.OperationTimeout);
+            Assert.That(relaunched, Is.True);
+        }
+
+        [Test]
+        public void Delete_is_always_answered_false_at_the_soft_deadline()
+        {
+            bool? deleted = null;
+            _machine.DeleteCollectedData(ok => deleted = ok);
+            _sdk.Current = BugseeStatus.Launched; // irrelevant for a delete
+            Elapse(AndroidLifecycleMachine.OperationTimeout);
+            Assert.That(deleted, Is.False);
+        }
+
+        [Test]
+        public void Stop_result_during_a_pending_launch_is_true_when_the_sdk_reports_the_stop_not_false_at_the_deadline()
+        {
+            Launched();
+            _machine.Stop(); // settle: Stopped
+            _sdk.FinishStop();
+            var launched = new List<bool>();
+            var results = new List<bool>();
+            _machine.Launch("t2", OptionsA, launched.Add); // callback stays pending
+            AdvanceFiringScheduledTicks(TimeSpan.FromSeconds(1));
+            _machine.Stop(null, results.Add);
+            _sdk.FinishStop(); // the SDK reports the stop; FinishStop is deferred behind the launch
+            Assert.That(results, Is.EqualTo(new[] { true }));
+            AdvanceFiringScheduledTicks(TimeSpan.FromSeconds(30));
+            Assert.That(results, Is.EqualTo(new[] { true }), "no TimeoutException later, no double completion");
+        }
+
+        [Test]
+        public void Stop_result_during_a_relaunch_is_true_once_in_both_orders()
+        {
+            // Relaunch first, then Stop.
+            Launched();
+            var results = new List<bool>();
+            _machine.Relaunch(OptionsB);
+            _machine.Stop(null, results.Add);
+            _sdk.FinishStop(); // joiners (ours), then the relaunch continuation launch()
+            Assert.That(results, Is.EqualTo(new[] { true }));
+            AdvanceFiringScheduledTicks(TimeSpan.FromSeconds(30));
+            _sdk.FinishLaunch(); // resurrected, stopped again
+            _sdk.FinishStop();
+            Assert.That(results, Is.EqualTo(new[] { true }), "answered once");
+            Assert.That(_sdk.Current, Is.EqualTo(BugseeStatus.Stopped));
+
+            // Stop first, then Relaunch (Relaunch is accepted only while Launched, so the SDK is stopping: refused).
+            SetUp();
+            Launched();
+            results.Clear();
+            _machine.Stop(null, results.Add);
+            _machine.Relaunch(OptionsB);
+            _sdk.FinishStop();
+            Assert.That(results, Is.EqualTo(new[] { true }));
+            AdvanceFiringScheduledTicks(TimeSpan.FromSeconds(30));
+            Assert.That(results, Is.EqualTo(new[] { true }));
+        }
+
+        [Test]
+        public void A_plain_stop_completion_still_waits_for_the_launch_result_while_the_result_is_already_answered()
+        {
+            Launched();
+            _machine.Relaunch(OptionsB);
+            var plain = 0;
+            var results = new List<bool>();
+            _machine.Stop(() => plain++, results.Add);
+            _sdk.FinishStop();
+            Assert.That(results, Is.EqualTo(new[] { true }));
+            Assert.That(plain, Is.EqualTo(0), "the continuation may still launch");
+            _sdk.FinishLaunch();
+            _sdk.FinishStop();
+            Assert.That(plain, Is.EqualTo(1));
+            Assert.That(results, Is.EqualTo(new[] { true }));
+        }
+
+        [Test]
+        public void A_stop_result_that_joins_after_the_sdk_reported_the_stop_is_true_at_once()
+        {
+            Launched();
+            _machine.Stop();
+            _sdk.FinishStop();
+            var launched = new List<bool>();
+            _machine.Launch("t2", OptionsA, launched.Add); // callback stays pending, so FinishStop is not deferred...
+            _machine.Stop(); // a Stop intent while the launch is pending; native stop starts
+            _sdk.FinishStop(); // reported; FinishStop waits for the launch result
+            var results = new List<bool>();
+            _machine.Stop(null, results.Add); // joins after NativeDone
+            Assert.That(results, Is.EqualTo(new[] { true }), "no 10 s wait");
+            var second = new List<bool>();
+            _machine.Stop(null, second.Add);
+            Assert.That(second, Is.EqualTo(new[] { true }), "a second StopAsync too");
+            AdvanceFiringScheduledTicks(TimeSpan.FromSeconds(30));
+            Assert.That(results, Is.EqualTo(new[] { true }));
+            Assert.That(second, Is.EqualTo(new[] { true }));
+        }
+
+        [Test]
+        public void A_plain_completion_joining_after_the_sdk_reported_the_stop_still_waits_for_the_launch_result()
+        {
+            Launched();
+            _machine.Relaunch(OptionsB);
+            _machine.Stop();
+            _sdk.FinishStop(); // reported; the continuation launch() is pending
+            var plain = 0;
+            var results = new List<bool>();
+            _machine.Stop(() => plain++, results.Add);
+            Assert.That(results, Is.EqualTo(new[] { true }));
+            Assert.That(plain, Is.EqualTo(0));
+            _sdk.FinishLaunch();
+            _sdk.FinishStop();
+            Assert.That(plain, Is.EqualTo(1));
+            Assert.That(results, Is.EqualTo(new[] { true }));
+        }
+
+        [Test]
+        public void Stop_result_is_true_at_once_when_already_stopped()
+        {
+            var results = new List<bool>();
+            _machine.Stop(null, results.Add);
+            Assert.That(results, Is.EqualTo(new[] { true }));
+        }
+
+        [Test]
+        public void Stop_result_is_false_at_the_soft_deadline_and_not_repeated_by_the_late_stop()
+        {
+            Launched();
+            var results = new List<bool>();
+            var completions = 0;
+            _machine.Stop(() => completions++, results.Add);
+            Elapse(AndroidLifecycleMachine.OperationTimeout);
+            Assert.That(results, Is.EqualTo(new[] { false }));
+            Assert.That(completions, Is.EqualTo(1));
+            _sdk.FinishStop();
+            Assert.That(results, Is.EqualTo(new[] { false }));
+        }
+
+        [Test]
+        public void A_launch_after_the_stop_does_not_drop_the_stop_result()
+        {
+            Launched();
+            var results = new List<bool>();
+            bool? launched = null;
+            _machine.Stop(null, results.Add);
+            _machine.Launch("t2", OptionsA, ok => launched = ok); // waits for the stop
+            _sdk.FinishStop();
+            Assert.That(results, Is.EqualTo(new[] { true }));
+            _sdk.FinishLaunch();
+            Assert.That(launched, Is.True);
+        }
+
+        [Test]
+        public void A_joining_stop_result_and_a_plain_stop_both_answer_on_one_native_stop()
+        {
+            Launched();
+            var results = new List<bool>();
+            var plain = 0;
+            _machine.Stop(() => plain++);
+            _machine.Stop(null, results.Add);
+            _sdk.FinishStop();
+            Assert.That(plain, Is.EqualTo(1));
+            Assert.That(results, Is.EqualTo(new[] { true }));
+            Assert.That(_sdk.Calls.FindAll(c => c == "stop"), Has.Count.EqualTo(1));
         }
 
         [Test]

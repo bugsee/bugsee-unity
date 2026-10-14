@@ -45,7 +45,9 @@ namespace Bugsee.WrapperPolicy
     /// - Two-stage deadline, because the SDK does not always call back (relaunch() refuses silently when it is no
     ///   longer Launched) and a slow stop can outlive any wait:
     ///   - Soft, <see cref="OperationTimeout"/> after an operation started, ONLY answers its callers, with a warning,
-    ///     so nobody hangs: Stop completions run, Launch/Relaunch/Delete completions get false. It releases nothing
+    ///     so nobody hangs: Stop completions run, Launch/Relaunch completions get true when the SDK is already running
+    ///     (Launching/Launched: it accepted the launch, only the callback is missing) and false otherwise, Delete
+    ///     completions get false. It releases nothing
     ///     else - the operation stays in flight, the queue stays blocked behind it, and a Launch/Relaunch requested
     ///     meanwhile (also from inside such a Stop completion) stays deferred until the SDK actually reports (the
     ///     stop finished, the relaunch continuation called back) or the hard deadline passes. The native operation
@@ -79,11 +81,20 @@ namespace Bugsee.WrapperPolicy
             public TimeSpan HardDeadline;
         }
 
+        // A Stop caller. Result (StopAsync): true when the stop really finished, false when the deadline answered
+        // first. The deadline counts from the call, also for a Stop that joins a stop already in flight.
+        sealed class StopWaiter
+        {
+            public Action Completion;
+            public Action<bool> Result;
+            public TimeSpan Deadline;
+        }
+
         sealed class StopOp
         {
-            // Callers' Stop completions (answered at the soft deadline at the latest) and the machine's own
+            // Callers' Stop waiters (each answered at its own soft deadline at the latest) and the machine's own
             // continuations (run only when the stop really finished, or at the hard reset).
-            public readonly List<Action> Completions = new List<Action>();
+            public readonly List<StopWaiter> Waiters = new List<StopWaiter>();
             public readonly List<Action> Continuations = new List<Action>();
             public int Token;
             public bool NativeDone;
@@ -156,7 +167,10 @@ namespace Bugsee.WrapperPolicy
             Pump();
         }
 
-        public void Stop(Action completion = null)
+        /// <param name="result">Runs once: true when the SDK reported the stop finished (also when a Launch came
+        /// meanwhile, unlike <paramref name="completion"/> in other bridges), false when the soft deadline answered
+        /// first. Never dropped.</param>
+        public void Stop(Action completion = null, Action<bool> result = null)
         {
             _stopEpoch++;
             _stopIntent = true;
@@ -173,7 +187,7 @@ namespace Bugsee.WrapperPolicy
             }
 
             _native.UninstallHooks();
-            StartStop(completion);
+            StartStop(completion, result: result);
             foreach (var op in dropped) Complete(op.Completions, false);
         }
 
@@ -186,12 +200,16 @@ namespace Bugsee.WrapperPolicy
             // is reset in the same tick does not start another one.
             if (_active != null && now >= _active.Deadline && _active.Completions.Count > 0)
             {
+                // A Launch/Relaunch the SDK already started (Launching/Launched) is answered true: it was accepted,
+                // only its final callback is missing. A Delete has no such state.
+                var accepted = _active.Kind != Kind.Delete && AndroidLaunchStatePolicy.IsRunning(_native.Status());
                 _native.Warn("Bugsee." + _active.Kind + " got no result from the SDK within " +
-                             OperationTimeout.TotalSeconds + " s; it is reported as failed, but the SDK may still " +
+                             OperationTimeout.TotalSeconds + " s; it is reported as " +
+                             (accepted ? "started (the SDK is running)" : "failed") + ", but the SDK may still " +
                              "complete it.");
                 var answered = _active.Completions.ToArray();
                 _active.Completions.Clear();
-                foreach (var c in answered) Run(() => c(false));
+                foreach (var c in answered) Run(() => c(accepted));
             }
 
             if (_active != null && now >= _active.HardDeadline)
@@ -201,14 +219,15 @@ namespace Bugsee.WrapperPolicy
                 Settle(_active, false);
             }
 
-            if (_stop != null && now >= _stop.Deadline && _stop.Completions.Count > 0)
+            if (_stop != null && _stop.Waiters.Exists(w => now >= w.Deadline))
             {
                 _native.Warn("Bugsee.Stop did not complete within " + OperationTimeout.TotalSeconds +
                              " s; its completion runs now. The SDK may still be stopping: a Launch requested now " +
                              "waits until it has.");
-                var answered = _stop.Completions.ToArray();
-                _stop.Completions.Clear();
-                foreach (var c in answered) Run(c);
+                var nativeDone = _stop.NativeDone;
+                var late = _stop.Waiters.FindAll(w => now >= w.Deadline);
+                _stop.Waiters.RemoveAll(w => now >= w.Deadline);
+                foreach (var w in late) Answer(w, nativeDone);
             }
 
             if (_stop != null && now >= _stop.HardDeadline)
@@ -216,7 +235,7 @@ namespace Bugsee.WrapperPolicy
                 _native.Warn("Bugsee.Stop did not complete within " + HardTimeout.TotalSeconds +
                              " s; the wrapper stops waiting for it.");
                 _skipStoppingJoin = true;
-                FinishStop();
+                FinishStop(finished: false);
             }
 
             Pump();
@@ -402,11 +421,11 @@ namespace Bugsee.WrapperPolicy
             if (op.Kind != Kind.Delete && _stop != null && _stop.NativeDone) FinishStop();
         }
 
-        void StartStop(Action completion, bool restart = false, Action continuation = null)
+        void StartStop(Action completion, bool restart = false, Action continuation = null, Action<bool> result = null)
         {
             if (_stop != null && !restart)
             {
-                Add(_stop.Completions, completion);
+                AddWaiter(completion, result);
                 Add(_stop.Continuations, continuation);
                 return;
             }
@@ -418,7 +437,7 @@ namespace Bugsee.WrapperPolicy
                 _native.ScheduleTick(HardTimeout);
             }
 
-            Add(_stop.Completions, completion);
+            AddWaiter(completion, result);
             Add(_stop.Continuations, continuation);
             var stop = _stop;
             stop.NativeDone = false;
@@ -434,10 +453,42 @@ namespace Bugsee.WrapperPolicy
             }
         }
 
+        void AddWaiter(Action completion, Action<bool> result)
+        {
+            if (completion == null && result == null) return;
+            // The SDK already reported this stop (FinishStop only waits for a Launch/Relaunch result): StopAsync is
+            // answered now, it must not time out on a stop that is over.
+            if (_stop.NativeDone && result != null)
+            {
+                Run(() => result(true));
+                result = null;
+                if (completion == null) return;
+            }
+            _stop.Waiters.Add(new StopWaiter { Completion = completion, Result = result, Deadline = _now() + OperationTimeout });
+            // A waiter that joins later than the stop's first one has a deadline of its own.
+            _native.ScheduleTick(OperationTimeout);
+        }
+
+        void Answer(StopWaiter waiter, bool finished)
+        {
+            if (waiter.Completion != null) Run(waiter.Completion);
+            if (waiter.Result != null) Run(() => waiter.Result(finished));
+        }
+
         void OnStopDone(int token)
         {
             if (_stop == null || _stop.Token != token) return;
             _stop.NativeDone = true;
+            // StopAsync waiters are told now: the SDK reported the stop, even when FinishStop waits for a Launch/Relaunch
+            // result below (that wait is about the machine's continuations and plain completions).
+            var told = _stop.Waiters.FindAll(w => w.Result != null);
+            foreach (var w in told)
+            {
+                var result = w.Result;
+                w.Result = null;
+                if (w.Completion == null) _stop.Waiters.Remove(w);
+                Run(() => result(true));
+            }
             // A Launch/Relaunch still in flight may launch() after this stop (a relaunch's continuation): wait for
             // its result, which stops it again if needed.
             if (_active != null && _active.Kind != Kind.Delete) return;
@@ -445,11 +496,11 @@ namespace Bugsee.WrapperPolicy
             Pump();
         }
 
-        void FinishStop()
+        void FinishStop(bool finished = true)
         {
             var stop = _stop;
             _stop = null;
-            foreach (var c in stop.Completions) Run(c);
+            foreach (var w in stop.Waiters) Answer(w, finished);
             foreach (var c in stop.Continuations) Run(c);
         }
 

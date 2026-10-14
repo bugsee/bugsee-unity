@@ -17,7 +17,9 @@ namespace Bugsee.Platform
         void Relaunch(IDictionary<string, object> options, Action<bool> started);
 
         /// <summary><paramref name="finished"/> runs once, when the stop is over: true when the stop ran (even
-        /// if a later Launch dropped the ordinary Stop completions), false when the main thread did not take it.</summary>
+        /// if a later Launch dropped the ordinary Stop completions), false when the SDK had not reported it within the
+        /// soft deadline (10 s from the call) or, on iOS, when the main thread did not take it. Android queues the call to
+        /// the main thread and never refuses it: a stalled main thread leaves <paramref name="finished"/> pending.</summary>
         void Stop(Action<bool> finished);
     }
 }

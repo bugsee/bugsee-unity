@@ -15,7 +15,7 @@ using UnityEngine;
 
 namespace Bugsee.Platform.Android
 {
-    sealed class AndroidBridge : IBugseeNativeBridge
+    sealed class AndroidBridge : IBugseeNativeBridge, ILifecycleResultBridge
     {
         const string BugseeClass = "com.bugsee.library.Bugsee";
         const string FeedbackClass = "com.bugsee.library.contracts.extensions.Feedback";
@@ -92,14 +92,26 @@ namespace Bugsee.Platform.Android
         internal void Relaunch(IDictionary<string, object> options, Action<bool> completion) =>
             MainThreadDispatcher.Run(() => Lifecycle.Relaunch(options, completion));
 
-        public void Stop(Action completion = null)
+        void ILifecycleResultBridge.Launch(string appToken, IDictionary<string, object> options, Action<bool> started) =>
+            Launch(appToken, options, started);
+
+        void ILifecycleResultBridge.Relaunch(IDictionary<string, object> options, Action<bool> started) =>
+            Relaunch(options, started);
+
+        // finished (StopAsync): true when the SDK reported the stop, false at the machine's 10 s soft deadline. The
+        // stop is queued to the main thread like every lifecycle call here, so it is never skipped.
+        void ILifecycleResultBridge.Stop(Action<bool> finished) => Stop(null, finished);
+
+        public void Stop(Action completion = null) => Stop(completion, null);
+
+        void Stop(Action completion, Action<bool> finished)
         {
             MainThreadDispatcher.Run(() =>
             {
                 AndroidManagedReportUploadFence.Invalidate();
                 _openReport?.ReleaseSnapshotFiles();
                 _openReport = null;
-                Lifecycle.Stop(completion);
+                Lifecycle.Stop(completion, finished);
             });
         }
 
