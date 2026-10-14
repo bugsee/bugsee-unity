@@ -91,12 +91,14 @@ IL2CPP **C# file/line** via LNM always needs uploaded `il2cpp-linemap` + matchin
 
 Set `BUGSEE_APP_TOKEN` in the environment (opt-in). Optionally `BUGSEE_CLI_PATH`, `BUGSEE_VERSION`, `BUGSEE_BUILD`, `BUGSEE_IL2CPP_MAPPING`, `BUGSEE_IL2CPP_UUIDS`.
 
+The iOS Run Script uploads for **every** Xcode configuration (Debug included, so a crash from a development build is symbolicated) and runs on every build that has the token in its environment, not only archives. Set `BUGSEE_SKIP_UPLOAD_ON_DEBUG=1` to skip the Debug configuration, for example for local Xcode runs.
+
 | Artifact | When | CLI type |
 |---|---|---|
-| `LineNumberMappings.json` (+ MethodMap) | Android post-build; iOS at **Xcode archive** | `il2cpp-linemap` |
+| `LineNumberMappings.json` (+ MethodMap) | Android post-build; iOS at **Xcode build** (every configuration) | `il2cpp-linemap` |
 | Android `symbols.zip` / ELF | Android post-build | `elf` |
 | ProGuard / R8 `mapping.txt` | Android post-build when present | `proguard` |
-| iOS `.dSYM` | Xcode archive Run Script (`Bugsee Upload Symbols`) | `dsym` |
+| iOS `.dSYM` | Xcode Run Script (`Bugsee Upload Symbols`), every configuration | `dsym` |
 
 Failure policy: **never fail the Unity build**. Missing maps/UUIDs/CLI → warn and continue.
 
@@ -113,7 +115,7 @@ Failure policy: **never fail the Unity build**. Missing maps/UUIDs/CLI → warn 
 
 1. Scripting Backend: IL2CPP
 2. Enable source mapping / Script Debugging as needed for LineNumberMappings generation
-3. Archive in Xcode (dSYM + UUID for `UnityFramework` are available at archive time)
+3. Build or archive in Xcode: the Run Script uploads the dSYMs of the configuration being built. Debug has a dSYM only with `DEBUG_INFORMATION_FORMAT = dwarf-with-dsym` (Unity exports Debug as `dwarf`); without one the script prints a warning and uploads no dSYM
 4. Ensure `BUGSEE_APP_TOKEN` is visible to the Xcode Run Script phase
 5. The iOS export sets `DEBUG_INFORMATION_FORMAT=dwarf-with-dsym` on every configuration of Unity-iPhone and UnityFramework, so Debug builds have a dSYM too. `dsymutil` on UnityFramework adds time to each Debug build; to keep Unity's own setting, tick **Bugsee → iOS → Keep Xcode Debug Info Format (skip dSYM force)** or set `BUGSEE_NO_DSYM_FORCE` in the Editor's environment (CI)
 

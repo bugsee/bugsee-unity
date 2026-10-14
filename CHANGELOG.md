@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Notes
 
 - Symbol upload is opt-in via `BUGSEE_APP_TOKEN` and never fails the Unity build.
+- The iOS `Bugsee Upload Symbols` Run Script uploads for every Xcode configuration; `BUGSEE_SKIP_UPLOAD_ON_DEBUG=1` skips Debug (replaces `BUGSEE_UPLOAD_ON_DEBUG`).
 - iOS linemap UUID upload is performed at Xcode archive time when Unity export has no `UnityFramework` UUID yet.
 - Managed `frames[].address`: IL2CPP thrown exceptions get native IPs when available (index-aligned, no reverse); short IL offsets (`[0x00023]`) are ignored.
 - iOS terminating report handlers force-complete like Android (no async `done` wait).
