@@ -360,7 +360,7 @@ namespace Bugsee.Editor
             var scriptsDir = Path.Combine(pathToBuiltProject, "BugseeScripts");
             Directory.CreateDirectory(scriptsDir);
             var scriptPath = Path.Combine(scriptsDir, "upload-symbols.sh");
-            File.WriteAllText(scriptPath, BuildArchiveScript(), new UTF8Encoding(false));
+            File.WriteAllText(scriptPath, IosArchiveUploadScript.Build(), new UTF8Encoding(false));
 
             // Run it through sh: a file written from C# has no executable bit, so invoking the path directly
             // fails the whole build with "Permission denied" (Debug and Release alike, before the script's own
@@ -375,88 +375,6 @@ namespace Bugsee.Editor
             Debug.Log(
                 "[Bugsee] Injected Xcode Run Script 'Bugsee Upload Symbols' for archive-time " +
                 "dSYM + il2cpp-linemap upload (requires BUGSEE_APP_TOKEN in the Xcode/CI env).");
-        }
-
-        static string BuildArchiveScript()
-        {
-            // Uses DWARF_DSYM_FOLDER_PATH / DWARF_DSYM_FILE_NAME from Xcode.
-            // Resolves UnityFramework UUID via dwarfdump / otool when available.
-            var sb = new StringBuilder();
-            sb.AppendLine("#!/bin/sh");
-            sb.AppendLine("set -e");
-            sb.AppendLine("# Bugsee archive-time symbol upload (dSYM + il2cpp-linemap).");
-            sb.AppendLine("# Never fail the Archive — swallow CLI errors.");
-            // Debug builds are the ones tested on devices (Unity's Development Build), and a crash from one is
-            // unsymbolicated without its dSYM, so every configuration uploads. Opt out per build environment.
-            sb.AppendLine("if [ \"${CONFIGURATION}\" = \"Debug\" ] && [ \"${BUGSEE_SKIP_UPLOAD_ON_DEBUG}\" = \"1\" ]; then");
-            sb.AppendLine("  echo \"Bugsee: skip symbol upload for Debug (BUGSEE_SKIP_UPLOAD_ON_DEBUG=1).\"");
-            sb.AppendLine("  exit 0");
-            sb.AppendLine("fi");
-            sb.AppendLine("if [ -z \"${BUGSEE_APP_TOKEN}\" ]; then");
-            sb.AppendLine("  echo \"Bugsee: BUGSEE_APP_TOKEN unset — skip archive symbol upload.\"");
-            sb.AppendLine("  exit 0");
-            sb.AppendLine("fi");
-            sb.AppendLine("CLI=\"${BUGSEE_CLI_PATH:-bugsee-cli}\"");
-            sb.AppendLine("VERSION=\"${BUGSEE_VERSION:-${MARKETING_VERSION}}\"");
-            sb.AppendLine("BUILD=\"${BUGSEE_BUILD:-${CURRENT_PROJECT_VERSION}}\"");
-            sb.AppendLine("upload() {");
-            sb.AppendLine("  \"$@\" || echo \"Bugsee: upload command failed (archive continues): $*\"");
-            sb.AppendLine("}");
-            sb.AppendLine("");
-            sb.AppendLine("# --- dSYM ---");
-            sb.AppendLine("if [ -n \"${DWARF_DSYM_FOLDER_PATH}\" ] && [ -n \"${DWARF_DSYM_FILE_NAME}\" ]; then");
-            sb.AppendLine("  DSYM=\"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}\"");
-            sb.AppendLine("  if [ -d \"${DSYM}\" ]; then");
-            sb.AppendLine("    echo \"Bugsee: uploading dSYM ${DSYM}\"");
-            sb.AppendLine("    upload \"${CLI}\" debug-files upload \"${DSYM}\" --type dsym --version \"${VERSION}\" --build \"${BUILD}\"");
-            sb.AppendLine("  fi");
-            sb.AppendLine("fi");
-            sb.AppendLine("");
-            sb.AppendLine("# Also upload UnityFramework.framework.dSYM when present beside the app dSYM.");
-            sb.AppendLine("if [ -n \"${DWARF_DSYM_FOLDER_PATH}\" ]; then");
-            sb.AppendLine("  UF_DSYM=\"${DWARF_DSYM_FOLDER_PATH}/UnityFramework.framework.dSYM\"");
-            sb.AppendLine("  if [ -d \"${UF_DSYM}\" ]; then");
-            sb.AppendLine("    echo \"Bugsee: uploading UnityFramework dSYM ${UF_DSYM}\"");
-            sb.AppendLine("    upload \"${CLI}\" debug-files upload \"${UF_DSYM}\" --type dsym --version \"${VERSION}\" --build \"${BUILD}\"");
-            sb.AppendLine("  fi");
-            sb.AppendLine("fi");
-            // Unity exports Debug with DEBUG_INFORMATION_FORMAT=dwarf, which writes no dSYM: say so rather than
-            // finish as if the crash symbols were uploaded.
-            sb.AppendLine("if [ ! -d \"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}\" ] && [ ! -d \"${DWARF_DSYM_FOLDER_PATH}/UnityFramework.framework.dSYM\" ]; then");
-            sb.AppendLine("  echo \"warning: Bugsee: no dSYM for ${CONFIGURATION} in ${DWARF_DSYM_FOLDER_PATH}; set DEBUG_INFORMATION_FORMAT=dwarf-with-dsym to symbolicate its crashes.\"");
-            sb.AppendLine("fi");
-            sb.AppendLine("");
-            sb.AppendLine("# --- il2cpp-linemap (UUID from UnityFramework binary / dSYM) ---");
-            sb.AppendLine("LINEMAP=\"\"");
-            sb.AppendLine("if [ -f \"${PROJECT_DIR}/BugseePendingIl2CppLinemap.txt\" ]; then");
-            sb.AppendLine("  LINEMAP=$(head -n1 \"${PROJECT_DIR}/BugseePendingIl2CppLinemap.txt\")");
-            sb.AppendLine("fi");
-            sb.AppendLine("if [ -z \"${LINEMAP}\" ] || [ ! -f \"${LINEMAP}\" ]; then");
-            sb.AppendLine("  LINEMAP=$(find \"${PROJECT_DIR}\" -name LineNumberMappings.json 2>/dev/null | head -n1 || true)");
-            sb.AppendLine("fi");
-            sb.AppendLine("UUID=\"${BUGSEE_IL2CPP_UUIDS:-}\"");
-            sb.AppendLine("if [ -z \"${UUID}\" ]; then");
-            sb.AppendLine("  UF_BIN=\"${BUILT_PRODUCTS_DIR}/UnityFramework.framework/UnityFramework\"");
-            sb.AppendLine("  if [ ! -f \"${UF_BIN}\" ]; then");
-            sb.AppendLine("    UF_BIN=$(find \"${BUILT_PRODUCTS_DIR}\" -path '*/UnityFramework.framework/UnityFramework' 2>/dev/null | head -n1 || true)");
-            sb.AppendLine("  fi");
-            sb.AppendLine("  if [ -f \"${UF_BIN}\" ]; then");
-            sb.AppendLine("    if command -v dwarfdump >/dev/null 2>&1; then");
-            sb.AppendLine("      UUID=$(dwarfdump -u \"${UF_BIN}\" 2>/dev/null | sed -n 's/.*UUID: \\([^ ]*\\).*/\\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' || true)");
-            sb.AppendLine("    fi");
-            sb.AppendLine("    if [ -z \"${UUID}\" ] && command -v otool >/dev/null 2>&1; then");
-            sb.AppendLine("      UUID=$(otool -l \"${UF_BIN}\" 2>/dev/null | awk '/uuid/ {print tolower($2); exit}' || true)");
-            sb.AppendLine("    fi");
-            sb.AppendLine("  fi");
-            sb.AppendLine("fi");
-            sb.AppendLine("if [ -n \"${LINEMAP}\" ] && [ -f \"${LINEMAP}\" ] && [ -n \"${UUID}\" ]; then");
-            sb.AppendLine("  echo \"Bugsee: uploading il2cpp-linemap ${LINEMAP} uuid=${UUID}\"");
-            sb.AppendLine("  upload \"${CLI}\" debug-files upload \"${LINEMAP}\" --type il2cpp-linemap --version \"${VERSION}\" --build \"${BUILD}\" --uuid \"${UUID}\"");
-            sb.AppendLine("else");
-            sb.AppendLine("  echo \"Bugsee: skip il2cpp-linemap (map='${LINEMAP}' uuid='${UUID}')\"");
-            sb.AppendLine("fi");
-            sb.AppendLine("exit 0");
-            return sb.ToString();
         }
     }
 }
