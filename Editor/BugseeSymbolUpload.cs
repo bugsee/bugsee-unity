@@ -1,6 +1,5 @@
 #if UNITY_EDITOR
 using System;
-using Bugsee.WrapperPolicy;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;

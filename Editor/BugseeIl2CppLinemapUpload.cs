@@ -145,11 +145,11 @@ namespace Bugsee.Editor
         static string FindLineNumberMappings(BuildReport report)
         {
             var roots = new List<string>();
-            var root = BuildArtifactChoice.Il2CppOutputRoot(
+            var outputRoot = BuildArtifactChoice.Il2CppOutputRoot(
                 report.summary.outputPath, BugseeSymbolUpload.OutputIsDirectory(report));
-            if (root != null)
+            if (outputRoot != null)
             {
-                roots.Add(root);
+                roots.Add(outputRoot);
             }
 
             string bestPreferred = null;
