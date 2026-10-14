@@ -1,0 +1,37 @@
+# Every place outside the generated files that spells out a pinned version from Tools~/versions.env.
+# One per line: <kind>|<path>|<regex>. Group 1 of the regex is the version. kind is ios, android or gradleplugin.
+# Read by update-native-sdks.sh (rewrites group 1) and Tests~/WrapperPolicy/WrapperIdentityDriftTests.cs (fails on drift).
+# Keep regexes to syntax Python and .NET share. A pattern that matches nothing fails both.
+# In CHANGELOG.md only the first (current) version section is read and rewritten; released sections keep their history.
+# Not here: Tests~/iOS/run-tests.sh CHECKSUM (a hash of the zip, not derivable; the script warns when the zip version moves).
+android|CHANGELOG.md|bugsee-android:([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
+android|CHANGELOG.md|bugsee-android-ndk:([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
+android|README.md|bugsee-android:([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
+android|README.md|bugsee-android-ndk:([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
+android|DESIGN.md|bugsee-android:([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
+android|DESIGN.md|bugsee-android-ndk:([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
+android|Documentation~/index.md|bugsee-android:([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
+android|Documentation~/index.md|bugsee-android-ndk:([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
+android|Samples~/BugseeMiniGame/README.md|bugsee-android:([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
+android|Samples~/BugseeMiniGame/README.md|bugsee-android-ndk:([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
+android|CHANGELOG.md|bugsee-android-ndk` ([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
+android|README.md|\*\*([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)\*\*, added to
+android|DESIGN.md|declares Maven ([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
+android|Tests~/Android/wrapper/build.gradle|bugsee-android:([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
+ios|CHANGELOG.md|iOS `bugsee/spm` ([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
+ios|CHANGELOG.md|\(https://github.com/bugsee/spm\) `([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)`
+ios|README.md|\(https://github.com/bugsee/spm\) `([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)`
+ios|DESIGN.md|\(https://github.com/bugsee/spm\) `([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)`
+ios|Documentation~/index.md|\(https://github.com/bugsee/spm\) `([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)`
+ios|DESIGN.md|github.com/bugsee/spm` `([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)`
+ios|Samples~/BugseeMiniGame/README.md|github.com/bugsee/spm` `([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)`
+ios|Documentation~/index.md|Bugsee ([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)\)
+ios|Native~/ios/Bugsee/Package.swift|bugsee/spm @ ([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
+ios|Tools~/scripts/validate-field-symbols.sh|IOS_SDK_VERSION:-([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
+ios|Tests~/iOS/run-tests.sh|Bugsee-([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)\.zip
+gradleplugin|CHANGELOG.md|Gradle plugin `([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)`
+gradleplugin|README.md|Gradle plugin `([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)`
+gradleplugin|DESIGN.md|Gradle plugin `([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)`
+gradleplugin|Documentation~/index.md|Gradle plugin `([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)`
+gradleplugin|Samples~/BugseeMiniGame/README.md|Gradle plugin `([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)`
+gradleplugin|Editor/BugseeAndroidGradleSetup.cs|GradlePluginVersion = "([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)"
