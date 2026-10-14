@@ -360,7 +360,9 @@ char *_bugsee_get_attribute(const char *key)
     if (!attr) {
         return NULL;
     }
-    if ([NSJSONSerialization isValidJSONObject:@[attr]]) {
+    // dataWithJSONObject: throws on a bare string/number, so only serialize containers.
+    if (([attr isKindOfClass:[NSDictionary class]] || [attr isKindOfClass:[NSArray class]]) &&
+        [NSJSONSerialization isValidJSONObject:attr]) {
         NSData *data = [NSJSONSerialization dataWithJSONObject:attr options:0 error:nil];
         if (data) {
             NSString *json = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];

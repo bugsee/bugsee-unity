@@ -9,6 +9,9 @@ const char *_bugsee_test_copy_wrapper_version(void);
 const char *_bugsee_test_copy_wrapper_build(void);
 int _bugsee_test_wrapper_installed(void);
 const char *_bugsee_test_copy_context_value(const char *key);
+void _bugsee_set_attribute(const char *key, const char *valueJson);
+char *_bugsee_get_attribute(const char *key);
+void _bugsee_clear_attribute(const char *key);
 }
 
 static void expect(int condition, const char *message)
@@ -55,6 +58,27 @@ int main(void)
     value = _bugsee_test_copy_wrapper_build();
     expect(same(value, "ci"), "ensure wrapper stores the build");
     free((void *)value);
+
+    // A scalar attribute must not throw from NSJSONSerialization (top-level non-container), and
+    // reads back as its text form: the string, the number, 1/0 for a bool.
+    struct { const char *name; const char *json; const char *expected; } scalars[] = {
+        { "text", "\"text\"", "text" },
+        { "number", "1", "1" },
+        { "decimal", "1.5", "1.5" },
+        { "yes", "true", "1" },
+        { "no", "false", "0" },
+        { "empty", "\"\"", "" },
+        { "unicode", "\"h\\u00e9llo\"", "h\xc3\xa9llo" },
+    };
+    for (auto &c : scalars) {
+        _bugsee_set_attribute(c.name, c.json);
+        char *attr = _bugsee_get_attribute(c.name);
+        char message[96];
+        snprintf(message, sizeof message, "scalar attribute %s reads back as its text", c.name);
+        expect(attr != NULL && same(attr, c.expected), message);
+        free(attr);
+        _bugsee_clear_attribute(c.name);
+    }
 
     printf("ios bridge tests passed\n");
     return 0;
