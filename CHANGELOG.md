@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - Unreleased
 
+### Fixed
+
+- iOS appearance setters and getters were a no-op because `+[Bugsee getAppearance]` returns a `BugseeTheme`, not a `BGSAppearance`. They now map onto `BugseeTheme` (report/feedback colors, report placeholders). Properties with no iOS equivalent are skipped and read back null: Report `ActionBarTextColor`, `ActionBarButtonBackgroundClickedColor`, `SeverityLabelActiveColor`; Feedback `ActionBarButtonBackgroundClickedColor`, `DateTextColor`, `EmailSkipBackgroundClickedColor`, `EmailContinueClickedColor`, `InputTextHintColor`, `BottomDelimiterColor`, `LoadingBarBackgroundColor`, `LoadingTextColor`, `ErrorTextColor`, `VersionChangedBackgroundColor`, `VersionChangedTextColor`; `Notification::Title`.
+
 ### Added
 
 - Initial UPM package scaffold (`com.bugsee.unity`).

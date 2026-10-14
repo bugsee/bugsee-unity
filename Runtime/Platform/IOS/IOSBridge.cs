@@ -851,9 +851,9 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_capture_view_hierarchy();
         [DllImport("__Internal")] static extern void _bugsee_feedback_show();
         [DllImport("__Internal")] static extern void _bugsee_feedback_set_greeting(string message);
-        [DllImport("__Internal")] static extern void _bugsee_appearance_set_color(string propertyName, int r, int g, int b, int a);
+        [DllImport("__Internal")] static extern int _bugsee_appearance_set_color(string propertyName, int r, int g, int b, int a);
         [DllImport("__Internal")] static extern IntPtr _bugsee_appearance_get_color(string propertyName);
-        [DllImport("__Internal")] static extern void _bugsee_appearance_set_string(string propertyName, string propertyValue);
+        [DllImport("__Internal")] static extern int _bugsee_appearance_set_string(string propertyName, string propertyValue);
         [DllImport("__Internal")] static extern IntPtr _bugsee_appearance_get_string(string propertyName);
         [DllImport("__Internal")] static extern void _bugsee_free(IntPtr ptr);
 
@@ -871,10 +871,12 @@ namespace Bugsee.Platform.IOS
 
             public IAppearance SetColor(string propertyName, Color32? color)
             {
+                // The native theme colors are non-nil: a null color cannot reset to the default.
                 if (string.IsNullOrEmpty(propertyName) || !color.HasValue) return this;
                 var c = color.Value;
-                _bugsee_appearance_set_color(propertyName, c.r, c.g, c.b, c.a);
-                _cache[propertyName] = c;
+                // Only properties the native theme applied are reported by ToMap.
+                if (_bugsee_appearance_set_color(propertyName, c.r, c.g, c.b, c.a) != 0)
+                    _cache[propertyName] = c;
                 return this;
             }
 
@@ -894,8 +896,12 @@ namespace Bugsee.Platform.IOS
             public IAppearance SetString(string propertyName, string value)
             {
                 if (string.IsNullOrEmpty(propertyName)) return this;
-                _bugsee_appearance_set_string(propertyName, value ?? "");
-                _cache[propertyName] = value;
+                // null restores the SDK's default text.
+                if (_bugsee_appearance_set_string(propertyName, value) != 0)
+                {
+                    if (value == null) _cache.Remove(propertyName);
+                    else _cache[propertyName] = value;
+                }
                 return this;
             }
 

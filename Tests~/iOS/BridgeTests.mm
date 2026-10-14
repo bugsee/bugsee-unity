@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <Bugsee/Bugsee.h>
 
 extern "C" {
 void _bugsee_set_wrapper_context(const char *json);
@@ -13,6 +15,10 @@ const char *_bugsee_test_copy_context_value(const char *key);
 void _bugsee_set_attribute(const char *key, const char *valueJson);
 char *_bugsee_get_attribute(const char *key);
 void _bugsee_clear_attribute(const char *key);
+int _bugsee_appearance_set_color(const char *propertyName, int r, int g, int b, int a);
+char *_bugsee_appearance_get_color(const char *propertyName);
+int _bugsee_appearance_set_string(const char *propertyName, const char *propertyValue);
+char *_bugsee_appearance_get_string(const char *propertyName);
 typedef void (*BugseeLaunchStartedFn)(int token, int success);
 void _bugsee_launch(const char *appToken, const char *optionsJson, int startedToken, BugseeLaunchStartedFn started);
 void _bugsee_relaunch(const char *optionsJson, int startedToken, BugseeLaunchStartedFn started);
@@ -111,6 +117,83 @@ int main(void)
         free(attr);
         _bugsee_clear_attribute(c.name);
     }
+    // Appearance maps onto the SDK's BugseeTheme.
+    struct { const char *name; const char *key; } colors[] = {
+        { "Report::ActionBarColor", "reportNavigationBarColor" },
+        { "Report::EditTextBackgroundColor", "reportCellBackgroundColor" },
+        { "Report::VersionColor", "reportVersionColor" },
+        { "Report::TextColor", "reportTextColor" },
+        { "Report::HintColor", "reportPlaceholderColor" },
+        { "Report::BackgroundColor", "reportBackgroundColor" },
+        { "Feedback::ActionBarColor", "feedbackBarsColor" },
+        { "Feedback::BackgroundColor", "feedbackBackgroundColor" },
+        { "Feedback::IncomingBubbleColor", "feedbackIncomingBubbleColor" },
+        { "Feedback::OutgoingBubbleColor", "feedbackOutgoingBubbleColor" },
+        { "Feedback::IncomingTextColor", "feedbackIncomingTextColor" },
+        { "Feedback::OutgoingTextColor", "feedbackOutgoingTextColor" },
+        { "Feedback::TitleTextColor", "feedbackTitleTextColor" },
+        { "Feedback::EmailSkipTextColor", "feedbackEmailSkipColor" },
+        { "Feedback::EmailBackgroundColor", "feedbackEmailBackgroundColor" },
+        { "Feedback::EmailContinueNotActiveColor", "feedbackEmailContinueNotActiveColor" },
+        { "Feedback::EmailContinueActiveColor", "feedbackEmailContinueActiveColor" },
+        { "Feedback::InputTextColor", "feedbackInputTextColor" },
+    };
+    for (auto &c : colors) {
+        _bugsee_appearance_set_color(c.name, 0x12, 0x34, 0x56, 0x78);
+        char *hex = _bugsee_appearance_get_color(c.name);
+        char message[128];
+        snprintf(message, sizeof message, "appearance color %s round-trips", c.name);
+        expect(hex != NULL && same(hex, "#78123456"), message);
+        free(hex);
+        UIColor *themed = [[Bugsee getAppearance] valueForKey:@(c.key)];
+        CGFloat r = 0, g = 0, b = 0, a = 0;
+        [themed getRed:&r green:&g blue:&b alpha:&a];
+        snprintf(message, sizeof message, "appearance color %s lands on BugseeTheme.%s", c.name, c.key);
+        expect(themed != nil && lroundf(r * 255) == 0x12 && lroundf(b * 255) == 0x56 && lroundf(a * 255) == 0x78, message);
+    }
+    struct { const char *name; const char *key; } strings[] = {
+        { "Report::SummaryPlaceholder", "reportSummaryPlaceholder" },
+        { "Report::DescriptionPlaceholder", "reportDescriptionPlaceholder" },
+        { "Report::LabelsPlaceholder", "reportLabelsPlaceholder" },
+        { "Report::EmailPlaceholder", "reportEmailPlaceholder" },
+    };
+    for (auto &c : strings) {
+        _bugsee_appearance_set_string(c.name, "h\xc3\xa9llo");
+        char *text = _bugsee_appearance_get_string(c.name);
+        char message[128];
+        snprintf(message, sizeof message, "appearance string %s round-trips", c.name);
+        expect(text != NULL && same(text, "h\xc3\xa9llo"), message);
+        free(text);
+        snprintf(message, sizeof message, "appearance string %s lands on BugseeTheme.%s", c.name, c.key);
+        expect([[[Bugsee getAppearance] valueForKey:@(c.key)] isEqualToString:@"h\u00e9llo"], message);
+    }
+    // Null restores the SDK defaults.
+    expect(_bugsee_appearance_set_string("Report::SummaryPlaceholder", NULL) == 1, "a null string is applied");
+    expect([[Bugsee getAppearance] valueForKey:@"reportSummaryPlaceholder"] == nil, "a null string clears the theme placeholder");
+    // No iOS equivalent: skipped, not faked.
+    const char *unavailable[] = { "Report::ActionBarTextColor", "Report::ActionBarButtonBackgroundClickedColor",
+        "Report::SeverityLabelActiveColor", "Feedback::DateTextColor", "Feedback::ErrorTextColor",
+        "Feedback::InputTextHintColor", "Notification::Title", "Nonsense" };
+    for (auto name : unavailable) {
+        char message[128];
+        snprintf(message, sizeof message, "unavailable appearance property %s is not applied", name);
+        expect(_bugsee_appearance_set_color(name, 1, 2, 3, 4) == 0 && _bugsee_appearance_set_string(name, "x") == 0, message);
+        char *color = _bugsee_appearance_get_color(name);
+        char *text = _bugsee_appearance_get_string(name);
+        snprintf(message, sizeof message, "unavailable appearance property %s reads nothing", name);
+        expect(color == NULL && text == NULL, message);
+        free(color);
+        free(text);
+    }
+    // A color name is not a string property and vice versa.
+    _bugsee_appearance_set_color("Report::TextColor", 1, 2, 3, 4);
+    _bugsee_appearance_set_string("Report::SummaryPlaceholder", "x");
+    char *kindText = _bugsee_appearance_get_string("Report::TextColor");
+    char *kindColor = _bugsee_appearance_get_color("Report::SummaryPlaceholder");
+    expect(kindText == NULL, "a color property has no string value");
+    expect(kindColor == NULL, "a string property has no color value");
+    free(kindText);
+    free(kindColor);
     // Lifecycle against the real SDK: answers come back with the caller's token.
     _bugsee_launch("00000000-0000-0000-0000-000000000000", "{\"max_recording_time\":60}", 41, OnStarted);
     expect(waitFor(^{ return gStartedCount == 1 ? 1 : 0; }, 5) && gStartedToken == 41,
