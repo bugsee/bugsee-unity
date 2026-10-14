@@ -448,16 +448,33 @@ char *_bugsee_get_attribute(const char *key)
     if (!attr) {
         return NULL;
     }
-    // dataWithJSONObject: throws on a bare string/number, so only serialize containers.
-    if (([attr isKindOfClass:[NSDictionary class]] || [attr isKindOfClass:[NSArray class]]) &&
-        [NSJSONSerialization isValidJSONObject:attr]) {
+    // The SDK keeps the value's kind. Tag it for C# ("s:" string, "b:" bool 1/0, "i:" integer, "d:" floating
+    // point, "j:" JSON container) so a string "1", the number 1 and true stay distinguishable.
+    // locale:nil keeps the digits POSIX; C# parses them with the invariant culture.
+    NSString *wire = nil;
+    if ([attr isKindOfClass:[NSString class]]) {
+        wire = [@"s:" stringByAppendingString:attr];
+    } else if ([attr isKindOfClass:[NSNumber class]]) {
+        NSNumber *number = attr;
+        char type = [number objCType][0];
+        if (CFGetTypeID((__bridge CFTypeRef)number) == CFBooleanGetTypeID()) {
+            wire = [[NSString alloc] initWithFormat:@"b:%d" locale:nil, [number boolValue] ? 1 : 0];
+        } else if (type == 'f' || type == 'd') {
+            wire = [[NSString alloc] initWithFormat:@"d:%.17g" locale:nil, [number doubleValue]];
+        } else if (type == 'Q' || type == 'L') {
+            wire = [[NSString alloc] initWithFormat:@"i:%llu" locale:nil, [number unsignedLongLongValue]];
+        } else {
+            wire = [[NSString alloc] initWithFormat:@"i:%lld" locale:nil, [number longLongValue]];
+        }
+    } else if (([attr isKindOfClass:[NSDictionary class]] || [attr isKindOfClass:[NSArray class]]) &&
+               [NSJSONSerialization isValidJSONObject:attr]) {
         NSData *data = [NSJSONSerialization dataWithJSONObject:attr options:0 error:nil];
-        if (data) {
-            NSString *json = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-            return BugseeCopyUTF8(json);
+        NSString *json = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
+        if (json) {
+            wire = [@"j:" stringByAppendingString:json];
         }
     }
-    return BugseeCopyUTF8([attr description]);
+    return BugseeCopyUTF8(wire ?: [@"s:" stringByAppendingString:[attr description]]);
 }
 
 void _bugsee_clear_attribute(const char *key)

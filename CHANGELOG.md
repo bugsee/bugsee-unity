@@ -78,8 +78,13 @@ Behaviour changes to be aware of. 0.1.0 is not released, so these correct earlie
 - iOS wrapper-channel network events are sent with the SDK's own event types (`before`, `complete`, `cancel`,
   `error`) and a Unix-millisecond timestamp. Events with a stage iOS cannot represent (`Redirect`,
   `RequestTimingsReceived` and `WebSocket`) are **dropped with a warning**.
-- iOS `GetAttribute` returns the text form of a scalar (`"1"` for the number 1, the string "1" and the bool true;
-  `"0"` for false). Android returns typed values.
+- `GetAttribute` keeps the kind of a scalar on both platforms: a string reads back as `string`, a bool as `bool`,
+  an integer input as an integer and a floating-point input as floating point (a whole-valued one such as `1.0`
+  stays floating point on iOS, it does not become an integer), so the string "1", the number 1 and `true`
+  are distinct. The width is not promised (Android returns the boxed type that was set, with `sbyte`/`ushort`
+  stored as `int`, `uint`/`ulong` as `long` and `decimal` as `double`; iOS returns `long` and `double`), so
+  compare with `Convert` rather than a cast. A container set natively (not through this API) reads as a
+  `Dictionary` on Android and as its JSON text on iOS. Reports still show the natural value.
 - iOS launch and relaunch now send `wrapper_info` (type, version, build, metal, fps) unless the caller supplied
   one. This changes the SDK's video capture to its Unity path. `fps` is `Application.targetFrameRate` (30 when
   unset), never above `Screen.currentResolution.refreshRate` because the SDK uses it as a frame-skip divisor; it

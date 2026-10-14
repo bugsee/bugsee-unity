@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <locale.h>
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <Bugsee/Bugsee.h>
@@ -110,21 +111,26 @@ int main(void)
     free((void *)value);
 
     // A scalar attribute must not throw from NSJSONSerialization (top-level non-container), and
-    // reads back as its text form: the string, the number, 1/0 for a bool.
+    // reads back tagged with its kind: s string, b bool, i integer, d floating point, j container.
     struct { const char *name; const char *json; const char *expected; } scalars[] = {
-        { "text", "\"text\"", "text" },
-        { "number", "1", "1" },
-        { "decimal", "1.5", "1.5" },
-        { "yes", "true", "1" },
-        { "no", "false", "0" },
-        { "empty", "\"\"", "" },
-        { "unicode", "\"h\\u00e9llo\"", "h\xc3\xa9llo" },
+        { "text", "\"text\"", "s:text" },
+        { "numtext", "\"1\"", "s:1" },
+        { "number", "1", "i:1" },
+        { "negative", "-7", "i:-7" },
+        { "bigint", "9007199254740993", "i:9007199254740993" },
+        { "decimal", "1.5", "d:1.5" },
+        { "wholedouble", "1.0", "d:1" },
+        { "yes", "true", "b:1" },
+        { "no", "false", "b:0" },
+        { "empty", "\"\"", "s:" },
+        { "unicode", "\"h\\u00e9llo\"", "s:h\xc3\xa9llo" },
+        { "container", "{\"a\":1}", "j:{\"a\":1}" },
     };
     for (auto &c : scalars) {
         _bugsee_set_attribute(c.name, c.json);
         char *attr = _bugsee_get_attribute(c.name);
         char message[96];
-        snprintf(message, sizeof message, "scalar attribute %s reads back as its text", c.name);
+        snprintf(message, sizeof message, "attribute %s reads back with its kind", c.name);
         expect(attr != NULL && same(attr, c.expected), message);
         free(attr);
         _bugsee_clear_attribute(c.name);
@@ -224,6 +230,27 @@ int main(void)
     expect(value != NULL && strstr(value, "video=1;") != NULL && strstr(value, "= 2") != NULL,
            "top-level skipFrames becomes the skip-frames merging rule");
     free((void *)value);
+    // The wire's digits must not follow the user's locale: C# parses them as invariant.
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    [defaults setObject:@"de_DE" forKey:@"AppleLocale"];
+    [defaults setObject:@[@"de"] forKey:@"AppleLanguages"];
+    setlocale(LC_ALL, "de_DE");
+    expect([[NSString localizedStringWithFormat:@"%.1f", 1.5] containsString:@","],
+           "the test locale really uses a decimal comma");
+    _bugsee_set_attribute("localized", "1.5");
+    char *localized = _bugsee_get_attribute("localized");
+    expect(localized != NULL && same(localized, "d:1.5"), "floating attribute stays POSIX under a comma locale");
+    free(localized);
+    _bugsee_clear_attribute("localized");
+    _bugsee_set_attribute("localized", "1234567");
+    localized = _bugsee_get_attribute("localized");
+    expect(localized != NULL && same(localized, "i:1234567"), "integer attribute has no grouping under a comma locale");
+    free(localized);
+    _bugsee_clear_attribute("localized");
+    setlocale(LC_ALL, "C");
+    [defaults removeObjectForKey:@"AppleLocale"];
+    [defaults removeObjectForKey:@"AppleLanguages"];
+
     // Lifecycle against the real SDK: answers come back with the caller's token.
     _bugsee_launch("00000000-0000-0000-0000-000000000000", "{\"max_recording_time\":60}", 41, OnStarted);
     expect(waitFor(^{ return gStartedCount == 1 ? 1 : 0; }, 5) && gStartedToken == 41,
