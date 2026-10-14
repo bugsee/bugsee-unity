@@ -197,7 +197,18 @@ static void BugseeBridgeApplyExtendedReportDict(BugseeExtendedReport *report, NS
 
 extern "C" {
 
-void _bugsee_launch(const char *appToken, const char *optionsJson)
+typedef void (*BugseeLaunchStartedFn)(int token, int success);
+
+static BugseeStartedBlock BugseeStartedBlockFor(int token, BugseeLaunchStartedFn started)
+{
+    return ^(BOOL success) {
+        started(token, success ? 1 : 0);
+    };
+}
+
+// With a started callback (the Task-returning launch), the SDK's answer goes back with the caller's token; the
+// dictionary goes through +[BugseeOptions optionsFrom:] because only the BugseeOptions variant takes a block.
+void _bugsee_launch(const char *appToken, const char *optionsJson, int startedToken, BugseeLaunchStartedFn started)
 {
     NSDictionary *dict = nil;
     if (optionsJson) {
@@ -206,10 +217,16 @@ void _bugsee_launch(const char *appToken, const char *optionsJson)
             dict = parsed;
         }
     }
-    [Bugsee launchWithToken:BugseeNSString(appToken) andOptions:dict];
+    if (!started) {
+        [Bugsee launchWithToken:BugseeNSString(appToken) andOptions:dict];
+        return;
+    }
+    [Bugsee launchWithToken:BugseeNSString(appToken)
+                    options:[BugseeOptions optionsFrom:dict]
+                    started:BugseeStartedBlockFor(startedToken, started)];
 }
 
-void _bugsee_relaunch(const char *optionsJson)
+void _bugsee_relaunch(const char *optionsJson, int startedToken, BugseeLaunchStartedFn started)
 {
     NSDictionary *dict = nil;
     if (optionsJson) {
@@ -218,17 +235,32 @@ void _bugsee_relaunch(const char *optionsJson)
             dict = parsed;
         }
     }
-    [Bugsee relaunchWithDictionaryOptions:dict];
+    if (!started) {
+        [Bugsee relaunchWithDictionaryOptions:dict];
+        return;
+    }
+    [Bugsee relaunchWithOptions:[BugseeOptions optionsFrom:dict] started:BugseeStartedBlockFor(startedToken, started)];
 }
 
-void _bugsee_stop(void)
+typedef void (*BugseeStopCompletionFn)(int token);
+
+// Stop is asynchronous; the completion runs once teardown has finished, with the caller's token so the
+// managed side can match it to the right Stop call.
+void _bugsee_stop(int token, BugseeStopCompletionFn completion)
 {
-    [Bugsee stop:nil];
+    if (!completion) {
+        [Bugsee stop:nil];
+        return;
+    }
+    [Bugsee stop:^{
+        completion(token);
+    }];
 }
 
-bool _bugsee_get_launched(void)
+// BugseeStatus raw values: Stopped 0, Launching 1, Launched 2, Stopping 3.
+int _bugsee_get_status(void)
 {
-    return [Bugsee sharedInstance] != nil;
+    return (int)[Bugsee sharedInstance].status;
 }
 
 void _bugsee_start_blackout(void)
@@ -519,13 +551,23 @@ typedef int (*BugseeDeleteCollectedDataShouldRunFn)(int capturedGeneration);
 void _bugsee_delete_collected_data(int capturedGeneration, BugseeDeleteCollectedDataShouldRunFn shouldRun)
 {
     BugseeRunOnMain(^{
+        BOOL (^allowed)(void) = ^BOOL {
+            return !shouldRun || shouldRun(capturedGeneration);
+        };
         void (^runDeleteIfAllowed)(void) = ^{
-            if (shouldRun && !shouldRun(capturedGeneration)) {
+            if (!allowed()) {
                 return;
             }
             [Bugsee deleteCollectedDataOnDevice:YES completion:nil];
         };
-        if ([Bugsee sharedInstance] != nil) {
+        // A Launch since the delete was requested owns the SDK now: do not stop it.
+        if (!allowed()) {
+            return;
+        }
+        // Only a running SDK is stopped: on a stopped one the stop's block may land after a launch that follows
+        // this call on the main thread, and the wipe would then be skipped.
+        Bugsee *instance = [Bugsee sharedInstance];
+        if (instance != nil && instance.status != BugseeStatusStopped) {
             [Bugsee stop:^{
                 runDeleteIfAllowed();
             }];
@@ -606,10 +648,21 @@ typedef int (*BugseeDeleteCollectedDataShouldRunFn)(int capturedGeneration);
 
 extern "C" {
 
-void _bugsee_launch(const char *appToken, const char *optionsJson) { (void)appToken; (void)optionsJson; }
-void _bugsee_relaunch(const char *optionsJson) { (void)optionsJson; }
-void _bugsee_stop(void) {}
-bool _bugsee_get_launched(void) { return false; }
+typedef void (*BugseeLaunchStartedFn)(int token, int success);
+void _bugsee_launch(const char *appToken, const char *optionsJson, int startedToken, BugseeLaunchStartedFn started)
+{
+    (void)appToken;
+    (void)optionsJson;
+    if (started) started(startedToken, 0);
+}
+void _bugsee_relaunch(const char *optionsJson, int startedToken, BugseeLaunchStartedFn started)
+{
+    (void)optionsJson;
+    if (started) started(startedToken, 0);
+}
+typedef void (*BugseeStopCompletionFn)(int token);
+void _bugsee_stop(int token, BugseeStopCompletionFn completion) { if (completion) completion(token); }
+int _bugsee_get_status(void) { return 0; }
 void _bugsee_start_blackout(void) {}
 void _bugsee_end_blackout(void) {}
 void _bugsee_log(const char *message, int level) { (void)message; (void)level; }

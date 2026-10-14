@@ -94,6 +94,47 @@ namespace Bugsee.WrapperPolicy.Tests
             string body = ExtractNativeFunctionBody(bridge, "_bugsee_delete_collected_data");
             Assert.That(body, Does.Contain("BugseeRunOnMain"));
             Assert.That(body, Does.Contain("deleteCollectedDataOnDevice:YES"));
+            // A delete made stale by a Launch must not stop the new session, so the check precedes the stop.
+            int check = body.IndexOf("if (!allowed())", StringComparison.Ordinal);
+            int stop = body.IndexOf("[Bugsee stop:", StringComparison.Ordinal);
+            Assert.That(check, Is.GreaterThanOrEqualTo(0));
+            Assert.That(stop, Is.GreaterThan(check));
+            // Only a running SDK is stopped, so the wipe on an already stopped one runs before a launch that follows.
+            Assert.That(body, Does.Contain("instance.status != BugseeStatusStopped"));
+        }
+
+        [Test]
+        public void Ios_launch_passes_the_started_answer_back_by_token()
+        {
+            string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
+            string launch = ExtractNativeFunctionBody(bridge, "_bugsee_launch");
+            Assert.That(launch, Does.Contain("launchWithToken:BugseeNSString(appToken) andOptions:dict"));
+            Assert.That(launch, Does.Contain("started:BugseeStartedBlockFor(startedToken, started)"));
+            string relaunch = ExtractNativeFunctionBody(bridge, "_bugsee_relaunch");
+            Assert.That(relaunch, Does.Contain("relaunchWithDictionaryOptions:dict"));
+            Assert.That(relaunch, Does.Contain("started:BugseeStartedBlockFor(startedToken, started)"));
+        }
+
+        [Test]
+        public void Facade_async_lifecycle_uses_the_result_bridge_and_never_blocks()
+        {
+            string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));
+            string launch = ExtractMethodBody(facade, "public static Task<bool> LaunchAsync(string appToken, Dictionary<string, object> options = null)");
+            Assert.That(launch, Does.Contain("bridge.Launch(appToken, options, accepted => result.TrySetResult(accepted))"));
+            string relaunch = ExtractMethodBody(facade, "public static Task<bool> RelaunchAsync(Dictionary<string, object> options = null)");
+            Assert.That(relaunch, Does.Contain("bridge.Relaunch(options, accepted => result.TrySetResult(accepted))"));
+            string stop = ExtractMethodBody(facade, "public static Task StopAsync()");
+            Assert.That(stop, Does.Contain("bridge.Stop("));
+            Assert.That(stop, Does.Contain("TimeoutException"));
+            foreach (var body in new[] { launch, relaunch, stop })
+            {
+                Assert.That(body, Does.Not.Contain(".Wait("));
+                Assert.That(body, Does.Not.Contain(".Result"));
+            }
+            // The existing signatures stay.
+            Assert.That(facade, Does.Contain("public static void Launch(string appToken, Dictionary<string, object> options = null)"));
+            Assert.That(facade, Does.Contain("public static void Relaunch(Dictionary<string, object> options = null)"));
+            Assert.That(facade, Does.Contain("public static void Stop(Action completion = null)"));
         }
 
         [Test]
@@ -405,7 +446,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(androidRelaunch, Does.Contain("BumpForLaunch()"));
 
             string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
-            string iosLaunch = ExtractMethodBody(ios, "public void Launch(string appToken, IDictionary<string, object> options)");
+            string iosLaunch = ExtractMethodBody(ios, "void LaunchNow(string appToken, IDictionary<string, object> options, Action<bool> started)");
             Assert.That(iosLaunch, Does.Contain("BumpForLaunch()"));
             Assert.That(iosLaunch, Does.Contain("BeginNewLaunchCycle()"));
             Assert.That(iosLaunch, Does.Contain("_bugsee_launch"));
@@ -456,13 +497,98 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(notify, Does.Contain("_breadcrumbLaunchBuffer.SetPhaseFromLifecycle"));
             Assert.That(notify, Does.Contain("_networkLaunchBuffer.SetPhaseFromLifecycle"));
 
-            string launch = ExtractMethodBody(ios, "public void Launch(string appToken, IDictionary<string, object> options)");
-            Assert.That(launch, Does.Contain("SetPhase(NetworkLaunchPhase.BeforeLaunched)"));
+            string launchNow = ExtractMethodBody(ios, "void LaunchNow(string appToken, IDictionary<string, object> options, Action<bool> started)");
+            Assert.That(launchNow, Does.Contain("SetPhase(NetworkLaunchPhase.BeforeLaunched)"));
+            Assert.That(launchNow, Does.Contain("RegisterLaunchResult(started)"));
 
-            string stop = ExtractMethodBody(ios, "public void Stop(Action completion = null)");
-            Assert.That(stop, Does.Contain("_bugsee_clear_wrapper_channel"));
-            Assert.That(stop, Does.Not.Contain("_bugsee_clear_bridge_wrapper_channel"));
-            Assert.That(stop, Does.Contain("SetPhase(NetworkLaunchPhase.Stopped)"));
+            // Launch and Relaunch wait for a native stop in flight instead of racing it.
+            string launch = ExtractMethodBody(ios, "void Launch(string appToken, IDictionary<string, object> options, Action<bool> started)");
+            Assert.That(launch, Does.Contain("LaunchOrDefer(\"Launch\", () => LaunchNow(appToken, options, started), started)"));
+            string relaunch = ExtractMethodBody(ios, "void Relaunch(IDictionary<string, object> options, Action<bool> started)");
+            Assert.That(relaunch, Does.Contain("LaunchOrDefer(\"Relaunch\", () => RelaunchNow(options, started), started)"));
+            string defer = ExtractMethodBody(ios, "void LaunchOrDefer(string name, Action launchNow, Action<bool> started)");
+            Assert.That(defer, Does.Contain("StopWaiters.TryDeferLaunch("));
+            Assert.That(defer, Does.Contain("cancelled?.Invoke(false)"));
+
+            string stop = ExtractMethodBody(ios, "void Stop(Action completion, Action<bool> finished)");
+            // The SDK keeps the channel live across stop and never hands out a second one to the
+            // same wrapper object, so clearing it on Stop would silence it for every later launch.
+            Assert.That(stop, Does.Not.Contain("wrapper_channel"));
+            Assert.That(stop, Does.Contain("StopWithSoftDeadline(completion, finished)"));
+            // A Stop whose body the main thread never ran faults StopAsync, drops the public completion (it cannot
+            // signal failure, and Stop(() => Launch(t)) would launch over a session never stopped), and arms nothing.
+            int skipped = stop.IndexOf("Debug.LogError(\"[Bugsee] Stop timed out", StringComparison.Ordinal);
+            Assert.That(skipped, Is.GreaterThan(0));
+            string afterSkip = stop.Substring(skipped);
+            Assert.That(afterSkip, Does.Contain("RunResult(finished, false)"));
+            Assert.That(afterSkip, Does.Not.Contain("RunCompletion("));
+            Assert.That(afterSkip, Does.Not.Contain("completion()"));
+            Assert.That(afterSkip, Does.Contain("its completion was dropped"));
+            Assert.That(afterSkip, Does.Not.Contain("Arm"));
+            Assert.That(afterSkip, Does.Not.Contain("GiveUp"));
+
+            // Soft deadline: per Stop call, runs only that call's completion (taken once, by token); the stop stays
+            // in flight, so Launch keeps waiting and a further Stop joins.
+            string soft = ExtractMethodBody(ios, "void StopWithSoftDeadline(Action completion, Action<bool> finished)");
+            Assert.That(soft, Does.Contain("StopCompletions.Register("));
+            Assert.That(soft, Does.Contain("if (StopNativeThen(run, dropped)) ArmStopSoftDeadline(token);"));
+            string softTimer = ExtractMethodBody(ios, "static void ArmStopSoftDeadline(int token)");
+            Assert.That(softTimer, Does.Contain("StopCompletions.TryTake(token, out var callback)"));
+            Assert.That(softTimer, Does.Contain("callback(false)"));
+            Assert.That(softTimer, Does.Not.Contain("CompleteStop"));
+            Assert.That(softTimer, Does.Not.Contain("StopWaiters"));
+            Assert.That(ios, Does.Contain("const int StopSoftDeadlineMs = 10000;"));
+
+            // One native stop at a time, shared by Stop and Delete. Only the hard deadline gives up on it.
+            string stopNative = ExtractMethodBody(ios, "bool StopNativeThen(Action then, Action dropped = null)");
+            Assert.That(stopNative, Does.Contain("StopWaiters.TryJoin(then, generation, out var cancelledLaunch, dropped)"));
+            Assert.That(stopNative, Does.Contain("cancelledLaunch?.Invoke(false)"));
+            Assert.That(stopNative, Does.Contain("GiveUpIfStopNotReported(token)"));
+            Assert.That(stopNative, Does.Contain("_bugsee_stop(token, OnNativeStopped)"));
+            string watchdog = ExtractMethodBody(ios, "static void GiveUpIfStopNotReported(int token)");
+            Assert.That(watchdog, Does.Contain("AfterOnMainThread(StopHardDeadlineMs"));
+            Assert.That(watchdog, Does.Contain("CompleteStop(token)"));
+            Assert.That(ios, Does.Contain("const int StopHardDeadlineMs = 60000;"));
+            Assert.That(ExtractMethodBody(ios, "static void AfterOnMainThread(int delayMs, Action action)"),
+                Does.Contain("MainThreadDispatcher.Run("));
+
+            // The launch answer: matched by token, taken once, with a status fallback at the deadline.
+            string started = ExtractMethodBody(ios, "static void OnNativeStarted(int token, int success)");
+            Assert.That(started, Does.Contain("LaunchResults.TryTake(token, out var callback)"));
+            Assert.That(started, Does.Contain("catch (Exception"));
+            Assert.That(ios, Does.Contain("[MonoPInvokeCallback(typeof(LaunchStartedNativeCallback))]"));
+            string register = ExtractMethodBody(ios, "int RegisterLaunchResult(Action<bool> started)");
+            Assert.That(register, Does.Contain("if (started == null) return 0;"));
+            Assert.That(register, Does.Contain("LaunchResults.TryTake(token, out var callback)"));
+
+            // Status comes from the SDK, so Launching/Stopping show and a refused launch reads as Stopped.
+            string getStatus = ExtractMethodBody(ios, "public BugseeStatus GetStatus()");
+            Assert.That(getStatus, Does.Contain("_bugsee_get_status()"));
+            Assert.That(ios, Does.Not.Contain("_launched"), "the managed flag was dead once status came from the SDK");
+
+            // Delete tears the managed hooks down unconditionally, in one main-thread closure: Launch installs them
+            // even when the SDK then refuses it, and the SDK's status must not be read off the main thread.
+            string delete = ExtractMethodBody(ios, "public void DeleteCollectedDataOnDevice()");
+            Assert.That(delete, Does.Contain("RunSyncLifecycle"));
+            // ...but only for the generation it was requested in: the fence comes before any teardown or stop.
+            int fence = delete.IndexOf("DeleteCollectedDataLaunchGeneration.RunIfCurrent(deleteGeneration,", StringComparison.Ordinal);
+            Assert.That(fence, Is.GreaterThan(delete.IndexOf("RunSyncLifecycle", StringComparison.Ordinal)));
+            Assert.That(fence, Is.LessThan(delete.IndexOf("HostLogForwarder.Uninstall()", StringComparison.Ordinal)));
+            Assert.That(fence, Is.LessThan(delete.IndexOf("StopNativeThen(", StringComparison.Ordinal)));
+            Assert.That(delete, Does.Contain("HostLogForwarder.Uninstall()"));
+            Assert.That(delete, Does.Contain("ExceptionPipeline.Uninstall()"));
+            Assert.That(delete, Does.Not.Contain("GetStatus()"));
+            Assert.That(delete, Does.Contain("StopNativeThen("));
+
+            // Stop: matched by token, exception-safe, with a watchdog.
+            string native = ExtractMethodBody(ios, "static void OnNativeStopped(int token)");
+            Assert.That(native, Does.Contain("catch (Exception"));
+            Assert.That(native, Does.Contain("CompleteStop(token)"));
+            string completeStop = ExtractMethodBody(ios, "static void CompleteStop(int token)");
+            Assert.That(completeStop, Does.Contain("DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete, RunCompletion"));
+            string completion = ExtractMethodBody(ios, "static void RunCompletion(Action completion)");
+            Assert.That(completion, Does.Contain("catch (Exception"));
+            Assert.That(ios, Does.Contain("[MonoPInvokeCallback(typeof(StopNativeCallback))]"));
 
             string facadeLifecycle = ExtractMethodBody(
                 File.ReadAllText(RepoFile("Runtime/Bugsee.cs")),

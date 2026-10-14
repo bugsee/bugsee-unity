@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Bugsee.WrapperPolicy;
 using NUnit.Framework;
@@ -22,6 +23,28 @@ namespace Bugsee.WrapperPolicy.Tests
             DeleteCollectedDataLaunchGeneration.BumpForLaunch();
             var afterLaunch = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
             Assert.That(DeleteCollectedDataLaunchGeneration.ShouldRunDelete(afterLaunch), Is.True);
+        }
+
+        [Test]
+        public void A_delete_whose_generation_went_stale_before_its_body_runs_does_nothing()
+        {
+            // Delete captured on a background thread, then a Launch runs on the main thread before the Delete's
+            // closure: the teardown (and its native stop) must not run against the new session.
+            var captured = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
+            DeleteCollectedDataLaunchGeneration.BumpForLaunch();
+            var ran = false;
+            Assert.That(DeleteCollectedDataLaunchGeneration.RunIfCurrent(captured, () => ran = true), Is.False);
+            Assert.That(ran, Is.False);
+        }
+
+        [Test]
+        public void A_delete_in_its_own_generation_runs_its_body()
+        {
+            // Includes a launch the SDK refused in the same generation: its hooks still need tearing down.
+            var captured = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
+            var ran = false;
+            Assert.That(DeleteCollectedDataLaunchGeneration.RunIfCurrent(captured, () => ran = true), Is.True);
+            Assert.That(ran, Is.True);
         }
 
         [Test]
