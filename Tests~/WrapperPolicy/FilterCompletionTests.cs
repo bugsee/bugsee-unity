@@ -139,6 +139,17 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Ios_network_filter_replacement_is_typed_with_the_sdk_stage()
+        {
+            string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IosNativeCallbacks.cs"));
+            string complete = ExtractMethodBody(
+                ios, "static void CompleteNetwork(long requestId, string json, EventFilter<INetworkEvent> filter)");
+            Assert.That(complete, Does.Contain("IosNetworkEvent.ToNativeStage(ios.Stage)"));
+            Assert.That(complete, Does.Contain("ios.ToChannelJson(nativeStage, 0)"));
+            Assert.That(complete, Does.Contain("ReferenceEquals(ios, managed)"));
+        }
+
+        [Test]
         public void Ios_native_per_kind_filter_flags()
         {
             string mm = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityCallbacks.mm"));

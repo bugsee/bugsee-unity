@@ -119,7 +119,7 @@ namespace Bugsee.Platform.IOS
             _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
             _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
             var startedToken = RegisterLaunchResult(started);
-            _bugsee_launch(appToken, ToJsonObject(OptionPlatformGate.ForIos(options)),
+            _bugsee_launch(appToken, ToJsonObject(WithWrapperInfo(OptionPlatformGate.ForIos(options))),
                 startedToken, startedToken == 0 ? null : (LaunchStartedNativeCallback)OnNativeStarted);
             ExceptionPipeline.Install(this, options);
             HostLogForwarder.InstallOnce(this);
@@ -133,7 +133,7 @@ namespace Bugsee.Platform.IOS
             _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
             _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
             var startedToken = RegisterLaunchResult(started);
-            _bugsee_relaunch(ToJsonObject(OptionPlatformGate.ForIos(options)),
+            _bugsee_relaunch(ToJsonObject(WithWrapperInfo(OptionPlatformGate.ForIos(options))),
                 startedToken, startedToken == 0 ? null : (LaunchStartedNativeCallback)OnNativeStarted);
             ExceptionPipeline.Install(this, options);
             HostLogForwarder.InstallOnce(this);
@@ -720,8 +720,16 @@ namespace Bugsee.Platform.IOS
                 CopyNetworkFields(networkEvent, iosEvent);
             }
 
+            var nativeStage = IosNetworkEvent.ToNativeStage(iosEvent.Stage);
+            if (nativeStage == null)
+            {
+                Debug.LogWarning("[Bugsee] Dropped network event with stage " + iosEvent.Stage + ": no iOS equivalent.");
+                return;
+            }
+
             var requiresFiltering = ChannelSubmit.NetworkRequiresFiltering() ? 1 : 0;
-            var json = IosNativeCallbacks.ToNativeMapJson(iosEvent.ToResultJson(), "headers");
+            var json = IosNativeCallbacks.ToNativeMapJson(
+                iosEvent.ToChannelJson(nativeStage, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()), "headers");
             _bugsee_channel_network(json, requiresFiltering);
         }
 
@@ -752,67 +760,49 @@ namespace Bugsee.Platform.IOS
             }
         }
 
-        static string ToJsonStringArray(IList<string> labels)
+        // The JSON encoder is plain C# in the policy assembly (JsonWire), where it is unit-tested.
+        static string ToJsonStringArray(IList<string> labels) => JsonWire.StringArray(labels);
+
+        /// <summary>
+        /// The SDK still reads host hints (Metal capture path, frame rate) from this launch option; the wrapper
+        /// protocol carries only type, version, build and context.
+        /// </summary>
+        static IDictionary<string, object> WithWrapperInfo(IDictionary<string, object> options)
         {
-            if (labels == null || labels.Count == 0) return null;
-            var parts = new List<string>(labels.Count);
-            foreach (var label in labels)
+            var merged = options != null
+                ? new Dictionary<string, object>(options)
+                : new Dictionary<string, object>();
+            merged.TryGetValue("wrapper_info", out var supplied);
+            if (IosHostPolicy.IsUsableWrapperInfo(supplied))
             {
-                if (label == null) continue;
-                parts.Add(JsonString(label));
+                return merged; // the caller's own, with a string type
             }
-            return parts.Count == 0 ? null : "[" + string.Join(",", parts.ToArray()) + "]";
+
+            if (supplied != null)
+            {
+                // The SDK indexes into it as a map and compares "type" as a string: anything else is a crash at launch.
+                Debug.LogWarning("[Bugsee] The wrapper_info option must be a map with a string \"type\"; it was replaced.");
+                merged.Remove("wrapper_info");
+            }
+
+            merged["wrapper_info"] = new Dictionary<string, object>
+            {
+                { "type", "UNITY" },
+                { "version", BugseePackageVersion.Version },
+                { "build", BugseePackageVersion.Build },
+                { "metal", SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Metal },
+                { "fps", IosHostPolicy.CaptureFrameRate(Application.targetFrameRate, Screen.currentResolution.refreshRate) },
+            };
+            return merged;
         }
 
-        static string ToJsonObject(IDictionary<string, object> map)
-        {
-            if (map == null || map.Count == 0) return null;
-            var parts = new List<string>();
-            foreach (var kv in map)
-            {
-                if (kv.Key == null || kv.Value == null) continue;
-                parts.Add(JsonString(kv.Key) + ":" + ToJsonLiteral(kv.Value));
-            }
-            return "{" + string.Join(",", parts.ToArray()) + "}";
-        }
+        static string ToJsonObject(IDictionary<string, object> map) => JsonWire.Object(map);
 
-        static string ToJsonValue(object value)
-        {
-            if (value == null) return "null";
-            if (value is string || value is bool || value is byte || value is sbyte
-                || value is short || value is ushort || value is int || value is uint
-                || value is long || value is ulong || value is float || value is double
-                || value is decimal)
-            {
-                return ToJsonLiteral(value);
-            }
-            return JsonString(value.ToString());
-        }
+        static string ToJsonValue(object value) => JsonWire.Value(value);
 
-        static string ToJsonLiteral(object value)
-        {
-            switch (value)
-            {
-                case bool b:
-                    return b ? "true" : "false";
-                case string s:
-                    return JsonString(s);
-                case float f:
-                    return f.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                case double d:
-                    return d.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                case decimal m:
-                    return m.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                default:
-                    return Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture);
-            }
-        }
+        static string ToJsonLiteral(object value) => JsonWire.Literal(value);
 
-        static string JsonString(string s)
-        {
-            if (s == null) return "null";
-            return "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r") + "\"";
-        }
+        static string JsonString(string s) => JsonWire.String(s);
 
         [DllImport("__Internal")] static extern void _bugsee_launch(
             string appToken, string optionsJson, int startedToken, LaunchStartedNativeCallback started);
@@ -1053,6 +1043,7 @@ namespace Bugsee.Platform.IOS
                 method = method,
                 mechanism = mechanism,
                 stage = stage.ToString(),
+                timestampMs = timestamp,
             });
     }
 }
