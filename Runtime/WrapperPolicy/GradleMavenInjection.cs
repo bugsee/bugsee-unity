@@ -23,6 +23,26 @@ namespace Bugsee.WrapperPolicy
         const string CoreArtifactToken = "bugsee-android";
         const string NdkArtifactToken = "bugsee-android-ndk";
 
+        /// <summary>The syntax of the Gradle file being edited.</summary>
+        public enum GradleDsl
+        {
+            /// <summary><c>build.gradle</c>: <c>implementation 'g:a:v'</c>.</summary>
+            Groovy,
+
+            /// <summary><c>build.gradle.kts</c>: <c>implementation("g:a:v")</c>.</summary>
+            Kotlin,
+        }
+
+        /// <summary>How <c>dependencyResolutionManagement</c> treats repositories declared by projects.</summary>
+        public enum RepositoriesMode
+        {
+            /// <summary>No <c>repositoriesMode</c> is set; Gradle's default, <c>PREFER_PROJECT</c>, applies.</summary>
+            Unspecified,
+            PreferSettings,
+            PreferProject,
+            FailOnProjectRepos,
+        }
+
         public enum DependencyStatus
         {
             /// <summary>The marked dependencies were inserted or upserted.</summary>
@@ -64,6 +84,28 @@ namespace Bugsee.WrapperPolicy
             string group,
             IList<string> artifacts,
             string version)
+        {
+            return ApplyDependencies(buildGradle, group, artifacts, version, GradleDsl.Groovy);
+        }
+
+        /// <summary>The DSL a Gradle file is written in, by its file name (<c>.kts</c> is Kotlin).</summary>
+        public static GradleDsl DslForFile(string path)
+        {
+            return path != null && path.EndsWith(".kts", StringComparison.OrdinalIgnoreCase)
+                ? GradleDsl.Kotlin
+                : GradleDsl.Groovy;
+        }
+
+        /// <summary>
+        /// As <see cref="ApplyDependencies(string, string, IList{string}, string)"/>, writing the
+        /// declarations in the syntax of <paramref name="dsl"/>.
+        /// </summary>
+        public static DependencyResult ApplyDependencies(
+            string buildGradle,
+            string group,
+            IList<string> artifacts,
+            string version,
+            GradleDsl dsl)
         {
             if (buildGradle == null)
             {
@@ -109,7 +151,7 @@ namespace Bugsee.WrapperPolicy
             if (hasRegion)
             {
                 string indent = LeadingWhitespace(lines[regionStart]);
-                var replacement = BuildRegion(indent, group, artifacts, version);
+                var replacement = BuildRegion(indent, group, artifacts, version, dsl);
                 if (RangeEquals(lines, regionStart, regionEnd, replacement))
                 {
                     result.Status = DependencyStatus.AlreadyInjected;
@@ -134,7 +176,7 @@ namespace Bugsee.WrapperPolicy
             if (open >= 0)
             {
                 string indent = LeadingWhitespace(lines[open]) + "    ";
-                lines.InsertRange(open + 1, BuildRegion(indent, group, artifacts, version));
+                lines.InsertRange(open + 1, BuildRegion(indent, group, artifacts, version, dsl));
             }
             else
             {
@@ -145,7 +187,7 @@ namespace Bugsee.WrapperPolicy
 
                 lines.Add(string.Empty);
                 lines.Add("dependencies {");
-                lines.AddRange(BuildRegion("    ", group, artifacts, version));
+                lines.AddRange(BuildRegion("    ", group, artifacts, version, dsl));
                 lines.Add("}");
                 lines.Add(string.Empty);
                 trailingNewline = false;
@@ -203,12 +245,149 @@ namespace Bugsee.WrapperPolicy
             return RepositoryStatus.Inserted;
         }
 
-        static List<string> BuildRegion(string indent, string group, IList<string> artifacts, string version)
+        /// <summary>
+        /// The <c>repositoriesMode</c> set in the top-level <c>dependencyResolutionManagement</c> block of a
+        /// settings file (Groovy and Kotlin spell it alike: <c>repositoriesMode.set(...)</c> or
+        /// <c>repositoriesMode = ...</c>), or <see cref="RepositoriesMode.Unspecified"/> when the block or the
+        /// setting is missing.
+        /// </summary>
+        public static RepositoriesMode GetRepositoriesMode(string settings)
+        {
+            if (settings == null)
+            {
+                throw new ArgumentNullException(nameof(settings));
+            }
+
+            var lines = SplitLines(settings, out _);
+            int open = FindTopLevelBlockOpen(lines, "dependencyResolutionManagement");
+            if (open < 0)
+            {
+                return RepositoriesMode.Unspecified;
+            }
+
+            int close = FindBlockClose(lines, open);
+            var inBlockComment = new LexState();
+            for (int i = open; i <= close; i++)
+            {
+                string code = StripComments(lines[i], ref inBlockComment);
+                int at = code.IndexOf("repositoriesMode", StringComparison.Ordinal);
+                if (at < 0)
+                {
+                    continue;
+                }
+
+                if (code.IndexOf("PREFER_SETTINGS", at, StringComparison.Ordinal) >= 0)
+                {
+                    return RepositoriesMode.PreferSettings;
+                }
+
+                if (code.IndexOf("PREFER_PROJECT", at, StringComparison.Ordinal) >= 0)
+                {
+                    return RepositoriesMode.PreferProject;
+                }
+
+                if (code.IndexOf("FAIL_ON_PROJECT_REPOS", at, StringComparison.Ordinal) >= 0)
+                {
+                    return RepositoriesMode.FailOnProjectRepos;
+                }
+            }
+
+            return RepositoriesMode.Unspecified;
+        }
+
+        /// <summary>
+        /// Where <c>mavenCentral()</c> has to be declared so a Maven dependency resolves, given the project's
+        /// settings and root build files (either DSL; pass null for a missing file). The settings
+        /// <c>dependencyResolutionManagement</c> repositories are used when that block declares any; with
+        /// <c>PREFER_PROJECT</c> (also Gradle's default when no mode is set) the root <c>allprojects</c>
+        /// repositories are kept in step too, as they take precedence there. Without a settings repositories
+        /// block the root <c>allprojects</c> block is the target, except under <c>FAIL_ON_PROJECT_REPOS</c>,
+        /// where project repositories are not allowed to exist, so nothing is added there.
+        /// </summary>
+        public static ProjectRepositoriesResult EnsureProjectRepositories(string settings, string rootBuild)
+        {
+            var result = new ProjectRepositoriesResult
+            {
+                Settings = settings,
+                RootBuild = rootBuild,
+                Mode = settings == null ? RepositoriesMode.Unspecified : GetRepositoriesMode(settings),
+            };
+
+            RepositoryStatus inSettings = RepositoryStatus.BlockNotFound;
+            if (settings != null)
+            {
+                inSettings = EnsureMavenCentral(settings, "dependencyResolutionManagement", out result.Settings);
+            }
+
+            if (inSettings == RepositoryStatus.BlockNotFound &&
+                (result.Mode == RepositoriesMode.PreferSettings || result.Mode == RepositoriesMode.FailOnProjectRepos) &&
+                TryAddRepositoriesBlock(settings, "dependencyResolutionManagement", out string withBlock))
+            {
+                // Project repositories are ignored (PREFER_SETTINGS) or rejected (FAIL_ON_PROJECT_REPOS) in these
+                // modes, so with no settings repositories block the dependency can only resolve through a new one.
+                result.Settings = withBlock;
+                inSettings = RepositoryStatus.Inserted;
+            }
+
+            bool settingsDeclares = inSettings != RepositoryStatus.BlockNotFound;
+            bool rootWins = !settingsDeclares ||
+                            result.Mode == RepositoriesMode.PreferProject ||
+                            result.Mode == RepositoriesMode.Unspecified;
+            RepositoryStatus inRoot = RepositoryStatus.BlockNotFound;
+            if (rootBuild != null && rootWins && result.Mode != RepositoriesMode.FailOnProjectRepos)
+            {
+                inRoot = EnsureMavenCentral(rootBuild, "allprojects", out result.RootBuild);
+            }
+
+            result.SettingsStatus = inSettings;
+            result.RootBuildStatus = inRoot;
+            result.Found = settingsDeclares || inRoot != RepositoryStatus.BlockNotFound;
+            return result;
+        }
+
+        static bool TryAddRepositoriesBlock(string gradle, string outerBlock, out string updated)
+        {
+            updated = gradle;
+            var lines = SplitLines(gradle, out string newline);
+            int outerOpen = FindTopLevelBlockOpen(lines, outerBlock);
+            if (outerOpen < 0 || IsSingleLineBlock(lines[outerOpen]))
+            {
+                return false;
+            }
+
+            int outerClose = FindBlockClose(lines, outerOpen);
+            string indent = LeadingWhitespace(lines[outerOpen]) + "    ";
+            lines.InsertRange(outerClose, new[]
+            {
+                indent + "repositories {",
+                indent + "    mavenCentral() " + RepositoryMarker,
+                indent + "}",
+            });
+            updated = JoinLines(lines, newline, gradle.EndsWith("\n", StringComparison.Ordinal));
+            return true;
+        }
+
+        public sealed class ProjectRepositoriesResult
+        {
+            public string Settings;
+            public string RootBuild;
+            public RepositoriesMode Mode;
+            public RepositoryStatus SettingsStatus;
+            public RepositoryStatus RootBuildStatus;
+
+            /// <summary>False when no repositories block was found to hold (or already hold) mavenCentral().</summary>
+            public bool Found;
+        }
+
+        static List<string> BuildRegion(string indent, string group, IList<string> artifacts, string version, GradleDsl dsl)
         {
             var region = new List<string> { indent + DependenciesBeginMarker + " (com.bugsee.unity)" };
             for (int i = 0; i < artifacts.Count; i++)
             {
-                region.Add(indent + "implementation '" + group + ":" + artifacts[i] + ":" + version + "'");
+                string coordinate = group + ":" + artifacts[i] + ":" + version;
+                region.Add(dsl == GradleDsl.Kotlin
+                    ? indent + "implementation(\"" + coordinate + "\")"
+                    : indent + "implementation '" + coordinate + "'");
             }
 
             region.Add(indent + DependenciesEndMarker);
@@ -255,7 +434,7 @@ namespace Bugsee.WrapperPolicy
         static List<Declaration> FindProjectDeclarations(List<string> lines, int skipStart, int skipEnd)
         {
             var found = new List<Declaration>();
-            bool inBlockComment = false;
+            var inBlockComment = new LexState();
             for (int i = 0; i < lines.Count; i++)
             {
                 string code = StripComments(lines[i], ref inBlockComment);
@@ -280,7 +459,7 @@ namespace Bugsee.WrapperPolicy
                     }
 
                     var declaration = Classify(code, at);
-                    if (declaration != null)
+                    if (declaration != null && !IsOtherConfiguration(code.Substring(0, at)))
                     {
                         declaration.Line = lines[i].Trim();
                         found.Add(declaration);
@@ -289,6 +468,74 @@ namespace Bugsee.WrapperPolicy
             }
 
             return found;
+        }
+
+        /// <summary>
+        /// True when the call or configuration the coordinate belongs to is one that does not put the SDK on the
+        /// app's runtime classpath: <c>exclude</c>, <c>compileOnly*</c>, test configurations (<c>testImplementation</c>,
+        /// <c>androidTestImplementation</c>, ...) and annotation-processor configurations. <paramref name="before"/>
+        /// is the code of the line up to the coordinate. A coordinate with no call before it (a continuation line)
+        /// counts as a declaration.
+        /// </summary>
+        static bool IsOtherConfiguration(string before)
+        {
+            // Drop string contents (they hold group names such as "com.bugsee") and the keys of map notation.
+            var sb = new StringBuilder();
+            char quote = '\0';
+            foreach (char c in before)
+            {
+                if (quote != '\0')
+                {
+                    if (c == quote)
+                    {
+                        quote = '\0';
+                    }
+
+                    continue;
+                }
+
+                if (c == '\'' || c == '"')
+                {
+                    quote = c;
+                    sb.Append(' ');
+                    continue;
+                }
+
+                sb.Append(c);
+            }
+
+            string name = null;
+            foreach (System.Text.RegularExpressions.Match m in
+                     System.Text.RegularExpressions.Regex.Matches(sb.ToString(), @"[A-Za-z_][A-Za-z0-9_]*"))
+            {
+                switch (m.Value)
+                {
+                    case "group":
+                    case "name":
+                    case "module":
+                    case "version":
+                    case "ext":
+                    case "classifier":
+                        continue;
+                }
+
+                name = m.Value;
+            }
+
+            if (name == null)
+            {
+                return false;
+            }
+
+            string lower = name.ToLowerInvariant();
+            return lower == "exclude" ||
+                   lower.Contains("compileonly") ||
+                   lower.StartsWith("test", StringComparison.Ordinal) ||
+                   lower.StartsWith("androidtest", StringComparison.Ordinal) ||
+                   lower.StartsWith("unittest", StringComparison.Ordinal) ||
+                   lower.Contains("annotationprocessor") ||
+                   lower.StartsWith("kapt", StringComparison.Ordinal) ||
+                   lower.StartsWith("ksp", StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -388,9 +635,9 @@ namespace Bugsee.WrapperPolicy
 
         static bool DeclaresMavenCentral(string line)
         {
-            bool inBlockComment = false;
+            var inBlockComment = new LexState();
             string code = StripComments(line, ref inBlockComment);
-            return code.IndexOf("mavenCentral()", StringComparison.Ordinal) >= 0 ||
+            return System.Text.RegularExpressions.Regex.IsMatch(code, @"\bmavenCentral\s*[({]") ||
                    code.IndexOf("repo.maven.apache.org/maven2", StringComparison.Ordinal) >= 0 ||
                    code.IndexOf("repo1.maven.org/maven2", StringComparison.Ordinal) >= 0;
         }
@@ -399,7 +646,7 @@ namespace Bugsee.WrapperPolicy
         static int FindTopLevelBlockOpen(List<string> lines, string name)
         {
             int depth = 0;
-            bool inBlockComment = false;
+            var inBlockComment = new LexState();
             for (int i = 0; i < lines.Count; i++)
             {
                 bool wasInComment = inBlockComment;
@@ -418,7 +665,7 @@ namespace Bugsee.WrapperPolicy
         /// <summary>Index of the line opening <c>name {</c> directly inside the block opened at <paramref name="open"/>.</summary>
         static int FindChildBlockOpen(List<string> lines, int open, int close, string name)
         {
-            bool inBlockComment = false;
+            var inBlockComment = new LexState();
             int depth = BraceDelta(StripComments(lines[open], ref inBlockComment));
             for (int i = open + 1; i < close; i++)
             {
@@ -439,7 +686,7 @@ namespace Bugsee.WrapperPolicy
         static int FindBlockClose(List<string> lines, int open)
         {
             int depth = 0;
-            bool inBlockComment = false;
+            var inBlockComment = new LexState();
             for (int i = open; i < lines.Count; i++)
             {
                 depth += BraceDelta(StripComments(lines[i], ref inBlockComment));
@@ -466,7 +713,7 @@ namespace Bugsee.WrapperPolicy
 
         static bool IsSingleLineBlock(string line)
         {
-            bool inBlockComment = false;
+            var inBlockComment = new LexState();
             string code = StripComments(line, ref inBlockComment);
             int open = code.IndexOf('{');
             return open >= 0 && code.IndexOf('}', open) >= 0;
@@ -494,18 +741,29 @@ namespace Bugsee.WrapperPolicy
         /// The code part of a line: comments removed, string literal contents kept (they hold the
         /// coordinates) but their braces blanked so they do not count as structure.
         /// </summary>
-        static string StripComments(string line, ref bool inBlockComment)
+        static string StripComments(string line, ref LexState inBlockComment)
         {
             var sb = new StringBuilder(line.Length);
             char quote = '\0';
             for (int i = 0; i < line.Length; i++)
             {
                 char c = line[i];
-                if (inBlockComment)
+                if (inBlockComment.RawString)
+                {
+                    if (c == '"' && i + 2 < line.Length && line[i + 1] == '"' && line[i + 2] == '"')
+                    {
+                        inBlockComment.RawString = false;
+                        i += 2;
+                    }
+
+                    continue;
+                }
+
+                if (inBlockComment.Block)
                 {
                     if (c == '*' && i + 1 < line.Length && line[i + 1] == '/')
                     {
-                        inBlockComment = false;
+                        inBlockComment.Block = false;
                         i++;
                     }
 
@@ -537,8 +795,16 @@ namespace Bugsee.WrapperPolicy
 
                 if (c == '/' && i + 1 < line.Length && line[i + 1] == '*')
                 {
-                    inBlockComment = true;
+                    inBlockComment.Block = true;
                     i++;
+                    continue;
+                }
+
+                // Kotlin / Groovy triple-quoted strings can span lines: their content is dropped like a comment.
+                if (quote == '\0' && c == '"' && i + 2 < line.Length && line[i + 1] == '"' && line[i + 2] == '"')
+                {
+                    inBlockComment.RawString = true;
+                    i += 2;
                     continue;
                 }
 
@@ -551,6 +817,18 @@ namespace Bugsee.WrapperPolicy
             }
 
             return sb.ToString();
+        }
+
+        /// <summary>Lexer state carried across lines: inside a block comment or a triple-quoted string.</summary>
+        struct LexState
+        {
+            public bool Block;
+            public bool RawString;
+
+            public static implicit operator bool(LexState state)
+            {
+                return state.Block || state.RawString;
+            }
         }
 
         static bool IsArtifactChar(char c)

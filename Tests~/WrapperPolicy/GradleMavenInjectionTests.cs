@@ -380,6 +380,9 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(text, Does.Contain("BugseePackageVersion.AndroidMavenArtifact"));
             Assert.That(text, Does.Contain("BugseePackageVersion.AndroidNdkArtifact"));
             Assert.That(text, Does.Contain("GradleMavenInjection.ApplyDependencies("));
+            Assert.That(text, Does.Contain("GradleMavenInjection.DslForFile(path)"));
+            Assert.That(text, Does.Contain("GradleMavenInjection.EnsureProjectRepositories("));
+            Assert.That(text, Does.Contain("\".gradle.kts\""));
             Assert.That(text, Does.Not.Contain("#if UNITY_ANDROID"));
         }
 
