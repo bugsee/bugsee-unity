@@ -123,6 +123,20 @@ final class UnityWrapper implements BugseeWrapper {
         current.addNetworkEvent(event, true);
     }
 
+    /**
+     * Bugsee.testCrash() throws a RuntimeException. Called from Unity's thread over JNI it would
+     * only surface as a managed AndroidJavaException that Unity catches and logs, so no crash
+     * would ever be reported. Throwing from the main looper leaves it uncaught, like a real crash.
+     */
+    public static void testCrash() {
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+                Bugsee.testCrash();
+            }
+        });
+    }
+
     public static void setSecureBuffer(int display, int[] packed) {
         if (packed == null || packed.length < 2) return;
         secureBuffers.put(display, packed.clone());

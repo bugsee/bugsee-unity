@@ -7,3 +7,9 @@
     static void setSecureBuffer(int, int[]);
 }
 -keep class com.bugsee.unity.UnityWrapperProvider { *; }
+# C# calls UnityWrapper.testCrash() via JNI. Its anonymous Runnable (UnityWrapper$1) is what appears in the
+# crash's stack frame, so keep its name readable instead of relying on the mapping file.
+-keep class com.bugsee.unity.UnityWrapper {
+    static void testCrash();
+}
+-keepnames class com.bugsee.unity.UnityWrapper$*

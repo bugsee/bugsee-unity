@@ -43,6 +43,20 @@ public class AndroidWrapperTests {
         assertTrue(classPool("com/bugsee/unity/UnityWrapperProvider.class").contains("UnityWrapperProvider"));
     }
 
+    @Test
+    public void testCrashIsPostedFromJavaAndKeptForJni() throws Exception {
+        // C# calls UnityWrapper.testCrash() by name over JNI; a rename on either side would go unnoticed.
+        assertTrue(classPool("com/bugsee/unity/UnityWrapper.class").contains("testCrash"));
+        String rules = new String(
+                Files.readAllBytes(repoFile("Plugins/Android/bugsee-unity-wrapper.proguard")),
+                StandardCharsets.UTF_8);
+        assertTrue(rules.contains("static void testCrash();"));
+        String bridge = new String(
+                Files.readAllBytes(repoFile("Runtime/Platform/Android/AndroidBridge.cs")),
+                StandardCharsets.UTF_8);
+        assertTrue(bridge.contains("\"testCrash\""));
+    }
+
     static String classPool(String relative) throws Exception {
         byte[] bytes = Files.readAllBytes(findUnderBuild(relative));
         return new String(bytes, StandardCharsets.ISO_8859_1);
