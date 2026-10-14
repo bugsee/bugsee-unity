@@ -16,6 +16,8 @@ const char *_bugsee_test_copy_context_value(const char *key);
 void _bugsee_set_attribute(const char *key, const char *valueJson);
 char *_bugsee_get_attribute(const char *key);
 void _bugsee_clear_attribute(const char *key);
+char *_bugsee_get_launch_options(void);
+void _bugsee_notify(const char *title, const char *body, int severity, const char *fieldsJson, int urgent);
 int _bugsee_appearance_set_color(const char *propertyName, int r, int g, int b, int a);
 char *_bugsee_appearance_get_color(const char *propertyName);
 int _bugsee_appearance_set_string(const char *propertyName, const char *propertyValue);
@@ -255,6 +257,20 @@ int main(void)
     _bugsee_launch("00000000-0000-0000-0000-000000000000", "{\"max_recording_time\":60}", 41, OnStarted);
     expect(waitFor(^{ return gStartedCount == 1 ? 1 : 0; }, 5) && gStartedToken == 41,
            "launch reports the SDK's started answer with its token");
+    // The effective options are valid JSON holding the host's value merged over the SDK defaults.
+    char *launchOptions = _bugsee_get_launch_options();
+    id parsedOptions = launchOptions
+        ? [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:launchOptions length:strlen(launchOptions)] options:0 error:nil]
+        : nil;
+    expect([parsedOptions isKindOfClass:[NSDictionary class]] && [parsedOptions count] > 1,
+           "launch options come back as a JSON object with the defaults");
+    expect([parsedOptions[BugseeMaxRecordingTimeKey] intValue] == 60, "launch options hold the host's value");
+    free(launchOptions);
+    // notify takes every argument shape without throwing; the title is required and fields are strings only.
+    _bugsee_notify("title", NULL, 2, NULL, 0);
+    _bugsee_notify("title", "body", 3, "{\"env\":\"prod\",\"n\":1}", 1);
+    _bugsee_notify("", "body", 3, NULL, 0);
+    _bugsee_notify(NULL, NULL, 3, "not json", 0);
     _bugsee_stop(7, OnStopped);
     expect(waitFor(^{ return gStoppedToken == 7 ? 1 : 0; }, 5), "stop reports completion with its token");
     _bugsee_relaunch(NULL, 42, OnStarted);

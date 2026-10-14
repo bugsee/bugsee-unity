@@ -21,6 +21,9 @@ namespace Bugsee.Platform
         bool GetLaunched();
         BugseeStatus GetStatus();
 
+        /// <summary>The effective launch options (SDK defaults merged with the host's), or null when the SDK has none.</summary>
+        IReadOnlyDictionary<string, object> GetLaunchOptions();
+
         void StartBlackout();
         void EndBlackout();
         bool IsBlackout();
@@ -44,6 +47,9 @@ namespace Bugsee.Platform
 
         void ShowReportDialog(string summary, string description, IssueSeverity severity, IList<string> labels);
         void Upload(string summary, string description, IssueSeverity severity, IList<string> labels);
+
+        /// <summary>Relay a lightweight notification to the app's messaging integrations (no report is created).</summary>
+        void Notify(string title, string body, IssueSeverity severity, IDictionary<string, string> fields, bool urgent);
 
         void SetUserIdentifier(string userIdentifier);
         string GetUserIdentifier();

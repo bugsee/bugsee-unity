@@ -395,6 +395,9 @@ namespace Bugsee.Platform.IOS
 
         public bool GetLaunched() => GetStatus() == BugseeStatus.Launched;
 
+        public IReadOnlyDictionary<string, object> GetLaunchOptions() =>
+            JsonRead.Object(ConsumeNativeString(_bugsee_get_launch_options()));
+
         // The SDK owns the state, including Launching and Stopping, so a launch it refused reads as Stopped
         // and so does anything before the first Launch (a nil instance answers 0).
         public BugseeStatus GetStatus()
@@ -658,6 +661,10 @@ namespace Bugsee.Platform.IOS
         public void Upload(string summary, string description, IssueSeverity severity, IList<string> labels) =>
             _bugsee_upload(summary ?? "", description ?? "", (int)severity, ToJsonStringArray(labels));
 
+        public void Notify(string title, string body, IssueSeverity severity, IDictionary<string, string> fields, bool urgent) =>
+            _bugsee_notify(title ?? "", NotifyPolicy.Body(body), (int)severity,
+                ToJsonObject(NotifyPolicy.ToWireMap(fields)), urgent ? 1 : 0);
+
         public void SetUserIdentifier(string userIdentifier)
         {
             var normalized = UserIdentifierPolicy.ForSet(userIdentifier);
@@ -862,6 +869,8 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_test_crash();
         [DllImport("__Internal")] static extern void _bugsee_show_report(string summary, string description, int severity, string labelsJson);
         [DllImport("__Internal")] static extern void _bugsee_upload(string summary, string description, int severity, string labelsJson);
+        [DllImport("__Internal")] static extern void _bugsee_notify(string title, string body, int severity, string fieldsJson, int urgent);
+        [DllImport("__Internal")] static extern IntPtr _bugsee_get_launch_options();
         [DllImport("__Internal")] static extern void _bugsee_set_attribute(string key, string valueJson);
         [DllImport("__Internal")] static extern IntPtr _bugsee_get_attribute(string key);
         [DllImport("__Internal")] static extern void _bugsee_clear_attribute(string key);

@@ -117,6 +117,16 @@ namespace Bugsee.Platform.Android
 
         public bool GetLaunched() => _bugsee.CallStatic<bool>("getLaunched");
 
+        public IReadOnlyDictionary<string, object> GetLaunchOptions()
+        {
+            using (var options = _bugsee.CallStatic<AndroidJavaObject>("getLaunchOptions"))
+            {
+                if (options == null) return null;
+                using (var map = options.Call<AndroidJavaObject>("toMap"))
+                    return map == null ? null : AndroidJavaConverters.MapToDictionary(map);
+            }
+        }
+
         public BugseeStatus GetStatus()
         {
             using (var status = _bugsee.CallStatic<AndroidJavaObject>("getStatus"))
@@ -332,6 +342,16 @@ namespace Bugsee.Platform.Android
             using (var javaLabels = ToJavaStringList(labels))
             {
                 _bugsee.CallStatic("upload", summary ?? "", description ?? "", sev, javaLabels);
+            }
+        }
+
+        public void Notify(string title, string body, IssueSeverity severity, IDictionary<string, string> fields, bool urgent)
+        {
+            using (var sev = Severity(severity))
+            using (var javaFields = AndroidJavaConverters.StringDictionaryToMap(fields))
+            {
+                // A null cannot select a JNI overload, so no fields is an empty map (and no body an empty string).
+                _bugsee.CallStatic("notify", title, NotifyPolicy.Body(body), sev, javaFields, urgent);
             }
         }
 
