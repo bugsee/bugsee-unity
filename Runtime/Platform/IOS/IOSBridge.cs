@@ -466,8 +466,10 @@ namespace Bugsee.Platform.IOS
             _reportUploadGeneration++;
             _managedReportUploadFence++;
             _inFlightUploadToken = 0;
-            ReleaseAllUploadSnapshotReports();
+            // Native fence first: an upload applying on the SDK queue must already read as cancelled when its
+            // snapshot files go away, or a report stripped of those attachments is uploaded.
             _bugsee_invalidate_managed_report_uploads();
+            ReleaseAllUploadSnapshotReports();
         }
 
         void ReleaseAllUploadSnapshotReports()

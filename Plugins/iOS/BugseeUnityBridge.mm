@@ -46,18 +46,22 @@ static void BugseeRunOnMain(dispatch_block_t block)
 
 typedef void (*BugseeManagedReportCreateCallback)(int succeeded, uint64_t uploadToken);
 
+// Written on the Unity thread, read on the SDK's completion queue: guard with one lock.
+static NSObject *gManagedReportUploadLock = [NSObject new];
 static uint64_t gManagedReportUploadFence;
 static NSMutableSet<NSNumber *> *gCancelledManagedReportUploadIds;
 
 static BOOL BugseeManagedReportUploadStillActive(uint64_t uploadId, uint64_t uploadFence)
 {
-    if (uploadId == 0 || uploadFence != gManagedReportUploadFence) {
-        return NO;
+    @synchronized (gManagedReportUploadLock) {
+        if (uploadId == 0 || uploadFence != gManagedReportUploadFence) {
+            return NO;
+        }
+        if (!gCancelledManagedReportUploadIds) {
+            return YES;
+        }
+        return ![gCancelledManagedReportUploadIds containsObject:@(uploadId)];
     }
-    if (!gCancelledManagedReportUploadIds) {
-        return YES;
-    }
-    return ![gCancelledManagedReportUploadIds containsObject:@(uploadId)];
 }
 
 static void BugseeBridgeSetAttachmentFileNameIfNeeded(id attachment, NSString *displayName, NSString *fileName)
@@ -579,16 +583,20 @@ void _bugsee_delete_collected_data(int capturedGeneration, BugseeDeleteCollected
 
 void _bugsee_cancel_managed_report_upload(uint64_t uploadId)
 {
-    if (!gCancelledManagedReportUploadIds) {
-        gCancelledManagedReportUploadIds = [NSMutableSet set];
+    @synchronized (gManagedReportUploadLock) {
+        if (!gCancelledManagedReportUploadIds) {
+            gCancelledManagedReportUploadIds = [NSMutableSet new];
+        }
+        [gCancelledManagedReportUploadIds addObject:@(uploadId)];
     }
-    [gCancelledManagedReportUploadIds addObject:@(uploadId)];
 }
 
 void _bugsee_invalidate_managed_report_uploads(void)
 {
-    gManagedReportUploadFence++;
-    [gCancelledManagedReportUploadIds removeAllObjects];
+    @synchronized (gManagedReportUploadLock) {
+        gManagedReportUploadFence++;
+        [gCancelledManagedReportUploadIds removeAllObjects];
+    }
 }
 
 void _bugsee_upload_managed_report(const char *reportJson,
@@ -643,7 +651,7 @@ void _bugsee_upload_managed_report(const char *reportJson,
 
 #else // !BUGSEE_IOS_SDK
 
-typedef void (*BugseeManagedReportCreateCallback)(int succeeded);
+typedef void (*BugseeManagedReportCreateCallback)(int succeeded, uint64_t uploadToken);
 typedef int (*BugseeDeleteCollectedDataShouldRunFn)(int capturedGeneration);
 
 extern "C" {
