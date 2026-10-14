@@ -549,10 +549,14 @@ namespace Bugsee.Platform.Android
 
         void InstallDefaultListeners()
         {
-            if (_lifecycleProxy == null)
+            if (_lifecycleProxy != null) return;
+            // Lifecycle events reach C# only through the wrapper: it holds the ones fired before this point
+            // (auto-launch, crash recovery), replays them in order, then forwards every later event. Also
+            // registering with Bugsee.setLifecycleEventsListener would deliver events twice or lose some.
+            _lifecycleProxy = new LifecycleListenerProxy();
+            using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
             {
-                _lifecycleProxy = new LifecycleListenerProxy();
-                _bugsee.CallStatic("setLifecycleEventsListener", _lifecycleProxy);
+                wrapper.CallStatic("attachLifecycleListener", _lifecycleProxy);
             }
         }
 
