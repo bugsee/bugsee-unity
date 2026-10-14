@@ -1,0 +1,85 @@
+namespace Bugsee.WrapperPolicy
+{
+    /// <summary>
+    /// The shell script behind the iOS "Bugsee Upload Symbols" Run Script phase (dSYMs + il2cpp-linemap). It never
+    /// fails the build: every CLI error is swallowed.
+    /// </summary>
+    public static class IosArchiveUploadScript
+    {
+        /// <summary>The script text, written to BugseeScripts/upload-symbols.sh in the exported Xcode project.</summary>
+        public static string Build() => Script.Replace("\r\n", "\n");
+
+        // Debug builds are the ones tested on devices (Unity's Development Build), and a crash from one is
+        // unsymbolicated without its dSYM, so every configuration uploads. Opt out per build environment.
+        //
+        // Every dSYM in DWARF_DSYM_FOLDER_PATH is uploaded, not only the app's and UnityFramework's: Xcode also copies
+        // there the dSYMs shipped inside the xcframeworks the app embeds, Bugsee.framework.dSYM among them. Without
+        // that one, a crash with a Bugsee frame on the stack (the SDK's own capture code, Bugsee.testCrash) stays
+        // "missing_sym" and those frames show as bare addresses.
+        //
+        // Unity exports Debug with DEBUG_INFORMATION_FORMAT=dwarf, which writes no dSYM for the app or
+        // UnityFramework: say so rather than finish as if the crash symbols were uploaded.
+        const string Script = @"#!/bin/sh
+set -e
+# Bugsee archive-time symbol upload (dSYMs + il2cpp-linemap).
+# Never fail the Archive — swallow CLI errors.
+if [ ""${CONFIGURATION}"" = ""Debug"" ] && [ ""${BUGSEE_SKIP_UPLOAD_ON_DEBUG}"" = ""1"" ]; then
+  echo ""Bugsee: skip symbol upload for Debug (BUGSEE_SKIP_UPLOAD_ON_DEBUG=1).""
+  exit 0
+fi
+if [ -z ""${BUGSEE_APP_TOKEN}"" ]; then
+  echo ""Bugsee: BUGSEE_APP_TOKEN unset — skip archive symbol upload.""
+  exit 0
+fi
+CLI=""${BUGSEE_CLI_PATH:-bugsee-cli}""
+VERSION=""${BUGSEE_VERSION:-${MARKETING_VERSION}}""
+BUILD=""${BUGSEE_BUILD:-${CURRENT_PROJECT_VERSION}}""
+upload() {
+  ""$@"" || echo ""Bugsee: upload command failed (archive continues): $*""
+}
+
+# --- dSYMs: the app, UnityFramework and the embedded xcframeworks' (Bugsee.framework.dSYM) ---
+if [ -n ""${DWARF_DSYM_FOLDER_PATH}"" ] && [ -d ""${DWARF_DSYM_FOLDER_PATH}"" ]; then
+  for DSYM in ""${DWARF_DSYM_FOLDER_PATH}""/*.dSYM; do
+    [ -d ""${DSYM}"" ] || continue
+    echo ""Bugsee: uploading dSYM ${DSYM}""
+    upload ""${CLI}"" debug-files upload ""${DSYM}"" --type dsym --version ""${VERSION}"" --build ""${BUILD}""
+  done
+fi
+if [ ! -d ""${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}"" ] && [ ! -d ""${DWARF_DSYM_FOLDER_PATH}/UnityFramework.framework.dSYM"" ]; then
+  echo ""warning: Bugsee: no dSYM for ${CONFIGURATION} in ${DWARF_DSYM_FOLDER_PATH}; set DEBUG_INFORMATION_FORMAT=dwarf-with-dsym to symbolicate its crashes.""
+fi
+
+# --- il2cpp-linemap (UUID from UnityFramework binary / dSYM) ---
+LINEMAP=""""
+if [ -f ""${PROJECT_DIR}/BugseePendingIl2CppLinemap.txt"" ]; then
+  LINEMAP=$(head -n1 ""${PROJECT_DIR}/BugseePendingIl2CppLinemap.txt"")
+fi
+if [ -z ""${LINEMAP}"" ] || [ ! -f ""${LINEMAP}"" ]; then
+  LINEMAP=$(find ""${PROJECT_DIR}"" -name LineNumberMappings.json 2>/dev/null | head -n1 || true)
+fi
+UUID=""${BUGSEE_IL2CPP_UUIDS:-}""
+if [ -z ""${UUID}"" ]; then
+  UF_BIN=""${BUILT_PRODUCTS_DIR}/UnityFramework.framework/UnityFramework""
+  if [ ! -f ""${UF_BIN}"" ]; then
+    UF_BIN=$(find ""${BUILT_PRODUCTS_DIR}"" -path '*/UnityFramework.framework/UnityFramework' 2>/dev/null | head -n1 || true)
+  fi
+  if [ -f ""${UF_BIN}"" ]; then
+    if command -v dwarfdump >/dev/null 2>&1; then
+      UUID=$(dwarfdump -u ""${UF_BIN}"" 2>/dev/null | sed -n 's/.*UUID: \([^ ]*\).*/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' || true)
+    fi
+    if [ -z ""${UUID}"" ] && command -v otool >/dev/null 2>&1; then
+      UUID=$(otool -l ""${UF_BIN}"" 2>/dev/null | awk '/uuid/ {print tolower($2); exit}' || true)
+    fi
+  fi
+fi
+if [ -n ""${LINEMAP}"" ] && [ -f ""${LINEMAP}"" ] && [ -n ""${UUID}"" ]; then
+  echo ""Bugsee: uploading il2cpp-linemap ${LINEMAP} uuid=${UUID}""
+  upload ""${CLI}"" debug-files upload ""${LINEMAP}"" --type il2cpp-linemap --version ""${VERSION}"" --build ""${BUILD}"" --uuid ""${UUID}""
+else
+  echo ""Bugsee: skip il2cpp-linemap (map='${LINEMAP}' uuid='${UUID}')""
+fi
+exit 0
+";
+    }
+}

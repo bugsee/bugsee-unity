@@ -1,44 +1,156 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using NUnit.Framework;
 
 namespace Bugsee.WrapperPolicy.Tests
 {
     public class IosSymbolUploadGateTests
     {
-        static string SymbolUploadSource()
-        {
-            var dir = TestContext.CurrentContext.TestDirectory;
-            while (!string.IsNullOrEmpty(dir))
-            {
-                if (File.Exists(Path.Combine(dir, "package.json")))
-                    return File.ReadAllText(Path.Combine(dir, "Editor", "BugseeSymbolUpload.cs"));
-                dir = Directory.GetParent(dir)?.FullName;
-            }
-
-            throw new InvalidOperationException("Could not locate repo root (package.json).");
-        }
-
         // A crash from a Debug (Development) build is unsymbolicated without its dSYM, so no configuration may be
         // skipped unless the build environment asks.
         [Test]
         public void Archive_script_uploads_every_configuration_unless_debug_is_opted_out()
         {
-            string text = SymbolUploadSource();
-            Assert.That(text, Does.Not.Contain("!= \\\"Release\\\""));
+            string text = IosArchiveUploadScript.Build();
+            Assert.That(text, Does.Not.Contain("!= \"Release\""));
             Assert.That(text, Does.Not.Contain("BUGSEE_UPLOAD_ON_DEBUG"));
             Assert.That(text, Does.Contain("${BUGSEE_SKIP_UPLOAD_ON_DEBUG}"));
-            Assert.That(text, Does.Contain("${CONFIGURATION}\\\" = \\\"Debug\\\""));
+            Assert.That(text, Does.Contain("${CONFIGURATION}\" = \"Debug\""));
         }
 
         // Unity's Debug configuration writes no dSYM, so an upload there would otherwise end silently with nothing sent.
         [Test]
         public void Archive_script_warns_when_the_build_has_no_dsym()
         {
-            string text = SymbolUploadSource();
+            string text = IosArchiveUploadScript.Build();
             Assert.That(text, Does.Contain(
-                "if [ ! -d \\\"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}\\\" ] && [ ! -d \\\"${DWARF_DSYM_FOLDER_PATH}/UnityFramework.framework.dSYM\\\" ]; then"));
-            Assert.That(text, Does.Contain("echo \\\"warning: Bugsee: no dSYM for ${CONFIGURATION}"));
+                "if [ ! -d \"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}\" ] && [ ! -d \"${DWARF_DSYM_FOLDER_PATH}/UnityFramework.framework.dSYM\" ]; then"));
+            Assert.That(text, Does.Contain("echo \"warning: Bugsee: no dSYM for ${CONFIGURATION}"));
+        }
+
+        [Test]
+        public void Archive_script_has_unix_line_endings()
+        {
+            Assert.That(IosArchiveUploadScript.Build(), Does.Not.Contain("\r"));
+        }
+
+        // Xcode copies the dSYMs shipped in embedded xcframeworks (Bugsee.framework.dSYM) next to the app's. Without
+        // that one a crash with a Bugsee frame on the stack stays missing_sym, so every dSYM there is uploaded.
+        [Test]
+        public void Archive_script_uploads_every_dsym_in_the_dsym_folder()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM", "UnityFramework.framework.dSYM", "Bugsee.framework.dSYM" });
+
+            var dsyms = run.Calls.Where(c => c.Contains("--type dsym")).ToList();
+            Assert.That(dsyms, Has.Count.EqualTo(3), run.Output);
+            foreach (var name in new[] { "BugseeMiniGame.app.dSYM", "UnityFramework.framework.dSYM", "Bugsee.framework.dSYM" })
+                Assert.That(dsyms, Has.One.Contains("/" + name + " --type dsym --version 1.2 --build 34"), run.Output);
+            Assert.That(run.Output, Does.Not.Contain("warning: Bugsee: no dSYM"));
+            Assert.That(run.ExitCode, Is.EqualTo(0));
+        }
+
+        // Debug with DEBUG_INFORMATION_FORMAT=dwarf: only the xcframework's dSYM is there. It is still uploaded, and
+        // the warning about the app's missing dSYM still shows.
+        [Test]
+        public void Archive_script_uploads_the_sdk_dsym_and_warns_when_the_app_has_none()
+        {
+            var run = RunScript(new[] { "Bugsee.framework.dSYM" });
+
+            var dsyms = run.Calls.Where(c => c.Contains("--type dsym")).ToList();
+            Assert.That(dsyms, Has.Count.EqualTo(1), run.Output);
+            Assert.That(dsyms[0], Does.Contain("/Bugsee.framework.dSYM --type dsym"));
+            Assert.That(run.Output, Does.Contain("warning: Bugsee: no dSYM for Debug"));
+            Assert.That(run.ExitCode, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void Archive_script_never_fails_the_build_when_the_cli_fails()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM", "Bugsee.framework.dSYM" }, cliExitCode: 3);
+
+            Assert.That(run.Calls.Count(c => c.Contains("--type dsym")), Is.EqualTo(2), run.Output);
+            Assert.That(run.Output, Does.Contain("Bugsee: upload command failed (archive continues)"));
+            Assert.That(run.ExitCode, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void Archive_script_uploads_nothing_without_a_token()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, token: "");
+
+            Assert.That(run.Calls, Is.Empty);
+            Assert.That(run.Output, Does.Contain("BUGSEE_APP_TOKEN unset"));
+            Assert.That(run.ExitCode, Is.EqualTo(0));
+        }
+
+        class ScriptRun
+        {
+            public int ExitCode;
+            public string Output;
+            public List<string> Calls;
+        }
+
+        static ScriptRun RunScript(string[] dsymBundles, int cliExitCode = 0, string token = "test-token")
+        {
+            if (!File.Exists("/bin/sh"))
+                Assert.Ignore("needs /bin/sh");
+
+            var root = Path.Combine(Path.GetTempPath(), "bugsee-upload-script-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var dsymDir = Path.Combine(root, "Build", "Products", "Debug-iphoneos");
+                var projectDir = Path.Combine(root, "project");
+                Directory.CreateDirectory(dsymDir);
+                Directory.CreateDirectory(projectDir);
+                foreach (var bundle in dsymBundles)
+                    Directory.CreateDirectory(Path.Combine(dsymDir, bundle, "Contents", "Resources", "DWARF"));
+
+                var calls = Path.Combine(root, "calls.txt");
+                var cli = Path.Combine(root, "fake-cli.sh");
+                File.WriteAllText(cli, "#!/bin/sh\necho \"$*\" >> \"" + calls + "\"\nexit " + cliExitCode + "\n");
+                File.SetUnixFileMode(cli, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                var script = Path.Combine(projectDir, "upload-symbols.sh");
+                File.WriteAllText(script, IosArchiveUploadScript.Build());
+
+                var info = new ProcessStartInfo("/bin/sh", "\"" + script + "\"")
+                {
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                };
+                info.Environment["CONFIGURATION"] = "Debug";
+                info.Environment["BUGSEE_APP_TOKEN"] = token;
+                info.Environment["BUGSEE_CLI_PATH"] = cli;
+                info.Environment["MARKETING_VERSION"] = "1.2";
+                info.Environment["CURRENT_PROJECT_VERSION"] = "34";
+                info.Environment["DWARF_DSYM_FOLDER_PATH"] = dsymDir;
+                info.Environment["DWARF_DSYM_FILE_NAME"] = "BugseeMiniGame.app.dSYM";
+                info.Environment["BUILT_PRODUCTS_DIR"] = dsymDir;
+                info.Environment["PROJECT_DIR"] = projectDir;
+                info.Environment.Remove("BUGSEE_SKIP_UPLOAD_ON_DEBUG");
+                info.Environment.Remove("BUGSEE_IL2CPP_UUIDS");
+
+                using (var process = Process.Start(info))
+                {
+                    var stdout = process.StandardOutput.ReadToEndAsync();
+                    var stderr = process.StandardError.ReadToEndAsync();
+                    Assert.That(process.WaitForExit(30000), Is.True, "upload script timed out");
+                    return new ScriptRun
+                    {
+                        ExitCode = process.ExitCode,
+                        Output = stdout.Result + stderr.Result,
+                        Calls = File.Exists(calls) ? File.ReadAllLines(calls).ToList() : new List<string>(),
+                    };
+                }
+            }
+            finally
+            {
+                try { Directory.Delete(root, true); }
+                catch (IOException) { }
+            }
         }
     }
 }
