@@ -15,6 +15,7 @@
     <Compile Include="..\..\Runtime\WrapperPolicy\**\*.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\IssueSeverity.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\IssueType.cs" />
+    <Compile Include="..\..\Runtime\Contracts\Lifecycle\BugseeStatus.cs" />
     <Compile Include="..\..\Runtime\Contracts\Reporting\IReport.cs" />
     <Compile Include="..\..\Runtime\Contracts\Reporting\IAttachment.cs" />
     <Compile Include="..\..\Runtime\Platform\IOS\IosReport.cs" />

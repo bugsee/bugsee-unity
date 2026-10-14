@@ -66,46 +66,41 @@ namespace Bugsee.Platform.Android
             }
         }
 
-        public void Launch(string appToken, IDictionary<string, object> options)
+        // Launch, Relaunch, Stop and DeleteCollectedDataOnDevice all go through one state machine on the main
+        // thread (AndroidLifecycleMachine: ordering, deferral behind a stop, stale results, deadlines).
+        AndroidLifecycleMachine _lifecycleMachine;
+        static readonly System.Diagnostics.Stopwatch LifecycleClock = System.Diagnostics.Stopwatch.StartNew();
+        readonly HashSet<System.Threading.Timer> _lifecycleTimers = new HashSet<System.Threading.Timer>();
+
+        AndroidLifecycleMachine Lifecycle =>
+            _lifecycleMachine ?? (_lifecycleMachine = new AndroidLifecycleMachine(new LifecycleNative(this), () => LifecycleClock.Elapsed));
+
+        public void Launch(string appToken, IDictionary<string, object> options) => Launch(appToken, options, null);
+
+        // completion: true when the SDK reports a launch (or was already running), false when it refused, the
+        // request was superseded, or no result came within AndroidLifecycleMachine.OperationTimeout.
+        internal void Launch(string appToken, IDictionary<string, object> options, Action<bool> completion)
         {
             ManagedExceptionPayload.EnsureBuildIdentity();
-            DeleteCollectedDataLaunchGeneration.BumpForLaunch();
             EnsureWrapperRegistered();
             InstallDefaultListeners();
-            using (var activity = CurrentActivity())
-            using (var map = AndroidOptionsMapper.ToJavaMap(options))
-            {
-                _bugsee.CallStatic("launch", activity, appToken, map);
-            }
-            ExceptionPipeline.Install(this, options);
-            HostLogForwarder.InstallOnce(this);
+            MainThreadDispatcher.Run(() => Lifecycle.Launch(appToken, options, completion));
         }
 
-        public void Relaunch(IDictionary<string, object> options)
-        {
-            DeleteCollectedDataLaunchGeneration.BumpForLaunch();
-            using (var map = AndroidOptionsMapper.ToJavaMap(options))
-            {
-                _bugsee.CallStatic("relaunch", map);
-            }
-            ExceptionPipeline.Install(this, options);
-            HostLogForwarder.InstallOnce(this);
-        }
+        public void Relaunch(IDictionary<string, object> options) => Relaunch(options, null);
+
+        internal void Relaunch(IDictionary<string, object> options, Action<bool> completion) =>
+            MainThreadDispatcher.Run(() => Lifecycle.Relaunch(options, completion));
 
         public void Stop(Action completion = null)
         {
-            AndroidManagedReportUploadFence.Invalidate();
-            _openReport?.ReleaseSnapshotFiles();
-            _openReport = null;
-            HostLogForwarder.Uninstall();
-            ExceptionPipeline.Uninstall();
-            if (completion == null)
+            MainThreadDispatcher.Run(() =>
             {
-                _bugsee.CallStatic("stop");
-                return;
-            }
-
-            _bugsee.CallStatic("stop", new RunnableProxy(completion));
+                AndroidManagedReportUploadFence.Invalidate();
+                _openReport?.ReleaseSnapshotFiles();
+                _openReport = null;
+                Lifecycle.Stop(completion);
+            });
         }
 
         public bool GetLaunched() => _bugsee.CallStatic<bool>("getLaunched");
@@ -453,34 +448,78 @@ namespace Bugsee.Platform.Android
 
         public void NotifyLifecycle(string eventType) { }
 
-        public void DeleteCollectedDataOnDevice()
-        {
-            AndroidManagedReportUploadFence.Invalidate();
-            _openReport?.ReleaseSnapshotFiles();
-            _openReport = null;
-            var deleteGeneration = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
-            if (GetLaunched())
-            {
-                Stop(() => InvokeDeleteCollectedDataOnDevice(deleteGeneration));
-                return;
-            }
+        public void DeleteCollectedDataOnDevice() => DeleteCollectedDataOnDevice(null);
 
-            InvokeDeleteCollectedDataOnDevice(deleteGeneration);
+        // Stops the SDK if needed, then deletes with includingBundles=true: the two-argument overload keeps finished
+        // report bundles, including ones not uploaded yet, so a "delete collected data" request would leave data
+        // behind. Runs in request order with Launch/Relaunch/Stop, so a later Launch never cancels it.
+        internal void DeleteCollectedDataOnDevice(Action<bool> completion)
+        {
+            MainThreadDispatcher.Run(() =>
+            {
+                AndroidManagedReportUploadFence.Invalidate();
+                _openReport?.ReleaseSnapshotFiles();
+                _openReport = null;
+                Lifecycle.DeleteCollectedData(completion);
+            });
         }
 
-        void InvokeDeleteCollectedDataOnDevice(int deleteGeneration)
+        // The native side of the lifecycle machine. Every SDK callback is moved to the main thread.
+        sealed class LifecycleNative : IAndroidLifecycleNative
         {
-            if (!DeleteCollectedDataLaunchGeneration.ShouldRunDelete(deleteGeneration))
-                return;
+            readonly AndroidBridge _bridge;
+            public LifecycleNative(AndroidBridge bridge) { _bridge = bridge; }
 
-            _bugsee.CallStatic(
-                "deleteCollectedDataOnDevice",
-                true,
-                new BooleanCallback1Proxy(success =>
+            static Action<bool> OnMain(Action<bool> done) => ok => MainThreadDispatcher.Run(() => done(ok));
+
+            public BugseeStatus Status() => _bridge.GetStatus();
+
+            public void Launch(string appToken, IDictionary<string, object> options, Action<bool> done)
+            {
+                using (var activity = _bridge.CurrentActivity())
+                using (var map = AndroidOptionsMapper.ToJavaMap(options))
+                    _bridge._bugsee.CallStatic("launch", activity, appToken, map, new BooleanCallback1Proxy(OnMain(done)));
+            }
+
+            public void Relaunch(IDictionary<string, object> options, Action<bool> done)
+            {
+                using (var map = AndroidOptionsMapper.ToJavaMap(options))
+                    _bridge._bugsee.CallStatic("relaunch", map, new BooleanCallback1Proxy(OnMain(done)));
+            }
+
+            public void Stop(Action done) =>
+                _bridge._bugsee.CallStatic("stop", new RunnableProxy(() => MainThreadDispatcher.Run(done)));
+
+            public void DeleteCollectedData(Action<bool> done) =>
+                _bridge._bugsee.CallStatic("deleteCollectedDataOnDevice", true, true, new BooleanCallback1Proxy(OnMain(done)));
+
+            public void InstallHooks(IDictionary<string, object> options)
+            {
+                ExceptionPipeline.Install(_bridge, options);
+                HostLogForwarder.InstallOnce(_bridge);
+            }
+
+            public void UninstallHooks()
+            {
+                HostLogForwarder.Uninstall();
+                ExceptionPipeline.Uninstall();
+            }
+
+            public void ScheduleTick(TimeSpan delay)
+            {
+                var timers = _bridge._lifecycleTimers;
+                System.Threading.Timer timer = null;
+                timer = new System.Threading.Timer(_ => MainThreadDispatcher.Run(() =>
                 {
-                    if (!success)
-                        Debug.LogError("[Bugsee] deleteCollectedDataOnDevice failed.");
-                }));
+                    timers.Remove(timer);
+                    timer.Dispose();
+                    _bridge.Lifecycle.Tick();
+                }), null, delay + TimeSpan.FromMilliseconds(50), System.Threading.Timeout.InfiniteTimeSpan);
+                timers.Add(timer); // keeps it alive until it fires; only touched on the main thread
+            }
+
+            public void Warn(string message) => Debug.LogWarning("[Bugsee] " + message);
+            public void Error(Exception exception) => Debug.LogException(exception);
         }
 
         public IReport CreateReport()
