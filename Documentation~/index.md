@@ -49,6 +49,37 @@ Bugsee.Launch(appToken, options);
 
 `CaptureManagedExceptions` is independent of `DetectAndReportCrash`. Omit it to keep the default (enabled).
 
+## Lifecycle: Launch, Relaunch, Stop, Delete
+
+`Launch`, `Relaunch`, `Stop` and `DeleteCollectedDataOnDevice` do not wait for the native SDK to finish. They are handed to the Unity main thread. Called from another thread, on Android the call is queued there and never refused (it waits for the main thread). On iOS the caller waits up to 5 s for the main thread to take it; if it does not, the request does not run (an error is logged, `LaunchAsync`/`RelaunchAsync` complete `false`, `StopAsync` faults with `TimeoutException`).
+
+Ordering differs per platform, and holds for the wrapper's scheduling before the hard deadline below:
+
+- **Android**: `Launch`, `Relaunch` and `DeleteCollectedDataOnDevice` run one at a time, in request order. A queued `Launch` replaces earlier queued `Launch`/`Relaunch` requests after the last queued Delete, and a `Relaunch` folds its options into the one before it. `Stop` is not queued behind them: it starts (or joins) a native stop at once and drops every queued `Launch`/`Relaunch`. A queued Delete is never dropped, and a Delete does not cancel `Launch`/`Relaunch` requests queued before it: they run first.
+- **iOS**: only stops and the delete's wipe are serialized, one native operation at a time. A `Launch`/`Relaunch` requested while a stop or a wipe is in flight is deferred until the SDK reports it finished. A later `Launch`/`Relaunch` replaces a deferred one, and a later `Stop` or `DeleteCollectedDataOnDevice` cancels it (it completes `false`). A Delete is never skipped because a `Launch` follows it: that `Launch` waits and runs after the wipe.
+
+What each call guarantees:
+
+- **Stop**: its completion runs when the SDK has reported the stop finished, or at the soft deadline. A `Launch`/`Relaunch` requested during the stop waits for it, and the completion runs before that `Launch` does. If the completion itself calls `Launch`, that later request replaces the waiting one (it completes `false`) and is the one that starts. On iOS the completion is dropped only if the call never ran (the 5 s hand-off) or an earlier completion of the same stop already launched; `StopAsync` completes either way. To change the token or options of a running SDK, call `Stop` and launch from its completion.
+- **Launch / Relaunch**: starts a session when the SDK accepts it. A Launch while the SDK is already running ignores the new token and native options. On Android it also leaves the managed capture hooks unchanged; on iOS the managed capture options are applied again, so a repeated `Launch` with different capture options can change (or switch off) managed capture of a running session. Android ignores a `Relaunch` unless the SDK is `Launched`.
+- **DeleteCollectedDataOnDevice**: stops the SDK if needed (joining a stop in flight), then deletes the data collected on the device, including finished report bundles, and leaves the SDK stopped: call `Launch` again to resume. It has no result. A failure is only logged: on iOS a warning when the SDK reports the wipe failed or had not finished stopping, on Android a warning when the native delete fails or does not answer in time.
+
+Async variants:
+
+- `LaunchAsync` / `RelaunchAsync` return `Task<bool>`: `true` when the SDK accepted the launch, `false` when it refused it or a later request cancelled it (which requests cancel a waiting launch is the per-platform ordering above). If the SDK gives no answer within 10 s, they complete `true` when its status is `Launching`/`Launched` and `false` otherwise.
+- `StopAsync` returns `Task` and completes when the SDK has reported the stop, even if a Launch follows. It faults with `TimeoutException` when the SDK has not reported the stop within 10 s of that call (a call that joins a stop in flight has its own 10 s), and on iOS also when the main thread did not take the call within 5 s. On Android the Task stays pending if the Unity main thread is stalled, because the 10 s deadline is driven from the main thread.
+
+Deadlines, for an SDK that does not report back:
+
+- **10 s (soft)**, from when the call started: the caller is answered with a warning, and nothing else is released. A `Stop` completion runs, `StopAsync` faults, and on Android an in-flight `Launch`/`Relaunch`/`Delete` answers its internal completion. The native operation stays in flight: a `Launch`/`Relaunch` requested meanwhile still waits for it, and the SDK may still finish it. On Android that includes a delete already handed to native, which can complete after the 10 s warning.
+- **60 s (hard)**: the wrapper stops waiting for a stop and moves on, with a warning. On iOS this also covers a wipe; on Android also an in-flight launch, relaunch or delete. A late report from the SDK is ignored by token. An iOS `Launch`/`Relaunch` already handed to the SDK has no hard deadline, only the 10 s status answer.
+
+Residual races after the hard deadline (the native SDKs cannot cancel an operation or report a refusal, so these are accepted):
+
+- **iOS**: a deferred `Launch` is released at the give-up, so if the native stop is in fact still running it can stop a `Launch` made after the hard deadline. A wipe still running when its deferred `Launch` is released overlaps that launch in the same way.
+- **Android**: a late `Launch`/`Relaunch` result arriving after the reset is ignored when no stop intent is set (no `Stop` requested and no `Delete` started since), so the managed capture hooks can be out of step with that session until the next lifecycle call. With a stop intent set, a session started by a late result is stopped again.
+- **Android**: after the reset of a delete, a queued `Launch` can run while the native delete is still wiping. A `Delete` started after the reset of a relaunch can overlap a relaunch that completes later still.
+
 ## Crash & exception capture
 
 | Source | API / option | Severity default |
