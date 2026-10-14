@@ -279,8 +279,11 @@ namespace Bugsee.WrapperPolicy.Tests
                 Does.Contain("MainThreadDispatcher.Run(() => Lifecycle.Launch(appToken, options, completion))"));
             Assert.That(ExtractMethodBody(bridge, "internal void Relaunch(IDictionary<string, object> options, Action<bool> completion)"),
                 Does.Contain("Lifecycle.Relaunch(options, completion)"));
-            Assert.That(ExtractMethodBody(bridge, "public void Stop(Action completion = null)"),
-                Does.Contain("Lifecycle.Stop(completion)"));
+            Assert.That(ExtractMethodBody(bridge, "void Stop(Action completion, Action<bool> finished)"),
+                Does.Contain("Lifecycle.Stop(completion, finished)"));
+            Assert.That(bridge, Does.Contain("class AndroidBridge : IBugseeNativeBridge, ILifecycleResultBridge"));
+            Assert.That(ExtractMethodBody(bridge, "void ILifecycleResultBridge.Stop(Action<bool> finished)"),
+                Does.Contain("Stop(null, finished)"));
             foreach (var call in new[] { "\"launch\"", "\"relaunch\"", "\"stop\"", "\"deleteCollectedDataOnDevice\"" })
                 Assert.That(System.Text.RegularExpressions.Regex.Matches(bridge, "CallStatic\\(" + System.Text.RegularExpressions.Regex.Escape(call)).Count,
                     Is.EqualTo(1), call + " is only called by the lifecycle machine's native side");

@@ -85,7 +85,7 @@ namespace Bugsee
                 throw new ArgumentException("appToken is required", nameof(appToken));
 
             MainThreadDispatcher.Ensure();
-            var result = new TaskCompletionSource<bool>();
+            var result = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             if (Bridge is ILifecycleResultBridge bridge)
             {
                 bridge.Launch(appToken, options, accepted => result.TrySetResult(accepted));
@@ -101,7 +101,7 @@ namespace Bugsee
         /// <summary><see cref="Relaunch"/> that completes with the SDK's answer, as <see cref="LaunchAsync"/>.</summary>
         public static Task<bool> RelaunchAsync(Dictionary<string, object> options = null)
         {
-            var result = new TaskCompletionSource<bool>();
+            var result = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             if (Bridge is ILifecycleResultBridge bridge)
             {
                 bridge.Relaunch(options, accepted => result.TrySetResult(accepted));
@@ -117,12 +117,14 @@ namespace Bugsee
         /// <summary>
         /// <see cref="Stop"/> that completes once the SDK has finished stopping. Unlike a Stop completion it
         /// completes even when a Launch follows before it does. Faults with <see cref="TimeoutException"/> if the
-        /// stop could not be handed to the Unity main thread, or the SDK has not reported it within 10 s (a Launch
-        /// still waits for that stop).
+        /// SDK has not reported the stop within 10 s of this call (a Launch still waits for that stop). On iOS it
+        /// also faults when the stop could not be handed to the Unity main thread within 5 s. On Android the
+        /// hand-off is queued and never refused, so if the Unity main thread is stalled the Task stays pending
+        /// (the 10 s deadline is itself driven from the main thread).
         /// </summary>
         public static Task StopAsync()
         {
-            var result = new TaskCompletionSource<bool>();
+            var result = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             if (Bridge is ILifecycleResultBridge bridge)
             {
                 bridge.Stop(ran =>
