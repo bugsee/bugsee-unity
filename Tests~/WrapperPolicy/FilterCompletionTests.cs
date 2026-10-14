@@ -178,6 +178,53 @@ namespace Bugsee.WrapperPolicy.Tests
                 "decisionBlock(crumb)");
         }
 
+        static string StripComments(string source)
+        {
+            source = System.Text.RegularExpressions.Regex.Replace(source, @"/\*.*?\*/", "", System.Text.RegularExpressions.RegexOptions.Singleline);
+            return System.Text.RegularExpressions.Regex.Replace(source, @"//[^\n]*", "");
+        }
+
+        [Test]
+        public void Android_proxies_release_java_args_in_finally()
+        {
+            string proxies = StripComments(File.ReadAllText(RepoFile("Runtime/Platform/Android/Proxies/CallbackProxies.cs")));
+            string filterProxy = ExtractMethodBody(proxies, "public void filter(AndroidJavaObject data, AndroidJavaObject callback)");
+
+            // no-filter path: release sits in a finally after the callback.
+            string noFilter = ExtractMethodBody(filterProxy, "if (filter == null)");
+            Assert.That(noFilter, Does.Contain("finally"));
+            Assert.That(noFilter.IndexOf("ReleaseArgs(data, callback)", StringComparison.Ordinal),
+                Is.GreaterThan(noFilter.IndexOf("finally", StringComparison.Ordinal)));
+
+            // deferred path: wrapper invalidated and args released inside a finally.
+            string deferred = ExtractMethodBody(filterProxy, "MainThreadDispatcher.Run(() =>");
+            string deferredFinally = ExtractMethodBody(deferred, "finally");
+            Assert.That(deferredFinally, Does.Contain("ReleaseNative()"));
+            Assert.That(deferredFinally, Does.Contain("ReleaseArgs(data, callback)"));
+
+            string release = ExtractMethodBody(proxies, "static void ReleaseArgs(AndroidJavaObject data, AndroidJavaObject callback)");
+            Assert.That(release, Does.Contain("data?.Dispose()"));
+            Assert.That(release, Does.Contain("callback?.Dispose()"));
+
+            // report handler: no-handler/terminating path and done() release completion in a finally.
+            string invoke = ExtractMethodBody(proxies, "void Invoke(AndroidJavaObject report, bool isTerminating");
+            foreach (var branch in new[] { "if (handler == null)", "if (isTerminating)" })
+                Assert.That(ExtractMethodBody(ExtractMethodBody(invoke, branch), "finally"), Does.Contain("ReleaseArgs(report, completion)"));
+            Assert.That(ExtractMethodBody(invoke, "Action done = () =>"), Does.Contain("completion?.Dispose()"));
+        }
+
+        [Test]
+        public void Android_event_wrappers_fail_clearly_after_release()
+        {
+            string events = StripComments(File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidExchangeEvents.cs")));
+            Assert.That(events, Does.Contain("throw new ObjectDisposedException("));
+            foreach (var cls in new[] { "AndroidNetworkEvent", "AndroidLogEvent", "AndroidBreadcrumb" })
+            {
+                Assert.That(events, Does.Contain("sealed class " + cls + " :"));
+                Assert.That(events, Does.Contain("NativeEventGuard.Live(_nativeRaw, _released, nameof(" + cls + "))"));
+            }
+        }
+
         [Test]
         public void Android_filter_proxy_drops_on_throw()
         {
