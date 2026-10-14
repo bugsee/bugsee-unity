@@ -94,13 +94,13 @@ namespace Bugsee.WrapperPolicy.Tests
             string body = ExtractNativeFunctionBody(bridge, "_bugsee_delete_collected_data");
             Assert.That(body, Does.Contain("BugseeRunOnMain"));
             Assert.That(body, Does.Contain("deleteCollectedDataOnDevice:YES"));
-            // A delete made stale by a Launch must not stop the new session, so the check precedes the stop.
-            int check = body.IndexOf("if (!allowed())", StringComparison.Ordinal);
-            int stop = body.IndexOf("[Bugsee stop:", StringComparison.Ordinal);
-            Assert.That(check, Is.GreaterThanOrEqualTo(0));
-            Assert.That(stop, Is.GreaterThan(check));
+            // A delete is never skipped (request order, as on Android): no generation check in the native part.
+            Assert.That(body, Does.Not.Contain("shouldRun"));
+            Assert.That(body, Does.Not.Contain("capturedGeneration"));
             // Only a running SDK is stopped, so the wipe on an already stopped one runs before a launch that follows.
-            Assert.That(body, Does.Contain("instance.status != BugseeStatusStopped"));
+            Assert.That(body, Does.Contain("status != BugseeStatusStopped"));
+            // ...and a stop already running (Stopping) is waited for, not stopped a second time.
+            Assert.That(body, Does.Contain("status == BugseeStatusStopping"));
         }
 
         [Test]
@@ -454,14 +454,34 @@ namespace Bugsee.WrapperPolicy.Tests
             string body = ExtractNativeFunctionBody(bridge, "_bugsee_delete_collected_data");
             Assert.That(body, Does.Contain("[Bugsee stop:"));
             Assert.That(body, Does.Contain("deleteCollectedDataOnDevice:YES"));
-            Assert.That(body, Does.Contain("shouldRun(capturedGeneration)"));
             Assert.That(body, Does.Contain("sharedInstance"));
 
             string iosDelete = ExtractMethodBody(
                 File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs")),
                 "public void DeleteCollectedDataOnDevice()");
-            Assert.That(iosDelete, Does.Contain("CaptureForPendingDelete()"));
-            Assert.That(iosDelete, Does.Contain("ShouldRunDeleteCollectedDataNative"));
+            Assert.That(iosDelete, Does.Not.Contain("CaptureForPendingDelete"));
+            Assert.That(iosDelete, Does.Not.Contain("RunIfCurrent"));
+
+            // The wipe is a native operation in flight that holds a following launch until it is reported.
+            string beginDelete = ExtractMethodBody(
+                File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs")),
+                "static void BeginNativeDelete()");
+            Assert.That(beginDelete, Does.Contain("holdsLaunch: true"));
+            Assert.That(beginDelete, Does.Contain("if (StopWaiters.TryCoalesceWipe()) return;"));
+            Assert.That(iosDelete, Does.Contain("if (StopWaiters.TryCoalesceWipe()) return;"));
+            Assert.That(beginDelete, Does.Contain("GiveUpIfStopNotReported(token)"));
+            Assert.That(beginDelete, Does.Contain("_bugsee_delete_collected_data(token, OnNativeDeleted)"));
+            Assert.That(body, Does.Contain("completion(token, success ? 1 : 0)"));
+            // The timeout path reports "not wiped" instead of ordinary completion, and managed code warns about it
+            // but still releases the deferred launch.
+            Assert.That(body, Does.Contain("completion(token, 0)"));
+            string deleted = ExtractMethodBody(
+                File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs")),
+                "static void OnNativeDeleted(int token, int wiped)");
+            Assert.That(deleted, Does.Contain("if (wiped == 0)"));
+            Assert.That(deleted, Does.Contain("Debug.LogWarning"));
+            Assert.That(deleted, Does.Contain("CompleteStop(token)"));
+            Assert.That(iosDelete, Does.Contain("StopNativeThen(BeginNativeDelete, first: true)"));
         }
 
         [Test]
@@ -566,8 +586,8 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(ios, Does.Contain("const int StopSoftDeadlineMs = 10000;"));
 
             // One native stop at a time, shared by Stop and Delete. Only the hard deadline gives up on it.
-            string stopNative = ExtractMethodBody(ios, "bool StopNativeThen(Action then, Action dropped = null)");
-            Assert.That(stopNative, Does.Contain("StopWaiters.TryJoin(then, generation, out var cancelledLaunch, dropped)"));
+            string stopNative = ExtractMethodBody(ios, "bool StopNativeThen(Action then, Action dropped = null, bool first = false)");
+            Assert.That(stopNative, Does.Contain("StopWaiters.TryJoin(then, generation, out var cancelledLaunch, dropped, first)"));
             Assert.That(stopNative, Does.Contain("cancelledLaunch?.Invoke(false)"));
             Assert.That(stopNative, Does.Contain("GiveUpIfStopNotReported(token)"));
             Assert.That(stopNative, Does.Contain("_bugsee_stop(token, OnNativeStopped)"));
@@ -596,11 +616,8 @@ namespace Bugsee.WrapperPolicy.Tests
             // even when the SDK then refuses it, and the SDK's status must not be read off the main thread.
             string delete = ExtractMethodBody(ios, "public void DeleteCollectedDataOnDevice()");
             Assert.That(delete, Does.Contain("RunSyncLifecycle"));
-            // ...but only for the generation it was requested in: the fence comes before any teardown or stop.
-            int fence = delete.IndexOf("DeleteCollectedDataLaunchGeneration.RunIfCurrent(deleteGeneration,", StringComparison.Ordinal);
-            Assert.That(fence, Is.GreaterThan(delete.IndexOf("RunSyncLifecycle", StringComparison.Ordinal)));
-            Assert.That(fence, Is.LessThan(delete.IndexOf("HostLogForwarder.Uninstall()", StringComparison.Ordinal)));
-            Assert.That(fence, Is.LessThan(delete.IndexOf("StopNativeThen(", StringComparison.Ordinal)));
+            // ...and in request order: no generation fence skips it when a Launch follows.
+            Assert.That(delete, Does.Not.Contain("DeleteCollectedDataLaunchGeneration"));
             Assert.That(delete, Does.Contain("HostLogForwarder.Uninstall()"));
             Assert.That(delete, Does.Contain("ExceptionPipeline.Uninstall()"));
             Assert.That(delete, Does.Not.Contain("GetStatus()"));

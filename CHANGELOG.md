@@ -52,6 +52,14 @@ Behaviour changes to be aware of. 0.1.0 is not released, so these correct earlie
   not be started because the main thread did not take the call within 5 s. After 10 s the call's own completion
   runs with a warning while the native stop stays in flight (launches stay deferred); after 60 s the wait is
   abandoned and deferred launches run.
+- iOS `DeleteCollectedDataOnDevice` now runs in request order, as on Android, and is no longer skipped. Before, a
+  delete did nothing (with a warning) when a `Launch` or `Relaunch` ran between its request and its teardown:
+  `Stop(() => Launch(...)); DeleteCollectedDataOnDevice();` and, after the 60 s give-up on a stop, a delete
+  queued behind it. Now the wipe runs first, and a `Launch` or `Relaunch` requested after it waits until the SDK
+  reports the wipe finished (it clears its files on a background thread), with the same 60 s give-up as a stop.
+  A delete that shares a stop with `Stop(() => Launch(...))` runs ahead of that completion. A delete that finds
+  the SDK still stopping waits for that stop (up to 10 s) instead of stopping it again; if it never
+  stops, or the SDK reports the wipe failed, a warning is logged and a waiting `Launch` still proceeds.
 - Android `Launch`, `Relaunch` and `DeleteCollectedDataOnDevice` run one at a time, in request order, on the main
   thread, and `Stop` is never queued (calls from other threads are asynchronous): a `Launch` or `Relaunch` during a stop is deferred, a
   `Relaunch` is ignored with a warning unless the SDK is `Launched`, a refused `Launch` no longer cancels a pending

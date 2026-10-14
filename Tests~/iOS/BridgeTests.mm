@@ -18,6 +18,8 @@ void _bugsee_launch(const char *appToken, const char *optionsJson, int startedTo
 void _bugsee_relaunch(const char *optionsJson, int startedToken, BugseeLaunchStartedFn started);
 typedef void (*BugseeStopCompletionFn)(int token);
 void _bugsee_stop(int token, BugseeStopCompletionFn completion);
+typedef void (*BugseeDeleteCompletionFn)(int token, int wiped);
+void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completion);
 }
 
 static int gStartedToken;
@@ -29,6 +31,15 @@ static void OnStarted(int token, int success)
     (void)success;
     gStartedToken = token;
     gStartedCount++;
+}
+
+static int gDeletedToken;
+static int gDeletedWiped = -1;
+
+static void OnDeleted(int token, int wiped)
+{
+    gDeletedToken = token;
+    gDeletedWiped = wiped;
 }
 
 static void OnStopped(int token)
@@ -120,6 +131,10 @@ int main(void)
     _bugsee_relaunch(NULL, 42, OnStarted);
     expect(waitFor(^{ return gStartedCount == 2 ? 1 : 0; }, 5) && gStartedToken == 42,
            "relaunch reports the SDK's started answer with its token");
+    // The wipe reports back with its token once the SDK has finished it (it stops a running SDK first).
+    _bugsee_delete_collected_data(9, OnDeleted);
+    expect(waitFor(^{ return gDeletedToken == 9 ? 1 : 0; }, 15), "delete reports its completion with its token");
+    expect(gDeletedWiped == 1, "delete reports wiped on the normal path");
     _bugsee_launch("00000000-0000-0000-0000-000000000000", NULL, 0, NULL);
     expect(gStartedCount == 2, "a launch without a started callback calls nothing back");
 
