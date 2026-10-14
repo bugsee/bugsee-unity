@@ -147,6 +147,7 @@ namespace Bugsee.Platform.EditorStub
             public string ErrorShortMessage { get; set; }
             public string ErrorDescription { get; set; }
             public IDictionary<string, string> Headers { get; set; }
+            public bool IsOverride { get; set; }
             public NetworkEventStage Stage => _stage;
         }
     }

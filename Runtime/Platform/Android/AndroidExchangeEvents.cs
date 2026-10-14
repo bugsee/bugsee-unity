@@ -105,6 +105,12 @@ namespace Bugsee.Platform.Android
             }
         }
 
+        public bool IsOverride
+        {
+            get => _native.Call<bool>("isOverride");
+            set => _native.Call("setOverride", value);
+        }
+
         public NetworkEventStage Stage
         {
             get

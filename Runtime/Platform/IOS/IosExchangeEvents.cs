@@ -118,6 +118,9 @@ namespace Bugsee.Platform.IOS
             }
         }
 
+        // No iOS counterpart: kept on the managed event only, not part of the DTO or the channel JSON.
+        public bool IsOverride { get; set; }
+
         public NetworkEventStage Stage => ParseStage(_dto.stage);
 
         public string ToResultJson()
