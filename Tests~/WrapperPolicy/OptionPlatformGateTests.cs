@@ -47,6 +47,12 @@ namespace Bugsee.WrapperPolicy.Tests
 
             expected.Add(Options.ReportingTriggerByNotification);
             expected.Add(Options.ReportingTriggerByBroadcast);
+            expected.Add(Options.CaptureLogsUseAllSources);
+            expected.Add(Options.CaptureRespectFlagSecure);
+            expected.Add(Options.CaptureVideoMode);
+            expected.Add(Options.CaptureVideoUsingCustomMuxer);
+            expected.Add(Options.ReportProcessingInProcess);
+            expected.Add(Options.WebViewDomainAllowlist);
             return expected;
         }
 

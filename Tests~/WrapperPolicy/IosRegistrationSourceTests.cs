@@ -44,5 +44,23 @@ namespace Bugsee.WrapperPolicy.Tests
                 Assert.That(body.IndexOf("if (!gWrapper)"), Is.LessThan(body.IndexOf("BugseeUnityWrapper new")));
             }
         }
+
+        [Test]
+        public void Native_callbacks_encode_json_with_the_tested_JsonWire()
+        {
+            string text = File.ReadAllText(Path.Combine(FindRepoRoot(), "Runtime", "Platform", "IOS", "IosNativeCallbacks.cs"));
+            Assert.That(text, Does.Not.Contain("static string JsonString("));
+            Assert.That(text, Does.Contain("JsonWire.String("));
+        }
+
+        [Test]
+        public void LogException_options_cross_to_the_native_bridge()
+        {
+            string text = File.ReadAllText(Path.Combine(FindRepoRoot(), "Runtime", "Platform", "IOS", "IOSBridge.cs"));
+            Assert.That(text, Does.Contain("static extern void _bugsee_logException(string name, string reason, bool handled, string optionsJson);"));
+            Assert.That(text, Does.Contain("ManagedExceptionPayload.ToJson(payload), true,\r\n") .Or.Contain("ManagedExceptionPayload.ToJson(payload), true,\n"));
+            Assert.That(text, Does.Contain("ManagedExceptionPayload.ToJson(payload), false,\r\n").Or.Contain("ManagedExceptionPayload.ToJson(payload), false,\n"));
+            Assert.That(System.Text.RegularExpressions.Regex.Matches(text, @"ToJsonObject\(options\)\);").Count, Is.EqualTo(2));
+        }
     }
 }

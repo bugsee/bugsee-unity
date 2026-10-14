@@ -303,16 +303,68 @@ void _bugsee_event(const char *name, const char *paramsJson)
     [Bugsee event:BugseeNSString(name)];
 }
 
-void _bugsee_logException(const char *name, const char *reason, bool handled)
+// Honoured keys: labels (strings), includeVideo (bool, default true), mergingRules (map, the SDK's own keys) and
+// skipFrames (number, as on Android). The domain is owned by the wrapper (the exception name), so a caller-supplied one is ignored, as on Android.
+static BugseeExceptionLoggingOptions *BugseeExceptionOptionsFrom(const char *optionsJson)
+{
+    id parsed = BugseeDeserializeJson(optionsJson);
+    if (![parsed isKindOfClass:[NSDictionary class]]) {
+        return nil;
+    }
+    NSDictionary *d = parsed;
+    BugseeExceptionLoggingOptions *options = [BugseeExceptionLoggingOptions new];
+    // A fresh options object has includeVideo off; nil options keep the video, so only an explicit false drops it.
+    options.includeVideo = YES;
+    id labels = d[@"labels"];
+    if ([labels isKindOfClass:[NSArray class]]) {
+        NSMutableArray<NSString *> *clean = [NSMutableArray array];
+        for (id label in (NSArray *)labels) {
+            if ([label isKindOfClass:[NSString class]]) {
+                [clean addObject:label];
+            }
+        }
+        options.labels = clean;
+    }
+    id includeVideo = d[@"includeVideo"];
+    if ([includeVideo isKindOfClass:[NSNumber class]]) {
+        options.includeVideo = [includeVideo boolValue];
+    }
+    id rules = d[@"mergingRules"];
+    NSMutableDictionary *mergingRules = [rules isKindOfClass:[NSDictionary class]]
+        ? [rules mutableCopy] : [NSMutableDictionary dictionary];
+    // Android's top-level skipFrames is the SDK's skip-frames merging rule here.
+    id skipFrames = d[@"skipFrames"];
+    if ([skipFrames isKindOfClass:[NSNumber class]]) {
+        mergingRules[BugseeMergingRulesSkipFramesKey] = skipFrames;
+    }
+    if (mergingRules.count > 0) {
+        options.mergingRules = mergingRules;
+    }
+    return options;
+}
+
+void _bugsee_logException(const char *name, const char *reason, bool handled, const char *optionsJson)
 {
     NSString *finalName = BugseeNSString(name) ?: @"UnityManagedException";
     NSString *finalReason = BugseeNSString(reason) ?: @"";
     if (handled) {
-        [Bugsee logException:finalName reason:finalReason options:nil completion:nil];
+        [Bugsee logException:finalName reason:finalReason options:BugseeExceptionOptionsFrom(optionsJson) completion:nil];
     } else {
+        // The SDK has no options on the unhandled path.
         [Bugsee logUnhandledException:finalName reason:finalReason completion:nil];
     }
 }
+
+#if BUGSEE_UNITY_TESTS
+const char *_bugsee_test_exception_options(const char *optionsJson)
+{
+    BugseeExceptionLoggingOptions *o = BugseeExceptionOptionsFrom(optionsJson);
+    if (!o) return NULL;
+    NSString *summary = [NSString stringWithFormat:@"labels=%@;video=%d;rules=%@",
+                         [o.labels componentsJoinedByString:@","], o.includeVideo ? 1 : 0, o.mergingRules];
+    return strdup(summary.UTF8String);
+}
+#endif
 
 void _bugsee_test_crash(void)
 {
@@ -747,7 +799,7 @@ void _bugsee_end_blackout(void) {}
 void _bugsee_log(const char *message, int level) { (void)message; (void)level; }
 void _bugsee_trace(const char *name, const char *valueJson) { (void)name; (void)valueJson; }
 void _bugsee_event(const char *name, const char *paramsJson) { (void)name; (void)paramsJson; }
-void _bugsee_logException(const char *name, const char *reason, bool handled) { (void)name; (void)reason; (void)handled; }
+void _bugsee_logException(const char *name, const char *reason, bool handled, const char *optionsJson) { (void)name; (void)reason; (void)handled; (void)optionsJson; }
 void _bugsee_test_crash(void) {}
 void _bugsee_show_report(const char *summary, const char *description, int severity, const char *labelsJson) { (void)summary; (void)description; (void)severity; (void)labelsJson; }
 void _bugsee_upload(const char *summary, const char *description, int severity, const char *labelsJson) { (void)summary; (void)description; (void)severity; (void)labelsJson; }

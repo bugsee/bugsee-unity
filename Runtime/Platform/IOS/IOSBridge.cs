@@ -637,7 +637,8 @@ namespace Bugsee.Platform.IOS
             IDictionary<string, object> options = null)
         {
             if (payload == null) return;
-            _bugsee_logException("UnityManagedException", ManagedExceptionPayload.ToJson(payload), true);
+            _bugsee_logException("UnityManagedException", ManagedExceptionPayload.ToJson(payload), true,
+                ToJsonObject(options));
         }
 
         public void LogUnhandledExceptionPayload(
@@ -645,7 +646,8 @@ namespace Bugsee.Platform.IOS
             IDictionary<string, object> options = null)
         {
             if (payload == null) return;
-            _bugsee_logException("UnityManagedException", ManagedExceptionPayload.ToJson(payload), false);
+            _bugsee_logException("UnityManagedException", ManagedExceptionPayload.ToJson(payload), false,
+                ToJsonObject(options));
         }
 
         public void TestCrash() => _bugsee_test_crash();
@@ -857,7 +859,7 @@ namespace Bugsee.Platform.IOS
             ManagedReportUploadNativeCallback callback);
         [DllImport("__Internal")] static extern void _bugsee_trace(string name, string valueJson);
         [DllImport("__Internal")] static extern void _bugsee_event(string name, string paramsJson);
-        [DllImport("__Internal")] static extern void _bugsee_logException(string name, string reason, bool handled);
+        [DllImport("__Internal")] static extern void _bugsee_logException(string name, string reason, bool handled, string optionsJson);
         [DllImport("__Internal")] static extern void _bugsee_test_crash();
         [DllImport("__Internal")] static extern void _bugsee_show_report(string summary, string description, int severity, string labelsJson);
         [DllImport("__Internal")] static extern void _bugsee_upload(string summary, string description, int severity, string labelsJson);

@@ -26,6 +26,7 @@ typedef void (*BugseeStopCompletionFn)(int token);
 void _bugsee_stop(int token, BugseeStopCompletionFn completion);
 typedef void (*BugseeDeleteCompletionFn)(int token, int wiped);
 void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completion);
+const char *_bugsee_test_exception_options(const char *optionsJson);
 }
 
 static int gStartedToken;
@@ -205,6 +206,24 @@ int main(void)
     expect(kindColor == NULL, "a string property has no color value");
     free(kindText);
     free(kindColor);
+    // LogException options reach BugseeExceptionLoggingOptions; unknown keys and wrong types are ignored.
+    expect(_bugsee_test_exception_options(NULL) == NULL, "no exception options means nil options");
+    expect(_bugsee_test_exception_options("[1]") == NULL, "non-object exception options are ignored");
+    value = _bugsee_test_exception_options(
+        "{\"labels\":[\"a\",3,\"b\"],\"includeVideo\":false,\"mergingRules\":{\"k\":1},\"domain\":\"x\"}");
+    expect(value != NULL && strstr(value, "labels=a,b;video=0;") != NULL && strstr(value, "k = 1") != NULL,
+           "exception options carry labels, includeVideo and mergingRules");
+    free((void *)value);
+    value = _bugsee_test_exception_options("{\"labels\":\"nope\",\"includeVideo\":\"yes\"}");
+    expect(value != NULL && strstr(value, "labels=(null);video=1;") != NULL, "wrong-typed exception options are dropped");
+    free((void *)value);
+    value = _bugsee_test_exception_options("{\"labels\":[\"only\"]}");
+    expect(value != NULL && strstr(value, "labels=only;video=1;") != NULL, "options without includeVideo keep the video");
+    free((void *)value);
+    value = _bugsee_test_exception_options("{\"skipFrames\":2,\"domain\":\"x\"}");
+    expect(value != NULL && strstr(value, "video=1;") != NULL && strstr(value, "= 2") != NULL,
+           "top-level skipFrames becomes the skip-frames merging rule");
+    free((void *)value);
     // Lifecycle against the real SDK: answers come back with the caller's token.
     _bugsee_launch("00000000-0000-0000-0000-000000000000", "{\"max_recording_time\":60}", 41, OnStarted);
     expect(waitFor(^{ return gStartedCount == 1 ? 1 : 0; }, 5) && gStartedToken == 41,
