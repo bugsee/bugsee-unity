@@ -89,7 +89,7 @@ Property / key naming currently follows **Android 7.0**. When the Bugsee **iOS**
 ## Native packaging (already scaffolded)
 
 - `package.json` → `com.bugsee.unity`, no package dependencies
-- `Editor/BugseeAndroidMavenDependencies.cs` → declares Maven 7.4.1 (+ NDK, both explicit) in the generated Gradle project; text edits in `Runtime/WrapperPolicy/GradleMavenInjection.cs`. A project-declared Bugsee dependency (EDM4U, custom template, local AAR) is kept and a version mismatch warned about
+- `Editor/BugseeAndroidMavenDependencies.cs` → declares Maven 7.4.1 (+ NDK, both explicit) in the generated Gradle project; text edits in `Runtime/WrapperPolicy/GradleMavenInjection.cs`. A project-declared Bugsee dependency (EDM4U, custom template, local AAR) is kept and a version mismatch warned about; `.gradle.kts` files (project-converted; Unity generates Groovy) are edited in Kotlin syntax and `repositoriesMode` (`FAIL_ON_PROJECT_REPOS`) is respected
 - `Editor/BugseeIosSpmPostProcess.cs` → remote SPM `github.com/bugsee/spm` `7.0.0-beta6`
 - `Plugins/iOS/BugseeUnityBridge.mm` + `Plugins/Android/UnityManagedException.java`
 - `Tools~/scripts/update-native-sdks.sh` + `versions.env`
