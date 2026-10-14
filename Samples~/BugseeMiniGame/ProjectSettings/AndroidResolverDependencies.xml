@@ -1,7 +1,7 @@
 <dependencies>
   <packages>
-    <package>com.bugsee:bugsee-android:7.3.0</package>
-    <package>com.bugsee:bugsee-android-ndk:7.3.0</package>
+    <package>com.bugsee:bugsee-android:7.4.1</package>
+    <package>com.bugsee:bugsee-android-ndk:7.4.1</package>
   </packages>
   <files />
   <settings>

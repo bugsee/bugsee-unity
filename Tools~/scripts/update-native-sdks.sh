@@ -47,6 +47,12 @@ echo "Updated ${RUNTIME_VERSION_CS}"
 cat > "${ANDROID_DEPS_XML}" <<EOF
 <dependencies>
   <androidPackages>
+    <!--
+      Android SDK ${ANDROID_SDK_VERSION} publishes no Maven transitives (POM and Gradle .module are
+      empty). NDK is a separate artifact and is not pulled by the core AAR — declare
+      both. androidx.fragment is not required: fragment secure-view overloads are typed
+      as Object so Unity JNI reflection can load Bugsee without Fragment.
+    -->
     <androidPackage spec="${ANDROID_MAVEN_GROUP}:${ANDROID_MAVEN_ARTIFACT}:${ANDROID_SDK_VERSION}" />
     <androidPackage spec="${ANDROID_MAVEN_GROUP}:${ANDROID_NDK_ARTIFACT}:${ANDROID_SDK_VERSION}" />
   </androidPackages>

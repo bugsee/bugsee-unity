@@ -59,7 +59,7 @@ SetSecureRect / SetAttribute / SetUserIdentifier / Appearance open IMGUI forms f
 |----------|-------------|
 | **Editor** | Game + HUD work; Bugsee uses no-op bridge (`IsLaunched` stays false). |
 | **Android** | Full path: Launch with `DirectBuffers`, reporting, blackout, filters, etc. |
-| **iOS** | Launch + managed/native crash path via `BugseeUnityBridge` + remote SPM (`github.com/bugsee/spm` `7.0.0-beta5`). Requires **iOS 15+** (sample Player Settings and the export post-process both set `IPHONEOS_DEPLOYMENT_TARGET` to 15.0). |
+| **iOS** | Launch + managed/native crash path via `BugseeUnityBridge` + remote SPM (`github.com/bugsee/spm` `7.0.0-beta6`). Requires **iOS 15+** (sample Player Settings and the export post-process both set `IPHONEOS_DEPLOYMENT_TARGET` to 15.0). |
 
 ## Build Android
 
@@ -67,7 +67,7 @@ SetSecureRect / SetAttribute / SetUserIdentifier / Appearance open IMGUI forms f
 2. Set a real Bugsee app token on `MiniGameBootstrap`.
 3. Build & Run on device.
 
-EDM pulls `bugsee-android:7.3.0` + `bugsee-android-ndk:7.3.0` (core publishes no transitives; NDK is explicit).
+EDM pulls `bugsee-android:7.4.1` + `bugsee-android-ndk:7.4.1` (core publishes no transitives; NDK is explicit).
 Gradle plugin `4.0.8` is applied on Unity 6+ launcher templates (`ndk { enabled = true }`).
 
 ### EDM resolve fails with `org.codehaus.groovy.vmplugin.v7.Java7`
