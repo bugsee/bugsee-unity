@@ -1,25 +1,35 @@
 using System;
 using System.Collections.Generic;
+using Bugsee.Contracts.Options;
 
 namespace Bugsee.WrapperPolicy
 {
     /// <summary>
-    /// What happens after a launch that asked for VideoMode.DirectBuffers: start the Unity-side pusher on the main thread,
-    /// and if it cannot start, relaunch with the default capture, so the session never keeps DirectBuffers without a
-    /// frame source. Written against delegates so it can be tested without Unity.
+    /// Keeps the Unity-side frame pusher in step with the native SDK. The pusher must run exactly when the native SDK
+    /// is in VideoMode.DirectBuffers, so its state follows what the native launch actually did, not what was asked
+    /// for: a Launch the SDK ignored (already running) or rejected leaves the pusher alone, and an accepted one is
+    /// read back from the effective launch options. If the pusher cannot start, the session is relaunched with the
+    /// default capture. Written against delegates so it can be tested without Unity.
     /// </summary>
     public static class CaptureStartup
     {
-        /// <param name="startPusher">The policy decided the pusher must run.</param>
-        /// <param name="options">The options the launch used (the fallback relaunch is these with the default mode).</param>
-        /// <param name="enable">Starts the pusher; must be called on the main thread; false when it could not start.</param>
-        /// <param name="disable">Stops a pusher a previous launch started.</param>
-        /// <param name="relaunch">Relaunches the native SDK with the given options.</param>
+        /// <summary>Call with the answer of a Launch/Relaunch request, once it is known.</summary>
+        /// <param name="accepted">The native SDK accepted the request (it ran).</param>
+        /// <param name="startRequested">The capture policy decided the request wants the pusher (DirectBuffers kept).</param>
+        /// <param name="options">The options the request used (a fallback relaunch is these with the default mode).</param>
+        /// <param name="isRunning">The native SDK is launching or launched.</param>
+        /// <param name="effectiveMode">The video mode the native SDK reports in its launch options, or null when unreadable.</param>
+        /// <param name="enable">Starts the pusher; main thread only; false when it could not start.</param>
+        /// <param name="disable">Stops the pusher.</param>
+        /// <param name="relaunch">Relaunches the native SDK with the given options (the SDK is launched when this runs).</param>
         /// <param name="warn">Logs a warning.</param>
         /// <param name="runOnMainThread">Runs the action on the main thread (inline when already there, else queued).</param>
-        public static void Run(
-            bool startPusher,
+        public static void OnLaunchResult(
+            bool accepted,
+            bool startRequested,
             Dictionary<string, object> options,
+            Func<bool> isRunning,
+            Func<VideoMode?> effectiveMode,
             Func<bool> enable,
             Action disable,
             Action<Dictionary<string, object>> relaunch,
@@ -28,11 +38,21 @@ namespace Bugsee.WrapperPolicy
         {
             runOnMainThread(() =>
             {
-                if (!startPusher)
+                if (!accepted)
+                {
+                    // Ignored or refused: the native session, if any, is unchanged, so the pusher is too.
+                    if (!isRunning()) disable();
+                    return;
+                }
+
+                VideoMode? mode = effectiveMode();
+                bool wantPusher = mode.HasValue ? mode.Value == VideoMode.DirectBuffers : startRequested;
+                if (!wantPusher)
                 {
                     disable();
                     return;
                 }
+
                 bool started;
                 try
                 {

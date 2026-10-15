@@ -66,8 +66,13 @@ namespace Bugsee
 
             MainThreadDispatcher.Ensure();
             options = ApplyCapturePolicy(options, out bool startPusher);
-            Bridge.Launch(appToken, options);
-            AfterLaunch(startPusher, options);
+            if (Bridge is ILifecycleResultBridge bridge)
+                bridge.Launch(appToken, options, accepted => AfterLaunchResult(accepted, startPusher, options));
+            else
+            {
+                Bridge.Launch(appToken, options);
+                AfterLaunchResult(true, startPusher, options);
+            }
         }
 
         /// <summary>
@@ -78,8 +83,13 @@ namespace Bugsee
         public static void Relaunch(Dictionary<string, object> options = null)
         {
             options = ApplyCapturePolicy(options, out bool startPusher);
-            Bridge.Relaunch(options);
-            AfterLaunch(startPusher, options);
+            if (Bridge is ILifecycleResultBridge bridge)
+                bridge.Relaunch(options, accepted => AfterLaunchResult(accepted, startPusher, options));
+            else
+            {
+                Bridge.Relaunch(options);
+                AfterLaunchResult(true, startPusher, options);
+            }
         }
 
         // VideoMode.DirectBuffers needs a frame source, and in Unity that is the Unity-side capturer (Unity 2022.2+). When it
@@ -99,39 +109,45 @@ namespace Bugsee
         static Dictionary<string, object> _pusherLaunchOptions;
         static bool _pusherFailureHooked;
 
-        // After a DirectBuffers launch: start the pusher on the main thread, and if it cannot start (now, or later after
-        // repeated readback failures) relaunch with the default capture so the session still records video. Off the main
-        // thread the start is queued, and the fallback still runs afterwards. A launch that no longer wants the pusher
-        // stops it.
-        static void AfterLaunch(bool startPusher, Dictionary<string, object> options)
+        // The pusher follows what the native SDK actually did with a launch request, once its answer is known: an ignored or
+        // refused request (e.g. a Launch while the SDK is running) leaves it alone, an accepted one is read back from the
+        // effective launch options. If it cannot start (now, or later after repeated readback failures) the session is
+        // relaunched with the default capture. All of it runs on the main thread.
+        static void AfterLaunchResult(bool accepted, bool startPusher, Dictionary<string, object> options)
         {
-            if (startPusher)
+            if (accepted && startPusher) _pusherLaunchOptions = options;
+            if (startPusher && !_pusherFailureHooked)
             {
-                _pusherLaunchOptions = options;
-                if (!_pusherFailureHooked)
+                _pusherFailureHooked = true;
+                Capture.BugseeFrameCapturer.Failed += () => MainThreadDispatcher.Run(() =>
                 {
-                    _pusherFailureHooked = true;
-                    Capture.BugseeFrameCapturer.Failed += () => MainThreadDispatcher.Run(() =>
-                    {
-                        if (_pusherLaunchOptions == null) return;
-                        var failedOptions = _pusherLaunchOptions;
-                        _pusherLaunchOptions = null;
-                        CaptureStartup.OnPusherFailed(failedOptions, Bridge.Relaunch, message => Debug.LogWarning("[Bugsee] " + message));
-                    });
-                }
+                    if (_pusherLaunchOptions == null) return;
+                    var failedOptions = _pusherLaunchOptions;
+                    _pusherLaunchOptions = null;
+                    CaptureStartup.OnPusherFailed(failedOptions, Bridge.Relaunch, message => Debug.LogWarning("[Bugsee] " + message));
+                });
             }
-            else
-            {
-                _pusherLaunchOptions = null;
-            }
-            CaptureStartup.Run(
+            CaptureStartup.OnLaunchResult(
+                accepted,
                 startPusher,
                 options,
+                () => IsStartingOrLaunched(Bridge.GetStatus()),
+                EffectiveVideoMode,
                 () => Capture.BugseeFrameCapturer.Enable(Capture.BugseeFrameCapturer.DefaultOptions),
                 Capture.BugseeFrameCapturer.Disable,
                 Bridge.Relaunch,
                 message => Debug.LogWarning("[Bugsee] " + message),
                 MainThreadDispatcher.Run);
+        }
+
+        // The video mode the native SDK is really running with, from its effective launch options; null when unreadable.
+        static VideoMode? EffectiveVideoMode()
+        {
+            IReadOnlyDictionary<string, object> launch = Bridge.GetLaunchOptions();
+            if (launch == null || !launch.TryGetValue(Options.CaptureVideoMode, out object mode) || mode == null) return null;
+            return int.TryParse(Convert.ToString(mode, System.Globalization.CultureInfo.InvariantCulture), out int value)
+                ? VideoModeExtensions.FromIntValue(value)
+                : (VideoMode?)null;
         }
 
         /// <summary>
@@ -166,14 +182,18 @@ namespace Bugsee
             var result = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             if (Bridge is ILifecycleResultBridge bridge)
             {
-                bridge.Launch(appToken, options, accepted => result.TrySetResult(accepted));
+                bridge.Launch(appToken, options, accepted =>
+                {
+                    AfterLaunchResult(accepted, startPusher, options);
+                    result.TrySetResult(accepted);
+                });
             }
             else
             {
                 Bridge.Launch(appToken, options);
+                AfterLaunchResult(true, startPusher, options);
                 result.TrySetResult(IsStartingOrLaunched(Bridge.GetStatus()));
             }
-            AfterLaunch(startPusher, options);
             return result.Task;
         }
 
@@ -184,14 +204,18 @@ namespace Bugsee
             var result = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             if (Bridge is ILifecycleResultBridge bridge)
             {
-                bridge.Relaunch(options, accepted => result.TrySetResult(accepted));
+                bridge.Relaunch(options, accepted =>
+                {
+                    AfterLaunchResult(accepted, startPusher, options);
+                    result.TrySetResult(accepted);
+                });
             }
             else
             {
                 Bridge.Relaunch(options);
+                AfterLaunchResult(true, startPusher, options);
                 result.TrySetResult(IsStartingOrLaunched(Bridge.GetStatus()));
             }
-            AfterLaunch(startPusher, options);
             return result.Task;
         }
 
