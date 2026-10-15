@@ -233,6 +233,13 @@ namespace Bugsee.Editor
                         {
                             continue;
                         }
+                        // R8 writes an empty mapping when nothing was obfuscated. The Gradle plugin (and the build id
+                        // block) write no id for it, so the app reports the SDK's own id and an upload keyed by the CLI's
+                        // content id could never match: skip it.
+                        if (IsEmptyFile(file))
+                        {
+                            continue;
+                        }
                         var fileRank = rank(file);
                         if (fileRank == BuildArtifactChoice.Reject)
                         {
@@ -383,6 +390,12 @@ namespace Bugsee.Editor
             }
 
             return roots;
+        }
+
+        static bool IsEmptyFile(string path)
+        {
+            try { return new FileInfo(path).Length == 0; }
+            catch { return false; }
         }
 
         static bool IsExcludedPath(string path)

@@ -84,6 +84,15 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void An_empty_mapping_is_never_uploaded()
+        {
+            var source = Source("Editor/BugseeSymbolUpload.cs");
+
+            Assert.That(Body(source, "static void UploadIfFound("), Does.Contain("if (IsEmptyFile(file))"));
+            Assert.That(Body(source, "static bool IsEmptyFile("), Does.Contain("new FileInfo(path).Length == 0"));
+        }
+
+        [Test]
         public void The_android_build_id_is_the_one_the_sdk_derives_from_the_app_as_built()
         {
             var body = Body(Source("Editor/BugseeBuildIdentity.cs"), "public static string ResolveBuildUuid(");
