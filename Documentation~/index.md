@@ -221,7 +221,9 @@ static RectInt ToSecureRect(Rect unityScreenRect)
 }
 ```
 
-A `RectTransform` corner from `GetWorldCorners` in a screen-space overlay canvas is also bottom-left: build the `Rect` from those corners, then convert. Rectangles are not flipped on rotation or resize; add them again when the screen size changes. A rectangle is removed with the same top-left rectangle it was added with.
+A `RectTransform` corner from `GetWorldCorners` in a screen-space overlay canvas is also bottom-left: build the `Rect` from those corners, then convert. Rectangles are not flipped, scaled or moved on rotation or resize; rectangles are keyed by their exact left/top/right/bottom, so when the screen size changes remove the old rectangle (or call `RemoveAllSecureRectangles()`) before adding the new one.
+
+**Limitation:** the rectangle must already be in the native display's coordinate space; the wrapper does no scaling or offsetting beyond the iOS points conversion. With Android Resolution Scaling or `Screen.SetResolution`, or a non-fullscreen Unity view (status bar or notch offset), `Screen.height` and pixels differ from native pixels, so scale or offset the rectangle yourself. On iOS the wrapper divides by `UIScreen.scale`, which is wrong if the render size differs from points x scale. A rectangle is removed with the same top-left rectangle it was added with.
 
 ## Native dependencies
 
