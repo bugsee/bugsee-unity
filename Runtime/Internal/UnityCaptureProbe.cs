@@ -16,7 +16,10 @@ namespace Bugsee.Internal
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         static void Bootstrap()
         {
-            Current();
+            // RuntimeInitializeOnLoadMethod runs on the main thread; MainThreadDispatcher's own bootstrap may not have run
+            // yet, so do not go through IsMainThread here.
+            var env = Read();
+            lock (Gate) _cached = env;
         }
 
         public static UnityCaptureEnvironment Current()
@@ -52,7 +55,7 @@ namespace Bugsee.Internal
 
         static UnityCaptureEnvironment Unavailable()
         {
-            return new UnityCaptureEnvironment { IsAndroidPlayer = true, UnityVersion = null };
+            return new UnityCaptureEnvironment { IsAndroidPlayer = true, NotRead = true };
         }
     }
 }

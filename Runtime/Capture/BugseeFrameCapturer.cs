@@ -81,8 +81,9 @@ namespace Bugsee.Capture
         /// (no AndroidJNI.NewDirectByteBuffer), without the Screen Capture module, or when the device cannot do GPU
         /// readback. Call after or around Bugsee.Launch with VideoMode.DirectBuffers; frames are skipped until the SDK
         /// is launched. Called off the main thread it is queued and returns true before it has run: whether it actually
-        /// started is then visible through <see cref="IsEnabled"/> (and a failed start makes the wrapper relaunch with the
-        /// default capture when the launch asked for DirectBuffers).
+        /// started is then visible through <see cref="IsEnabled"/>. (A launch that asks for DirectBuffers starts the
+        /// capturer itself on the main thread and relaunches with the default capture if it cannot start; that path does
+        /// not depend on this return value.)
         /// </summary>
         public static bool Enable(BugseeFrameCapturerOptions options = null)
         {
@@ -140,6 +141,13 @@ namespace Bugsee.Capture
 #if BUGSEE_READBACK
         static bool EnableReadback(BugseeFrameCapturerOptions options)
         {
+            // The compile-time define also matches alpha and beta builds; only release builds are supported.
+            if (!UnityCapturePolicy.IsSupportedUnityVersion(Application.unityVersion))
+            {
+                Debug.LogWarning("[BugseeFrameCapturer] Unity " + Application.unityVersion + " is not supported (release builds of "
+                    + UnityCapturePolicy.MinimumUnityVersion + " or newer only); not enabled.");
+                return false;
+            }
             bool vulkan = SystemInfo.graphicsDeviceType == GraphicsDeviceType.Vulkan;
             if (!FramePushPolicy.IsReadbackUsable(SystemInfo.supportsAsyncGPUReadback, vulkan, Application.unityVersion))
             {
@@ -165,7 +173,6 @@ namespace Bugsee.Capture
         const string AddFrameSignature = "(JILjava/nio/ByteBuffer;IIIL" + RowOrderClass + ";)V";
         const string TimeUtilsClass = "com/bugsee/library/shared/util/TimeUtils";
         const float StatsLogIntervalSeconds = 10f;
-        const double ViewRegionRefreshSeconds = 1.0;
         const int AndroidContentViewId = 16908290; // android.R.id.content
         const int ProbeFrames = 3;
 
@@ -180,11 +187,9 @@ namespace Bugsee.Capture
         int _captureW, _captureH;
         long _requestTimestampMs;
 
-        // Where Unity's view sits in the window, in native window pixels (what secure rectangles are registered in):
-        // refreshed about once a second and when the Unity screen size changes. Width 0 means unknown (fail closed).
-        int _lastScreenW, _lastScreenH;
-        SourceRegion _viewRegion, _requestRegion;
-        double _nextViewRegion;
+        // Where Unity's surface sits in the window, in native window pixels (what secure rectangles are registered in), read
+        // at every request and every readback. Width 0 means unknown (fail closed).
+        SourceRegion _viewRegion, _requestRegion, _loggedRegion;
         int[] _rects;
         int[] _requestRects;   // rectangles registered when the capture started
         int _requestRectCount;
@@ -405,7 +410,7 @@ namespace Bugsee.Capture
 
             try
             {
-                UpdateViewRegion(now);
+                _viewRegion = ReadViewRegion();
                 if (!EnsureBuffers()) { _policy.Complete(false); return; }
                 _requestTimestampMs = NowMs();
                 _requestTicks = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -423,31 +428,121 @@ namespace Bugsee.Capture
         }
 
         // Secure rectangles are native window pixels, and Unity's view need not fill the window (status bar, cutout,
-        // multi-window, reduced render resolution), so the rectangles are mapped relative to the view's position in the
-        // window. Re-read about once a second and when the Unity screen size changes; unknown if it cannot be read.
-        void UpdateViewRegion(double now)
+        // multi-window, reduced render resolution), so the rectangles are mapped relative to the Unity surface's position in
+        // the window. Read at every request and at every readback (no time-based cache), with raw JNI (no managed garbage).
+        // The Unity view is the first SurfaceView under the activity's content view; if there is none, or anything fails,
+        // the region is unknown and masking fails closed.
+        SourceRegion ReadViewRegion()
         {
-            if (Screen.width == _lastScreenW && Screen.height == _lastScreenH && now < _nextViewRegion && _viewRegion.IsKnown) return;
-            _lastScreenW = Screen.width;
-            _lastScreenH = Screen.height;
-            _nextViewRegion = now + ViewRegionRefreshSeconds;
             try
             {
-                using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
-                using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
-                using (var content = activity.Call<AndroidJavaObject>("findViewById", AndroidContentViewId))
-                using (var view = content.Call<AndroidJavaObject>("getChildAt", 0))
+                if (_jni.PlayerClass == IntPtr.Zero && !_jni.Init()) return default;
+                IntPtr activity = AndroidJNI.GetStaticObjectField(_jni.PlayerClass, _jni.CurrentActivityField);
+                if (activity == IntPtr.Zero) return default;
+                _jni.IntArgs[0].i = AndroidContentViewId;
+                IntPtr content = AndroidJNI.CallObjectMethod(activity, _jni.FindViewById, _jni.IntArgs);
+                AndroidJNI.DeleteLocalRef(activity);
+                if (content == IntPtr.Zero) { ClearPendingException(); return default; }
+                IntPtr surface = FindSurfaceView(content, 0);
+                AndroidJNI.DeleteLocalRef(content);
+                if (surface == IntPtr.Zero) { ClearPendingException(); return default; }
+                _jni.ArrayArgs[0].l = _jni.LocationArray;
+                AndroidJNI.CallVoidMethod(surface, _jni.GetLocationInWindow, _jni.ArrayArgs);
+                int left = AndroidJNI.GetIntArrayElement(_jni.LocationArray, 0);
+                int top = AndroidJNI.GetIntArrayElement(_jni.LocationArray, 1);
+                int width = AndroidJNI.CallIntMethod(surface, _jni.GetWidth, _noArgs);
+                int height = AndroidJNI.CallIntMethod(surface, _jni.GetHeight, _noArgs);
+                AndroidJNI.DeleteLocalRef(surface);
+                if (ClearPendingException()) return default;
+                var region = new SourceRegion(left, top, width, height);
+                if (_options.LogStats && (region.Left != _loggedRegion.Left || region.Top != _loggedRegion.Top
+                    || region.Width != _loggedRegion.Width || region.Height != _loggedRegion.Height))
                 {
-                    int[] location = new int[2];
-                    view.Call("getLocationInWindow", location);
-                    _viewRegion = new SourceRegion(location[0], location[1], view.Call<int>("getWidth"), view.Call<int>("getHeight"));
+                    _loggedRegion = region;
+                    Debug.Log("[BugseeFrameCapturer] view region left=" + left + " top=" + top + " size=" + width + "x" + height);
                 }
+                return region;
             }
             catch (Exception)
             {
-                _viewRegion = default; // unknown: masking fails closed
+                ClearPendingException();
+                return default;
             }
         }
+
+        // Depth-first search for the first SurfaceView; returns a new local reference or zero. Depth-limited.
+        IntPtr FindSurfaceView(IntPtr view, int depth)
+        {
+            if (AndroidJNI.IsInstanceOf(view, _jni.SurfaceViewClass)) return AndroidJNI.NewLocalRef(view);
+            if (depth > 6 || !AndroidJNI.IsInstanceOf(view, _jni.ViewGroupClass)) return IntPtr.Zero;
+            int count = AndroidJNI.CallIntMethod(view, _jni.GetChildCount, _noArgs);
+            for (int i = 0; i < count; i++)
+            {
+                _jni.IntArgs[0].i = i;
+                IntPtr child = AndroidJNI.CallObjectMethod(view, _jni.GetChildAt, _jni.IntArgs);
+                if (child == IntPtr.Zero) continue;
+                IntPtr found = FindSurfaceView(child, depth + 1);
+                AndroidJNI.DeleteLocalRef(child);
+                if (found != IntPtr.Zero) return found;
+            }
+            return IntPtr.Zero;
+        }
+
+        // Cached JNI handles for ReadViewRegion (main thread only).
+        sealed class ViewJni
+        {
+            public IntPtr PlayerClass, CurrentActivityField, FindViewById, GetLocationInWindow, GetWidth, GetHeight,
+                GetChildCount, GetChildAt, SurfaceViewClass, ViewGroupClass, LocationArray;
+            public readonly jvalue[] IntArgs = new jvalue[1];
+            public readonly jvalue[] ArrayArgs = new jvalue[1];
+
+            public bool Init()
+            {
+                IntPtr player = FindClassOrClear("com/unity3d/player/UnityPlayer");
+                IntPtr activity = FindClassOrClear("android/app/Activity");
+                IntPtr view = FindClassOrClear("android/view/View");
+                IntPtr group = FindClassOrClear("android/view/ViewGroup");
+                IntPtr surface = FindClassOrClear("android/view/SurfaceView");
+                if (player == IntPtr.Zero || activity == IntPtr.Zero || view == IntPtr.Zero || group == IntPtr.Zero || surface == IntPtr.Zero)
+                    return false;
+                CurrentActivityField = AndroidJNI.GetStaticFieldID(player, "currentActivity", "Landroid/app/Activity;");
+                FindViewById = AndroidJNI.GetMethodID(activity, "findViewById", "(I)Landroid/view/View;");
+                GetLocationInWindow = AndroidJNI.GetMethodID(view, "getLocationInWindow", "([I)V");
+                GetWidth = AndroidJNI.GetMethodID(view, "getWidth", "()I");
+                GetHeight = AndroidJNI.GetMethodID(view, "getHeight", "()I");
+                GetChildCount = AndroidJNI.GetMethodID(group, "getChildCount", "()I");
+                GetChildAt = AndroidJNI.GetMethodID(group, "getChildAt", "(I)Landroid/view/View;");
+                IntPtr array = AndroidJNI.ToIntArray(new int[2]);
+                if (CurrentActivityField == IntPtr.Zero || FindViewById == IntPtr.Zero || GetLocationInWindow == IntPtr.Zero
+                    || GetWidth == IntPtr.Zero || GetHeight == IntPtr.Zero || GetChildCount == IntPtr.Zero
+                    || GetChildAt == IntPtr.Zero || array == IntPtr.Zero)
+                {
+                    AndroidJNI.ExceptionClear();
+                    return false;
+                }
+                LocationArray = AndroidJNI.NewGlobalRef(array);
+                AndroidJNI.DeleteLocalRef(array);
+                PlayerClass = AndroidJNI.NewGlobalRef(player);
+                SurfaceViewClass = AndroidJNI.NewGlobalRef(surface);
+                ViewGroupClass = AndroidJNI.NewGlobalRef(group);
+                AndroidJNI.DeleteLocalRef(player);
+                AndroidJNI.DeleteLocalRef(activity);
+                AndroidJNI.DeleteLocalRef(view);
+                AndroidJNI.DeleteLocalRef(group);
+                AndroidJNI.DeleteLocalRef(surface);
+                return true;
+            }
+
+            public void Release()
+            {
+                IntPtr[] refs = { PlayerClass, SurfaceViewClass, ViewGroupClass, LocationArray };
+                for (int i = 0; i < refs.Length; i++)
+                    if (refs[i] != IntPtr.Zero) AndroidJNI.DeleteGlobalRef(refs[i]);
+                PlayerClass = SurfaceViewClass = ViewGroupClass = LocationArray = IntPtr.Zero;
+            }
+        }
+
+        readonly ViewJni _jni = new ViewJni();
 
         // Once per consumer: warn if the SDK is not launched with DirectBuffers (it then ignores pushed frames).
         void CheckLaunchMode()
@@ -523,7 +618,7 @@ namespace Bugsee.Capture
             // the capture started as well as what is secure now, each mapped with the view position of its own moment. If
             // the row order is unverified the mask could land on mirrored rows and leak the real area, and if a view
             // position is unknown the rectangles cannot be placed: both blank the whole frame.
-            UpdateViewRegion(Time.realtimeSinceStartupAsDouble);
+            _viewRegion = ReadViewRegion();
             int count = SecureRectRegistry.Instance.CopyRects(0, ref _rects);
             if (count > 0 || _requestRectCount > 0)
             {
@@ -643,6 +738,7 @@ namespace Bugsee.Capture
             // Both the main thread and the push thread may get here when the capturer is destroyed: only the first releases.
             if (Interlocked.Exchange(ref _nativeReleased, 1) == 1) return;
             ReleaseNativeBuffer();
+            _jni.Release();
             IntPtr[] refs = { _consumer, _topDown, _bottomUp, _timeClass, _elapsedClass, _bugseeClass };
             for (int i = 0; i < refs.Length; i++)
                 if (refs[i] != IntPtr.Zero) AndroidJNI.DeleteGlobalRef(refs[i]);

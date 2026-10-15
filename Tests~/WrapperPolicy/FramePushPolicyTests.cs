@@ -320,6 +320,22 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Extreme_rectangle_values_do_not_overflow_into_the_frame_or_out_of_it()
+        {
+            var b = White();
+            // int.MinValue - Left would wrap if subtracted as ints; as longs it is far outside and clamps to the left edge.
+            Assert.That(FrameRedaction.BlankRects(b, W, H, VideoFrameRowOrder.TopDown, new[] { int.MinValue, int.MinValue, 2, 2 }, 1, new SourceRegion(100, 100, 4, 4)), Is.EqualTo(0));
+            var c = White();
+            FrameRedaction.BlankRects(c, W, H, VideoFrameRowOrder.TopDown, new[] { int.MinValue, int.MinValue, int.MaxValue, int.MaxValue }, 1, new SourceRegion(int.MaxValue, int.MaxValue, 4, 4));
+            var d = White();
+            FrameRedaction.BlankRects(d, W, H, VideoFrameRowOrder.TopDown, new[] { int.MinValue, int.MinValue, int.MaxValue, int.MaxValue }, 1, new SourceRegion(-1000, -1000, 4, 4));
+            for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) Assert.That(Blank(d, x, y), Is.True);
+            var e = White();
+            FrameRedaction.BlankRects(e, W, H, VideoFrameRowOrder.TopDown, new[] { int.MinValue, 0, 2, 1 }, 1, new SourceRegion(int.MaxValue, 0, 4, 4));
+            Assert.That(Untouched(e, 0, 0) || Blank(e, 0, 0), Is.True);
+        }
+
+        [Test]
         public void Rect_outside_the_view_masks_nothing()
         {
             var b = White(10, 20);

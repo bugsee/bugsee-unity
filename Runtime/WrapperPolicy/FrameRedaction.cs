@@ -50,10 +50,10 @@ namespace Bugsee.WrapperPolicy
             for (int i = 0; i < count; i++)
             {
                 int o = i * 4;
-                int x0 = Clamp(FloorDiv((long)(rects[o] - region.Left) * width, sourceWidth), 0, width);
-                int y0 = Clamp(FloorDiv((long)(rects[o + 1] - region.Top) * height, sourceHeight), 0, height);
-                int x1 = Clamp(CeilDiv((long)(rects[o + 2] - region.Left) * width, sourceWidth), 0, width);
-                int y1 = Clamp(CeilDiv((long)(rects[o + 3] - region.Top) * height, sourceHeight), 0, height);
+                int x0 = Clamp(FloorDiv(((long)rects[o] - region.Left) * width, sourceWidth), 0, width);
+                int y0 = Clamp(FloorDiv(((long)rects[o + 1] - region.Top) * height, sourceHeight), 0, height);
+                int x1 = Clamp(CeilDiv(((long)rects[o + 2] - region.Left) * width, sourceWidth), 0, width);
+                int y1 = Clamp(CeilDiv(((long)rects[o + 3] - region.Top) * height, sourceHeight), 0, height);
                 if (x1 <= x0 || y1 <= y0) continue;
 
                 for (int y = y0; y < y1; y++)

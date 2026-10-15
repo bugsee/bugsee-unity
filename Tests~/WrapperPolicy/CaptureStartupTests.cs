@@ -238,5 +238,96 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(enabled, Is.True, "falls back to what the request asked for");
             Assert.That(warnings, Has.Count.EqualTo(1));
         }
+
+        // The pusher fails while a user request is waiting: the fallback is deferred, never dropped, and decided by the
+        // request's answer.
+        Fake FailedWhileWaiting()
+        {
+            var f = new Fake { Running = true, NativeMode = VideoMode.DirectBuffers };
+            f.Result(true, true, Mode(VideoMode.DirectBuffers));
+            f.Latest = false;
+            CaptureStartup.OnPusherFailed(f.State, () => f.Latest, o => f.Relaunches.Add(new Dictionary<string, object>(o)), f.Warnings.Add);
+            Assert.That(f.Relaunches, Is.Empty);
+            Assert.That(f.State.FallbackPending, Is.True);
+            return f;
+        }
+
+        [Test]
+        public void Pusher_failed_during_a_waiting_launch_the_sdk_ignored_still_gets_the_fallback()
+        {
+            var f = FailedWhileWaiting();
+            f.Latest = true;
+            f.Result(false, false, Mode(VideoMode.V2)); // ignored: SDK already running
+            Assert.That(f.Relaunches, Has.Count.EqualTo(1));
+            Assert.That(f.Relaunches[0][Options.CaptureVideoMode], Is.EqualTo((int)VideoMode.V2));
+            Assert.That(f.Relaunches[0]["other"], Is.EqualTo(1), "on top of the options of the session that was running");
+            Assert.That(f.State.FallbackPending, Is.False);
+        }
+
+        [Test]
+        public void Pusher_failed_during_a_waiting_relaunch_that_was_refused_still_gets_the_fallback()
+        {
+            var f = FailedWhileWaiting();
+            f.Latest = true;
+            f.Result(false, true, Mode(VideoMode.DirectBuffers)); // refused
+            Assert.That(f.Relaunches, Has.Count.EqualTo(1));
+            Assert.That(f.Relaunches[0][Options.CaptureVideoMode], Is.EqualTo((int)VideoMode.V2));
+        }
+
+        [Test]
+        public void Pusher_failed_during_a_waiting_launch_that_was_accepted_with_the_default_mode_drops_the_fallback()
+        {
+            var f = FailedWhileWaiting();
+            f.Latest = true;
+            f.NativeMode = VideoMode.V2;
+            f.Result(true, false, Mode(VideoMode.V2));
+            Assert.That(f.Relaunches, Is.Empty);
+            Assert.That(f.State.FallbackPending, Is.False);
+            Assert.That(f.Enables, Is.EqualTo(1), "only the original start: the pusher is not restarted");
+        }
+
+        [Test]
+        public void Pusher_failed_during_a_waiting_launch_accepted_with_direct_buffers_goes_to_the_default_capture_with_the_new_options()
+        {
+            var f = FailedWhileWaiting();
+            f.Latest = true;
+            f.Result(true, true, new Dictionary<string, object> { { Options.CaptureVideoMode, (int)VideoMode.DirectBuffers }, { "other", 2 } });
+            Assert.That(f.Relaunches, Has.Count.EqualTo(1));
+            Assert.That(f.Relaunches[0][Options.CaptureVideoMode], Is.EqualTo((int)VideoMode.V2));
+            Assert.That(f.Relaunches[0]["other"], Is.EqualTo(2));
+            Assert.That(f.Enables, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void A_deferred_fallback_waits_while_yet_another_request_is_still_pending()
+        {
+            var f = FailedWhileWaiting();
+            f.Latest = false; // a second request is queued behind the first
+            f.Result(false, false, Mode(VideoMode.V2));
+            Assert.That(f.Relaunches, Is.Empty);
+            Assert.That(f.State.FallbackPending, Is.True);
+            f.Latest = true;
+            f.Result(false, false, Mode(VideoMode.V2));
+            Assert.That(f.Relaunches, Has.Count.EqualTo(1));
+        }
+
+        [Test]
+        public void A_start_failure_with_a_newer_request_waiting_is_deferred_not_dropped()
+        {
+            var f = new Fake { Running = true, NativeMode = VideoMode.DirectBuffers, EnableResult = false, Latest = false };
+            f.Result(true, true, Mode(VideoMode.DirectBuffers));
+            Assert.That(f.State.FallbackPending, Is.True);
+            f.Latest = true;
+            f.Result(false, false, Mode(VideoMode.V2));
+            Assert.That(f.Relaunches, Has.Count.EqualTo(1));
+        }
+
+        [Test]
+        public void Stopping_the_session_cancels_a_deferred_fallback()
+        {
+            var f = FailedWhileWaiting();
+            f.State.OnStopped();
+            Assert.That(f.State.FallbackPending, Is.False);
+        }
     }
 }

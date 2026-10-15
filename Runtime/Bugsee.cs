@@ -118,6 +118,9 @@ namespace Bugsee
         // relaunch would replace its options in the lifecycle queue, so the fallback is left to that request.
         static int _pendingLaunches;
 
+        // Not atomic with the lifecycle machine: a request can arrive between this check and the relaunch. The window is
+        // small, a request made then is queued behind it (it still runs and decides), and the worst case is that the fallback
+        // relaunch's options are replaced by that request's, which has its own policy/fallback handling when it is answered.
         static bool NoNewerLaunchWaiting() => Volatile.Read(ref _pendingLaunches) == 0;
 
         static void AfterLaunchResultCounted(bool accepted, bool startPusher, Dictionary<string, object> options)
@@ -321,8 +324,11 @@ namespace Bugsee
         /// handed to the native SDK can finish after the 10 s warning, and after the 60 s hard deadline an Android
         /// Launch can run while a native delete is still wiping.
         /// </summary>
-        public static void DeleteCollectedDataOnDevice() =>
+        public static void DeleteCollectedDataOnDevice()
+        {
+            ForgetPusherSession(); // it stops the SDK
             Bridge.DeleteCollectedDataOnDevice();
+        }
 
         public static IReport CreateReport() => Bridge.CreateReport();
 

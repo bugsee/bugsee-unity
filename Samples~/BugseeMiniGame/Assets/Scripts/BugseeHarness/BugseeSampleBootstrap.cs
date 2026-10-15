@@ -141,7 +141,26 @@ namespace Bugsee.Sample
                 };
                 if (!string.IsNullOrWhiteSpace(endpointOverride))
                     options.Endpoint = endpointOverride.Trim();
-                Bugsee.Launch(appToken, options);
+                // "bugsee_launch_thread" = 1 launches from a worker thread (checks that a launch from any thread works).
+                if (ReadE2EValue("bugsee_launch_thread", "BUGSEE_LAUNCH_THREAD") == "1")
+                {
+                    var launchOptions = options;
+                    var token = appToken;
+                    System.Threading.Tasks.Task.Run(() =>
+                    {
+                        try { Bugsee.Launch(token, launchOptions); Debug.Log("[BugseeSample] off-thread Launch returned"); }
+                        catch (Exception ex) { Debug.LogError("[BugseeSample] off-thread Launch threw " + ex.GetType().Name + ": " + ex.Message); }
+                    });
+                }
+                else
+                    Bugsee.Launch(appToken, options);
+                // "bugsee_status_bar" = 1 shows the status bar, so Unity's view no longer fills the window.
+                if (ReadE2EValue("bugsee_status_bar", "BUGSEE_STATUS_BAR") == "1")
+                    Screen.fullScreen = false;
+                // "bugsee_orient_after_s" = "12" rotates the activity to landscape after that many seconds (no sensor needed).
+                var orientAfter = ReadE2EValue("bugsee_orient_after_s", "BUGSEE_ORIENT_AFTER_S");
+                if (!string.IsNullOrEmpty(orientAfter))
+                    StartCoroutine(RotateAfter(orientAfter));
                 var reportAfter = ReadE2EValue("bugsee_report_after_s", "BUGSEE_REPORT_AFTER_S");
                 if (!string.IsNullOrEmpty(reportAfter))
                     StartCoroutine(ReportAfter(reportAfter));
@@ -405,6 +424,14 @@ namespace Bugsee.Sample
             }
         }
 
+        IEnumerator RotateAfter(string seconds)
+        {
+            if (!float.TryParse(seconds, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var at)) yield break;
+            yield return new WaitForSeconds(at);
+            Screen.orientation = ScreenOrientation.LandscapeLeft;
+            Debug.Log("[BugseeSample] t=" + Time.realtimeSinceStartup.ToString("F2") + " rotated to landscape");
+        }
+
         IEnumerator SecureRectDemo(string fractionsList, string removeAfterSeconds, string delaySeconds)
         {
             var inv = System.Globalization.CultureInfo.InvariantCulture;
@@ -413,10 +440,14 @@ namespace Bugsee.Sample
             var added = new List<RectInt>();
             foreach (var fractions in fractionsList.Split(';'))
             {
-                var p = fractions.Split(',');
+                // "px:l,t,r,b" is absolute window pixels, else fractions of the Unity screen.
+                bool absolute = fractions.StartsWith("px:");
+                var p = (absolute ? fractions.Substring(3) : fractions).Split(',');
                 if (p.Length != 4) continue;
                 float l = float.Parse(p[0], inv), t = float.Parse(p[1], inv), r = float.Parse(p[2], inv), b = float.Parse(p[3], inv);
-                var rect = new RectInt((int)(l * Screen.width), (int)(t * Screen.height), (int)((r - l) * Screen.width), (int)((b - t) * Screen.height));
+                var rect = absolute
+                    ? new RectInt((int)l, (int)t, (int)(r - l), (int)(b - t))
+                    : new RectInt((int)(l * Screen.width), (int)(t * Screen.height), (int)((r - l) * Screen.width), (int)((b - t) * Screen.height));
                 Bugsee.AddSecureRectangle(rect);
                 added.Add(rect);
                 Debug.Log("[BugseeSample] t=" + Time.realtimeSinceStartup.ToString("F2", inv) + " secure rect added " + rect + " screen=" + Screen.width + "x" + Screen.height);

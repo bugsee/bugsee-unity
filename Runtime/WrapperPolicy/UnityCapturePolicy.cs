@@ -14,6 +14,8 @@ namespace Bugsee.WrapperPolicy
         public string GraphicsApi;
         /// <summary>The host set BugseeFrameCapturerOptions.RowOrder, which declares the row order of an unmeasured API verified.</summary>
         public bool RowOrderDeclared;
+        /// <summary>The player was not probed yet (a launch from another thread before startup finished): nothing is known.</summary>
+        public bool NotRead;
     }
 
     public sealed class VideoModeDecision
@@ -57,7 +59,9 @@ namespace Bugsee.WrapperPolicy
                 return new VideoModeDecision { Effective = requested };
 
             string reason = null;
-            if (!IsSupportedUnityVersion(env.UnityVersion))
+            if (env.NotRead)
+                reason = "the player was not probed yet (the launch came from another thread before Unity finished starting)";
+            else if (!IsSupportedUnityVersion(env.UnityVersion))
                 reason = "Unity " + env.UnityVersion + " has no AndroidJNI.NewDirectByteBuffer (needs " + MinimumUnityVersion + " or newer)";
             else if (!env.ScreenCaptureModule)
                 reason = "the Screen Capture module (com.unity.modules.screencapture) is not in the project";

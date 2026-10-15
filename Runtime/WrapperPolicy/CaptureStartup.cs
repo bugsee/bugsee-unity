@@ -21,6 +21,8 @@ namespace Bugsee.WrapperPolicy
         readonly object _gate = new object();
         bool _active;
         Dictionary<string, object> _lastOptions;
+        bool _fallbackPending;
+        Dictionary<string, object> _fallbackOptions;
 
         public bool Active { get { lock (_gate) return _active; } }
         public Dictionary<string, object> LastOptions { get { lock (_gate) return _lastOptions; } }
@@ -38,7 +40,28 @@ namespace Bugsee.WrapperPolicy
 
         public void OnStopped()
         {
-            lock (_gate) { _active = false; _lastOptions = null; }
+            lock (_gate) { _active = false; _lastOptions = null; _fallbackPending = false; _fallbackOptions = null; }
+        }
+
+        /// <summary>The pusher failed while a newer request was waiting: remember that the session still needs the fallback.</summary>
+        public void DeferFallback(Dictionary<string, object> options)
+        {
+            lock (_gate) { _fallbackPending = true; _fallbackOptions = options ?? _fallbackOptions; }
+        }
+
+        public bool FallbackPending { get { lock (_gate) return _fallbackPending; } }
+
+        /// <summary>The deferred fallback's options (null options are possible), clearing it; false when none was deferred.</summary>
+        public bool TakeDeferredFallback(out Dictionary<string, object> options)
+        {
+            lock (_gate)
+            {
+                options = _fallbackOptions;
+                bool was = _fallbackPending;
+                _fallbackPending = false;
+                _fallbackOptions = null;
+                return was;
+            }
         }
 
         /// <summary>The pusher failed: the options for the fallback relaunch, or false when no DirectBuffers session is known. Consumes the state.</summary>
@@ -94,6 +117,13 @@ namespace Bugsee.WrapperPolicy
                         state.OnStopped();
                         disable();
                     }
+                    else if (state.FallbackPending && isLatestRequest())
+                    {
+                        // The pusher failed while this request was waiting, and the session it left is still in DirectBuffers.
+                        state.TakeDeferredFallback(out Dictionary<string, object> deferred);
+                        warn("the Unity-side frame pusher had stopped and the waiting launch request did not change the session; relaunching with the SDK's default capture.");
+                        relaunch(UnityCapturePolicy.WithFallback(deferred ?? options));
+                    }
                     return;
                 }
 
@@ -107,9 +137,30 @@ namespace Bugsee.WrapperPolicy
                     warn("could not read the effective video mode: " + ex.Message);
                     mode = null;
                 }
+                bool direct = mode.HasValue ? mode.Value == VideoMode.DirectBuffers : startRequested;
+
+                if (state.FallbackPending)
+                {
+                    // The pusher failed while this request was waiting. If the session it produced is not DirectBuffers the
+                    // failure is moot; if it is, the pusher is not restarted and the session goes to the default capture.
+                    if (!direct)
+                    {
+                        state.TakeDeferredFallback(out _);
+                        state.OnAccepted(mode, startRequested, options);
+                        disable();
+                        return;
+                    }
+                    if (isLatestRequest())
+                    {
+                        state.TakeDeferredFallback(out Dictionary<string, object> deferred);
+                        warn("the Unity-side frame pusher had stopped; relaunching with the SDK's default capture.");
+                        relaunch(UnityCapturePolicy.WithFallback(options ?? deferred));
+                    }
+                    return;
+                }
+
                 state.OnAccepted(mode, startRequested, options);
-                bool wantPusher = mode.HasValue ? mode.Value == VideoMode.DirectBuffers : startRequested;
-                if (!wantPusher)
+                if (!direct)
                 {
                     disable();
                     return;
@@ -126,14 +177,16 @@ namespace Bugsee.WrapperPolicy
                     started = false;
                 }
                 if (started) return;
-                if (!state.TakeFailure(out Dictionary<string, object> fallbackOptions)) return;
+                state.TakeFailure(out Dictionary<string, object> fallbackOptions);
+                fallbackOptions = fallbackOptions ?? options;
                 if (!isLatestRequest())
                 {
-                    warn("the Unity-side frame pusher could not start, but a newer launch request is waiting; it decides the capture mode.");
+                    state.DeferFallback(fallbackOptions);
+                    warn("the Unity-side frame pusher could not start, but a newer launch request is waiting; the fallback to the default capture runs when its answer arrives.");
                     return;
                 }
                 warn("the Unity-side frame pusher could not start; relaunching with the SDK's default capture.");
-                relaunch(UnityCapturePolicy.WithFallback(fallbackOptions ?? options));
+                relaunch(UnityCapturePolicy.WithFallback(fallbackOptions));
             });
         }
 
@@ -147,7 +200,9 @@ namespace Bugsee.WrapperPolicy
             if (!state.TakeFailure(out Dictionary<string, object> options)) return;
             if (!isLatestRequest())
             {
-                warn("the Unity-side frame pusher stopped, but a newer launch request is waiting; it decides the capture mode.");
+                // Never dropped: the waiting request's answer decides (see OnLaunchResult).
+                state.DeferFallback(options);
+                warn("the Unity-side frame pusher stopped, but a newer launch request is waiting; the fallback to the default capture runs when its answer arrives.");
                 return;
             }
             warn("the Unity-side frame pusher stopped after repeated failures; relaunching with the SDK's default capture.");

@@ -85,6 +85,15 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void An_unread_player_falls_back_with_an_honest_reason()
+        {
+            var d = UnityCapturePolicy.Decide(VideoMode.DirectBuffers, new UnityCaptureEnvironment { IsAndroidPlayer = true, NotRead = true });
+            Assert.That(d.Effective, Is.EqualTo(VideoMode.V2));
+            Assert.That(d.FallbackReason, Does.Contain("not probed"));
+            Assert.That(d.FallbackReason, Does.Not.Contain("NewDirectByteBuffer"));
+        }
+
+        [Test]
         public void Missing_screen_capture_module_falls_back()
         {
             var env = Supported();
