@@ -33,9 +33,15 @@ namespace Bugsee.Sample
             }
         }
 
-        public static void Run(string runId, bool monitoringOff, bool leak = false)
+        public static void Run(string runId, bool monitoringOff, bool leak = false, bool pool = false)
         {
             Log("begin run=" + runId + " monitoringOff=" + monitoringOff + " thread=" + Thread.CurrentThread.ManagedThreadId);
+            if (pool)
+            {
+                PoolStress(runId);
+                Log("end run=" + runId);
+                return;
+            }
             if (leak)
             {
                 Loop(runId, 54000);
@@ -148,6 +154,34 @@ namespace Bugsee.Sample
             for (int i = 0; i < count / 2; i++)
                 Bugsee.StartTransaction("apm-loop-txn", "e2e.loop").Dispose();
             Log("loop done count=" + count + " ms=" + sw.ElapsedMilliseconds);
+        }
+
+        // Thousands of spans created and finished on thread-pool threads, plus spans dropped without finishing (their
+        // native references must be released by the finalizer, not leak).
+        static void PoolStress(string runId)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            const int Workers = 8, PerWorker = 3000;
+            var tasks = new Task[Workers];
+            for (int w = 0; w < Workers; w++)
+            {
+                tasks[w] = Task.Run(() =>
+                {
+                    for (int i = 0; i < PerWorker; i++)
+                    {
+                        var txn = Bugsee.StartTransaction("apm-pool-stress", "e2e.stress");
+                        var c = txn.StartChild("stress.child");
+                        c.SetAttribute("i", i);
+                        if (i % 3 == 0) continue;           // dropped unfinished
+                        c.Finish();
+                        txn.Finish();
+                    }
+                });
+            }
+            Task.WaitAll(tasks);
+            Log("pool stress done ms=" + sw.ElapsedMilliseconds + " spans=" + (Workers * PerWorker * 2));
+            for (int g = 0; g < 3; g++) { GC.Collect(); GC.WaitForPendingFinalizers(); }
+            Log("gc done");
         }
     }
 }

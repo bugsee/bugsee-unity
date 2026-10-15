@@ -58,6 +58,14 @@ namespace Bugsee.Platform.IOS
             GC.SuppressFinalize(this);
         }
 
+        public IDisposable EnterScope() => NoScope.Instance;
+
+        sealed class NoScope : IDisposable
+        {
+            public static readonly NoScope Instance = new NoScope();
+            public void Dispose() { }
+        }
+
         static string Read(IntPtr ptr)
         {
             if (ptr == IntPtr.Zero) return "";

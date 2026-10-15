@@ -1,3 +1,4 @@
+using System;
 using Bugsee.Contracts.Apm;
 
 namespace Bugsee.WrapperPolicy
@@ -23,5 +24,11 @@ namespace Bugsee.WrapperPolicy
 
         /// <summary>Drops the wrapper's reference to the native span (a JNI global ref, a registry entry).</summary>
         void Release();
+
+        /// <summary>
+        /// A scope that keeps the calling thread usable for native calls until it is disposed (an Android thread-pool thread
+        /// is attached once for a whole <see cref="ManagedSpan"/> finish instead of once per call). Never null.
+        /// </summary>
+        IDisposable EnterScope();
     }
 }

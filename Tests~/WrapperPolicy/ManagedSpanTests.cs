@@ -15,6 +15,7 @@ namespace Bugsee.WrapperPolicy.Tests
             public bool ReturnNullChild;
             public bool ThrowOnSetName;
             public bool ThrowOnRelease;
+            public bool ThrowOnScope;
             readonly string _name;
 
             public FakeHandle(string name, List<string> calls)
@@ -47,6 +48,23 @@ namespace Bugsee.WrapperPolicy.Tests
             {
                 Calls.Add(_name + ":finish " + status);
                 if (ThrowOnFinish) throw new InvalidOperationException("native finish failed");
+            }
+
+            public int Scopes;
+            public int OpenScopes;
+            public IDisposable EnterScope()
+            {
+                if (ThrowOnScope) throw new InvalidOperationException("attach failed");
+                Scopes++;
+                OpenScopes++;
+                return new Scope(this);
+            }
+
+            sealed class Scope : IDisposable
+            {
+                readonly FakeHandle _h;
+                public Scope(FakeHandle h) { _h = h; }
+                public void Dispose() => _h.OpenScopes--;
             }
 
             public void Release()
@@ -283,6 +301,39 @@ namespace Bugsee.WrapperPolicy.Tests
                 tasks[i] = System.Threading.Tasks.Task.Run(() => span.Finish());
             System.Threading.Tasks.Task.WaitAll(tasks);
             Assert.That(calls, Is.EqualTo(new[] { "root:finish Ok", "root:release" }));
+        }
+
+        [Test]
+        public void One_scope_covers_the_whole_finish_cascade()
+        {
+            var (span, handle, calls, _) = Make();
+            var a = span.StartChild("a");
+            a.StartChild("a1");
+            span.StartChild("b");
+            span.Finish();
+            Assert.That(handle.Scopes, Is.EqualTo(1));
+            Assert.That(handle.OpenScopes, Is.EqualTo(0));
+            foreach (var child in handle.Children) Assert.That(child.Scopes, Is.EqualTo(0));
+            Assert.That(calls[calls.Count - 1], Is.EqualTo("root:release"));
+        }
+
+        [Test]
+        public void The_scope_is_closed_when_a_native_finish_throws()
+        {
+            var (span, handle, _, _) = Make();
+            handle.ThrowOnFinish = true;
+            span.Finish();
+            Assert.That(handle.OpenScopes, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void A_scope_that_cannot_be_entered_warns_and_the_finish_still_runs()
+        {
+            var (span, handle, calls, warnings) = Make();
+            handle.ThrowOnScope = true;
+            Assert.DoesNotThrow(() => span.Finish());
+            Assert.That(calls, Is.EqualTo(new[] { "root:finish Ok", "root:release" }));
+            Assert.That(warnings.Count, Is.EqualTo(1));
         }
 
         [Test]

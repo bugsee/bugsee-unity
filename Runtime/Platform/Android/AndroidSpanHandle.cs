@@ -82,6 +82,8 @@ namespace Bugsee.Platform.Android
         }
 
         // The setters return the span for chaining; each call returns a new reference that must be disposed.
+        public IDisposable EnterScope() => AndroidJniScope.Enter();
+
         void Chain(string method, params object[] args)
         {
             using (AndroidJniScope.Enter())

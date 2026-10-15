@@ -12,7 +12,7 @@ namespace Bugsee.Contracts.Apm
     /// </summary>
     public interface ISpan : IDisposable
     {
-        /// <summary>The native span id ("0" for the iOS no-op span used when performance monitoring is off), or an empty string for an inert span.</summary>
+        /// <summary>The native span id ("0" for the native no-op span used when performance monitoring is off), or an empty string for an inert span.</summary>
         string SpanId { get; }
 
         /// <summary>The id of the trace the span belongs to, or an empty string for an inert span.</summary>

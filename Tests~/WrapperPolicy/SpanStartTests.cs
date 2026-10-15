@@ -19,6 +19,8 @@ namespace Bugsee.WrapperPolicy.Tests
             public ISpanHandle StartChild(string operation, string description) => null;
             public void Finish(SpanStatus status) { }
             public void Release() => Released++;
+            public IDisposable EnterScope() => new NoScope();
+            sealed class NoScope : IDisposable { public void Dispose() { } }
         }
 
         [Test]

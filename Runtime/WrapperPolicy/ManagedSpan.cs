@@ -107,8 +107,25 @@ namespace Bugsee.WrapperPolicy
             var handle = Detach(out var children);
             if (handle == null) return;
 
-            foreach (var child in children) child.FinishFromParent();
-            FinishAndRelease(handle, SpanPolicy.Normalize(status));
+            // One scope for the whole cascade (children and parent): one attach/detach cycle per finish.
+            IDisposable scope = null;
+            try
+            {
+                scope = handle.EnterScope();
+            }
+            catch (Exception e)
+            {
+                Warn("Finish scope failed: " + e.Message);
+            }
+            try
+            {
+                foreach (var child in children) child.FinishFromParent();
+                FinishAndRelease(handle, SpanPolicy.Normalize(status));
+            }
+            finally
+            {
+                try { scope?.Dispose(); } catch (Exception e) { Warn("Finish scope failed: " + e.Message); }
+            }
             _parent?.Forget(this);
         }
 
