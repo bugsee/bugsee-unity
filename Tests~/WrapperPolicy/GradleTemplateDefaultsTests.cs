@@ -56,6 +56,60 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(GradleTemplateDefaults.EnsureReleaseDebugSymbols(template), Is.EqualTo(template));
         }
 
+        static string Legacy(string name) =>
+            File.ReadAllText(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "LegacyPackage", name));
+
+        // Fixtures: the files the package generated before this change (Unity 2021.3 default + AGP 7.4.2 pin,
+        // with and without the marked plugin lines).
+        [TestCase("base-no-plugin.gradle")]
+        [TestCase("base-with-plugin.gradle")]
+        public void Base_templates_written_by_earlier_package_versions_are_recognised(string name)
+        {
+            Assert.That(GradleTemplateDefaults.IsLegacyPackageBaseTemplate(Legacy(name)), Is.True);
+            Assert.That(GradleTemplateDefaults.IsLegacyPackageBaseTemplate(Legacy(name).Replace("\n", "\r\n")), Is.True);
+        }
+
+        [Test]
+        public void A_user_authored_or_unity_6_base_template_is_never_recognised_as_ours()
+        {
+            Assert.That(GradleTemplateDefaults.IsLegacyPackageBaseTemplate(Legacy("user-authored-base.gradle")), Is.False);
+            Assert.That(GradleTemplateDefaults.IsLegacyPackageBaseTemplate(Fixture("6000.0.84f1", "baseProjectTemplate.gradle")), Is.False);
+            Assert.That(GradleTemplateDefaults.IsLegacyPackageBaseTemplate(null), Is.False);
+        }
+
+        [TestCase("launcher-no-plugin.gradle")]
+        [TestCase("launcher-with-plugin.gradle")]
+        public void Launcher_templates_written_by_earlier_package_versions_are_recognised(string name)
+        {
+            Assert.That(GradleTemplateDefaults.IsLegacyPackageLauncherTemplate(Legacy(name)), Is.True);
+        }
+
+        [Test]
+        public void Unity_default_launcher_templates_are_not_recognised_as_ours()
+        {
+            Assert.That(GradleTemplateDefaults.IsLegacyPackageLauncherTemplate(Fixture("2021.3.45f1", "launcherTemplate.gradle")), Is.False);
+            Assert.That(GradleTemplateDefaults.IsLegacyPackageLauncherTemplate(Fixture("6000.0.84f1", "launcherTemplate.gradle")), Is.False);
+        }
+
+        [TestCase("7.4.2", false)]
+        [TestCase("8.5.2", false)]
+        [TestCase("8.6.0", true)]
+        [TestCase("8.10.1", true)]
+        [TestCase("9.0.0", true)]
+        public void Bugsee_plugin_is_gated_on_the_pinned_agp_version(string agp, bool expected)
+        {
+            string root = "plugins {\n    id 'com.android.application' version '" + agp + "' apply false\n}\n";
+            Assert.That(GradleTemplateDefaults.AgpMeetsBugseePlugin(root), Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void Unknown_agp_does_not_enable_the_plugin()
+        {
+            Assert.That(GradleTemplateDefaults.AgpMeetsBugseePlugin("plugins {\n}\n"), Is.False);
+            Assert.That(GradleTemplateDefaults.AgpMeetsBugseePlugin(Fixture("6000.0.84f1", "baseProjectTemplate.gradle")), Is.True);
+            Assert.That(GradleTemplateDefaults.AgpMeetsBugseePlugin(Fixture("2021.3.45f1", "baseProjectTemplate.gradle")), Is.False);
+        }
+
         [Test]
         public void Package_editor_code_does_not_pin_an_agp_version_or_write_a_template_by_hand()
         {
@@ -64,7 +118,8 @@ namespace Bugsee.WrapperPolicy.Tests
 
             Assert.That(editor, Does.Not.Contain("com.android.application' version"));
             Assert.That(editor, Does.Not.Contain("StringBuilder"));
-            Assert.That(editor, Does.Contain("GradleTemplates"));
+            Assert.That(editor, Does.Not.Contain("File.Copy"));
+            Assert.That(editor, Does.Contain("IPostGenerateGradleAndroidProject"));
         }
     }
 }

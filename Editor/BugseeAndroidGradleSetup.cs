@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using Bugsee.WrapperPolicy;
 using UnityEditor;
+using UnityEditor.Android;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
@@ -9,15 +10,20 @@ using UnityEngine;
 namespace Bugsee.Editor
 {
     /// <summary>
-    /// Wires the Bugsee Android Gradle plugin into Unity's <c>launcher</c> module.
-    /// Instrumentation only runs on <c>com.android.application</c> (not unityLibrary).
+    /// Wires the Bugsee Android Gradle plugin into Unity's <c>launcher</c> module (instrumentation only runs on
+    /// <c>com.android.application</c>, not unityLibrary). Plugin 4.x needs AGP 8.6+ / Gradle 8.7+.
     ///
-    /// Plugin 4.x requires AGP ≥ 8.6 / Gradle ≥ 8.7 (Unity 6+). On Unity 2021.3 the
-    /// plugin apply is skipped by default. The runtime AARs (<c>bugsee-android</c> +
-    /// <c>bugsee-android-ndk</c>) are declared by <see cref="BugseeAndroidMavenDependencies"/>.
+    /// The package creates no Gradle template. It patches the Gradle project Unity generated (the hook
+    /// <see cref="BugseeAndroidMavenDependencies"/> already uses): the plugin goes into the root
+    /// <c>plugins {}</c> block and the launcher <c>build.gradle</c>, only when the generated root file pins AGP 8.6+.
+    /// So there is no file in Assets to go stale across Unity upgrades, and the AGP/Gradle versions are always the
+    /// installed Unity's own. A project's own custom templates are patched the same way as Unity's defaults.
+    /// Earlier package versions wrote hand-made AGP 7.4.2 templates into Assets/Plugins/Android; those exact files
+    /// (<see cref="GradleTemplateDefaults.IsLegacyPackageBaseTemplate"/>) are removed when this Unity's default AGP
+    /// is another major, since Gradle in Unity 6 cannot run them. Any other template is left alone and only warned about.
+    /// The runtime AARs (<c>bugsee-android</c> + <c>bugsee-android-ndk</c>) are declared by <see cref="BugseeAndroidMavenDependencies"/>.
     /// </summary>
-    [InitializeOnLoad]
-    sealed class BugseeAndroidGradleSetup : IPreprocessBuildWithReport
+    sealed class BugseeAndroidGradleSetup : IPreprocessBuildWithReport, IPostGenerateGradleAndroidProject
     {
         public int callbackOrder => 10;
 
@@ -25,62 +31,90 @@ namespace Bugsee.Editor
         public const string SdkVersion = BugseePackageVersion.AndroidSdkVersion;
 
         const string PrefForcePlugin = "Bugsee.Android.ForceGradlePlugin";
-        const string KotlinExcludeMarker = "// Bugsee: bugsee-android Gradle .module";
-
-        static BugseeAndroidGradleSetup()
-        {
-            EditorApplication.delayCall += () =>
-            {
-                if (!EditorApplication.isPlayingOrWillChangePlaymode)
-                {
-                    EnsureProjectTemplates(silent: true);
-                }
-            };
-        }
 
         public void OnPreprocessBuild(BuildReport report)
         {
             if (report.summary.platform == BuildTarget.Android)
             {
-                EnsureProjectTemplates(silent: false);
+                RemoveLegacyTemplates();
             }
         }
 
-        [MenuItem("Bugsee/Android/Ensure Gradle Plugin Templates")]
-        static void MenuEnsure()
+        [MenuItem("Bugsee/Android/Remove Legacy Gradle Templates")]
+        static void MenuRemoveLegacy()
         {
-            EnsureProjectTemplates(silent: false);
-            Debug.Log(
-                "[Bugsee] Android Gradle templates refreshed. " +
-                "Enable Custom Base / Launcher Gradle Template under Player Settings → Publishing Settings if needed.");
+            RemoveLegacyTemplates();
+            Debug.Log("[Bugsee] Checked Assets/Plugins/Android for Gradle templates written by earlier package versions.");
         }
 
-        [MenuItem("Bugsee/Android/Force Gradle Plugin On Older Unity (unsupported)")]
+        [MenuItem("Bugsee/Android/Force Gradle Plugin On Older AGP (unsupported)")]
         static void MenuForcePlugin()
         {
             bool next = !EditorPrefs.GetBool(PrefForcePlugin, false);
             EditorPrefs.SetBool(PrefForcePlugin, next);
             Debug.Log(
                 "[Bugsee] Force Gradle plugin = " + next +
-                ". Plugin 4.x needs AGP 8.6+; forcing on Unity 2021.3 will likely fail Gradle configuration.");
-            EnsureProjectTemplates(silent: false);
+                ". Plugin 4.x needs AGP 8.6+; forcing it on an older AGP will likely fail Gradle configuration.");
         }
 
-        internal static void EnsureProjectTemplates(bool silent)
+        public void OnPostGenerateGradleAndroidProject(string unityLibraryPath)
         {
-            Directory.CreateDirectory(Path.Combine(Application.dataPath, "Plugins", "Android"));
-
-            bool applyPlugin = ShouldApplyGradlePlugin();
-            WriteBaseProjectTemplate(applyPlugin);
-            WriteLauncherTemplate(applyPlugin);
-            RemoveStaleKotlinStdlibExclusion();
-
-            if (silent)
+            try
             {
+                PatchGeneratedProject(Path.GetDirectoryName(Path.GetFullPath(unityLibraryPath)));
+            }
+            catch (Exception ex) when (!(ex is BuildFailedException))
+            {
+                Debug.LogWarning("[Bugsee] Could not patch the generated Gradle project for the Bugsee Gradle plugin: " + ex.Message);
+            }
+        }
+
+        static void PatchGeneratedProject(string projectRoot)
+        {
+            string rootPath = Path.Combine(projectRoot, "build.gradle");
+            string launcherPath = Path.Combine(projectRoot, "launcher", "build.gradle");
+            if (!File.Exists(rootPath) || !File.Exists(launcherPath))
+            {
+                Debug.LogWarning(
+                    "[Bugsee] No Groovy root/launcher build.gradle in the generated Gradle project; " +
+                    "the Bugsee Gradle plugin is not applied.");
                 return;
             }
 
-            if (applyPlugin)
+            string root = File.ReadAllText(rootPath);
+            string launcher = File.ReadAllText(launcherPath);
+
+            // 2021.3's template sets no native symbol level; 6000.x sets it from Player Settings and is left alone.
+            string patchedLauncher = GradleTemplateDefaults.EnsureReleaseDebugSymbols(launcher);
+
+            bool force = EditorPrefs.GetBool(PrefForcePlugin, false);
+            bool apply = force || GradleTemplateDefaults.AgpMeetsBugseePlugin(root);
+            string patchedRoot = root;
+            if (apply)
+            {
+                patchedRoot = TryApplyMarkedGradle(
+                    rootPath,
+                    root,
+                    "plugins {",
+                    $"    id 'com.bugsee.android.gradle' version '{GradlePluginVersion}' apply false // bugsee:gradle-plugin");
+                patchedLauncher = TryApplyMarkedGradle(
+                    launcherPath,
+                    patchedLauncher,
+                    "apply plugin: 'com.android.application'",
+                    LauncherMarkedGradlePatch());
+            }
+
+            if (!string.Equals(root, patchedRoot, StringComparison.Ordinal))
+            {
+                File.WriteAllText(rootPath, patchedRoot);
+            }
+
+            if (!string.Equals(launcher, patchedLauncher, StringComparison.Ordinal))
+            {
+                File.WriteAllText(launcherPath, patchedLauncher);
+            }
+
+            if (apply)
             {
                 Debug.Log(
                     $"[Bugsee] Launcher applies com.bugsee.android.gradle:{GradlePluginVersion}. " +
@@ -88,163 +122,77 @@ namespace Bugsee.Editor
             }
             else
             {
-                Debug.LogWarning(
-                    "[Bugsee] Bugsee Gradle plugin not applied (needs AGP 8.6+ / Unity 6+). " +
-                    "bugsee-android + bugsee-android-ndk are still declared in the generated Gradle project.");
-            }
-        }
-
-        /// <summary>
-        /// 7.1.4+ (including 7.4.1) ships empty POM and Gradle .module metadata. Drop the kotlin-stdlib
-        /// exclusion previously patched into mainTemplate for older .module files.
-        /// </summary>
-        static void RemoveStaleKotlinStdlibExclusion()
-        {
-            string path = Path.Combine(Application.dataPath, "Plugins", "Android", "mainTemplate.gradle");
-            if (!File.Exists(path))
-            {
-                return;
-            }
-
-            string text = File.ReadAllText(path);
-            int start = text.IndexOf(KotlinExcludeMarker, StringComparison.Ordinal);
-            if (start < 0)
-            {
-                return;
-            }
-
-            if (start > 0 && text[start - 1] == '\n')
-            {
-                start--;
-            }
-
-            int brace = text.IndexOf("configurations.configureEach", start, StringComparison.Ordinal);
-            if (brace < 0)
-            {
-                return;
-            }
-
-            int end = text.IndexOf('}', brace);
-            if (end < 0)
-            {
-                return;
-            }
-
-            end++;
-            if (end < text.Length && text[end] == '\n')
-            {
-                end++;
-            }
-
-            text = text.Remove(start, end - start);
-            WriteIfChanged(path, text);
-        }
-
-        static bool ShouldApplyGradlePlugin()
-        {
-            if (EditorPrefs.GetBool(PrefForcePlugin, false))
-            {
-                return true;
-            }
-
-            // Unity 6 == 6000.x ships AGP 8.x, which meets plugin 4.x requirements.
-            return GetUnityMajorVersion() >= 6000;
-        }
-
-        static int GetUnityMajorVersion()
-        {
-            string head = Application.unityVersion.Split('f')[0];
-            string major = head.Split('.')[0];
-            return int.TryParse(major, out int v) ? v : 0;
-        }
-
-        static void WriteBaseProjectTemplate(bool applyPlugin)
-        {
-            string path = Path.Combine(Application.dataPath, "Plugins", "Android", "baseProjectTemplate.gradle");
-            string text = ReadOrCopyUnityDefault(path, "baseProjectTemplate.gradle");
-            if (text == null)
-            {
-                return;
-            }
-
-            WarnIfIncompatibleAgp(path, text, "baseProjectTemplate.gradle");
-            if (applyPlugin)
-            {
-                TryApplyMarkedGradle(
-                    path,
-                    "plugins {",
-                    $"    id 'com.bugsee.android.gradle' version '{GradlePluginVersion}' apply false // bugsee:gradle-plugin");
-            }
-        }
-
-        static void WriteLauncherTemplate(bool applyPlugin)
-        {
-            string path = Path.Combine(Application.dataPath, "Plugins", "Android", "launcherTemplate.gradle");
-            bool existed = File.Exists(path);
-            string text = ReadOrCopyUnityDefault(path, "launcherTemplate.gradle");
-            if (text == null)
-            {
-                return;
-            }
-
-            if (!existed)
-            {
-                // Only for the copy made here; an existing template is the project's own.
-                WriteIfChanged(path, GradleTemplateDefaults.EnsureReleaseDebugSymbols(text));
-            }
-
-            if (applyPlugin)
-            {
-                TryApplyMarkedGradle(
-                    path,
-                    "apply plugin: 'com.android.application'",
-                    LauncherMarkedGradlePatch());
+                Debug.Log(
+                    "[Bugsee] Bugsee Gradle plugin not applied: it needs AGP 8.6+ and the generated project pins " +
+                    "an older or unreadable version. bugsee-android + bugsee-android-ndk are still declared in the generated Gradle project.");
             }
         }
 
         static string UnityTemplatePath(string name)
         {
-            // The module is not inside Unity.app on macOS, so ask Unity where Android Build Support lives.
-            string engine = BuildPipeline.GetPlaybackEngineDirectory(BuildTarget.Android, BuildOptions.None);
-            return string.IsNullOrEmpty(engine) ? null : Path.Combine(engine, "Tools", "GradleTemplates", name);
-        }
-
-        /// <summary>
-        /// The project's template, or a copy of the one this Unity ships (AGP/Gradle versions and the launcher
-        /// layout differ per Unity line, so the package never writes its own). Null when there is none to copy
-        /// (no Android Build Support module); the Unity default is then used unmodified.
-        /// </summary>
-        static string ReadOrCopyUnityDefault(string path, string name)
-        {
-            if (File.Exists(path))
+            try
             {
-                return File.ReadAllText(path);
+                // The Android module is not inside Unity.app on macOS, so ask Unity where it lives.
+                string engine = BuildPipeline.GetPlaybackEngineDirectory(BuildTarget.Android, BuildOptions.None);
+                return string.IsNullOrEmpty(engine) ? null : Path.Combine(engine, "Tools", "GradleTemplates", name);
             }
-
-            string source = UnityTemplatePath(name);
-            if (source == null || !File.Exists(source))
+            catch (Exception)
             {
-                Debug.LogWarning("[Bugsee] Unity's default " + name + " was not found (" + source + "); not creating one.");
                 return null;
             }
-
-            string text = File.ReadAllText(source);
-            WriteIfChanged(path, text);
-            return text;
         }
 
-        static void WarnIfIncompatibleAgp(string path, string projectText, string name)
+        /// <summary>Android build time only (never on editor reload, so iOS-only projects see nothing).</summary>
+        internal static void RemoveLegacyTemplates()
         {
-            string source = UnityTemplatePath(name);
-            if (source != null && File.Exists(source) && GradleTemplateDefaults.PinsDifferentAgpMajor(projectText, File.ReadAllText(source)))
+            string dir = Path.Combine(Application.dataPath, "Plugins", "Android");
+            string basePath = Path.Combine(dir, "baseProjectTemplate.gradle");
+            string launcherPath = Path.Combine(dir, "launcherTemplate.gradle");
+            string unityBase = UnityTemplatePath("baseProjectTemplate.gradle");
+            if (!File.Exists(basePath) || unityBase == null || !File.Exists(unityBase))
             {
-                Debug.LogWarning(
-                    "[Bugsee] " + path + " pins Android Gradle plugin " + GradleTemplateDefaults.PinnedAgpMajor(projectText) +
-                    ".x but Unity " + Application.unityVersion + " builds with " +
-                    GradleTemplateDefaults.PinnedAgpMajor(File.ReadAllText(source)) +
-                    ".x, so the Android build will fail in Gradle. Delete the custom template (Bugsee copies Unity's default) " +
-                    "or update the pinned version.");
+                return;
             }
+
+            string projectBase = File.ReadAllText(basePath);
+            string unityDefault = File.ReadAllText(unityBase);
+            if (!GradleTemplateDefaults.PinsDifferentAgpMajor(projectBase, unityDefault))
+            {
+                return;
+            }
+
+            if (GradleTemplateDefaults.IsLegacyPackageBaseTemplate(projectBase))
+            {
+                DeleteTemplate(basePath, "pinned Android Gradle plugin " + GradleTemplateDefaults.PinnedAgpMajor(projectBase) +
+                    ".x, but Unity " + Application.unityVersion + " builds with " + GradleTemplateDefaults.PinnedAgpMajor(unityDefault) + ".x");
+                if (File.Exists(launcherPath) && GradleTemplateDefaults.IsLegacyPackageLauncherTemplate(File.ReadAllText(launcherPath)))
+                {
+                    DeleteTemplate(launcherPath, "uses the Gradle DSL of Unity 2021.3, which this Unity's Gradle cannot run");
+                }
+
+                return;
+            }
+
+            Debug.LogWarning(
+                "[Bugsee] " + basePath + " pins Android Gradle plugin " + GradleTemplateDefaults.PinnedAgpMajor(projectBase) +
+                ".x but Unity " + Application.unityVersion + " builds with " + GradleTemplateDefaults.PinnedAgpMajor(unityDefault) +
+                ".x, so Gradle will fail with \"DependencyHandler.module(java.lang.Object)\" while evaluating :launcher. " +
+                "This is your own template (not one written by the Bugsee package), so it is left unchanged. " +
+                "Delete it and Assets/Plugins/Android/launcherTemplate.gradle to use Unity's defaults (Player Settings > Publishing Settings), " +
+                "or re-create them from " + Path.GetDirectoryName(unityBase) + " and re-apply your edits.");
+        }
+
+        static void DeleteTemplate(string path, string reason)
+        {
+            string asset = ToAssetPath(path);
+            if (!AssetDatabase.DeleteAsset(asset))
+            {
+                File.Delete(path);
+            }
+
+            Debug.LogWarning(
+                "[Bugsee] Removed " + asset + ", written by an earlier Bugsee package version: it " + reason +
+                ". Unity's default template is used and the Bugsee Gradle plugin is patched into the generated project.");
         }
 
         internal static string LauncherMarkedGradlePatch()
@@ -258,32 +206,16 @@ namespace Bugsee.Editor
                    "} // bugsee:gradle-ndk";
         }
 
-        static void TryApplyMarkedGradle(string path, string anchorLine, string markedLine)
+        static string TryApplyMarkedGradle(string path, string text, string anchorLine, string markedLine)
         {
             try
             {
-                string existing = File.ReadAllText(path);
-                string updated = MarkedGradleBlock.Apply(existing, anchorLine, markedLine);
-                WriteIfChanged(path, updated);
+                return MarkedGradleBlock.Apply(text, anchorLine, markedLine);
             }
             catch (InvalidOperationException ex)
             {
-                Debug.LogWarning(ex.Message);
-            }
-        }
-
-        static void WriteIfChanged(string path, string contents)
-        {
-            if (File.Exists(path) && File.ReadAllText(path) == contents)
-            {
-                return;
-            }
-
-            File.WriteAllText(path, contents);
-            string assetPath = ToAssetPath(path);
-            if (assetPath.StartsWith("Assets/", StringComparison.Ordinal))
-            {
-                AssetDatabase.ImportAsset(assetPath);
+                Debug.LogWarning("[Bugsee] Could not add the Bugsee Gradle plugin to " + path + ": " + ex.Message);
+                return text;
             }
         }
 
