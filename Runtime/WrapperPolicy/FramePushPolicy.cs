@@ -167,6 +167,8 @@ namespace Bugsee.WrapperPolicy
             {
                 // Measured on an Android 16 arm64 emulator, Unity 2021.3.45: the first buffer row was the screen's bottom.
                 case "OpenGLES3": order = VideoFrameRowOrder.BottomUp; return true;
+                // Samsung Galaxy Tab S5e (Adreno 615, Android 11), Unity 2021.3.45: the first buffer row was the screen's top.
+                case "Vulkan": order = VideoFrameRowOrder.TopDown; return true;
                 default: return false;
             }
         }

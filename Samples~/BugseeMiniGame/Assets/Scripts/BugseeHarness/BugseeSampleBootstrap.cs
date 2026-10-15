@@ -134,10 +134,11 @@ namespace Bugsee.Sample
                     global::Bugsee.Capture.BugseeFrameCapturer.Enable(
                         new global::Bugsee.Capture.BugseeFrameCapturerOptions { LogOrientationProbe = pattern });
                     // "bugsee_secure_rect" = "l,t,r,b" as fractions of the screen (top-left origin); it is removed after
-                    // "bugsee_secure_rect_remove_s" seconds when that is set. For checking the mask in the recorded video.
+                    // "bugsee_secure_rect_remove_s" seconds when that is set; "bugsee_secure_rect_delay_s" (default 2) is the wait before adding it. For checking the mask in the recorded video.
                     var rect = ReadE2EValue("bugsee_secure_rect", "BUGSEE_SECURE_RECT");
                     if (!string.IsNullOrEmpty(rect))
-                        StartCoroutine(SecureRectDemo(rect, ReadE2EValue("bugsee_secure_rect_remove_s", "BUGSEE_SECURE_RECT_REMOVE_S")));
+                        StartCoroutine(SecureRectDemo(rect, ReadE2EValue("bugsee_secure_rect_remove_s", "BUGSEE_SECURE_RECT_REMOVE_S"),
+                            ReadE2EValue("bugsee_secure_rect_delay_s", "BUGSEE_SECURE_RECT_DELAY_S")));
                 }
 #elif UNITY_IOS && !UNITY_EDITOR
                 var iosOptions = new IOSLaunchOptions
@@ -371,9 +372,10 @@ namespace Bugsee.Sample
             }
         }
 
-        IEnumerator SecureRectDemo(string fractions, string removeAfterSeconds)
+        IEnumerator SecureRectDemo(string fractions, string removeAfterSeconds, string delaySeconds)
         {
-            yield return new WaitForSeconds(2f);
+            float.TryParse(delaySeconds, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var delay);
+            yield return new WaitForSeconds(delay > 0f ? delay : 2f);
             var p = fractions.Split(',');
             if (p.Length != 4) yield break;
             var inv = System.Globalization.CultureInfo.InvariantCulture;

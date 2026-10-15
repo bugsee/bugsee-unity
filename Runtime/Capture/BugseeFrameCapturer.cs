@@ -6,6 +6,7 @@ using Bugsee.WrapperPolicy;
 using UnityEngine;
 
 #if UNITY_ANDROID && !UNITY_EDITOR && BUGSEE_HAS_SCREENCAPTURE
+using System.IO;
 using System.Threading;
 using Unity.Collections;
 using UnityEngine.Rendering;
@@ -153,15 +154,22 @@ namespace Bugsee.Capture
         int _requestRectCount;
         int _probeFrames;
 
+        // Timing for the stats line (average ms): request to readback callback, copy into the Java buffer, addFrame.
+        long _requestTicks, _latencySum, _copySum, _addSum, _timedFrames;
+
         // Pixels: the readback callback (main thread) fills _pixels, the push thread copies them into the Java
         // direct buffer and calls addFrame. Unity 2021.3's AndroidJNI cannot wrap or address native memory as a
-        // ByteBuffer (later Unity versions can; not used here), so the copy goes through a Java byte[] (one Java-heap
-        // array per pushed frame, no managed allocation). Only one request is in flight, so neither side overwrites
-        // the other.
+        // ByteBuffer (later Unity versions can; not used here). AndroidJNI.ToByteArray allocates a Java array per
+        // frame and measured about 0.9 s per 1 MB on a Galaxy Tab S5e, so the frame goes through a private cache file
+        // instead: written from C#, read by FileChannel.read into the reused direct buffer. Only one request is in
+        // flight, so neither side overwrites the other.
+        FileStream _frameFile;
+        string _framePath;
+        IntPtr _channel, _channelRead; // global ref to the FileChannel of the file above, and its read(ByteBuffer, long)
         byte[] _pixels;
         readonly object _nativeLock = new object();
         IntPtr _directBuffer;      // global ref to a reused direct java.nio.ByteBuffer
-        IntPtr _bufferClear, _bufferRewind, _bufferPut; // method ids on java.nio.Buffer / ByteBuffer
+        IntPtr _bufferClear, _bufferRewind; // method ids on java.nio.Buffer
         IntPtr _consumer;          // global ref to the VideoFrameConsumer
         IntPtr _addFrameMethod;
         IntPtr _topDown, _bottomUp; // global refs to the RowOrder constants
@@ -169,7 +177,7 @@ namespace Bugsee.Capture
         long _clockOffsetMs;            // fallback when TimeUtils is not found: wall clock minus SystemClock.elapsedRealtime
         IntPtr _elapsedClass, _elapsedMethod;
         readonly jvalue[] _args = new jvalue[7];
-        readonly jvalue[] _putArgs = new jvalue[1];
+        readonly jvalue[] _readArgs = new jvalue[2];
         readonly jvalue[] _noArgs = new jvalue[0];
         bool _wasLaunched;
         bool _warnedMode;
@@ -204,10 +212,7 @@ namespace Bugsee.Capture
                 _bufferClear = AndroidJNI.GetMethodID(bufferCls, "clear", "()Ljava/nio/Buffer;");
                 _bufferRewind = AndroidJNI.GetMethodID(bufferCls, "rewind", "()Ljava/nio/Buffer;");
                 AndroidJNI.DeleteLocalRef(bufferCls);
-                IntPtr byteBufferCls = AndroidJNI.FindClass("java/nio/ByteBuffer");
-                _bufferPut = AndroidJNI.GetMethodID(byteBufferCls, "put", "([B)Ljava/nio/ByteBuffer;");
-                AndroidJNI.DeleteLocalRef(byteBufferCls);
-                if (_bufferClear == IntPtr.Zero || _bufferRewind == IntPtr.Zero || _bufferPut == IntPtr.Zero
+                if (_bufferClear == IntPtr.Zero || _bufferRewind == IntPtr.Zero
                     || _addFrameMethod == IntPtr.Zero || _topDown == IntPtr.Zero || _bottomUp == IntPtr.Zero)
                 {
                     // On an SDK older than 7.4.1 the lookups above leave a pending NoSuchMethodError/ClassNotFoundException.
@@ -217,6 +222,7 @@ namespace Bugsee.Capture
                     return false;
                 }
                 InitClock();
+                InitFrameFile();
             }
             catch (Exception ex)
             {
@@ -280,6 +286,31 @@ namespace Bugsee.Capture
             ? AndroidJNI.CallStaticLongMethod(_timeClass, _timeMethod, _noArgs)
             : _clockOffsetMs + AndroidJNI.CallStaticLongMethod(_elapsedClass, _elapsedMethod, _noArgs);
 
+        // The private cache file and the Java FileChannel that reads it into the direct buffer.
+        void InitFrameFile()
+        {
+            _framePath = Path.Combine(Application.temporaryCachePath, "bugsee_frame.raw");
+            _frameFile = new FileStream(_framePath, FileMode.Create, FileAccess.ReadWrite, FileShare.ReadWrite, 1);
+            IntPtr rafClass = AndroidJNI.FindClass("java/io/RandomAccessFile");
+            IntPtr ctor = AndroidJNI.GetMethodID(rafClass, "<init>", "(Ljava/lang/String;Ljava/lang/String;)V");
+            var ctorArgs = new jvalue[2];
+            ctorArgs[0].l = AndroidJNI.NewStringUTF(_framePath);
+            ctorArgs[1].l = AndroidJNI.NewStringUTF("r");
+            IntPtr raf = AndroidJNI.NewObject(rafClass, ctor, ctorArgs);
+            AndroidJNI.DeleteLocalRef(ctorArgs[0].l);
+            AndroidJNI.DeleteLocalRef(ctorArgs[1].l);
+            AndroidJNI.DeleteLocalRef(rafClass);
+            if (raf == IntPtr.Zero) throw new IOException("RandomAccessFile open failed");
+            IntPtr getChannel = AndroidJNI.GetMethodID(AndroidJNI.GetObjectClass(raf), "getChannel", "()Ljava/nio/channels/FileChannel;");
+            IntPtr channel = AndroidJNI.CallObjectMethod(raf, getChannel, _noArgs);
+            AndroidJNI.DeleteLocalRef(raf);
+            _channel = AndroidJNI.NewGlobalRef(channel);
+            _channelRead = AndroidJNI.GetMethodID(AndroidJNI.GetObjectClass(channel), "read", "(Ljava/nio/ByteBuffer;J)I");
+            AndroidJNI.DeleteLocalRef(channel);
+            if (_channel == IntPtr.Zero || _channelRead == IntPtr.Zero || ClearPendingException())
+                throw new IOException("FileChannel setup failed");
+        }
+
         void Stop()
         {
             _enabled = false;
@@ -299,7 +330,8 @@ namespace Bugsee.Capture
                     var s = ReadStats();
                     Debug.Log("[BugseeFrameCapturer] requested=" + s.Requested + " pushed=" + s.Pushed + " failed=" + s.Failed
                         + " droppedInFlight=" + s.DroppedInFlight + " droppedBlackoutOrStopped=" + s.DroppedBlackoutOrStopped
-                        + " size=" + _captureW + "x" + _captureH + " rowOrder=" + _rowOrder + (_rowOrderVerified ? "" : " (unverified)"));
+                        + " size=" + _captureW + "x" + _captureH + " rowOrder=" + _rowOrder + (_rowOrderVerified ? "" : " (unverified)") + " api=" + SystemInfo.graphicsDeviceType
+                        + " avgMs[readbackLatency/copy/addFrame]=" + AvgMs(_latencySum) + "/" + AvgMs(_copySum) + "/" + AvgMs(_addSum));
                 }
                 if (_policy.IsDisabled) _enabled = false;
                 return;
@@ -360,6 +392,7 @@ namespace Bugsee.Capture
                 UpdateNativeSize();
                 if (!EnsureBuffers()) { _policy.Complete(false); return; }
                 _requestTimestampMs = NowMs();
+                _requestTicks = System.Diagnostics.Stopwatch.GetTimestamp();
                 _requestNativeW = _nativeW;
                 _requestNativeH = _nativeH;
                 _requestRectCount = SecureRectRegistry.Instance.CopyRects(0, ref _requestRects);
@@ -464,6 +497,7 @@ namespace Bugsee.Capture
                 _policy.Complete(false);
                 return;
             }
+            _latencySum += System.Diagnostics.Stopwatch.GetTimestamp() - _requestTicks;
             NativeArray<byte> data = request.GetData<byte>();
             if (data.Length < _pixels.Length) { _policy.Complete(false); return; }
             NativeArray<byte>.Copy(data, _pixels, _pixels.Length);
@@ -490,6 +524,12 @@ namespace Bugsee.Capture
             _pushH = _captureH;
             _pushOrder = _rowOrder;
             _signal.Release();
+        }
+
+        string AvgMs(long ticks)
+        {
+            long n = _timedFrames;
+            return n > 0 ? (ticks * 1000.0 / System.Diagnostics.Stopwatch.Frequency / n).ToString("F1") : "-";
         }
 
         // Colour of the centre pixel of the first and last buffer rows, to tell which row is the screen's top.
@@ -529,19 +569,18 @@ namespace Bugsee.Capture
         {
             try
             {
-                IntPtr java = AndroidJNI.ToByteArray(_pixels);
-                try
-                {
-                    _putArgs[0].l = java;
-                    AndroidJNI.DeleteLocalRef(AndroidJNI.CallObjectMethod(_directBuffer, _bufferClear, _noArgs));
-                    AndroidJNI.DeleteLocalRef(AndroidJNI.CallObjectMethod(_directBuffer, _bufferPut, _putArgs));
-                    if (ClearPendingException()) return false;
-                    AndroidJNI.DeleteLocalRef(AndroidJNI.CallObjectMethod(_directBuffer, _bufferRewind, _noArgs));
-                }
-                finally
-                {
-                    AndroidJNI.DeleteLocalRef(java);
-                }
+                long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+                int length = _pushW * _pushH * FramePushPolicy.PixelStride;
+                _frameFile.Seek(0, SeekOrigin.Begin);
+                _frameFile.Write(_pixels, 0, length);
+                _frameFile.Flush();
+                AndroidJNI.DeleteLocalRef(AndroidJNI.CallObjectMethod(_directBuffer, _bufferClear, _noArgs));
+                _readArgs[0].l = _directBuffer;
+                _readArgs[1].j = 0;
+                int read = AndroidJNI.CallIntMethod(_channel, _channelRead, _readArgs);
+                if (ClearPendingException() || read != length) return false;
+                AndroidJNI.DeleteLocalRef(AndroidJNI.CallObjectMethod(_directBuffer, _bufferRewind, _noArgs));
+                long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
                 _args[0].j = _requestTimestampMs;
                 _args[1].i = 0; // display id
                 _args[2].l = _directBuffer;
@@ -550,6 +589,10 @@ namespace Bugsee.Capture
                 _args[5].i = FramePushPolicy.PixelStride;
                 _args[6].l = _pushOrder == VideoFrameRowOrder.BottomUp ? _bottomUp : _topDown;
                 AndroidJNI.CallVoidMethod(_consumer, _addFrameMethod, _args);
+                long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
+                _copySum += t1 - t0;
+                _addSum += t2 - t1;
+                _timedFrames++;
                 return !ClearPendingException();
             }
             catch (Exception)
@@ -587,11 +630,17 @@ namespace Bugsee.Capture
             ReleaseDirectBuffer();
             lock (_nativeLock)
             {
-                IntPtr[] refs = { _consumer, _topDown, _bottomUp, _timeClass, _elapsedClass };
+                IntPtr[] refs = { _consumer, _topDown, _bottomUp, _timeClass, _elapsedClass, _channel };
                 for (int i = 0; i < refs.Length; i++)
                     if (refs[i] != IntPtr.Zero) AndroidJNI.DeleteGlobalRef(refs[i]);
-                _consumer = _topDown = _bottomUp = _timeClass = _elapsedClass = IntPtr.Zero;
+                _consumer = _topDown = _bottomUp = _timeClass = _elapsedClass = _channel = IntPtr.Zero;
                 _timeMethod = _elapsedMethod = IntPtr.Zero;
+            }
+            if (_frameFile != null)
+            {
+                _frameFile.Dispose();
+                _frameFile = null;
+                try { File.Delete(_framePath); } catch (Exception) { }
             }
             _pixels = null;
         }

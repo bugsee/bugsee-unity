@@ -140,7 +140,6 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(verified, Is.True);
         }
 
-        [TestCase("Vulkan")]
         [TestCase("OpenGLES2")]
         [TestCase("")]
         [TestCase(null)]
@@ -151,9 +150,16 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Measured_vulkan_is_top_down_and_verified()
+        {
+            Assert.That(FramePushPolicy.ResolveRowOrder("Vulkan", null, out bool verified), Is.EqualTo(VideoFrameRowOrder.TopDown));
+            Assert.That(verified, Is.True);
+        }
+
+        [Test]
         public void An_explicit_override_wins_and_counts_as_verified()
         {
-            Assert.That(FramePushPolicy.ResolveRowOrder("Vulkan", VideoFrameRowOrder.TopDown, out bool verified), Is.EqualTo(VideoFrameRowOrder.TopDown));
+            Assert.That(FramePushPolicy.ResolveRowOrder("OpenGLES2", VideoFrameRowOrder.TopDown, out bool verified), Is.EqualTo(VideoFrameRowOrder.TopDown));
             Assert.That(verified, Is.True);
             Assert.That(FramePushPolicy.ResolveRowOrder("OpenGLES3", VideoFrameRowOrder.TopDown, out _), Is.EqualTo(VideoFrameRowOrder.TopDown));
         }
