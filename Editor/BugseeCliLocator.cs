@@ -112,6 +112,13 @@ namespace Bugsee.Editor
             string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             string localAppData = IsWindows ? Environment.GetEnvironmentVariable("LOCALAPPDATA") : null;
             string version = Environment.GetEnvironmentVariable("BUGSEE_CLI_VERSION");
+            version = string.IsNullOrWhiteSpace(version) ? null : version.Trim().TrimStart('v');
+            if (version != null && !BugseeCliPolicy.IsValidVersion(version))
+            {
+                Debug.LogWarning("[Bugsee] Ignoring BUGSEE_CLI_VERSION=" + version + ": not a release version like 0.8.1. Using " + BugseeCliPolicy.DefaultVersion + ".");
+                version = null;
+            }
+
             var settings = new CliSettings
             {
                 ExplicitPath = Environment.GetEnvironmentVariable("BUGSEE_CLI_PATH"),
@@ -119,7 +126,7 @@ namespace Bugsee.Editor
                 Home = home,
                 LocalAppData = localAppData,
                 IsWindows = IsWindows,
-                Version = string.IsNullOrWhiteSpace(version) ? BugseeCliPolicy.DefaultVersion : version.Trim().TrimStart('v'),
+                Version = version ?? BugseeCliPolicy.DefaultVersion,
                 Triple = BugseeCliPolicy.HostTriple(HostOs, RuntimeInformation.OSArchitecture.ToString()),
                 DownloadAllowed = BugseeCliPolicy.DownloadAllowed(
                     BugseeCliRunner.HasAppToken, Environment.GetEnvironmentVariable("BUGSEE_NO_CLI_DOWNLOAD") != null),

@@ -102,6 +102,14 @@ namespace Bugsee.WrapperPolicy
             return null;
         }
 
+        /// <summary>
+        /// A release version safe to put in a URL and a cache path: digits and dots with an optional "-"/"+" suffix.
+        /// BUGSEE_CLI_VERSION is validated with this so a value like "../.." cannot leave the cache directory.
+        /// </summary>
+        public static bool IsValidVersion(string version) =>
+            version != null && System.Text.RegularExpressions.Regex.IsMatch(
+                version, @"^[0-9]+(\.[0-9]+)*([-+][0-9A-Za-z.]+)?$");
+
         public static bool IsWindowsTriple(string triple) => triple != null && triple.Contains("windows");
 
         public static string BinaryName(bool windows) => windows ? CliName + ".exe" : CliName;

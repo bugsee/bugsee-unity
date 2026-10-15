@@ -282,6 +282,19 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(BugseeCliPolicy.DownloadAllowed(token, optedOut), Is.EqualTo(expected));
         }
 
+        [TestCase("0.8.1", true)]
+        [TestCase("1.2", true)]
+        [TestCase("0.9.0-rc.1", true)]
+        [TestCase("../..", false)]
+        [TestCase("0.8.1/../../x", false)]
+        [TestCase("", false)]
+        [TestCase("v0.8.1", false)]
+        [TestCase(null, false)]
+        public void Only_release_versions_may_reach_a_path_or_url(string version, bool expected)
+        {
+            Assert.That(BugseeCliPolicy.IsValidVersion(version), Is.EqualTo(expected));
+        }
+
         [Test]
         public void Cache_layout_is_version_then_triple()
         {
