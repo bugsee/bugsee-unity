@@ -137,6 +137,8 @@ namespace Bugsee.Sample
                     DetectAndReportHang = true,
                     DetectAndReportExitNotResponding = true,
                     DetectAndReportExitLowMemory = true,
+                    PerformanceMonitoring = ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") != "apmoff",
+                    PerformanceSampleRate = ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "apmleak" || ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "apmpool" || (ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") ?? "").StartsWith("apmthr") ? 0f : 1f,
                     Debug = true
                 };
                 if (!string.IsNullOrWhiteSpace(endpointOverride))
@@ -245,6 +247,7 @@ namespace Bugsee.Sample
         int _e2ePhase;
         float _e2eTimer;
         string _pendingE2EFire;
+        int _apmLaunchWaits;
 
         void Update()
         {
@@ -313,6 +316,19 @@ namespace Bugsee.Sample
                         _pendingE2EFire = "L:e2e-upload-" + _e2eRunId;
                     }
                     break;
+                case "apm":
+                case "apmoff":
+                case "apmleak":
+                case "apmpool":
+                case "apmthrnew":
+                case "apmthrjava":
+                case "apmthrui":
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 99;
+                        _pendingE2EFire = "M:" + _e2eRunId;
+                    }
+                    break;
                 case "none":
                     // Recovery launch: arm nothing, only let the SDK recover and upload what the last run left.
                     break;
@@ -367,6 +383,22 @@ namespace Bugsee.Sample
                     break;
                 case 'K':
                     FireProcessFailure(marker);
+                    break;
+                case 'M':
+                    // Spans started before the SDK reaches Launched are inert wrapper spans, so wait for it.
+                    if (!Bugsee.IsLaunched && _apmLaunchWaits++ < 120)
+                    {
+                        _e2ePhase = 0;
+                        _e2eTimer = 4f;
+                        _e2eRunId = marker;
+                        break;
+                    }
+                    SetStatus("E2E APM " + marker);
+                    Debug.Log("[ApmE2E] sdk status=" + Bugsee.Status + " waits=" + _apmLaunchWaits);
+                    if (_e2eScenario.StartsWith("apmthr")) ApmE2E.Threads(marker, _e2eScenario);
+                    else ApmE2E.Run(marker, _e2eScenario == "apmoff", _e2eScenario == "apmleak", _e2eScenario == "apmpool");
+                    // The report bundle carries every transaction, which is what the backend check reads back.
+                    if (_e2eScenario == "apm") Bugsee.Upload("apm-e2e-" + marker, "APM e2e run " + marker);
                     break;
                 case 'L':
                     SetStatus("E2E manual upload " + marker);

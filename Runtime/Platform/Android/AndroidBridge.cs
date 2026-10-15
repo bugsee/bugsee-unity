@@ -120,7 +120,12 @@ namespace Bugsee.Platform.Android
             });
         }
 
-        public bool GetLaunched() => _bugsee.CallStatic<bool>("getLaunched");
+        public bool GetLaunched()
+        {
+            // Read before every StartTransaction, which may run on a thread-pool thread (see AndroidJniScope).
+            using (AndroidJniScope.Enter())
+                return _bugsee.CallStatic<bool>("getLaunched");
+        }
 
         public IReadOnlyDictionary<string, object> GetLaunchOptions()
         {
@@ -357,6 +362,17 @@ namespace Bugsee.Platform.Android
             {
                 // A null cannot select a JNI overload, so no fields is an empty map (and no body an empty string).
                 _bugsee.CallStatic("notify", title, NotifyPolicy.Body(body), sev, javaFields, urgent);
+            }
+        }
+
+        public ISpanHandle StartTransaction(string name, string operation, IDictionary<string, object> attributes)
+        {
+            // The three-argument overload always takes a map (a null cannot select an overload), empty when there are none.
+            using (AndroidJniScope.Enter())
+            using (var javaAttributes = AndroidJavaConverters.ObjectDictionaryToMap(attributes))
+            {
+                var transaction = _bugsee.CallStatic<AndroidJavaObject>("startTransaction", name, operation, javaAttributes);
+                return transaction == null ? null : new AndroidSpanHandle(transaction);
             }
         }
 

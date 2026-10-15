@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
+using Bugsee.Contracts.Apm;
 using Bugsee.Contracts.Appearance;
 using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Feedback;
@@ -395,6 +396,32 @@ namespace Bugsee
                 return;
             }
             Bridge.Notify(title, body, severity, NotifyPolicy.CleanFields(fields), urgent);
+        }
+
+        /// <summary>
+        /// Starts a performance transaction, the root of a trace; start child spans with <see cref="ISpan.StartChild"/>
+        /// and finish (or dispose) every span. Spans are always created from a parent: there is no global "current
+        /// span", because the native SDKs track it per thread. Returns an inert span that accepts every call when the
+        /// SDK is not launched, when <paramref name="name"/> or <paramref name="operation"/> is empty, or when
+        /// performance monitoring is off. <paramref name="attributes"/> take the same values as
+        /// <see cref="SetAttribute"/>; invalid entries are dropped with a warning.
+        /// </summary>
+        public static ISpan StartTransaction(string name, string operation, IDictionary<string, object> attributes = null)
+        {
+            if (!SpanPolicy.HasText(name) || !SpanPolicy.HasText(operation))
+            {
+                Debug.LogWarning("[Bugsee] StartTransaction ignored: a name and an operation are required.");
+                return new NoopSpan();
+            }
+            var rejected = new List<string>();
+            var clean = SpanPolicy.CleanAttributes(attributes, rejected);
+            foreach (var reason in rejected) Debug.LogWarning("[Bugsee] StartTransaction attribute dropped: " + reason + ".");
+
+            return SpanStart.Transaction(
+                () => Bridge.GetLaunched(),
+                () => Bridge.StartTransaction(name, operation, clean),
+                operation,
+                message => Debug.LogWarning("[Bugsee] " + message));
         }
 
         public static void SetUserIdentifier(string userIdentifier) =>

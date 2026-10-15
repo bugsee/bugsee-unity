@@ -7,6 +7,7 @@ using Bugsee.Contracts.Lifecycle;
 using Bugsee.Contracts.Options;
 using Bugsee.Contracts.Reporting;
 using Bugsee.Internal;
+using Bugsee.WrapperPolicy;
 
 namespace Bugsee.Platform
 {
@@ -50,6 +51,9 @@ namespace Bugsee.Platform
 
         /// <summary>Relay a lightweight notification to the app's messaging integrations (no report is created).</summary>
         void Notify(string title, string body, IssueSeverity severity, IDictionary<string, string> fields, bool urgent);
+
+        /// <summary>Starts a native transaction (attributes already cleaned, may be null), or null when there is none.</summary>
+        ISpanHandle StartTransaction(string name, string operation, IDictionary<string, object> attributes);
 
         void SetUserIdentifier(string userIdentifier);
         string GetUserIdentifier();

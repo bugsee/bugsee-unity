@@ -497,6 +497,113 @@ void _bugsee_notify(const char *title, const char *body, int severity, const cha
                      urgent:urgent != 0];
 }
 
+// APM spans are live SDK objects, so managed code holds them by id. An entry lives from the span's creation until
+// _bugsee_span_release, which the managed wrapper calls exactly once after finishing the span (and its finalizer
+// calls for a span that was dropped unfinished). Ids start at 1 and are never reused; 0 means "no span".
+static NSMutableDictionary<NSNumber *, id<BGSSpan>> *BugseeSpanRegistry(void)
+{
+    static NSMutableDictionary<NSNumber *, id<BGSSpan>> *registry;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        registry = [NSMutableDictionary dictionary];
+    });
+    return registry;
+}
+
+static int64_t BugseeRegisterSpan(id<BGSSpan> span)
+{
+    if (!span) {
+        return 0;
+    }
+    static int64_t nextId = 0;
+    NSMutableDictionary<NSNumber *, id<BGSSpan>> *registry = BugseeSpanRegistry();
+    @synchronized (registry) {
+        int64_t spanId = ++nextId;
+        registry[@(spanId)] = span;
+        return spanId;
+    }
+}
+
+static id<BGSSpan> BugseeLookupSpan(int64_t spanId)
+{
+    NSMutableDictionary<NSNumber *, id<BGSSpan>> *registry = BugseeSpanRegistry();
+    @synchronized (registry) {
+        return registry[@(spanId)];
+    }
+}
+
+int64_t _bugsee_start_transaction(const char *name, const char *operation, const char *attributesJson)
+{
+    NSString *nameStr = BugseeNSString(name);
+    NSString *operationStr = BugseeNSString(operation);
+    if (nameStr.length == 0 || operationStr.length == 0) {
+        return 0;
+    }
+    id parsed = BugseeDeserializeJson(attributesJson);
+    NSDictionary *attributes = [parsed isKindOfClass:[NSDictionary class]] ? parsed : nil;
+    return BugseeRegisterSpan([Bugsee startTransactionWithName:nameStr operation:operationStr attributes:attributes]);
+}
+
+int64_t _bugsee_span_start_child(int64_t spanId, const char *operation, const char *description)
+{
+    id<BGSSpan> span = BugseeLookupSpan(spanId);
+    NSString *operationStr = BugseeNSString(operation);
+    if (!span || operationStr.length == 0) {
+        return 0;
+    }
+    return BugseeRegisterSpan([span startChildSpanWithOperation:operationStr description:BugseeNSString(description)]);
+}
+
+char *_bugsee_span_get_id(int64_t spanId)
+{
+    return BugseeCopyUTF8([BugseeLookupSpan(spanId) spanId]);
+}
+
+char *_bugsee_span_get_trace_id(int64_t spanId)
+{
+    return BugseeCopyUTF8([BugseeLookupSpan(spanId) traceId]);
+}
+
+void _bugsee_span_set_name(int64_t spanId, const char *name)
+{
+    NSString *nameStr = BugseeNSString(name);
+    if (nameStr.length > 0) {
+        [BugseeLookupSpan(spanId) setName:nameStr];
+    }
+}
+
+void _bugsee_span_set_description(int64_t spanId, const char *description)
+{
+    [BugseeLookupSpan(spanId) setSpanDescription:BugseeNSString(description)];
+}
+
+void _bugsee_span_set_attribute(int64_t spanId, const char *key, const char *valueJson)
+{
+    NSString *keyStr = BugseeNSString(key);
+    id value = valueJson ? BugseeDeserializeJson(valueJson) : nil;
+    if (keyStr.length > 0 && value && value != [NSNull null]) {
+        [BugseeLookupSpan(spanId) setAttribute:keyStr value:value];
+    }
+}
+
+void _bugsee_span_set_status(int64_t spanId, int status)
+{
+    [BugseeLookupSpan(spanId) setStatus:(BGSSpanStatus)status];
+}
+
+void _bugsee_span_finish(int64_t spanId, int status)
+{
+    [BugseeLookupSpan(spanId) finishWithStatus:(BGSSpanStatus)status];
+}
+
+void _bugsee_span_release(int64_t spanId)
+{
+    NSMutableDictionary<NSNumber *, id<BGSSpan>> *registry = BugseeSpanRegistry();
+    @synchronized (registry) {
+        [registry removeObjectForKey:@(spanId)];
+    }
+}
+
 void _bugsee_set_attribute(const char *key, const char *valueJson)
 {
     id value = valueJson ? BugseeDeserializeJson(valueJson) : nil;
@@ -889,6 +996,16 @@ void _bugsee_show_report(const char *summary, const char *description, int sever
 void _bugsee_upload(const char *summary, const char *description, int severity, const char *labelsJson) { (void)summary; (void)description; (void)severity; (void)labelsJson; }
 char *_bugsee_get_launch_options(void) { return NULL; }
 void _bugsee_notify(const char *title, const char *body, int severity, const char *fieldsJson, int urgent) { (void)title; (void)body; (void)severity; (void)fieldsJson; (void)urgent; }
+int64_t _bugsee_start_transaction(const char *name, const char *operation, const char *attributesJson) { (void)name; (void)operation; (void)attributesJson; return 0; }
+int64_t _bugsee_span_start_child(int64_t spanId, const char *operation, const char *description) { (void)spanId; (void)operation; (void)description; return 0; }
+char *_bugsee_span_get_id(int64_t spanId) { (void)spanId; return NULL; }
+char *_bugsee_span_get_trace_id(int64_t spanId) { (void)spanId; return NULL; }
+void _bugsee_span_set_name(int64_t spanId, const char *name) { (void)spanId; (void)name; }
+void _bugsee_span_set_description(int64_t spanId, const char *description) { (void)spanId; (void)description; }
+void _bugsee_span_set_attribute(int64_t spanId, const char *key, const char *valueJson) { (void)spanId; (void)key; (void)valueJson; }
+void _bugsee_span_set_status(int64_t spanId, int status) { (void)spanId; (void)status; }
+void _bugsee_span_finish(int64_t spanId, int status) { (void)spanId; (void)status; }
+void _bugsee_span_release(int64_t spanId) { (void)spanId; }
 void _bugsee_set_attribute(const char *key, const char *valueJson) { (void)key; (void)valueJson; }
 char *_bugsee_get_attribute(const char *key) { (void)key; return NULL; }
 void _bugsee_clear_attribute(const char *key) { (void)key; }

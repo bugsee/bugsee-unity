@@ -47,6 +47,7 @@ namespace Bugsee.Platform.EditorStub
         public void ShowReportDialog(string summary, string description, IssueSeverity severity, IList<string> labels) { }
         public void Upload(string summary, string description, IssueSeverity severity, IList<string> labels) { }
         public void Notify(string title, string body, IssueSeverity severity, IDictionary<string, string> fields, bool urgent) { }
+        public ISpanHandle StartTransaction(string name, string operation, IDictionary<string, object> attributes) => null;
         public void SetUserIdentifier(string userIdentifier) { }
         public string GetUserIdentifier() => null;
         public void ClearUserIdentifier() { }
