@@ -60,5 +60,20 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(SpanPolicy.CleanAttributes(new Dictionary<string, object>()), Is.Null);
             Assert.That(SpanPolicy.CleanAttributes(new Dictionary<string, object> { ["x"] = new object() }), Is.Null);
         }
+
+        [Test]
+        public void Ios_attribute_json_keeps_a_double_a_double_and_a_bool_a_bool()
+        {
+            string json = SpanPolicy.AttributesToJson(new Dictionary<string, object>
+            {
+                ["d"] = 1.0,
+                ["i"] = 2L,
+                ["b"] = true,
+                ["s"] = "x\"y"
+            });
+            Assert.That(json, Is.EqualTo("{\"d\":1.0,\"i\":2,\"b\":true,\"s\":\"x\\\"y\"}"));
+            Assert.That(SpanPolicy.AttributesToJson(null), Is.Null);
+            Assert.That(SpanPolicy.AttributesToJson(new Dictionary<string, object>()), Is.Null);
+        }
     }
 }

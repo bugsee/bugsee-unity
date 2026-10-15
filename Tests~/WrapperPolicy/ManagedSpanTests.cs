@@ -13,6 +13,8 @@ namespace Bugsee.WrapperPolicy.Tests
             public readonly List<FakeHandle> Children = new List<FakeHandle>();
             public bool ThrowOnFinish;
             public bool ReturnNullChild;
+            public bool ThrowOnSetName;
+            public bool ThrowOnRelease;
             readonly string _name;
 
             public FakeHandle(string name, List<string> calls)
@@ -23,7 +25,11 @@ namespace Bugsee.WrapperPolicy.Tests
 
             public string SpanId => "span-" + _name;
             public string TraceId => "trace";
-            public void SetName(string name) => Calls.Add(_name + ":name=" + name);
+            public void SetName(string name)
+            {
+                if (ThrowOnSetName) throw new InvalidOperationException("setter failed");
+                Calls.Add(_name + ":name=" + name);
+            }
             public void SetDescription(string description) => Calls.Add(_name + ":desc=" + description);
             public void SetAttribute(string key, object value) => Calls.Add(_name + ":attr " + key + "=" + string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0}", value) + ":" + value.GetType().Name);
             public void SetStatus(SpanStatus status) => Calls.Add(_name + ":status=" + status);
@@ -43,7 +49,11 @@ namespace Bugsee.WrapperPolicy.Tests
                 if (ThrowOnFinish) throw new InvalidOperationException("native finish failed");
             }
 
-            public void Release() => Calls.Add(_name + ":release");
+            public void Release()
+            {
+                Calls.Add(_name + ":release");
+                if (ThrowOnRelease) throw new InvalidOperationException("release failed");
+            }
         }
 
         static (ManagedSpan span, FakeHandle handle, List<string> calls, List<string> warnings) Make()
@@ -90,20 +100,79 @@ namespace Bugsee.WrapperPolicy.Tests
             span.Finish();
             calls.Clear();
             span.SetName("n").SetDescription("d").SetAttribute("k", "v").SetStatus(SpanStatus.Error);
-            Assert.That(span.StartChild("child"), Is.SameAs(NoopSpan.Instance));
+            Assert.That(span.StartChild("child"), Is.InstanceOf<NoopSpan>());
             Assert.That(calls, Is.Empty);
         }
 
         [Test]
-        public void Release_still_happens_when_the_native_finish_throws()
+        public void A_throwing_parent_finish_is_swallowed_and_the_handle_is_still_released_once()
         {
-            var (span, handle, calls, _) = Make();
+            var (span, handle, calls, warnings) = Make();
             handle.ThrowOnFinish = true;
-            Assert.Throws<InvalidOperationException>(() => span.Finish());
+            Assert.DoesNotThrow(() => span.Finish());
             Assert.That(calls, Is.EqualTo(new[] { "root:finish Ok", "root:release" }));
             Assert.That(span.IsFinished, Is.True);
-            span.Finish();
+            span.Dispose();
             Assert.That(calls.Count, Is.EqualTo(2));
+            Assert.That(warnings.Count, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void A_throwing_child_finish_does_not_stop_siblings_or_the_parent()
+        {
+            var (span, handle, calls, warnings) = Make();
+            span.StartChild("a");
+            span.StartChild("b");
+            handle.Children[0].ThrowOnFinish = true;
+            calls.Clear();
+            Assert.DoesNotThrow(() => span.Dispose());
+            Assert.That(calls, Is.EqualTo(new[]
+            {
+                "a:finish Cancelled", "a:release",
+                "b:finish Cancelled", "b:release",
+                "root:finish Ok", "root:release"
+            }));
+            Assert.That(warnings.Count, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void A_throwing_release_is_swallowed()
+        {
+            var (span, handle, _, warnings) = Make();
+            handle.ThrowOnRelease = true;
+            Assert.DoesNotThrow(() => span.Finish());
+            Assert.That(warnings.Count, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void A_throwing_setter_warns_and_leaves_the_span_live()
+        {
+            var (span, handle, calls, warnings) = Make();
+            handle.ThrowOnSetName = true;
+            Assert.That(span.SetName("x"), Is.SameAs(span));
+            Assert.That(warnings.Count, Is.EqualTo(1));
+            Assert.That(span.IsFinished, Is.False);
+            span.Finish();
+            Assert.That(calls, Is.EqualTo(new[] { "root:finish Ok", "root:release" }));
+        }
+
+        [Test]
+        public void A_throwing_warning_callback_does_not_escape()
+        {
+            var handle = new FakeHandle("root", new List<string>()) { ThrowOnFinish = true };
+            var span = new ManagedSpan(handle, "op", _ => throw new InvalidOperationException("log"));
+            Assert.DoesNotThrow(() => span.Finish());
+        }
+
+        [Test]
+        public void A_child_that_finished_first_keeps_its_own_status_when_the_parent_finishes()
+        {
+            var (span, _, calls, _) = Make();
+            var child = span.StartChild("db");
+            child.Finish(SpanStatus.Timeout);
+            span.Finish();
+            Assert.That(calls, Does.Contain("db:finish Timeout"));
+            Assert.That(calls, Does.Not.Contain("db:finish Cancelled"));
         }
 
         [Test]
@@ -160,8 +229,8 @@ namespace Bugsee.WrapperPolicy.Tests
             var (span, _, calls, warnings) = Make();
             span.StartChild("db");
             Assert.That(calls, Does.Contain("root:child db desc=<null>"));
-            Assert.That(span.StartChild(""), Is.SameAs(NoopSpan.Instance));
-            Assert.That(span.StartChild(null), Is.SameAs(NoopSpan.Instance));
+            Assert.That(span.StartChild(""), Is.InstanceOf<NoopSpan>());
+            Assert.That(span.StartChild(null), Is.InstanceOf<NoopSpan>());
             Assert.That(warnings.Count, Is.EqualTo(2));
         }
 
@@ -170,7 +239,7 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             var (span, handle, _, _) = Make();
             handle.ReturnNullChild = true;
-            Assert.That(span.StartChild("db"), Is.SameAs(NoopSpan.Instance));
+            Assert.That(span.StartChild("db"), Is.InstanceOf<NoopSpan>());
         }
 
         [Test]
@@ -225,9 +294,12 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void Noop_span_accepts_everything()
         {
-            var noop = NoopSpan.Instance;
-            Assert.That(noop.SetName("a").SetAttribute("k", 1).StartChild("x"), Is.SameAs(noop));
+            var noop = new NoopSpan();
+            Assert.That(noop.SetName("a").SetAttribute("k", 1), Is.SameAs(noop));
+            Assert.That(noop.StartChild("x"), Is.InstanceOf<NoopSpan>());
+            Assert.That(noop.IsFinished, Is.False);
             noop.Finish();
+            Assert.That(noop.IsFinished, Is.True);
             noop.Dispose();
             Assert.That(noop.SpanId, Is.Empty);
         }

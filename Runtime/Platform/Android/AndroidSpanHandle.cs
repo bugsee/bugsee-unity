@@ -52,7 +52,6 @@ namespace Bugsee.Platform.Android
 
         public ISpanHandle StartChild(string operation, string description)
         {
-            AndroidJNI.AttachCurrentThread();
             // A null cannot select a JNI overload, so no description uses the one-argument method.
             var child = description == null
                 ? _span.Call<AndroidJavaObject>("startChildSpan", operation)
@@ -62,7 +61,6 @@ namespace Bugsee.Platform.Android
 
         public void Finish(SpanStatus status)
         {
-            AndroidJNI.AttachCurrentThread();
             using (var native = NativeStatus(status))
                 _span.Call("finish", native);
         }
@@ -76,7 +74,6 @@ namespace Bugsee.Platform.Android
         // The setters return the span for chaining; each call returns a new reference that must be disposed.
         void Chain(string method, params object[] args)
         {
-            AndroidJNI.AttachCurrentThread();
             using (_span.Call<AndroidJavaObject>(method, args)) { }
         }
 

@@ -7,12 +7,12 @@ namespace Bugsee.Contracts.Apm
     /// It wraps a native span: finish it (or dispose it) to release the native object. Finishing a span first
     /// finishes its still-live children as <see cref="SpanStatus.Cancelled"/>. Everything is safe to call after
     /// <see cref="Finish()"/> (it does nothing), and a span started while the SDK is not launched or without a
-    /// valid name is an inert span that accepts every call. Setters that take invalid input log a warning and
-    /// leave the span unchanged rather than throw.
+    /// valid name is an inert span (empty ids) that accepts every call. Nothing here throws: invalid input and
+    /// native failures log a warning and leave the span unchanged.
     /// </summary>
     public interface ISpan : IDisposable
     {
-        /// <summary>The native span id, or an empty string for an inert span.</summary>
+        /// <summary>The native span id ("0" for the native no-op span used when performance monitoring is off), or an empty string for an inert span.</summary>
         string SpanId { get; }
 
         /// <summary>The id of the trace the span belongs to, or an empty string for an inert span.</summary>

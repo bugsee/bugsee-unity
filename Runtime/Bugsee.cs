@@ -290,9 +290,9 @@ namespace Bugsee
             if (!SpanPolicy.HasText(name) || !SpanPolicy.HasText(operation))
             {
                 Debug.LogWarning("[Bugsee] StartTransaction ignored: a name and an operation are required.");
-                return NoopSpan.Instance;
+                return new NoopSpan();
             }
-            if (!Bridge.GetLaunched()) return NoopSpan.Instance;
+            if (!Bridge.GetLaunched()) return new NoopSpan();
 
             var rejected = new List<string>();
             var clean = SpanPolicy.CleanAttributes(attributes, rejected);
@@ -300,7 +300,7 @@ namespace Bugsee
 
             var handle = Bridge.StartTransaction(name, operation, clean);
             return handle == null
-                ? NoopSpan.Instance
+                ? new NoopSpan()
                 : new ManagedSpan(handle, operation, message => Debug.LogWarning("[Bugsee] " + message));
         }
 

@@ -50,5 +50,19 @@ namespace Bugsee.WrapperPolicy
             }
             return clean;
         }
+
+        /// <summary>
+        /// The cleaned attributes as a JSON object for iOS, each value written the way <c>SetAttribute</c> writes it
+        /// (<see cref="AttributeWire.ToJson"/>, so a floating 1.0 stays 1.0 and is not stored as an integer), or null
+        /// when there are none.
+        /// </summary>
+        public static string AttributesToJson(IDictionary<string, object> attributes)
+        {
+            if (attributes == null || attributes.Count == 0) return null;
+            var parts = new List<string>(attributes.Count);
+            foreach (var kv in attributes)
+                parts.Add(JsonWire.String(kv.Key) + ":" + AttributeWire.ToJson(kv.Value));
+            return "{" + string.Join(",", parts.ToArray()) + "}";
+        }
     }
 }
