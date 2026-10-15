@@ -10,11 +10,9 @@ namespace Bugsee.WrapperPolicy.Tests
         const string Marked = "    id 'com.bugsee.android.gradle' version '4.0.8' apply false // bugsee:gradle-plugin";
         const string LauncherAnchor = "apply plugin: 'com.android.application'";
 
-        static string SampleLauncherTemplatePath =>
-            Path.GetFullPath(Path.Combine(
-                TestContext.CurrentContext.TestDirectory,
-                "..", "..", "..", "..", "..",
-                "Samples~", "BugseeMiniGame", "Assets", "Plugins", "Android", "launcherTemplate.gradle"));
+        static string UnityLauncherTemplate(string unity) =>
+            File.ReadAllText(Path.Combine(
+                TestContext.CurrentContext.TestDirectory, "Fixtures", "UnityTemplates", unity, "launcherTemplate.gradle"));
 
         static string LauncherPatch =>
             "apply plugin: 'com.bugsee.android.gradle' // bugsee:gradle-plugin\n\n" +
@@ -108,12 +106,12 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(once, Does.Not.Contain("enabled = false"));
         }
 
-        [Test]
-        public void Sample_launcher_gets_plugin_and_ndk_block_idempotently()
+        [TestCase("2021.3.45f1")]
+        [TestCase("6000.0.84f1")]
+        public void Unity_default_launcher_gets_plugin_and_ndk_block_idempotently(string unity)
         {
-            Assume.That(File.Exists(SampleLauncherTemplatePath), Is.True, "sample launcher template missing");
-            string sample = File.ReadAllText(SampleLauncherTemplatePath);
-            string once = MarkedGradleBlock.Apply(sample, LauncherAnchor, LauncherPatch);
+            string template = UnityLauncherTemplate(unity);
+            string once = MarkedGradleBlock.Apply(template, LauncherAnchor, LauncherPatch);
             Assert.That(once, Does.Contain(MarkedGradleBlock.NdkMarkerComment));
             Assert.That(once, Does.Contain("enabled = true"));
 

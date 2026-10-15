@@ -42,7 +42,7 @@ log warns when its version differs from the one this package pins.
 | `bugsee-android` | **7.4.1**, added to `unityLibrary/build.gradle` at build time (no Maven transitives) |
 | `bugsee-android-ndk` | Same version, declared alongside (native fatal capture for IL2CPP primary LNM) |
 | `mavenCentral()` | Added to the generated project repositories only if Unity's layout lacks it |
-| Gradle plugin `4.0.8` | Applied on launcher by `BugseeAndroidGradleSetup` on Unity 6+ (`ndk { enabled = true }`) |
+| Gradle plugin `4.0.8` | Patched into the generated Gradle project by `BugseeAndroidGradleSetup` when it pins AGP 8.6+ (Unity 6; `ndk { enabled = true }`) |
 
 ### Refreshing native artifacts
 

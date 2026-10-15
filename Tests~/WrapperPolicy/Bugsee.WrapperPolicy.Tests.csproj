@@ -26,6 +26,7 @@
     <Compile Include="..\..\Runtime\Contracts\Options\LogLevel.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\Options.cs" />
     <Compile Include="**\*Tests.cs" />
+    <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" LinkBase="Fixtures" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" LinkBase="Fixtures" />
