@@ -37,7 +37,7 @@ namespace Bugsee.Editor
                 var template = ResolveTemplatePath();
                 if (template == null)
                 {
-                    Debug.LogError(
+                    Debug.LogWarning(
                         "[Bugsee] Could not find Plugins/Android/AndroidManifest.xml in com.bugsee.unity; " +
                         "the wrapper provider was not registered, so crashes recovered on relaunch will lack wrapper data.");
                     return;
@@ -46,7 +46,7 @@ namespace Bugsee.Editor
                 var target = Path.Combine(unityLibraryPath, "src", "main", "AndroidManifest.xml");
                 if (!File.Exists(target))
                 {
-                    Debug.LogError("[Bugsee] unityLibrary manifest not found at " + target + "; wrapper provider not registered.");
+                    Debug.LogWarning("[Bugsee] unityLibrary manifest not found at " + target + "; wrapper provider not registered.");
                     return;
                 }
 
@@ -57,7 +57,7 @@ namespace Bugsee.Editor
             catch (Exception ex)
             {
                 // Never fail the build, but be loud: a missing provider is a silent data-loss bug.
-                Debug.LogError("[Bugsee] Failed to register the wrapper provider: " + ex);
+                Debug.LogWarning("[Bugsee] Failed to register the wrapper provider: " + ex);
             }
         }
 

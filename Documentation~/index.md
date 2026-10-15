@@ -153,6 +153,7 @@ Failure policy: **never fail the Unity build**. Missing maps/UUIDs/CLI → warn 
 2. Create symbols.zip / native debug symbols enabled
 3. For primary LNM apply: native debug symbol level **FULL** (DWARF lines), not SYMBOL_TABLE-only
 4. No custom Gradle templates needed: Bugsee patches the generated Gradle project (the Bugsee Gradle plugin with `ndk { enabled = true }` when it pins AGP 8.6+, i.e. Unity 6; on older AGPs, see below); a template of your own that pins another AGP major than your Unity's default fails the build and is reported
+5. **Minify** (R8) may be enabled for Release and Debug with no extra setup: the package appends its keep rules (`Plugins/Android/bugsee-unity-wrapper.proguard`) to the generated `unityLibrary/proguard-unity.txt` on every Android build, because Unity does not read that file from a package. The rules keep the wrapper classes C# looks up by name over JNI (`UnityWrapper`, `UnityManagedException`) and the SDK interfaces implemented from C#. They sit between `# bugsee:proguard begin` / `end` markers and are replaced, not duplicated, on the next build. If you add your own JNI code, keep its classes in your Custom Proguard File
 
 ### Unity 2021.3 and 2022.3 (no Bugsee Gradle plugin)
 
@@ -190,7 +191,7 @@ Verified with real IL2CPP arm64 builds (staging token set, `bugsee-cli` 0.8.1, u
 
 Not verified: AGP 8.0 to 8.5 (no block is added there by design), Unity 2021.3 releases with AGP below 7.4, AAB output, build with Gradle configuration cache (the block avoids `Task.project` at execution time but was run without it), and Windows/Linux Editors.
 
-Releases built without R8 (Minify off, the Unity default) have no mapping and no Java names to restore. If you do minify, add keep rules for the Unity wrapper classes: the package's `bugsee-unity-wrapper.proguard` is not applied by Unity unless you enable Player Settings > Publishing Settings > Custom Proguard File and copy the rules into `Assets/Plugins/Android/proguard-user.txt`, and that file does not yet cover `com.bugsee.unity.UnityManagedException` or `UnityWrapperIdentity` (R8 removes them: `ClassNotFoundException` at launch or on the first managed exception).
+Releases built without R8 (Minify off, the Unity default) have no mapping and no Java names to restore. Minify may be turned on with no extra setup: the package appends its keep rules to the generated `unityLibrary/proguard-unity.txt` on every build (see the Player Settings checklist above), so `UnityWrapper` and `UnityManagedException` survive R8 and the SDK launches.
 
 **iOS**
 
