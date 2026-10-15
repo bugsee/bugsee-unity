@@ -85,6 +85,32 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void A_launcher_with_the_marker_but_its_own_edits_is_never_recognised_as_ours()
+        {
+            string customised = Legacy("launcher-customised.gradle");
+            Assert.That(GradleTemplateDefaults.HasPackageMarker(customised), Is.True);
+            Assert.That(GradleTemplateDefaults.UsesRemovedAndroidDsl(customised), Is.True);
+            Assert.That(GradleTemplateDefaults.IsLegacyPackageLauncherTemplate(customised), Is.False);
+            Assert.That(GradleTemplateDefaults.IsLegacyPackageLauncherTemplate(Legacy("launcher-with-plugin.gradle") + "// edit\n"), Is.False);
+        }
+
+        [Test]
+        public void An_unedited_unity_2021_base_copy_has_no_package_marker()
+        {
+            string copy = Fixture("2021.3.45f1", "baseProjectTemplate.gradle");
+            Assert.That(GradleTemplateDefaults.IsLegacyPackageBaseTemplate(copy), Is.True);
+            Assert.That(GradleTemplateDefaults.HasPackageMarker(copy), Is.False);
+            Assert.That(GradleTemplateDefaults.HasPackageMarker(Legacy("base-with-plugin.gradle")), Is.True);
+        }
+
+        [Test]
+        public void Unity_6_templates_do_not_use_the_removed_dsl()
+        {
+            Assert.That(GradleTemplateDefaults.UsesRemovedAndroidDsl(Fixture("6000.0.84f1", "launcherTemplate.gradle")), Is.False);
+            Assert.That(GradleTemplateDefaults.UsesRemovedAndroidDsl(Fixture("2021.3.45f1", "launcherTemplate.gradle")), Is.True);
+        }
+
+        [Test]
         public void Unity_default_launcher_templates_are_not_recognised_as_ours()
         {
             Assert.That(GradleTemplateDefaults.IsLegacyPackageLauncherTemplate(Fixture("2021.3.45f1", "launcherTemplate.gradle")), Is.False);
@@ -118,8 +144,10 @@ namespace Bugsee.WrapperPolicy.Tests
 
             Assert.That(editor, Does.Not.Contain("com.android.application' version"));
             Assert.That(editor, Does.Not.Contain("StringBuilder"));
-            Assert.That(editor, Does.Not.Contain("File.Copy"));
             Assert.That(editor, Does.Contain("IPostGenerateGradleAndroidProject"));
+            Assert.That(editor, Does.Contain("legacy-templates"));
+            Assert.That(editor.IndexOf("File.Copy", System.StringComparison.Ordinal),
+                Is.LessThan(editor.IndexOf("AssetDatabase.DeleteAsset", System.StringComparison.Ordinal)));
         }
     }
 }

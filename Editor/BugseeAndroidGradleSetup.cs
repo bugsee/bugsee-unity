@@ -120,11 +120,20 @@ namespace Bugsee.Editor
                     $"[Bugsee] Launcher applies com.bugsee.android.gradle:{GradlePluginVersion}. " +
                     $"Runtime AAR pin {SdkVersion} with NDK enabled.");
             }
+            else if (!GradleTemplateDefaults.TryGetAgpVersion(root, out _, out _))
+            {
+                Debug.LogWarning(
+                    "[Bugsee] Could not read the Android Gradle plugin version from " + rootPath + " (a version catalog alias(...) or a " +
+                    "computed version), so the Bugsee Gradle plugin was NOT applied. bugsee-android + bugsee-android-ndk are still declared. " +
+                    "If the project uses AGP 8.6+, add \"id 'com.bugsee.android.gradle' version '" + GradlePluginVersion +
+                    "' apply false\" to the root plugins block and \"apply plugin: 'com.bugsee.android.gradle'\" to the launcher, " +
+                    "or enable Bugsee > Android > Force Gradle Plugin On Older AGP (unsupported) to apply it regardless of the detected version.");
+            }
             else
             {
                 Debug.Log(
-                    "[Bugsee] Bugsee Gradle plugin not applied: it needs AGP 8.6+ and the generated project pins " +
-                    "an older or unreadable version. bugsee-android + bugsee-android-ndk are still declared in the generated Gradle project.");
+                    "[Bugsee] Bugsee Gradle plugin not applied: it needs AGP 8.6+ and the generated project pins an older version. " +
+                    "bugsee-android + bugsee-android-ndk are still declared in the generated Gradle project.");
             }
         }
 
@@ -149,41 +158,85 @@ namespace Bugsee.Editor
             string basePath = Path.Combine(dir, "baseProjectTemplate.gradle");
             string launcherPath = Path.Combine(dir, "launcherTemplate.gradle");
             string unityBase = UnityTemplatePath("baseProjectTemplate.gradle");
-            if (!File.Exists(basePath) || unityBase == null || !File.Exists(unityBase))
+            string unityLauncher = UnityTemplatePath("launcherTemplate.gradle");
+            if (unityBase == null || !File.Exists(unityBase) || unityLauncher == null || !File.Exists(unityLauncher))
             {
                 return;
             }
 
-            string projectBase = File.ReadAllText(basePath);
-            string unityDefault = File.ReadAllText(unityBase);
-            if (!GradleTemplateDefaults.PinsDifferentAgpMajor(projectBase, unityDefault))
-            {
-                return;
-            }
+            string unityDir = Path.GetDirectoryName(unityBase);
+            string unityBaseText = File.ReadAllText(unityBase);
+            int unityAgp = GradleTemplateDefaults.PinnedAgpMajor(unityBaseText);
+            string backupDir = null;
 
-            if (GradleTemplateDefaults.IsLegacyPackageBaseTemplate(projectBase))
+            if (File.Exists(basePath))
             {
-                DeleteTemplate(basePath, "pinned Android Gradle plugin " + GradleTemplateDefaults.PinnedAgpMajor(projectBase) +
-                    ".x, but Unity " + Application.unityVersion + " builds with " + GradleTemplateDefaults.PinnedAgpMajor(unityDefault) + ".x");
-                if (File.Exists(launcherPath) && GradleTemplateDefaults.IsLegacyPackageLauncherTemplate(File.ReadAllText(launcherPath)))
+                string text = File.ReadAllText(basePath);
+                if (GradleTemplateDefaults.PinsDifferentAgpMajor(text, unityBaseText))
                 {
-                    DeleteTemplate(launcherPath, "uses the Gradle DSL of Unity 2021.3, which this Unity's Gradle cannot run");
+                    int pinned = GradleTemplateDefaults.PinnedAgpMajor(text);
+                    if (GradleTemplateDefaults.IsLegacyPackageBaseTemplate(text))
+                    {
+                        string origin = GradleTemplateDefaults.HasPackageMarker(text)
+                            ? "written by an earlier Bugsee package version"
+                            : "an unedited copy of Unity 2021.3's default template";
+                        BackupAndDelete(basePath, ref backupDir,
+                            origin + ", pins Android Gradle plugin " + pinned + ".x but Unity " + Application.unityVersion +
+                            " builds with " + unityAgp + ".x, which fails in Gradle");
+                    }
+                    else
+                    {
+                        Debug.LogWarning(
+                            "[Bugsee] " + basePath + " pins Android Gradle plugin " + pinned + ".x but Unity " + Application.unityVersion +
+                            " builds with " + unityAgp + ".x, so Gradle will fail with \"DependencyHandler.module(java.lang.Object)\" while " +
+                            "evaluating :launcher. It has edits of its own, so it is left unchanged. Delete it (and launcherTemplate.gradle) to use " +
+                            "Unity's defaults, or re-create them from " + unityDir + " and re-apply your edits.");
+                    }
                 }
-
-                return;
             }
 
-            Debug.LogWarning(
-                "[Bugsee] " + basePath + " pins Android Gradle plugin " + GradleTemplateDefaults.PinnedAgpMajor(projectBase) +
-                ".x but Unity " + Application.unityVersion + " builds with " + GradleTemplateDefaults.PinnedAgpMajor(unityDefault) +
-                ".x, so Gradle will fail with \"DependencyHandler.module(java.lang.Object)\" while evaluating :launcher. " +
-                "This is your own template (not one written by the Bugsee package), so it is left unchanged. " +
-                "Delete it and Assets/Plugins/Android/launcherTemplate.gradle to use Unity's defaults (Player Settings > Publishing Settings), " +
-                "or re-create them from " + Path.GetDirectoryName(unityBase) + " and re-apply your edits.");
+            if (File.Exists(launcherPath))
+            {
+                string text = File.ReadAllText(launcherPath);
+                if (GradleTemplateDefaults.UsesRemovedAndroidDsl(text) &&
+                    !GradleTemplateDefaults.UsesRemovedAndroidDsl(File.ReadAllText(unityLauncher)))
+                {
+                    if (GradleTemplateDefaults.IsLegacyPackageLauncherTemplate(text))
+                    {
+                        BackupAndDelete(launcherPath, ref backupDir,
+                            "an unedited launcher template from an earlier Bugsee package version; it uses the Unity 2021.3 Gradle DSL " +
+                            "(lintOptions/aaptOptions), which this Unity's Gradle rejects");
+                    }
+                    else
+                    {
+                        Debug.LogWarning(
+                            "[Bugsee] " + launcherPath + " uses the Unity 2021.3 Gradle DSL (lintOptions/aaptOptions), which Unity " +
+                            Application.unityVersion + "'s Gradle rejects" +
+                            (GradleTemplateDefaults.HasPackageMarker(text) ? " (it carries Bugsee plugin lines from an earlier package version but also has your edits)" : "") +
+                            ". It is left unchanged. Delete it to use Unity's default, or re-create it from " + unityDir +
+                            " and re-apply your edits (signing, dependencies).");
+                    }
+                }
+            }
         }
 
-        static void DeleteTemplate(string path, string reason)
+        /// <summary>Copies the file outside Assets (Library/Bugsee/legacy-templates/&lt;timestamp&gt;) before removing it.</summary>
+        static void BackupAndDelete(string path, ref string backupDir, string reason)
         {
+            if (backupDir == null)
+            {
+                string project = Path.GetDirectoryName(Path.GetFullPath(Application.dataPath));
+                backupDir = Path.Combine(project, "Library", "Bugsee", "legacy-templates", DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+                Directory.CreateDirectory(backupDir);
+            }
+
+            string backup = Path.Combine(backupDir, Path.GetFileName(path));
+            File.Copy(path, backup, true);
+            if (File.Exists(path + ".meta"))
+            {
+                File.Copy(path + ".meta", backup + ".meta", true);
+            }
+
             string asset = ToAssetPath(path);
             if (!AssetDatabase.DeleteAsset(asset))
             {
@@ -191,8 +244,8 @@ namespace Bugsee.Editor
             }
 
             Debug.LogWarning(
-                "[Bugsee] Removed " + asset + ", written by an earlier Bugsee package version: it " + reason +
-                ". Unity's default template is used and the Bugsee Gradle plugin is patched into the generated project.");
+                "[Bugsee] Removed " + asset + ": " + reason + ". Unity's default template is used and the Bugsee Gradle plugin is " +
+                "patched into the generated project. A copy is in " + backup + ".");
         }
 
         internal static string LauncherMarkedGradlePatch()

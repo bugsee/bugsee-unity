@@ -151,11 +151,94 @@ namespace Bugsee.WrapperPolicy
             return kept.Count == LegacyBaseBody.Length && System.Linq.Enumerable.SequenceEqual(kept, LegacyBaseBody);
         }
 
+        // The launcherTemplate.gradle earlier package versions wrote (Unity 2021.3's Groovy layout plus the release
+        // debugSymbolLevel 'FULL' block), without the marked Bugsee plugin lines.
+        static readonly string[] LegacyLauncherBody =
+        {
+            "apply plugin: 'com.android.application'",
+            "",
+            "dependencies {",
+            "implementation project(':unityLibrary')",
+            "}",
+            "",
+            "android {",
+            "namespace \"**NAMESPACE**\"",
+            "ndkPath \"**NDKPATH**\"",
+            "compileSdkVersion **APIVERSION**",
+            "buildToolsVersion '**BUILDTOOLS**'",
+            "",
+            "compileOptions {",
+            "sourceCompatibility JavaVersion.VERSION_11",
+            "targetCompatibility JavaVersion.VERSION_11",
+            "}",
+            "",
+            "defaultConfig {",
+            "minSdkVersion **MINSDKVERSION**",
+            "targetSdkVersion **TARGETSDKVERSION**",
+            "applicationId '**APPLICATIONID**'",
+            "ndk {",
+            "abiFilters **ABIFILTERS**",
+            "}",
+            "versionCode **VERSIONCODE**",
+            "versionName '**VERSIONNAME**'",
+            "}",
+            "",
+            "aaptOptions {",
+            "noCompress = **BUILTIN_NOCOMPRESS** + unityStreamingAssets.tokenize(', ')",
+            "ignoreAssetsPattern = \"!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~\"",
+            "}**SIGN**",
+            "",
+            "lintOptions {",
+            "abortOnError false",
+            "}",
+            "",
+            "buildTypes {",
+            "debug {",
+            "minifyEnabled **MINIFY_DEBUG**",
+            "proguardFiles getDefaultProguardFile('proguard-android.txt')**SIGNCONFIG**",
+            "jniDebuggable true",
+            "}",
+            "release {",
+            "minifyEnabled **MINIFY_RELEASE**",
+            "proguardFiles getDefaultProguardFile('proguard-android.txt')**SIGNCONFIG**",
+            "ndk {",
+            "debugSymbolLevel 'FULL'",
+            "}",
+            "}",
+            "}**PACKAGING_OPTIONS****PLAY_ASSET_PACKS****SPLITS**",
+            "**BUILT_APK_LOCATION**",
+            "bundle {",
+            "language {",
+            "enableSplit = false",
+            "}",
+            "density {",
+            "enableSplit = false",
+            "}",
+            "abi {",
+            "enableSplit = true",
+            "}",
+            "}",
+            "}**SPLITS_VERSION_CODE****LAUNCHER_SOURCE_BUILD_SETUP**"
+        };
+
+        /// <summary>True when <paramref name="text"/> carries the package's <c>bugsee:gradle-plugin</c> marker.</summary>
+        public static bool HasPackageMarker(string text)
+        {
+            return text != null && text.IndexOf(PluginMarker, StringComparison.Ordinal) >= 0;
+        }
+
+        /// <summary>True for the Unity 2021.3-era Gradle DSL (<c>lintOptions</c>/<c>aaptOptions</c>) that Gradle 9 rejects.</summary>
+        public static bool UsesRemovedAndroidDsl(string text)
+        {
+            return text != null &&
+                   (text.IndexOf("lintOptions", StringComparison.Ordinal) >= 0 ||
+                    text.IndexOf("aaptOptions", StringComparison.Ordinal) >= 0);
+        }
+
         /// <summary>
-        /// True for a launcher template an earlier package version generated (Unity 2021.3's Groovy layout, which
-        /// Unity 6's Gradle cannot run): it carries the package's <c>bugsee:gradle-plugin</c> marker, or the
-        /// release <c>debugSymbolLevel 'FULL'</c> block the package added to Unity 2021.3's template, and still uses the
-        /// removed <c>lintOptions</c>/<c>aaptOptions</c> DSL.
+        /// True only for a launcher template an earlier package version generated, line for line apart from
+        /// whitespace and the marked Bugsee plugin block. A launcher with any other change (signing, dependencies)
+        /// is the project's own and must never be removed, even if it carries the marker.
         /// </summary>
         public static bool IsLegacyPackageLauncherTemplate(string text)
         {
@@ -164,12 +247,21 @@ namespace Bugsee.WrapperPolicy
                 return false;
             }
 
-            bool oldDsl = text.IndexOf("lintOptions", StringComparison.Ordinal) >= 0 ||
-                          text.IndexOf("aaptOptions", StringComparison.Ordinal) >= 0;
-            bool ours = text.IndexOf(PluginMarker, StringComparison.Ordinal) >= 0 ||
-                        (text.IndexOf("debugSymbolLevel 'FULL'", StringComparison.Ordinal) >= 0 &&
-                         text.IndexOf("**LAUNCHER_SOURCE_BUILD_SETUP**", StringComparison.Ordinal) >= 0);
-            return oldDsl && ours;
+            var lines = new System.Collections.Generic.List<string>(NormalizedLines(text));
+            int marker = lines.FindIndex(l => l.IndexOf(PluginMarker, StringComparison.Ordinal) >= 0);
+            if (marker >= 0)
+            {
+                // apply plugin line, blank, "bugsee {" ... "} // bugsee:gradle-ndk"
+                int end = lines.FindIndex(marker, l => l.IndexOf("bugsee:gradle-ndk", StringComparison.Ordinal) >= 0);
+                if (end < 0)
+                {
+                    return false;
+                }
+
+                lines.RemoveRange(marker, end - marker + 1);
+            }
+
+            return lines.Count == LegacyLauncherBody.Length && System.Linq.Enumerable.SequenceEqual(lines, LegacyLauncherBody);
         }
 
         /// <summary>
