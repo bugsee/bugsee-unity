@@ -149,6 +149,8 @@ namespace Bugsee.Capture
         // Size of the screen at request time, in native window pixels (what secure rectangles are registered in).
         int _lastScreenW, _lastScreenH, _nativeW, _nativeH, _requestNativeW, _requestNativeH;
         int[] _rects;
+        int[] _requestRects;   // rectangles registered when the capture started
+        int _requestRectCount;
         int _probeFrames;
 
         // Pixels: the readback callback (main thread) fills _pixels, the push thread copies them into the Java
@@ -360,6 +362,7 @@ namespace Bugsee.Capture
                 _requestTimestampMs = NowMs();
                 _requestNativeW = _nativeW;
                 _requestNativeH = _nativeH;
+                _requestRectCount = SecureRectRegistry.Instance.CopyRects(0, ref _requestRects);
                 ScreenCapture.CaptureScreenshotIntoRenderTexture(_fullRt);
                 Graphics.Blit(_fullRt, _smallRt);
                 AsyncGPUReadback.Request(_smallRt, 0, TextureFormat.RGBA32, _onReadback);
@@ -469,11 +472,13 @@ namespace Bugsee.Capture
 
             // The SDK does not mask pushed frames: blank the registered secure rectangles first. If the row order is
             // unverified the mask could land on mirrored rows and leak the real area, so blank the whole frame instead.
+            // Mask what was secure when the capture started as well as what is secure now.
             int count = SecureRectRegistry.Instance.CopyRects(0, ref _rects);
-            if (count > 0)
+            if (count > 0 || _requestRectCount > 0)
             {
                 if (_rowOrderVerified)
-                    FrameRedaction.BlankRects(_pixels, _captureW, _captureH, _rowOrder, _rects, count, _requestNativeW, _requestNativeH);
+                    FrameRedaction.BlankRequestAndLive(_pixels, _captureW, _captureH, _rowOrder,
+                        _requestRects, _requestRectCount, _rects, count, _requestNativeW, _requestNativeH);
                 else
                     FrameRedaction.BlankAll(_pixels, _captureW, _captureH);
             }

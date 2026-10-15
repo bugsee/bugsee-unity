@@ -223,6 +223,48 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Rect_removed_after_the_request_started_is_still_masked()
+        {
+            var registry = new SecureRectRegistry();
+            registry.Set("a", 0, 0, 0, 2, 1);
+            int[] atRequest = null, live = null;
+            int requestCount = registry.CopyRects(0, ref atRequest);
+            registry.RemoveOwner("a");
+            int liveCount = registry.CopyRects(0, ref live);
+            var b = White();
+            FrameRedaction.BlankRequestAndLive(b, W, H, VideoFrameRowOrder.TopDown, atRequest, requestCount, live, liveCount, 4, 4);
+            Assert.That(Blank(b, 0, 0) && Blank(b, 1, 0), Is.True);
+        }
+
+        [Test]
+        public void Rect_added_after_the_request_started_is_masked_too()
+        {
+            var registry = new SecureRectRegistry();
+            int[] atRequest = null, live = null;
+            int requestCount = registry.CopyRects(0, ref atRequest);
+            registry.Set("late", 0, 0, 2, 4, 3);
+            int liveCount = registry.CopyRects(0, ref live);
+            var b = White();
+            FrameRedaction.BlankRequestAndLive(b, W, H, VideoFrameRowOrder.TopDown, atRequest, requestCount, live, liveCount, 4, 4);
+            Assert.That(Blank(b, 3, 2), Is.True);
+            Assert.That(Untouched(b, 0, 0), Is.True);
+        }
+
+        [Test]
+        public void Rect_moved_after_the_request_started_masks_both_places()
+        {
+            var registry = new SecureRectRegistry();
+            registry.Set("m", 0, 0, 0, 1, 1);
+            int[] atRequest = null, live = null;
+            int requestCount = registry.CopyRects(0, ref atRequest);
+            registry.Set("m", 0, 3, 3, 4, 4);
+            int liveCount = registry.CopyRects(0, ref live);
+            var b = White();
+            FrameRedaction.BlankRequestAndLive(b, W, H, VideoFrameRowOrder.TopDown, atRequest, requestCount, live, liveCount, 4, 4);
+            Assert.That(Blank(b, 0, 0) && Blank(b, 3, 3), Is.True);
+        }
+
+        [Test]
         public void Blank_all_blanks_every_pixel_and_ignores_a_short_buffer()
         {
             var b = White();
