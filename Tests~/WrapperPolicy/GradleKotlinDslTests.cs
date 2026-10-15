@@ -7,10 +7,9 @@ namespace Bugsee.WrapperPolicy.Tests
     ///
     /// Fixture provenance: the 2021.3 settings fixture is the settingsTemplate.gradle shipped in Unity
     /// 2021.3.45f1 (PlaybackEngines/AndroidPlayer/Tools/GradleTemplates) with its placeholders emptied and mavenCentral() dropped from the project repositories (so there is something to insert). The
-    /// Kotlin and 2022 fixtures are RECONSTRUCTED (no 2022 editor could be installed; Unity 6000.0.84f1 exports are
-    /// checked in under Fixtures and covered by UnityGeneratedLayoutTests): Unity 2022.2+ and
-    /// Unity 6 keep the same Groovy settings shape (vendor docs show PREFER_SETTINGS + google/mavenCentral/flatDir),
-    /// and Unity generates no .kts files itself, so the .kts fixtures model a project that converted them.
+    /// Kotlin fixtures are RECONSTRUCTED: Unity generates no .kts files itself, so they model a
+    /// project that converted them. The Groovy shape Unity generates is checked in from real editors under Fixtures
+    /// (Unity6000.0.84f1-* and Unity2022.3.62f3-*) and covered by UnityGeneratedLayoutTests.
     /// </summary>
     public class GradleKotlinDslTests
     {
