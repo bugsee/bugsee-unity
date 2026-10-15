@@ -57,3 +57,6 @@ Tools~/CompileCheck/**/obj/
 *.apk
 *.aab
 *.app
+
+Tools~/CompileCheck/Runtime/obj-unity-capture/
+Tools~/CompileCheck/Runtime/bin-unity-capture/

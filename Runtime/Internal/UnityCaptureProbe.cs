@@ -3,10 +3,38 @@ using UnityEngine;
 
 namespace Bugsee.Internal
 {
-    /// <summary>Reads what UnityCapturePolicy needs from the running player.</summary>
+    /// <summary>
+    /// Reads what UnityCapturePolicy needs from the running player. SystemInfo may only be used on the main thread, so the
+    /// values are read once on it at startup (and lazily on the main thread if that did not run) and a launch from any
+    /// other thread uses the cached copy.
+    /// </summary>
     static class UnityCaptureProbe
     {
+        static readonly object Gate = new object();
+        static UnityCaptureEnvironment _cached;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        static void Bootstrap()
+        {
+            Current();
+        }
+
         public static UnityCaptureEnvironment Current()
+        {
+            var env = _cached;
+            if (env == null && MainThreadDispatcher.IsMainThread)
+            {
+                env = Read();
+                lock (Gate) _cached = env;
+            }
+            // Off the main thread before the startup read ran: report nothing usable, so the launch falls back.
+            env = env ?? _cached ?? Unavailable();
+            // The one value that can change after startup, and is a plain field read.
+            env.RowOrderDeclared = global::Bugsee.Capture.BugseeFrameCapturer.DefaultOptions.RowOrder.HasValue;
+            return env;
+        }
+
+        static UnityCaptureEnvironment Read()
         {
             return new UnityCaptureEnvironment
             {
@@ -18,9 +46,13 @@ namespace Bugsee.Internal
                 ScreenCaptureModule = false,
 #endif
                 AsyncReadbackSupported = SystemInfo.supportsAsyncGPUReadback,
-                GraphicsApi = SystemInfo.graphicsDeviceType.ToString(),
-                RowOrderDeclared = global::Bugsee.Capture.BugseeFrameCapturer.DefaultOptions.RowOrder.HasValue
+                GraphicsApi = SystemInfo.graphicsDeviceType.ToString()
             };
+        }
+
+        static UnityCaptureEnvironment Unavailable()
+        {
+            return new UnityCaptureEnvironment { IsAndroidPlayer = true, UnityVersion = null };
         }
     }
 }

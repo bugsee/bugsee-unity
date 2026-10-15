@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Threading;
 using System.Threading.Tasks;
 using Bugsee.Contracts.Appearance;
 using Bugsee.Contracts.Exchange;
@@ -67,7 +68,10 @@ namespace Bugsee
             MainThreadDispatcher.Ensure();
             options = ApplyCapturePolicy(options, out bool startPusher);
             if (Bridge is ILifecycleResultBridge bridge)
-                bridge.Launch(appToken, options, accepted => AfterLaunchResult(accepted, startPusher, options));
+            {
+                Interlocked.Increment(ref _pendingLaunches);
+                bridge.Launch(appToken, options, accepted => AfterLaunchResultCounted(accepted, startPusher, options));
+            }
             else
             {
                 Bridge.Launch(appToken, options);
@@ -84,7 +88,10 @@ namespace Bugsee
         {
             options = ApplyCapturePolicy(options, out bool startPusher);
             if (Bridge is ILifecycleResultBridge bridge)
-                bridge.Relaunch(options, accepted => AfterLaunchResult(accepted, startPusher, options));
+            {
+                Interlocked.Increment(ref _pendingLaunches);
+                bridge.Relaunch(options, accepted => AfterLaunchResultCounted(accepted, startPusher, options));
+            }
             else
             {
                 Bridge.Relaunch(options);
@@ -97,7 +104,7 @@ namespace Bugsee
         // without frames. See UnityCapturePolicy.
         static Dictionary<string, object> ApplyCapturePolicy(Dictionary<string, object> options, out bool startPusher)
         {
-            var effective = UnityCapturePolicy.Apply(options, UnityCaptureProbe.Current(), out VideoModeDecision decision);
+            var effective = UnityCapturePolicy.Apply(options, UnityCaptureProbe.Current, out VideoModeDecision decision);
             startPusher = decision.UseUnityCapture;
             if (decision.FallbackReason != null)
                 Debug.LogWarning("[Bugsee] VideoMode.DirectBuffers was requested, but Unity-side capture cannot run: "
@@ -105,9 +112,19 @@ namespace Bugsee
             return effective;
         }
 
-        // The options of the last launch that runs the pusher; the fallback relaunch uses them if the pusher stops itself.
-        static Dictionary<string, object> _pusherLaunchOptions;
+        static readonly PusherLaunchState PusherState = new PusherLaunchState();
         static bool _pusherFailureHooked;
+        // Launch/Relaunch requests handed to the native SDK whose answer has not arrived. While one is waiting, a fallback
+        // relaunch would replace its options in the lifecycle queue, so the fallback is left to that request.
+        static int _pendingLaunches;
+
+        static bool NoNewerLaunchWaiting() => Volatile.Read(ref _pendingLaunches) == 0;
+
+        static void AfterLaunchResultCounted(bool accepted, bool startPusher, Dictionary<string, object> options)
+        {
+            Interlocked.Decrement(ref _pendingLaunches);
+            AfterLaunchResult(accepted, startPusher, options);
+        }
 
         // The pusher follows what the native SDK actually did with a launch request, once its answer is known: an ignored or
         // refused request (e.g. a Launch while the SDK is running) leaves it alone, an accepted one is read back from the
@@ -115,22 +132,19 @@ namespace Bugsee
         // relaunched with the default capture. All of it runs on the main thread.
         static void AfterLaunchResult(bool accepted, bool startPusher, Dictionary<string, object> options)
         {
-            if (accepted && startPusher) _pusherLaunchOptions = options;
-            if (startPusher && !_pusherFailureHooked)
+            if (!_pusherFailureHooked)
             {
                 _pusherFailureHooked = true;
                 Capture.BugseeFrameCapturer.Failed += () => MainThreadDispatcher.Run(() =>
-                {
-                    if (_pusherLaunchOptions == null) return;
-                    var failedOptions = _pusherLaunchOptions;
-                    _pusherLaunchOptions = null;
-                    CaptureStartup.OnPusherFailed(failedOptions, Bridge.Relaunch, message => Debug.LogWarning("[Bugsee] " + message));
-                });
+                    CaptureStartup.OnPusherFailed(PusherState, NoNewerLaunchWaiting, Bridge.Relaunch,
+                        message => Debug.LogWarning("[Bugsee] " + message)));
             }
             CaptureStartup.OnLaunchResult(
                 accepted,
                 startPusher,
                 options,
+                PusherState,
+                NoNewerLaunchWaiting,
                 () => IsStartingOrLaunched(Bridge.GetStatus()),
                 EffectiveVideoMode,
                 () => Capture.BugseeFrameCapturer.Enable(Capture.BugseeFrameCapturer.DefaultOptions),
@@ -161,7 +175,18 @@ namespace Bugsee
         /// wrapper stops waiting for the stop. Residual race after that: on iOS a late native stop can still stop a
         /// Launch made after the 60 s give-up.
         /// </summary>
-        public static void Stop(Action completion = null) => Bridge.Stop(completion);
+        public static void Stop(Action completion = null)
+        {
+            ForgetPusherSession();
+            Bridge.Stop(completion);
+        }
+
+        // A stopped session has no DirectBuffers state: a later pusher failure must not relaunch it with old options.
+        static void ForgetPusherSession()
+        {
+            PusherState.OnStopped();
+            Capture.BugseeFrameCapturer.Disable();
+        }
 
         /// <summary>
         /// <see cref="Launch"/> that completes with the SDK's answer: true when it accepted the launch, false
@@ -182,10 +207,12 @@ namespace Bugsee
             var result = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             if (Bridge is ILifecycleResultBridge bridge)
             {
+                Interlocked.Increment(ref _pendingLaunches);
                 bridge.Launch(appToken, options, accepted =>
                 {
-                    AfterLaunchResult(accepted, startPusher, options);
-                    result.TrySetResult(accepted);
+                    // The task must complete even if the capture follow-up throws (the lifecycle machine swallows it).
+                    try { AfterLaunchResultCounted(accepted, startPusher, options); }
+                    finally { result.TrySetResult(accepted); }
                 });
             }
             else
@@ -204,10 +231,11 @@ namespace Bugsee
             var result = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             if (Bridge is ILifecycleResultBridge bridge)
             {
+                Interlocked.Increment(ref _pendingLaunches);
                 bridge.Relaunch(options, accepted =>
                 {
-                    AfterLaunchResult(accepted, startPusher, options);
-                    result.TrySetResult(accepted);
+                    try { AfterLaunchResultCounted(accepted, startPusher, options); }
+                    finally { result.TrySetResult(accepted); }
                 });
             }
             else
@@ -229,6 +257,7 @@ namespace Bugsee
         /// </summary>
         public static Task StopAsync()
         {
+            ForgetPusherSession();
             var result = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             if (Bridge is ILifecycleResultBridge bridge)
             {

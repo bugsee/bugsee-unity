@@ -100,6 +100,16 @@ namespace Bugsee.WrapperPolicy
             }
         }
 
+        /// <summary>A failure outside a request (an exception while preparing one): counts toward the self-disable streak.</summary>
+        public void RecordFailure()
+        {
+            lock (_gate)
+            {
+                _failed++;
+                if (++_consecutiveFailures >= _maxConsecutiveFailures) _disabled = true;
+            }
+        }
+
         public void Snapshot(out long requested, out long pushed, out long failed, out long droppedInFlight, out long droppedBlackout)
         {
             lock (_gate)
@@ -142,6 +152,17 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>Parses "2021.3.45f1" (and "6000.0.1b2") into major, minor, patch.</summary>
+        /// <summary>Release channel letter of a Unity version string ("2022.3.62f3" gives 'f'), or '\0'.</summary>
+        public static char UnityChannel(string version)
+        {
+            if (string.IsNullOrEmpty(version)) return '\0';
+            string[] parts = version.Split('.');
+            if (parts.Length < 3) return '\0';
+            int i = 0;
+            while (i < parts[2].Length && char.IsDigit(parts[2][i])) i++;
+            return i < parts[2].Length ? parts[2][i] : '\0';
+        }
+
         public static bool TryParseUnityVersion(string version, out int major, out int minor, out int patch)
         {
             major = minor = patch = 0;
@@ -165,10 +186,11 @@ namespace Bugsee.WrapperPolicy
             order = VideoFrameRowOrder.BottomUp;
             switch (graphicsApi)
             {
-                // Measured on an Android 16 arm64 emulator, Unity 2021.3.45: the first buffer row was the screen's bottom.
-                case "OpenGLES3": order = VideoFrameRowOrder.BottomUp; return true;
-                // Samsung Galaxy Tab S5e (Adreno 615, Android 11), Unity 2021.3.45: the first buffer row was the screen's top.
+                // Samsung Galaxy Tab S5e (Adreno 615, Android 11), Unity 6000.0.84f1: the first buffer row was the screen's top.
                 case "Vulkan": order = VideoFrameRowOrder.TopDown; return true;
+                // Android 16 arm64 emulator (swiftshader GLES3), Unity 6000.0.84f1: the first buffer row was the screen's bottom.
+                // (Unity 2021.3.45 on the same emulator gave the same result, but the capturer does not run there.)
+                case "OpenGLES3": order = VideoFrameRowOrder.BottomUp; return true;
                 default: return false;
             }
         }

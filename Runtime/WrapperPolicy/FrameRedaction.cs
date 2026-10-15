@@ -8,6 +8,14 @@ namespace Bugsee.WrapperPolicy
     /// (only blackout is honoured), so the pusher has to, using the rectangles registered with
     /// Bugsee.AddSecureRectangle.
     /// </summary>
+    /// <summary>Where the captured view sits in the window, in the pixels secure rectangles are registered in.</summary>
+    public readonly struct SourceRegion
+    {
+        public readonly int Left, Top, Width, Height;
+        public SourceRegion(int left, int top, int width, int height) { Left = left; Top = top; Width = width; Height = height; }
+        public bool IsKnown => Width > 0 && Height > 0;
+    }
+
     public static class FrameRedaction
     {
         /// <summary>
@@ -21,6 +29,19 @@ namespace Bugsee.WrapperPolicy
             Span<byte> rgba, int width, int height, VideoFrameRowOrder order,
             int[] rects, int count, int sourceWidth, int sourceHeight)
         {
+            return BlankRects(rgba, width, height, order, rects, count, new SourceRegion(0, 0, sourceWidth, sourceHeight));
+        }
+
+        /// <summary>
+        /// Same, for a frame that shows only part of the window: <paramref name="region"/> is where the captured view sits
+        /// in the window (offset and size, in the pixels the rectangles are registered in). Rectangles are shifted by
+        /// the offset before they are scaled.
+        /// </summary>
+        public static int BlankRects(
+            Span<byte> rgba, int width, int height, VideoFrameRowOrder order,
+            int[] rects, int count, SourceRegion region)
+        {
+            int sourceWidth = region.Width, sourceHeight = region.Height;
             if (rects == null || count <= 0 || rects.Length < count * 4) return 0;
             if (width <= 0 || height <= 0 || sourceWidth <= 0 || sourceHeight <= 0) return 0;
             if (rgba.Length < (long)width * height * FramePushPolicy.PixelStride) return 0;
@@ -29,10 +50,10 @@ namespace Bugsee.WrapperPolicy
             for (int i = 0; i < count; i++)
             {
                 int o = i * 4;
-                int x0 = Clamp(FloorDiv((long)rects[o] * width, sourceWidth), 0, width);
-                int y0 = Clamp(FloorDiv((long)rects[o + 1] * height, sourceHeight), 0, height);
-                int x1 = Clamp(CeilDiv((long)rects[o + 2] * width, sourceWidth), 0, width);
-                int y1 = Clamp(CeilDiv((long)rects[o + 3] * height, sourceHeight), 0, height);
+                int x0 = Clamp(FloorDiv((long)(rects[o] - region.Left) * width, sourceWidth), 0, width);
+                int y0 = Clamp(FloorDiv((long)(rects[o + 1] - region.Top) * height, sourceHeight), 0, height);
+                int x1 = Clamp(CeilDiv((long)(rects[o + 2] - region.Left) * width, sourceWidth), 0, width);
+                int y1 = Clamp(CeilDiv((long)(rects[o + 3] - region.Top) * height, sourceHeight), 0, height);
                 if (x1 <= x0 || y1 <= y0) continue;
 
                 for (int y = y0; y < y1; y++)
@@ -57,6 +78,27 @@ namespace Bugsee.WrapperPolicy
         {
             return BlankRects(rgba, width, height, order, requestRects, requestCount, requestSourceWidth, requestSourceHeight)
                 + BlankRects(rgba, width, height, order, liveRects, liveCount, liveSourceWidth, liveSourceHeight);
+        }
+
+        /// <summary>
+        /// Masks a frame: the rectangles registered when the capture started (mapped with the view position of that
+        /// moment) and those registered when the pixels arrived (mapped with the position of now). Fails closed: if a
+        /// set has rectangles but its view position is unknown, the whole frame is blanked. Returns true when the
+        /// whole frame was blanked.
+        /// </summary>
+        public static bool MaskFrame(
+            Span<byte> rgba, int width, int height, VideoFrameRowOrder order,
+            int[] requestRects, int requestCount, SourceRegion requestRegion,
+            int[] liveRects, int liveCount, SourceRegion liveRegion)
+        {
+            if ((requestCount > 0 && !requestRegion.IsKnown) || (liveCount > 0 && !liveRegion.IsKnown))
+            {
+                BlankAll(rgba, width, height);
+                return true;
+            }
+            BlankRects(rgba, width, height, order, requestRects, requestCount, requestRegion);
+            BlankRects(rgba, width, height, order, liveRects, liveCount, liveRegion);
+            return false;
         }
 
         /// <summary>Fills the whole frame with opaque black: the fail-closed choice when the row order is unverified and a secure rectangle is registered.</summary>

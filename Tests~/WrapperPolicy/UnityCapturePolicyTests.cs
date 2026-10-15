@@ -43,8 +43,9 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(d.FallbackReason, Does.Contain(UnityCapturePolicy.MinimumUnityVersion));
         }
 
-        [TestCase("2022.2.0b1")]
+        [TestCase("2022.2.0f1")]
         [TestCase("2022.3.62f3")]
+        [TestCase("2022.3.1p1")]
         [TestCase("6000.0.84f1")]
         public void The_minimum_version_and_everything_above_it_is_supported(string version)
         {
@@ -52,6 +53,35 @@ namespace Bugsee.WrapperPolicy.Tests
             env.UnityVersion = version;
             env.GraphicsApi = "OpenGLES3";
             Assert.That(UnityCapturePolicy.Decide(VideoMode.DirectBuffers, env).UseUnityCapture, Is.True);
+        }
+
+        [TestCase("2022.2.0a11")]
+        [TestCase("2022.2.0b1")]
+        [TestCase("2023.1.0a5")]
+        [TestCase("6000.0.1b2")]
+        public void Pre_release_builds_are_not_supported(string version)
+        {
+            var env = Supported();
+            env.UnityVersion = version;
+            Assert.That(UnityCapturePolicy.Decide(VideoMode.DirectBuffers, env).UseUnityCapture, Is.False);
+        }
+
+        [Test]
+        public void The_environment_is_not_read_unless_direct_buffers_is_requested()
+        {
+            // Reading it touches SystemInfo, which only works on the main thread: a launch from another thread that does
+            // not use DirectBuffers must never do it.
+            int reads = 0;
+            UnityCaptureEnvironment Probe() { reads++; return Supported(); }
+            foreach (var options in new[] { null, new Dictionary<string, object>(), Mode((int)VideoMode.V2), Mode(VideoMode.Fullscreen) })
+            {
+                var output = UnityCapturePolicy.Apply(options, Probe, out var decision);
+                Assert.That(output, Is.SameAs(options));
+                Assert.That(decision.UseUnityCapture, Is.False);
+            }
+            Assert.That(reads, Is.EqualTo(0));
+            UnityCapturePolicy.Apply(Mode((int)VideoMode.DirectBuffers), Probe, out _);
+            Assert.That(reads, Is.EqualTo(1));
         }
 
         [Test]

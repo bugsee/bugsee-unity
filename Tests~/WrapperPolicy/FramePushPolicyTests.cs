@@ -147,7 +147,7 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Measured_gles3_is_bottom_up_and_verified()
+        public void Gles3_measured_on_unity_6000_is_bottom_up_and_verified()
         {
             Assert.That(FramePushPolicy.ResolveRowOrder("OpenGLES3", null, out bool verified), Is.EqualTo(VideoFrameRowOrder.BottomUp));
             Assert.That(verified, Is.True);
@@ -306,6 +306,51 @@ namespace Bugsee.WrapperPolicy.Tests
             FrameRedaction.BlankRequestAndLive(b, W, H, VideoFrameRowOrder.TopDown, request, 1, 8, 4, null, 0, 4, 8);
             Assert.That(Blank(b, 0, 0) && Blank(b, 1, 1), Is.True);
             Assert.That(Untouched(b, 2, 0) && Untouched(b, 0, 2), Is.True);
+        }
+
+        [Test]
+        public void View_offset_shifts_the_rect_before_scaling()
+        {
+            // Window 100x220; the Unity view is 100x200 at (0,20) (status bar above it). A rect at window y 20..60 is the
+            // view's top 40 px: frame rows 0..4 of a 10x20 frame, not rows 2..6.
+            var b = White(10, 20);
+            FrameRedaction.BlankRects(b, 10, 20, VideoFrameRowOrder.TopDown, One(0, 20, 100, 60), 1, new SourceRegion(0, 20, 100, 200));
+            for (int row = 0; row < 20; row++)
+                Assert.That(Blank(b, 3, row, 10), Is.EqualTo(row < 4), "row " + row);
+        }
+
+        [Test]
+        public void Rect_outside_the_view_masks_nothing()
+        {
+            var b = White(10, 20);
+            Assert.That(FrameRedaction.BlankRects(b, 10, 20, VideoFrameRowOrder.TopDown, One(0, 0, 100, 20), 1, new SourceRegion(0, 20, 100, 200)), Is.EqualTo(0));
+        }
+
+        [Test]
+        public void Mask_frame_blanks_everything_when_the_view_position_is_unknown_and_a_rect_is_registered()
+        {
+            var b = White();
+            bool all = FrameRedaction.MaskFrame(b, W, H, VideoFrameRowOrder.TopDown, One(0, 0, 1, 1), 1, default(SourceRegion), null, 0, default(SourceRegion));
+            Assert.That(all, Is.True);
+            for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) Assert.That(Blank(b, x, y), Is.True);
+
+            var b2 = White();
+            Assert.That(FrameRedaction.MaskFrame(b2, W, H, VideoFrameRowOrder.TopDown, null, 0, default(SourceRegion), null, 0, default(SourceRegion)), Is.False);
+            Assert.That(Untouched(b2, 0, 0), Is.True, "no rectangles: an unknown position is irrelevant");
+
+            var b3 = White();
+            Assert.That(FrameRedaction.MaskFrame(b3, W, H, VideoFrameRowOrder.TopDown, null, 0, default(SourceRegion), One(0, 0, 2, 1), 1, default(SourceRegion)), Is.True);
+        }
+
+        [Test]
+        public void Mask_frame_maps_each_set_with_its_own_region()
+        {
+            var b = White();
+            FrameRedaction.MaskFrame(b, W, H, VideoFrameRowOrder.TopDown,
+                One(0, 0, 4, 1), 1, new SourceRegion(0, 0, 4, 4),
+                One(0, 4, 4, 5), 1, new SourceRegion(0, 4, 4, 4));
+            for (int x = 0; x < W; x++) Assert.That(Blank(b, x, 0), Is.True);
+            Assert.That(Untouched(b, 0, 1), Is.True);
         }
 
         [Test]

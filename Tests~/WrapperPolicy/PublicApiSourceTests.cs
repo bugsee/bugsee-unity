@@ -150,12 +150,12 @@ namespace Bugsee.WrapperPolicy.Tests
             string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));
             string launch = ExtractMethodBody(facade, "public static Task<bool> LaunchAsync(string appToken, Dictionary<string, object> options = null)");
             Assert.That(launch, Does.Contain("bridge.Launch(appToken, options, accepted =>"));
-            Assert.That(launch, Does.Contain("AfterLaunchResult(accepted, startPusher, options);"));
-            Assert.That(launch, Does.Contain("result.TrySetResult(accepted);"));
+            Assert.That(launch, Does.Contain("try { AfterLaunchResultCounted(accepted, startPusher, options); }"));
+            Assert.That(launch, Does.Contain("finally { result.TrySetResult(accepted); }"));
             string relaunch = ExtractMethodBody(facade, "public static Task<bool> RelaunchAsync(Dictionary<string, object> options = null)");
             Assert.That(relaunch, Does.Contain("bridge.Relaunch(options, accepted =>"));
-            Assert.That(relaunch, Does.Contain("AfterLaunchResult(accepted, startPusher, options);"));
-            Assert.That(relaunch, Does.Contain("result.TrySetResult(accepted);"));
+            Assert.That(relaunch, Does.Contain("try { AfterLaunchResultCounted(accepted, startPusher, options); }"));
+            Assert.That(relaunch, Does.Contain("finally { result.TrySetResult(accepted); }"));
             string stop = ExtractMethodBody(facade, "public static Task StopAsync()");
             Assert.That(stop, Does.Contain("bridge.Stop("));
             Assert.That(stop, Does.Contain("TimeoutException"));

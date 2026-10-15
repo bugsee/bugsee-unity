@@ -32,8 +32,11 @@ namespace Bugsee.WrapperPolicy
     /// </summary>
     public static class UnityCapturePolicy
     {
-        /// <summary>First Unity with AndroidJNI.NewDirectByteBuffer: 2022.2.0b1 (all of 2022.3 LTS and 6000.x have it, 2021.3 and 2022.1 do not).</summary>
-        public const string MinimumUnityVersion = "2022.2.0b1";
+        /// <summary>
+        /// AndroidJNI.NewDirectByteBuffer first appears in 2022.2.0a11 (2022.2.0a1 and 2022.1 do not have it). Only release
+        /// builds (channel f or p) of 2022.2 and newer are supported, so the minimum is the first 2022.2 release.
+        /// </summary>
+        public const string MinimumUnityVersion = "2022.2.0f1";
         public const int MinimumMajor = 2022;
         public const int MinimumMinor = 2;
 
@@ -42,7 +45,9 @@ namespace Bugsee.WrapperPolicy
 
         public static bool IsSupportedUnityVersion(string unityVersion)
         {
+            char channel = FramePushPolicy.UnityChannel(unityVersion);
             return FramePushPolicy.TryParseUnityVersion(unityVersion, out int major, out int minor, out _)
+                && (channel == 'f' || channel == 'p')
                 && (major > MinimumMajor || (major == MinimumMajor && minor >= MinimumMinor));
         }
 
@@ -90,12 +95,23 @@ namespace Bugsee.WrapperPolicy
         public static Dictionary<string, object> Apply(
             Dictionary<string, object> options, UnityCaptureEnvironment env, out VideoModeDecision decision)
         {
-            if (options == null || !options.ContainsKey(Options.CaptureVideoMode))
+            return Apply(options, () => env, out decision);
+        }
+
+        /// <summary>
+        /// As above, but the environment is only read (the factory only called) when the options ask for DirectBuffers,
+        /// so launches that do not use it never touch Unity APIs that must run on the main thread.
+        /// </summary>
+        public static Dictionary<string, object> Apply(
+            Dictionary<string, object> options, Func<UnityCaptureEnvironment> environment, out VideoModeDecision decision)
+        {
+            if (options == null || !options.ContainsKey(Options.CaptureVideoMode)
+                || RequestedMode(options) != VideoMode.DirectBuffers)
             {
-                decision = new VideoModeDecision { Effective = VideoMode.V2 };
+                decision = new VideoModeDecision { Effective = options == null ? VideoMode.V2 : RequestedMode(options) };
                 return options;
             }
-            decision = Decide(RequestedMode(options), env);
+            decision = Decide(VideoMode.DirectBuffers, environment());
             return decision.FallbackReason == null ? options : WithFallback(options);
         }
 

@@ -112,8 +112,17 @@ namespace Bugsee.Sample
                 _framePusherRequested = experimentalFramePusher || ReadE2EValue("bugsee_frame_pusher", "BUGSEE_FRAME_PUSHER") == "1";
                 // "bugsee_frame_pattern" = 1 also paints a red-over-blue test pattern and logs the readback rows.
                 var pattern = ReadE2EValue("bugsee_frame_pattern", "BUGSEE_FRAME_PATTERN") == "1";
-                global::Bugsee.Capture.BugseeFrameCapturer.DefaultOptions =
-                    new global::Bugsee.Capture.BugseeFrameCapturerOptions { LogOrientationProbe = pattern };
+                // "bugsee_frame_row_order" = topdown | bottomup declares the readback row order (for measuring an unmeasured graphics API
+                // together with the probe; a wrong value only affects where secure rectangles are masked).
+                var rowOrder = ReadE2EValue("bugsee_frame_row_order", "BUGSEE_FRAME_ROW_ORDER");
+                global::Bugsee.Capture.BugseeFrameCapturer.DefaultOptions = new global::Bugsee.Capture.BugseeFrameCapturerOptions
+                {
+                    LogOrientationProbe = pattern,
+                    LogStats = true,
+                    RowOrder = rowOrder == "topdown" ? global::Bugsee.Contracts.Capture.VideoFrameRowOrder.TopDown
+                        : rowOrder == "bottomup" ? global::Bugsee.Contracts.Capture.VideoFrameRowOrder.BottomUp
+                        : (global::Bugsee.Contracts.Capture.VideoFrameRowOrder?)null
+                };
                 var options = new AndroidLaunchOptions
                 {
                     CaptureVideo = true,

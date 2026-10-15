@@ -35,6 +35,9 @@ namespace Bugsee.Capture
         /// </summary>
         public VideoFrameRowOrder? RowOrder;
 
+        /// <summary>Log the capture counters and timings every 10 seconds (off by default).</summary>
+        public bool LogStats;
+
         /// <summary>Log the colours of the first and last readback rows (and the graphics API) for the first few frames, to check orientation.</summary>
         public bool LogOrientationProbe;
     }
@@ -77,7 +80,9 @@ namespace Bugsee.Capture
         /// Starts the pusher. Returns false (and does nothing) off Android, in the Editor, on Unity older than 2022.2
         /// (no AndroidJNI.NewDirectByteBuffer), without the Screen Capture module, or when the device cannot do GPU
         /// readback. Call after or around Bugsee.Launch with VideoMode.DirectBuffers; frames are skipped until the SDK
-        /// is launched. Main thread only.
+        /// is launched. Called off the main thread it is queued and returns true before it has run: whether it actually
+        /// started is then visible through <see cref="IsEnabled"/> (and a failed start makes the wrapper relaunch with the
+        /// default capture when the launch asked for DirectBuffers).
         /// </summary>
         public static bool Enable(BugseeFrameCapturerOptions options = null)
         {
@@ -154,13 +159,14 @@ namespace Bugsee.Capture
             return true;
         }
 
+        const string BugseeClass = "com/bugsee/library/Bugsee";
         const string ConsumerClass = "com/bugsee/library/contracts/capture/consumers/VideoFrameConsumer";
         const string RowOrderClass = ConsumerClass + "$RowOrder";
         const string AddFrameSignature = "(JILjava/nio/ByteBuffer;IIIL" + RowOrderClass + ";)V";
         const string TimeUtilsClass = "com/bugsee/library/shared/util/TimeUtils";
         const float StatsLogIntervalSeconds = 10f;
-        const double ConsumerRetrySeconds = 2.0;
-        const double ConsumerWarnSeconds = 30.0;
+        const double ViewRegionRefreshSeconds = 1.0;
+        const int AndroidContentViewId = 16908290; // android.R.id.content
         const int ProbeFrames = 3;
 
         static readonly WaitForEndOfFrame EndOfFrame = new WaitForEndOfFrame();
@@ -174,26 +180,29 @@ namespace Bugsee.Capture
         int _captureW, _captureH;
         long _requestTimestampMs;
 
-        // Size of the screen at request time, in native window pixels (what secure rectangles are registered in).
-        int _lastScreenW, _lastScreenH, _nativeW, _nativeH, _requestNativeW, _requestNativeH;
+        // Where Unity's view sits in the window, in native window pixels (what secure rectangles are registered in):
+        // refreshed about once a second and when the Unity screen size changes. Width 0 means unknown (fail closed).
+        int _lastScreenW, _lastScreenH;
+        SourceRegion _viewRegion, _requestRegion;
+        double _nextViewRegion;
         int[] _rects;
         int[] _requestRects;   // rectangles registered when the capture started
         int _requestRectCount;
         int _probeFrames;
 
-        // Timing for the stats line (average ms): request to readback callback, copy into the Java buffer, addFrame.
+        // Timing for the stats line (average ms): request to readback callback, addFrame.
         long _requestTicks, _latencySum, _addSum, _timedFrames;
 
         // The readback callback (main thread) copies the frame into a persistent native buffer, masks it in place, and
-        // hands it to the push thread, which wraps the same memory as a Java direct ByteBuffer for addFrame (no Java
+        // hands it to the push thread, which passes the same memory to addFrame as a Java direct ByteBuffer (no Java
         // array, no file). The SDK copies before addFrame returns. Only one request is in flight, so neither side
-        // touches the buffer while the other does.
-        // Allocated once per size.
+        // touches the buffer while the other does. Allocated once per size, with one cached global ref to the ByteBuffer.
         NativeArray<byte> _native;
         IntPtr _nativePtr;
         int _nativeLength;
-        readonly object _nativeLock = new object();
-        IntPtr _consumer;          // global ref to the VideoFrameConsumer
+        IntPtr _directBuffer;       // global ref to the ByteBuffer over _native
+        IntPtr _bugseeClass, _isBlackoutMethod, _getConsumerMethod; // Bugsee.isBlackout() / getVideoFrameConsumer()
+        IntPtr _consumer;           // global ref to the VideoFrameConsumer in use
         IntPtr _addFrameMethod;
         IntPtr _topDown, _bottomUp; // global refs to the RowOrder constants
         IntPtr _timeClass, _timeMethod; // TimeUtils.monotonicWallTimeMillis(), the SDK's own clock
@@ -201,16 +210,16 @@ namespace Bugsee.Capture
         IntPtr _elapsedClass, _elapsedMethod;
         readonly jvalue[] _args = new jvalue[7];
         readonly jvalue[] _noArgs = new jvalue[0];
-        bool _wasLaunched;
         bool _warnedMode;
         bool _paused;
         bool _releaseDone;
         float _nextStatsLog;
-        double _nextConsumerTry, _nextConsumerWarn;
 
         Thread _worker;
         readonly SemaphoreSlim _signal = new SemaphoreSlim(0);
         volatile bool _stopWorker;
+        volatile bool _pushing;
+        int _nativeReleased;
         int _pushW, _pushH;
         VideoFrameRowOrder _pushOrder;
 
@@ -230,9 +239,16 @@ namespace Bugsee.Capture
                 IntPtr cls = FindClassOrClear(ConsumerClass);
                 _addFrameMethod = cls == IntPtr.Zero ? IntPtr.Zero : AndroidJNI.GetMethodID(cls, "addFrame", AddFrameSignature);
                 AndroidJNI.DeleteLocalRef(cls);
-                const bool bufferMethodsMissing = false;
-                if (bufferMethodsMissing
-                    || _addFrameMethod == IntPtr.Zero || _topDown == IntPtr.Zero || _bottomUp == IntPtr.Zero)
+                IntPtr bugsee = FindClassOrClear(BugseeClass);
+                if (bugsee != IntPtr.Zero)
+                {
+                    _bugseeClass = AndroidJNI.NewGlobalRef(bugsee);
+                    _isBlackoutMethod = AndroidJNI.GetStaticMethodID(bugsee, "isBlackout", "()Z");
+                    _getConsumerMethod = AndroidJNI.GetStaticMethodID(bugsee, "getVideoFrameConsumer", "()L" + ConsumerClass + ";");
+                    AndroidJNI.DeleteLocalRef(bugsee);
+                }
+                if (_addFrameMethod == IntPtr.Zero || _topDown == IntPtr.Zero || _bottomUp == IntPtr.Zero
+                    || _isBlackoutMethod == IntPtr.Zero || _getConsumerMethod == IntPtr.Zero)
                 {
                     // On an SDK older than 7.4.1 the lookups above leave a pending NoSuchMethodError/ClassNotFoundException.
                     AndroidJNI.ExceptionClear();
@@ -304,7 +320,6 @@ namespace Bugsee.Capture
             ? AndroidJNI.CallStaticLongMethod(_timeClass, _timeMethod, _noArgs)
             : _clockOffsetMs + AndroidJNI.CallStaticLongMethod(_elapsedClass, _elapsedMethod, _noArgs);
 
-
         void Stop()
         {
             _enabled = false;
@@ -318,7 +333,7 @@ namespace Bugsee.Capture
         {
             if (_enabled)
             {
-                if (Time.unscaledTime >= _nextStatsLog)
+                if (_options.LogStats && Time.unscaledTime >= _nextStatsLog)
                 {
                     _nextStatsLog = Time.unscaledTime + StatsLogIntervalSeconds;
                     var s = ReadStats();
@@ -357,8 +372,10 @@ namespace Bugsee.Capture
                 }
                 catch (Exception ex)
                 {
-                    // An exception would end the coroutine and silently stop capture.
+                    // An exception would end the coroutine and silently stop capture; count it as a failed capture so a
+                    // persistent problem turns the pusher off (and the wrapper falls back to the default capture).
                     Debug.LogWarning("[BugseeFrameCapturer] tick failed: " + ex.Message);
+                    _policy.RecordFailure();
                 }
             }
         }
@@ -368,32 +385,31 @@ namespace Bugsee.Capture
             double now = Time.realtimeSinceStartupAsDouble;
             if (_paused || !_policy.IsDue(now)) return;
 
-            // JNI calls only once per due frame, not on every game frame.
-            bool launched = Bugsee.IsLaunched;
-            bool stopped = !launched || Bugsee.IsBlackout;
-            if (launched && (!_wasLaunched || _consumer == IntPtr.Zero) && now >= _nextConsumerTry && !_policy.HasInFlight)
+            // Raw JNI, no managed allocation: the consumer exists only while the SDK is launched, and a relaunch hands out
+            // a new one, so the cached reference is replaced when it differs (only while nothing is in flight).
+            IntPtr current = AndroidJNI.CallStaticObjectMethod(_bugseeClass, _getConsumerMethod, _noArgs);
+            if (ClearPendingException()) current = IntPtr.Zero;
+            bool launched = current != IntPtr.Zero;
+            if (launched && !_policy.HasInFlight && (_consumer == IntPtr.Zero || !AndroidJNI.IsSameObject(_consumer, current)))
             {
-                _nextConsumerTry = now + ConsumerRetrySeconds;
-                RefreshConsumer();
-                if (_consumer == IntPtr.Zero && now >= _nextConsumerWarn)
-                {
-                    _nextConsumerWarn = now + ConsumerWarnSeconds;
-                    Debug.LogWarning("[BugseeFrameCapturer] the SDK has no video frame consumer yet (not launched with video capture?); retrying.");
-                }
+                if (_consumer != IntPtr.Zero) AndroidJNI.DeleteGlobalRef(_consumer);
+                _consumer = AndroidJNI.NewGlobalRef(current);
+                CheckLaunchMode();
             }
-            _wasLaunched = launched;
-            stopped |= _consumer == IntPtr.Zero;
+            AndroidJNI.DeleteLocalRef(current);
+            bool blackout = AndroidJNI.CallStaticBooleanMethod(_bugseeClass, _isBlackoutMethod, _noArgs);
+            if (ClearPendingException()) blackout = true; // cannot prove it is not blacked out: fail closed
+            bool stopped = !launched || blackout || _consumer == IntPtr.Zero;
 
             if (_policy.TryBegin(now, stopped) != FramePushDecision.Request) return;
 
             try
             {
-                UpdateNativeSize();
+                UpdateViewRegion(now);
                 if (!EnsureBuffers()) { _policy.Complete(false); return; }
                 _requestTimestampMs = NowMs();
                 _requestTicks = System.Diagnostics.Stopwatch.GetTimestamp();
-                _requestNativeW = _nativeW;
-                _requestNativeH = _nativeH;
+                _requestRegion = _viewRegion;
                 _requestRectCount = SecureRectRegistry.Instance.CopyRects(0, ref _requestRects);
                 ScreenCapture.CaptureScreenshotIntoRenderTexture(_fullRt);
                 Graphics.Blit(_fullRt, _smallRt);
@@ -406,41 +422,36 @@ namespace Bugsee.Capture
             }
         }
 
-        // Secure rectangles are native window pixels, which differ from Screen.width/height when Unity renders at a
-        // reduced resolution. Re-read the activity window size only when the Unity screen size changes.
-        void UpdateNativeSize()
+        // Secure rectangles are native window pixels, and Unity's view need not fill the window (status bar, cutout,
+        // multi-window, reduced render resolution), so the rectangles are mapped relative to the view's position in the
+        // window. Re-read about once a second and when the Unity screen size changes; unknown if it cannot be read.
+        void UpdateViewRegion(double now)
         {
-            if (Screen.width == _lastScreenW && Screen.height == _lastScreenH && _nativeW > 0) return;
+            if (Screen.width == _lastScreenW && Screen.height == _lastScreenH && now < _nextViewRegion && _viewRegion.IsKnown) return;
             _lastScreenW = Screen.width;
             _lastScreenH = Screen.height;
-            int w = 0, h = 0;
+            _nextViewRegion = now + ViewRegionRefreshSeconds;
             try
             {
                 using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
                 using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
-                using (var window = activity.Call<AndroidJavaObject>("getWindow"))
-                using (var decor = window.Call<AndroidJavaObject>("getDecorView"))
+                using (var content = activity.Call<AndroidJavaObject>("findViewById", AndroidContentViewId))
+                using (var view = content.Call<AndroidJavaObject>("getChildAt", 0))
                 {
-                    w = decor.Call<int>("getWidth");
-                    h = decor.Call<int>("getHeight");
+                    int[] location = new int[2];
+                    view.Call("getLocationInWindow", location);
+                    _viewRegion = new SourceRegion(location[0], location[1], view.Call<int>("getWidth"), view.Call<int>("getHeight"));
                 }
             }
             catch (Exception)
             {
-                // fall back to the Unity size below
+                _viewRegion = default; // unknown: masking fails closed
             }
-            _nativeW = w > 0 ? w : Screen.width;
-            _nativeH = h > 0 ? h : Screen.height;
         }
 
-        void RefreshConsumer()
+        // Once per consumer: warn if the SDK is not launched with DirectBuffers (it then ignores pushed frames).
+        void CheckLaunchMode()
         {
-            if (_consumer != IntPtr.Zero) { AndroidJNI.DeleteGlobalRef(_consumer); _consumer = IntPtr.Zero; }
-            using (var bugsee = new AndroidJavaClass("com.bugsee.library.Bugsee"))
-            using (var consumer = bugsee.CallStatic<AndroidJavaObject>("getVideoFrameConsumer"))
-            {
-                if (consumer != null) _consumer = AndroidJNI.NewGlobalRef(consumer.GetRawObject());
-            }
             if (_warnedMode) return;
             _warnedMode = true;
             IReadOnlyDictionary<string, object> launch = Bugsee.GetLaunchOptions();
@@ -451,11 +462,9 @@ namespace Bugsee.Capture
                 Debug.LogWarning("[BugseeFrameCapturer] the SDK is not launched with VideoMode.DirectBuffers; pushed frames are ignored.");
         }
 
-        bool HasPixelBuffer =>
-            _nativePtr != IntPtr.Zero;
+        bool HasPixelBuffer => _nativePtr != IntPtr.Zero;
 
-        // The frame buffer as a span (managed array, or the persistent native memory), so masking and probing do not
-        // care which one is in use.
+        // The frame buffer as a span over the persistent native memory.
         Span<byte> PixelSpan()
         {
             unsafe { return new Span<byte>((void*)_nativePtr, _nativeLength); }
@@ -481,6 +490,16 @@ namespace Bugsee.Capture
             _native = new NativeArray<byte>(bytes, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             unsafe { _nativePtr = (IntPtr)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafePtr(_native); }
             _nativeLength = bytes;
+            IntPtr local;
+            unsafe { local = AndroidJNI.NewDirectByteBuffer((byte*)_nativePtr, bytes); }
+            if (local == IntPtr.Zero)
+            {
+                ClearPendingException();
+                ReleaseNativeBuffer();
+                return false;
+            }
+            _directBuffer = AndroidJNI.NewGlobalRef(local);
+            AndroidJNI.DeleteLocalRef(local);
             return true;
         }
 
@@ -500,18 +519,17 @@ namespace Bugsee.Capture
 
             if (_options.LogOrientationProbe && _probeFrames < ProbeFrames) LogProbe(pixels);
 
-            // The SDK does not mask pushed frames: blank the registered secure rectangles first. If the row order is
-            // unverified the mask could land on mirrored rows and leak the real area, so blank the whole frame instead.
-            // Mask what was secure when the capture started as well as what is secure now. Live rectangles are in the
-            // window size of now (it may have changed since the request), request-time ones in the size of the request.
-            UpdateNativeSize();
+            // The SDK does not mask pushed frames: blank the registered secure rectangles first. Mask what was secure when
+            // the capture started as well as what is secure now, each mapped with the view position of its own moment. If
+            // the row order is unverified the mask could land on mirrored rows and leak the real area, and if a view
+            // position is unknown the rectangles cannot be placed: both blank the whole frame.
+            UpdateViewRegion(Time.realtimeSinceStartupAsDouble);
             int count = SecureRectRegistry.Instance.CopyRects(0, ref _rects);
             if (count > 0 || _requestRectCount > 0)
             {
                 if (_rowOrderVerified)
-                    FrameRedaction.BlankRequestAndLive(pixels, _captureW, _captureH, _rowOrder,
-                        _requestRects, _requestRectCount, _requestNativeW, _requestNativeH,
-                        _rects, count, _nativeW, _nativeH);
+                    FrameRedaction.MaskFrame(pixels, _captureW, _captureH, _rowOrder,
+                        _requestRects, _requestRectCount, _requestRegion, _rects, count, _viewRegion);
                 else
                     FrameRedaction.BlankAll(pixels, _captureW, _captureH);
             }
@@ -519,6 +537,7 @@ namespace Bugsee.Capture
             _pushW = _captureW;
             _pushH = _captureH;
             _pushOrder = _rowOrder;
+            _pushing = true;
             _signal.Release();
         }
 
@@ -541,8 +560,8 @@ namespace Bugsee.Capture
                 + " lastRow rgba=" + pixels[b] + "," + pixels[b + 1] + "," + pixels[b + 2] + "," + pixels[b + 3]);
         }
 
-        // Push thread: one frame per signal. addFrame converts synchronously on this thread, so the direct buffer can
-        // be reused as soon as it returns.
+        // Push thread: one frame per signal. addFrame converts synchronously on this thread, so the buffer can be reused
+        // as soon as it returns.
         void PushLoop()
         {
             AndroidJNI.AttachCurrentThread();
@@ -552,11 +571,16 @@ namespace Bugsee.Capture
                 {
                     _signal.Wait();
                     if (_stopWorker) break;
-                    _policy.Complete(PushOne());
+                    bool ok = PushOne();
+                    _pushing = false;
+                    _policy.Complete(ok);
+                    // A destroy that arrived during the push left the release to us.
+                    if (_stopWorker) break;
                 }
             }
             finally
             {
+                if (_stopWorker) ReleaseNative();
                 AndroidJNI.DetachCurrentThread();
             }
         }
@@ -567,23 +591,18 @@ namespace Bugsee.Capture
             {
                 int length = _pushW * _pushH * FramePushPolicy.PixelStride;
                 // The SDK reads width * height * stride bytes (stride 4) from the buffer base and needs capacity >= that;
-                // the native buffer was sized exactly so. It copies before addFrame returns, and the buffer is not
-                // reused until Complete() below lets the next request start.
-                if (length > _nativeLength) return false;
-                IntPtr buffer;
-                unsafe { buffer = AndroidJNI.NewDirectByteBuffer((byte*)_nativePtr, length); }
-                if (buffer == IntPtr.Zero) { ClearPendingException(); return false; }
+                // the native buffer was sized exactly so.
+                if (length > _nativeLength || _directBuffer == IntPtr.Zero || _consumer == IntPtr.Zero) return false;
                 long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
                 _args[0].j = _requestTimestampMs;
                 _args[1].i = 0; // display id
-                _args[2].l = buffer;
+                _args[2].l = _directBuffer;
                 _args[3].i = _pushW;
                 _args[4].i = _pushH;
                 _args[5].i = FramePushPolicy.PixelStride;
                 _args[6].l = _pushOrder == VideoFrameRowOrder.BottomUp ? _bottomUp : _topDown;
                 AndroidJNI.CallVoidMethod(_consumer, _addFrameMethod, _args);
                 long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
-                AndroidJNI.DeleteLocalRef(buffer);
                 Interlocked.Add(ref _addSum, t2 - t1);
                 Interlocked.Increment(ref _timedFrames);
                 return !ClearPendingException();
@@ -612,23 +631,23 @@ namespace Bugsee.Capture
 
         void ReleaseNativeBuffer()
         {
+            if (_directBuffer != IntPtr.Zero) { AndroidJNI.DeleteGlobalRef(_directBuffer); _directBuffer = IntPtr.Zero; }
             _nativePtr = IntPtr.Zero;
             _nativeLength = 0;
             if (_native.IsCreated) _native.Dispose();
         }
 
-
+        // Safe to call from the main thread when no push is running, or from the push thread as it exits.
         void ReleaseNative()
         {
+            // Both the main thread and the push thread may get here when the capturer is destroyed: only the first releases.
+            if (Interlocked.Exchange(ref _nativeReleased, 1) == 1) return;
             ReleaseNativeBuffer();
-            lock (_nativeLock)
-            {
-                IntPtr[] refs = { _consumer, _topDown, _bottomUp, _timeClass, _elapsedClass };
-                for (int i = 0; i < refs.Length; i++)
-                    if (refs[i] != IntPtr.Zero) AndroidJNI.DeleteGlobalRef(refs[i]);
-                _consumer = _topDown = _bottomUp = _timeClass = _elapsedClass = IntPtr.Zero;
-                _timeMethod = _elapsedMethod = IntPtr.Zero;
-            }
+            IntPtr[] refs = { _consumer, _topDown, _bottomUp, _timeClass, _elapsedClass, _bugseeClass };
+            for (int i = 0; i < refs.Length; i++)
+                if (refs[i] != IntPtr.Zero) AndroidJNI.DeleteGlobalRef(refs[i]);
+            _consumer = _topDown = _bottomUp = _timeClass = _elapsedClass = _bugseeClass = IntPtr.Zero;
+            _timeMethod = _elapsedMethod = _isBlackoutMethod = _getConsumerMethod = IntPtr.Zero;
         }
 
         void OnDestroy()
@@ -638,8 +657,9 @@ namespace Bugsee.Capture
             _signal.Release();
             if (_instance == this) _instance = null;
             ReleaseRenderTextures();
-            // A push still running owns the references until it finishes; the worker detaches on exit.
-            if (_policy == null || !_policy.HasInFlight) ReleaseNative();
+            // A push still running owns the buffer and references until it finishes; the push thread then releases them.
+            // Otherwise (also with a readback still pending: its callback finds no buffer and gives up) release now.
+            if (!_pushing) ReleaseNative();
         }
 #else
         void Stop() { _enabled = false; }

@@ -17,6 +17,8 @@ namespace Bugsee.WrapperPolicy.Tests
             public bool EnableResult = true;
             public bool EnableThrows;
             public bool PusherOn;
+            public bool Latest = true;
+            public readonly PusherLaunchState State = new PusherLaunchState();
             public int Enables, Disables;
             public readonly List<Dictionary<string, object>> Relaunches = new List<Dictionary<string, object>>();
             public readonly List<string> Warnings = new List<string>();
@@ -26,7 +28,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
             public void Result(bool accepted, bool startRequested, Dictionary<string, object> options)
             {
-                CaptureStartup.OnLaunchResult(accepted, startRequested, options,
+                CaptureStartup.OnLaunchResult(accepted, startRequested, options, State, () => Latest,
                     () => Running,
                     () => NativeMode,
                     () => { Enables++; if (EnableThrows) throw new InvalidOperationException("boom"); PusherOn = EnableResult; return EnableResult; },
@@ -153,13 +155,87 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void A_pusher_that_stops_itself_later_relaunches_with_the_default_capture()
+        public void A_pusher_that_stops_itself_later_relaunches_with_the_options_of_the_accepted_launch()
         {
+            var f = new Fake { Running = true, NativeMode = VideoMode.DirectBuffers };
+            f.Result(true, true, Mode(VideoMode.DirectBuffers));
             var relaunches = new List<Dictionary<string, object>>();
-            var warnings = new List<string>();
-            CaptureStartup.OnPusherFailed(Mode(VideoMode.DirectBuffers), o => relaunches.Add(new Dictionary<string, object>(o)), warnings.Add);
+            CaptureStartup.OnPusherFailed(f.State, () => true, o => relaunches.Add(new Dictionary<string, object>(o)), f.Warnings.Add);
             Assert.That(relaunches, Has.Count.EqualTo(1));
             Assert.That(relaunches[0][Options.CaptureVideoMode], Is.EqualTo((int)VideoMode.V2));
+            Assert.That(relaunches[0]["other"], Is.EqualTo(1));
+        }
+
+        [Test]
+        public void A_pusher_failure_after_the_session_stopped_does_not_relaunch_with_old_options()
+        {
+            var f = new Fake { Running = true, NativeMode = VideoMode.DirectBuffers };
+            f.Result(true, true, Mode(VideoMode.DirectBuffers));
+            f.State.OnStopped();
+            var relaunches = new List<Dictionary<string, object>>();
+            CaptureStartup.OnPusherFailed(f.State, () => true, relaunches.Add, f.Warnings.Add);
+            Assert.That(relaunches, Is.Empty);
+        }
+
+        [Test]
+        public void A_later_accepted_launch_that_is_not_direct_buffers_clears_the_old_options()
+        {
+            var f = new Fake { Running = true, NativeMode = VideoMode.DirectBuffers };
+            f.Result(true, true, Mode(VideoMode.DirectBuffers));
+            f.NativeMode = VideoMode.V2;
+            f.Result(true, false, new Dictionary<string, object> { { Options.CaptureVideoMode, (int)VideoMode.V2 } });
+            Assert.That(f.State.Active, Is.False);
+            var relaunches = new List<Dictionary<string, object>>();
+            CaptureStartup.OnPusherFailed(f.State, () => true, relaunches.Add, f.Warnings.Add);
+            Assert.That(relaunches, Is.Empty);
+        }
+
+        [Test]
+        public void A_relaunch_without_options_that_keeps_direct_buffers_still_gets_the_fallback()
+        {
+            // Relaunch(null) keeps the running DirectBuffers; the capture policy had nothing to decide (startRequested false),
+            // but the native SDK reports DirectBuffers, so the pusher is started, and if it cannot start the session falls back.
+            var f = new Fake { Running = true, NativeMode = VideoMode.DirectBuffers, EnableResult = false };
+            f.Result(true, false, null);
+            Assert.That(f.Relaunches, Has.Count.EqualTo(1));
+            Assert.That(f.Relaunches[0][Options.CaptureVideoMode], Is.EqualTo((int)VideoMode.V2));
+        }
+
+        [Test]
+        public void A_relaunch_without_options_falls_back_with_the_options_of_the_earlier_launch()
+        {
+            var f = new Fake { Running = true, NativeMode = VideoMode.DirectBuffers };
+            f.Result(true, true, Mode(VideoMode.DirectBuffers));
+            f.EnableResult = false;
+            f.Result(true, false, null);
+            Assert.That(f.Relaunches, Has.Count.EqualTo(1));
+            Assert.That(f.Relaunches[0]["other"], Is.EqualTo(1));
+        }
+
+        [Test]
+        public void The_fallback_does_not_replace_the_options_of_a_waiting_newer_launch()
+        {
+            var f = new Fake { Running = true, NativeMode = VideoMode.DirectBuffers, EnableResult = false, Latest = false };
+            f.Result(true, true, Mode(VideoMode.DirectBuffers));
+            Assert.That(f.Relaunches, Is.Empty);
+            Assert.That(f.Warnings, Has.Count.EqualTo(2).Or.Count.EqualTo(1));
+            // and a pusher that stops itself while a newer request waits leaves it to that request
+            var g = new Fake { Running = true, NativeMode = VideoMode.DirectBuffers };
+            g.Result(true, true, Mode(VideoMode.DirectBuffers));
+            var relaunches = new List<Dictionary<string, object>>();
+            CaptureStartup.OnPusherFailed(g.State, () => false, relaunches.Add, g.Warnings.Add);
+            Assert.That(relaunches, Is.Empty);
+        }
+
+        [Test]
+        public void An_exception_while_reading_the_effective_mode_is_survived()
+        {
+            var warnings = new List<string>();
+            var state = new PusherLaunchState();
+            bool enabled = false;
+            CaptureStartup.OnLaunchResult(true, true, Mode(VideoMode.DirectBuffers), state, () => true, () => true,
+                () => throw new InvalidOperationException("jni"), () => { enabled = true; return true; }, () => { }, o => { }, warnings.Add, a => a());
+            Assert.That(enabled, Is.True, "falls back to what the request asked for");
             Assert.That(warnings, Has.Count.EqualTo(1));
         }
     }

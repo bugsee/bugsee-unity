@@ -24,7 +24,16 @@
       Community repackaging of Unity's reference assemblies on nuget.org (not an official Unity
       feed), pinned by exact version and by obj lock file (restore runs in locked mode).
     -->
-    <PackageReference Include="UnityEngine.Modules" Version="2021.3.33" PrivateAssets="all" />
+    <PackageReference Include="UnityEngine.Modules" Version="2021.3.33" PrivateAssets="all" Condition="'$(UnityManagedDir)' == ''" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UnityManagedDir)' != ''">
+    <!--
+      The android-player-unity-capture config of compile-check.sh points this at a local Unity 2022.2+ editor's Managed
+      directory, so the code behind BUGSEE_UNITY_CAPTURE (AndroidJNI.NewDirectByteBuffer) is type-checked. The CI job has
+      no editor and skips that config.
+    -->
+    <Reference Include="$(UnityManagedDir)/UnityEngine/UnityEngine.dll" />
+    <Reference Include="$(UnityManagedDir)/UnityEngine/UnityEngine.*Module.dll" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\..\Runtime\**\*.cs" />
