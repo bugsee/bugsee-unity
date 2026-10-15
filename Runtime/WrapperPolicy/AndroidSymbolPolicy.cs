@@ -24,6 +24,18 @@ namespace Bugsee.WrapperPolicy
         public string Warning { get; }
     }
 
+    public enum SymbolRestoreAction
+    {
+        /// <summary>Leave everything as it is.</summary>
+        Skip,
+
+        /// <summary>Put the settings back to what they were before the opt-in changed them.</summary>
+        Restore,
+
+        /// <summary>The settings no longer hold what the opt-in applied (the user changed them): keep them, forget the saved state.</summary>
+        Discard,
+    }
+
     /// <summary>
     /// Native file:line symbolication needs DWARF in symbols.zip, which only the Debugging level produces (Public gives
     /// symbol tables, Disabled nothing). Debugging is about ten times larger, so it is never forced silently: the build
@@ -32,9 +44,10 @@ namespace Bugsee.WrapperPolicy
     /// </summary>
     public static class AndroidSymbolPolicy
     {
-        public static NativeSymbolDecision Decide(bool useFullSymbols, bool uploadConfigured, NativeSymbolLevel current)
+        /// <param name="zipEnabled">The symbols zip is produced (Unity 6: the format includes Zip). Unity 2021.3 has no format option.</param>
+        public static NativeSymbolDecision Decide(bool useFullSymbols, bool uploadConfigured, NativeSymbolLevel current, bool zipEnabled = true)
         {
-            if (current == NativeSymbolLevel.Debugging)
+            if (current == NativeSymbolLevel.Debugging && zipEnabled)
             {
                 return new NativeSymbolDecision(false, null);
             }
@@ -42,6 +55,15 @@ namespace Bugsee.WrapperPolicy
             if (useFullSymbols)
             {
                 return new NativeSymbolDecision(true, null);
+            }
+
+            if (current == NativeSymbolLevel.Debugging)
+            {
+                return uploadConfigured
+                    ? new NativeSymbolDecision(false,
+                        "[Bugsee] The symbols zip is not produced (Player Settings > Publishing Settings: the debug symbols format has no Zip), so there is no native symbols file to upload " +
+                        "and native/IL2CPP crashes will not be symbolicated. Enable Zip, or the menu item Bugsee > Android > Use Full Native Symbols (Debugging) For Symbol Upload.")
+                    : new NativeSymbolDecision(false, null);
             }
 
             if (!uploadConfigured)
@@ -58,6 +80,20 @@ namespace Bugsee.WrapperPolicy
                 current == NativeSymbolLevel.Disabled
                     ? "[Bugsee] Create symbols.zip is Disabled, so there is no native symbols file to upload and native/IL2CPP crash frames get no function names or file:line symbolication." + tradeOff
                     : "[Bugsee] Create symbols.zip is Public: it holds symbol tables only, so native/IL2CPP crash frames get function names but no file:line symbolication." + tradeOff);
+        }
+
+        /// <summary>
+        /// A restore pending from an earlier (possibly interrupted) opt-in. Unrelated builds never touch it; it is
+        /// restored only while the settings still hold what the opt-in applied, so a level the user chose since is kept.
+        /// </summary>
+        public static SymbolRestoreAction Restore(bool androidBuildOrEditorLoad, bool androidBuildInProgress, bool currentEqualsApplied)
+        {
+            if (!androidBuildOrEditorLoad || androidBuildInProgress)
+            {
+                return SymbolRestoreAction.Skip;
+            }
+
+            return currentEqualsApplied ? SymbolRestoreAction.Restore : SymbolRestoreAction.Discard;
         }
     }
 }

@@ -146,7 +146,7 @@ Failure policy: **never fail the Unity build**. Missing maps/UUIDs/CLI → warn 
 1. Scripting Backend: **IL2CPP** is the supported configuration for fully symbolicated native crashes. With Mono, frames inside the Mono runtime (`libmonobdwgc-2.0.so`, `libmono-native.so`, `libMonoPosixHelper.so`) cannot be symbolicated: Unity 2021.3 has no Mono ARM64 (ARMv7 only) and those libraries have no GNU build-id. Frames in `libunity.so` and `libmain.so` still symbolicate. A Mono Android build logs a one-time warning at build time (whether or not symbol upload is configured) and is never failed
 2. Create symbols.zip / native debug symbols enabled
 3. For primary LNM apply: native debug symbol level **FULL** (DWARF lines), not SYMBOL_TABLE-only
-4. Custom Base / Launcher Gradle templates (Bugsee injects `ndk { enabled = true }` on Unity 6+)
+4. No custom Gradle templates needed: Bugsee patches the generated Gradle project (the Bugsee Gradle plugin with `ndk { enabled = true }` when it pins AGP 8.6+, i.e. Unity 6); a template of your own that pins another AGP major than your Unity's default fails the build and is reported
 
 **iOS**
 
