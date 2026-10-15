@@ -355,6 +355,16 @@ namespace Bugsee.Platform.Android
             }
         }
 
+        public ISpanHandle StartTransaction(string name, string operation, IDictionary<string, object> attributes)
+        {
+            // The three-argument overload always takes a map (a null cannot select an overload), empty when there are none.
+            using (var javaAttributes = AndroidJavaConverters.ObjectDictionaryToMap(attributes))
+            {
+                var transaction = _bugsee.CallStatic<AndroidJavaObject>("startTransaction", name, operation, javaAttributes);
+                return transaction == null ? null : new AndroidSpanHandle(transaction);
+            }
+        }
+
         public void SetUserIdentifier(string userIdentifier)
         {
             var normalized = UserIdentifierPolicy.ForSet(userIdentifier);

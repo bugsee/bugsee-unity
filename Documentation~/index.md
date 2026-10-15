@@ -224,8 +224,21 @@ Wired: Launch/Stop, blackout, log/trace/event, exceptions (JSON-in-reason), Test
 
 `Bugsee.Notify(title, body = null, severity = IssueSeverity.Medium, fields = null, urgent = false)` relays a lightweight notification to the app's messaging integrations without creating a report (no video, logs or events). It is stored offline and sent in batches; `urgent` asks for immediate delivery. A call with an empty title, or before the SDK is launched, is ignored by the native SDK (the title case also logs a Unity warning). `fields` are extra string pairs; entries with a null key or value are dropped. The severity is always sent, so the native default for the shorter overloads is not used.
 
-### APM (not exposed yet)
+### Performance transactions and spans (APM)
 
-Both native SDKs have `startTransaction` / `startSpan` / `getActiveSpan`, but the Unity package does not expose them yet: a span is a live native object (it needs a handle that crosses JNI and P/Invoke and a lifetime rule), the active span is per native thread (not propagated across `dispatch_async` on iOS), and the no-op behaviour when APM is disabled is only documented on iOS. See the proposal on the tracking issue.
+```csharp
+using (var checkout = Bugsee.StartTransaction("checkout", "user.flow", new Dictionary<string, object> { ["cart"] = 3 }))
+using (var pay = checkout.StartChild("payment", "charge card"))
+{
+    pay.SetAttribute("provider", "stripe");
+    // ... work ...
+    pay.Finish();                     // Dispose without Finish also finishes with Ok
+    checkout.SetStatus(SpanStatus.Ok);
+}
+```
+
+`Bugsee.StartTransaction(name, operation, attributes = null)` returns an `ISpan` (`SpanId`, `TraceId`, `Operation`, `IsFinished`, `SetName`, `SetDescription`, `SetAttribute`, `SetStatus`, `StartChild(operation, description = null)`, `Finish()` / `Finish(SpanStatus)`, `Dispose` = `Finish()`). Attribute values follow the `SetAttribute` rules; a rejected value is dropped with a Unity warning (spans never throw). The statuses are `Ok`, `Error`, `Timeout`, `Cancelled`, `DeadlineExceeded` and `Unknown`.
+
+A span wraps a native span, so finish or dispose every span you start. Finishing (or disposing) a span releases the native object; finishing a parent first finishes its still-live children as `Cancelled`. A span that is dropped without finishing is not reported as finished, and on iOS its native handle is released by a finalizer. After `Finish` every call on the span does nothing. `StartTransaction` returns an inert span that accepts every call (empty ids) while the SDK is not launched or when the name or operation is empty; iOS documents a shared no-op span when performance monitoring is off (Android's behaviour is not documented; a null result from it is also treated as inert), so the wrapper never reports a failure. Spans are only created from a parent: `startSpan` and `getActiveSpan` are not exposed, because the native SDKs track the active span per thread (on iOS it is not propagated across `dispatch_async`). Android threading of a span is not documented by the native SDK, so use a span from the thread that created it unless you serialize access yourself.
 
 Full product documentation: [docs.bugsee.com/sdk/unity](https://docs.bugsee.com/sdk/unity/).

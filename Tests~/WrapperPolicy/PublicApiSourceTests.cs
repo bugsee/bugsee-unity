@@ -145,6 +145,46 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Facade_start_transaction_is_inert_before_launch_and_wraps_the_native_handle()
+        {
+            string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));
+            string body = ExtractMethodBody(facade, "public static ISpan StartTransaction(");
+            Assert.That(body, Does.Contain("SpanPolicy.HasText(name) || !SpanPolicy.HasText(operation)"));
+            Assert.That(body, Does.Contain("if (!Bridge.GetLaunched()) return NoopSpan.Instance;"));
+            Assert.That(body, Does.Contain("SpanPolicy.CleanAttributes(attributes, rejected)"));
+            Assert.That(body, Does.Contain("new ManagedSpan(handle, operation,"));
+            Assert.That(facade, Does.Not.Contain("GetActiveSpan"));
+        }
+
+        [Test]
+        public void Android_spans_hold_one_java_object_and_dispose_it_on_release()
+        {
+            string bridge = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs"));
+            Assert.That(ExtractMethodBody(bridge, "public ISpanHandle StartTransaction("),
+                Does.Contain("_bugsee.CallStatic<AndroidJavaObject>(\"startTransaction\", name, operation, javaAttributes)"));
+            string handle = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidSpanHandle.cs"));
+            string release = ExtractMethodBody(handle, "public void Release()");
+            Assert.That(release, Does.Contain("_span?.Dispose();"));
+            Assert.That(release, Does.Contain("_span = null;"));
+            Assert.That(ExtractMethodBody(handle, "public void Finish(SpanStatus status)"), Does.Contain("_span.Call(\"finish\", native)"));
+            Assert.That(ExtractMethodBody(handle, "public ISpanHandle StartChild("), Does.Contain("\"startChildSpan\", operation)"));
+        }
+
+        [Test]
+        public void Ios_spans_are_registry_ids_released_by_release_and_the_finalizer()
+        {
+            string handle = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IosSpanHandle.cs"));
+            Assert.That(handle, Does.Contain("~IosSpanHandle() => Release();"));
+            string release = ExtractMethodBody(handle, "public void Release()");
+            Assert.That(release, Does.Contain("Interlocked.Exchange(ref _id, 0)"));
+            Assert.That(release, Does.Contain("_bugsee_span_release(id)"));
+            string mm = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
+            Assert.That(mm, Does.Contain("[registry removeObjectForKey:@(spanId)]"));
+            Assert.That(mm, Does.Contain("[Bugsee startTransactionWithName:nameStr operation:operationStr attributes:attributes]"));
+            Assert.That(mm, Does.Not.Contain("getActiveSpan"));
+        }
+
+        [Test]
         public void Facade_async_lifecycle_uses_the_result_bridge_and_never_blocks()
         {
             string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));

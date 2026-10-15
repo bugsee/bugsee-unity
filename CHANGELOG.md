@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `Bugsee.GetLaunchOptions()` (Android and iOS): the effective launch options (SDK defaults merged with the host's) as a read-only dictionary, or `null` while the SDK is not launched. Keys are the native SDKs' own option names.
 - `Bugsee.Notify(title, body, severity, fields, urgent)` (Android and iOS): relays a lightweight notification to the app's messaging integrations without creating a report. An empty title is ignored with a warning.
+- `Bugsee.StartTransaction(name, operation, attributes)` and `ISpan` (`StartChild`, `SetName`, `SetDescription`, `SetAttribute`, `SetStatus`, `Finish`, `Dispose`) for APM on Android and iOS. A span is a managed wrapper over a native handle that is released when the span finishes (children still live are finished as `Cancelled` first); there is no global `StartSpan`/`GetActiveSpan`.
 - Initial UPM package scaffold (`com.bugsee.unity`).
 - Android native SDK from Maven Central (`com.bugsee:bugsee-android:7.4.1` + `bugsee-android-ndk:7.4.1`), declared in the generated Gradle project at build time. Installing is just adding the package: no EDM4U, no OpenUPM scoped registry, no resolve step, no custom Gradle templates. A Bugsee dependency the project already declares (EDM4U, custom template, local AAR) is kept, and a different version is reported. Core AAR publishes no transitives; NDK is declared explicitly.
 - Android Gradle plugin `4.0.8` (NDK enabled on Unity 6+ launcher templates).

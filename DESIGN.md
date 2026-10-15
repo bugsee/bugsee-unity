@@ -179,7 +179,7 @@ Identity: `SetUserIdentifier` / `Get` / `Clear` (not email-as-primary)
 Attributes: set/get/clear/clearAll/getAll  
 Appearance: `GetAppearance()`  
 Video: `GetVideoFrameConsumer` (internal to capturer); `ResetVideoCapturePermission`  
-APM: `StartTransaction`, `StartSpan`, `GetActiveSpan`  
+APM: `StartTransaction` returning a managed `ISpan` with child spans (no global `StartSpan` / `GetActiveSpan`: the native active span is per thread)  
 Feedback: `Bugsee.Feedback` → show UI, greeting, listener  
 Wrapper: **internal registration only** — not an app-facing `SetWrapper`
 

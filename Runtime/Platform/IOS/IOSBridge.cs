@@ -665,6 +665,12 @@ namespace Bugsee.Platform.IOS
             _bugsee_notify(title ?? "", NotifyPolicy.Body(body), (int)severity,
                 ToJsonObject(NotifyPolicy.ToWireMap(fields)), urgent ? 1 : 0);
 
+        public ISpanHandle StartTransaction(string name, string operation, IDictionary<string, object> attributes)
+        {
+            long id = IosSpanHandle._bugsee_start_transaction(name, operation, ToJsonObject(attributes));
+            return id == 0 ? null : new IosSpanHandle(id);
+        }
+
         public void SetUserIdentifier(string userIdentifier)
         {
             var normalized = UserIdentifierPolicy.ForSet(userIdentifier);
