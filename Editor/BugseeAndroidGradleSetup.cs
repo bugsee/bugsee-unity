@@ -28,14 +28,28 @@ namespace Bugsee.Editor
         public int callbackOrder => 10;
 
         public const string GradlePluginVersion = "4.0.8";
+        const string GradlePluginMarker = "// bugsee:gradle-plugin";
         public const string SdkVersion = BugseePackageVersion.AndroidSdkVersion;
 
         const string PrefForcePlugin = "Bugsee.Android.ForceGradlePlugin";
+
+        /// <summary>
+        /// Whether the current Android build writes the mapping-derived build id into the app, either through the Bugsee
+        /// Gradle plugin or through <see cref="GradleBuildIdBlock"/> (AGP too old for the plugin). Then the CLI derives
+        /// the same id from the mapping on its own. Otherwise the SDK derives the id from token, version name and
+        /// code, and the uploads must be keyed by that (<see cref="AndroidBuildUuid"/>).
+        /// </summary>
+        internal static bool BuildIdAssetInjected { get; private set; }
+
+        /// <summary>The generated Gradle project of the current Android build (the folder with settings.gradle), or null.</summary>
+        internal static string GeneratedProjectRoot { get; private set; }
 
         public void OnPreprocessBuild(BuildReport report)
         {
             if (report.summary.platform == BuildTarget.Android)
             {
+                BuildIdAssetInjected = false;
+                GeneratedProjectRoot = null;
                 RemoveLegacyTemplates();
             }
         }
@@ -61,7 +75,8 @@ namespace Bugsee.Editor
         {
             try
             {
-                PatchGeneratedProject(Path.GetDirectoryName(Path.GetFullPath(unityLibraryPath)));
+                GeneratedProjectRoot = Path.GetDirectoryName(Path.GetFullPath(unityLibraryPath));
+                PatchGeneratedProject(GeneratedProjectRoot);
             }
             catch (Exception ex) when (!(ex is BuildFailedException))
             {
@@ -103,6 +118,29 @@ namespace Bugsee.Editor
                     "apply plugin: 'com.android.application'",
                     LauncherMarkedGradlePatch());
             }
+
+            bool pluginPresent = apply &&
+                patchedRoot.Contains(GradlePluginMarker) && patchedLauncher.Contains(GradlePluginMarker);
+            bool blockPresent = false;
+            if (!apply && GradleTemplateDefaults.AgpSupportsBuildIdBlock(root))
+            {
+                patchedLauncher = GradleBuildIdBlock.Apply(patchedLauncher, out BuildIdBlockStatus blockStatus);
+                blockPresent = blockStatus != BuildIdBlockStatus.NoAnchor;
+                if (blockPresent)
+                {
+                    Debug.Log(
+                        "[Bugsee] Added the build id asset (assets/bugsee_build_id.properties, the id of the R8 mapping) to " + launcherPath +
+                        ": the part of the Bugsee Gradle plugin that works on this AGP.");
+                }
+                else
+                {
+                    Debug.LogWarning(
+                        "[Bugsee] No top-level android { } block in " + launcherPath + ", so the build id asset was not added. " +
+                        "The SDK derives its own build id and the mapping is uploaded under it.");
+                }
+            }
+
+            BuildIdAssetInjected = pluginPresent || blockPresent;
 
             if (!string.Equals(root, patchedRoot, StringComparison.Ordinal))
             {

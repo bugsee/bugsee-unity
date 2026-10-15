@@ -74,10 +74,50 @@ namespace Bugsee.Editor
             // matches it). Only this build's own file is uploaded, see BuildArtifactChoice.
             var stem = OutputStem(report);
             var allowGeneric = OutputIsDirectory(report);
+            // The Gradle plugin (or its stand-in, GradleBuildIdBlock) writes the mapping's content id into the app, and the
+            // CLI derives the same id on its own. Without either the SDK reports an id built from token, version name
+            // and code, so the mapping is uploaded under that one or its Java frames would never be deobfuscated.
+            var mappingExtra = new List<string>();
+            if (!BugseeAndroidGradleSetup.BuildIdAssetInjected)
+            {
+                var buildUuid = BugseeBuildIdentity.ResolveBuildUuid(report);
+                mappingExtra.Add("--uuid");
+                mappingExtra.Add(buildUuid);
+            }
+
+            // The Gradle plugin attaches the launcher icon to the mapping (the app's icon in the dashboard).
+            var icon = FindLauncherIcon();
+            if (icon != null)
+            {
+                Debug.Log($"Bugsee: attaching launcher icon {icon} to the mapping upload.");
+                mappingExtra.Add("--icon");
+                mappingExtra.Add(icon);
+            }
+
             UploadIfFound(roots, "*mapping.txt", "proguard", version, build,
-                path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric));
+                path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), mappingExtra);
             // Unity "Create symbols.zip" / Gradle native debug symbols.
             UploadSymbolsZipOrElf(report, roots, version, build);
+        }
+
+        static string FindLauncherIcon()
+        {
+            var root = BugseeAndroidGradleSetup.GeneratedProjectRoot;
+            var res = string.IsNullOrEmpty(root) ? null : Path.Combine(root, "launcher", "src", "main", "res");
+            if (res == null || !Directory.Exists(res))
+            {
+                return null;
+            }
+
+            try
+            {
+                return AndroidIconPicker.Pick(Directory.EnumerateFiles(res, "app_icon.*", SearchOption.AllDirectories));
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"Bugsee: launcher icon scan failed under {res}: {ex.Message}");
+                return null;
+            }
         }
 
         static void UploadSymbolsZipOrElf(BuildReport report, List<string> roots, string version, string build)
@@ -173,7 +213,8 @@ namespace Bugsee.Editor
             string type,
             string version,
             string build,
-            Func<string, int> rank)
+            Func<string, int> rank,
+            IList<string> extraArgs = null)
         {
             string best = null;
             var bestRank = BuildArtifactChoice.Reject;
@@ -217,13 +258,19 @@ namespace Bugsee.Editor
             }
 
             Debug.Log($"Bugsee: uploading {type} via {BugseeCliRunner.CliPath}: {best}");
-            var exit = BugseeCliRunner.Run(new[]
+            var args = new List<string>
             {
                 "debug-files", "upload", best,
                 "--type", type,
                 "--version", version,
                 "--build", build,
-            });
+            };
+            if (extraArgs != null)
+            {
+                args.AddRange(extraArgs);
+            }
+
+            var exit = BugseeCliRunner.Run(args);
             if (exit != 0)
             {
                 Debug.LogWarning($"Bugsee: bugsee-cli {type} upload failed (exit {exit}) — build continues.");

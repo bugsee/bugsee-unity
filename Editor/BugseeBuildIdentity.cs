@@ -67,8 +67,9 @@ namespace Bugsee.Editor
         }
 
         /// <summary>
-        /// Correlation BUILD_UUID for <c>bugsee-cli --type elf --uuid</c>.
-        /// Per-.so GNU build-ids remain the real symbol keys.
+        /// BUILD_UUID the symbol uploads are keyed by (<c>bugsee-cli --uuid</c>): BUGSEE_BUILD_UUID, else on Android the
+        /// id the SDK derives itself for an app the Gradle plugin did not build (<see cref="AndroidBuildUuid"/>: token,
+        /// version name and version code as the APK carries them, not BUGSEE_VERSION/BUGSEE_BUILD), else a random one. Per-.so GNU build-ids remain the real native symbol keys.
         /// </summary>
         public static string ResolveBuildUuid(BuildReport report)
         {
@@ -78,7 +79,18 @@ namespace Bugsee.Editor
                 return env.Trim();
             }
 
-            // Prefer a stable dashed UUID when BUGSEE_BUILD_UUID is unset.
+            if (report?.summary.platform == BuildTarget.Android)
+            {
+                var names = AndroidNameSettings(report);
+                var synthesized = AndroidBuildUuid.Synthesize(
+                    BugseeCliRunner.AppToken, names.BundleVersion, names.VersionCode.ToString());
+                if (synthesized != null)
+                {
+                    return synthesized;
+                }
+            }
+
+            // Prefer a stable dashed UUID when nothing above applies.
             return Guid.NewGuid().ToString("D");
         }
 

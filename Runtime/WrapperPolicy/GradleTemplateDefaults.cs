@@ -91,6 +91,17 @@ namespace Bugsee.WrapperPolicy
                    (major > 8 || (major == 8 && minor >= 6));
         }
 
+        /// <summary>
+        /// <see cref="GradleBuildIdBlock"/> needs the AGP 7.4 artifacts API (checked on 7.4.2) and is for versions the
+        /// plugin cannot run on (below 8.6): 7.4 up to 8.5. False for older AGPs (Unity 2021.3's first patch releases
+        /// ship AGP 4.0.1, which has no <c>androidComponents</c>) and when the version is unknown.
+        /// </summary>
+        public static bool AgpSupportsBuildIdBlock(string rootBuildFile)
+        {
+            return TryGetAgpVersion(rootBuildFile, out int major, out int minor) &&
+                   ((major == 7 && minor >= 4) || (major == 8 && minor < 6));
+        }
+
         const string PluginMarker = "bugsee:gradle-plugin";
 
         // The baseProjectTemplate.gradle earlier package versions wrote on every Unity line (Unity 2021.3's default
