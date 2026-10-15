@@ -144,12 +144,13 @@ namespace Bugsee.Sample
                 // "bugsee_launch_thread" = 1 launches from a worker thread (checks that a launch from any thread works).
                 if (ReadE2EValue("bugsee_launch_thread", "BUGSEE_LAUNCH_THREAD") == "1")
                 {
+                    var touched = Bugsee.IsLaunched; // first use of Bugsee initialises its statics, which must happen on the main thread
                     var launchOptions = options;
                     var token = appToken;
                     System.Threading.Tasks.Task.Run(() =>
                     {
                         try { Bugsee.Launch(token, launchOptions); Debug.Log("[BugseeSample] off-thread Launch returned"); }
-                        catch (Exception ex) { Debug.LogError("[BugseeSample] off-thread Launch threw " + ex.GetType().Name + ": " + ex.Message); }
+                        catch (Exception ex) { Debug.LogError("[BugseeSample] off-thread Launch threw " + ex); }
                     });
                 }
                 else
