@@ -119,7 +119,7 @@ namespace Bugsee.Sample
                     DetectAndReportExitNotResponding = true,
                     DetectAndReportExitLowMemory = true,
                     PerformanceMonitoring = ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") != "apmoff",
-                    PerformanceSampleRate = ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "apmleak" || ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "apmpool" ? 0f : 1f,
+                    PerformanceSampleRate = ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "apmleak" || ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "apmpool" || (ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") ?? "").StartsWith("apmthr") ? 0f : 1f,
                     Debug = true
                 };
                 if (!string.IsNullOrWhiteSpace(endpointOverride))
@@ -265,6 +265,9 @@ namespace Bugsee.Sample
                 case "apmoff":
                 case "apmleak":
                 case "apmpool":
+                case "apmthrnew":
+                case "apmthrjava":
+                case "apmthrui":
                     if (_e2ePhase == 0 && _e2eTimer >= 5f)
                     {
                         _e2ePhase = 99;
@@ -337,7 +340,8 @@ namespace Bugsee.Sample
                     }
                     SetStatus("E2E APM " + marker);
                     Debug.Log("[ApmE2E] sdk status=" + Bugsee.Status + " waits=" + _apmLaunchWaits);
-                    ApmE2E.Run(marker, _e2eScenario == "apmoff", _e2eScenario == "apmleak", _e2eScenario == "apmpool");
+                    if (_e2eScenario.StartsWith("apmthr")) ApmE2E.Threads(marker, _e2eScenario);
+                    else ApmE2E.Run(marker, _e2eScenario == "apmoff", _e2eScenario == "apmleak", _e2eScenario == "apmpool");
                     // The report bundle carries every transaction, which is what the backend check reads back.
                     if (_e2eScenario == "apm") Bugsee.Upload("apm-e2e-" + marker, "APM e2e run " + marker);
                     break;

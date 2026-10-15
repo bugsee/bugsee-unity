@@ -183,5 +183,69 @@ namespace Bugsee.Sample
             for (int g = 0; g < 3; g++) { GC.Collect(); GC.WaitForPendingFinalizers(); }
             Log("gc done");
         }
+
+        static void Work(string where)
+        {
+            var t = Thread.CurrentThread;
+            Log(where + " work thread=" + t.ManagedThreadId + " pool=" + t.IsThreadPoolThread + " background=" + t.IsBackground + " name=" + t.Name);
+            var txn = Bugsee.StartTransaction("apm-thr-" + where, "e2e.thread");
+            var c = txn.StartChild("thr.child");
+            c.SetAttribute("where", where);
+            c.Finish();
+            txn.Finish();
+            Log(where + " work done span=" + txn.SpanId + " finished=" + txn.IsFinished);
+        }
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+        sealed class WorkRunnable : AndroidJavaProxy
+        {
+            readonly string _where;
+            public WorkRunnable(string where) : base("java.lang.Runnable") { _where = where; }
+            public void run() { Work(_where); }
+        }
+#endif
+
+        // Span use from threads the wrapper did not create: a dedicated managed Thread, a thread Java created (a
+        // callback), and the Android UI thread.
+        public static void Threads(string runId, string scenario)
+        {
+            Log("threads begin run=" + runId + " scenario=" + scenario);
+            switch (scenario)
+            {
+                case "apmthrnew":
+                {
+                    var t = new Thread(() => Work("newthread"));
+                    t.Start();
+                    t.Join();
+                    Log("newthread joined");
+                    Thread.Sleep(3000);
+                    break;
+                }
+#if UNITY_ANDROID && !UNITY_EDITOR
+                case "apmthrjava":
+                {
+                    using (var thread = new AndroidJavaObject("java.lang.Thread", new WorkRunnable("javathread")))
+                    {
+                        thread.Call("start");
+                        thread.Call("join");
+                    }
+                    Log("javathread joined");
+                    break;
+                }
+                case "apmthrui":
+                {
+                    using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+                    using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
+                    {
+                        activity.Call("runOnUiThread", new WorkRunnable("uithread"));
+                        Thread.Sleep(2000);
+                    }
+                    break;
+                }
+#endif
+            }
+            Work("main");
+            Log("end run=" + runId);
+        }
     }
 }

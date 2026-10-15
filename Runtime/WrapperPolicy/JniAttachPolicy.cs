@@ -1,16 +1,35 @@
 namespace Bugsee.WrapperPolicy
 {
+    public enum JniAttachMode
+    {
+        /// <summary>Make no attach call.</summary>
+        None,
+
+        /// <summary>Attach for the scope and detach when it ends.</summary>
+        AttachDetach,
+
+        /// <summary>Attach and leave the thread attached (until the thread exits).</summary>
+        AttachOnly
+    }
+
     /// <summary>
-    /// When a JNI call needs this wrapper to attach (and later detach) the calling thread. A JNI call from a thread the
-    /// JVM does not know aborts the process, and detaching a thread that has Java frames (a callback on a Java-owned
-    /// thread) or that someone else attached aborts it too, so the wrapper only touches a thread it can prove is
-    /// unattached: a managed thread-pool thread (Unity attaches only its own threads and Java-owned ones are never in
-    /// the managed pool), never the main thread, never inside a scope it already holds. A thread that application code
-    /// attached by itself must not be a pool thread it also uses for spans.
+    /// What a JNI scope does for the calling thread. A JNI call from a thread the JVM does not know aborts the process
+    /// (CheckJNI "use of deleted local reference"), so every managed thread except the main one gets an attach: the
+    /// attach is idempotent, so a thread that is already attached (the Android UI thread, a Java-created thread running
+    /// an <c>AndroidJavaProxy</c> callback, a thread the application attached) is unaffected. Detaching is the dangerous
+    /// half (ART aborts on a detach while the thread has Java frames, and on a thread attached by someone else), so the
+    /// wrapper detaches only a managed thread-pool thread (the pool is managed code only, never a Java callback or a
+    /// thread the application attached for its own use), and leaves every other thread attached: ART detaches it when
+    /// the thread exits (a warning, not an abort; see the tablet evidence in the PR).
     /// </summary>
     public static class JniAttachPolicy
     {
-        public static bool ShouldAttach(bool isMainThread, bool isPoolThread, bool alreadyAttached, int depth) =>
-            depth == 0 && !alreadyAttached && !isMainThread && isPoolThread;
+        /// <param name="alreadyAttached">This wrapper already attached the thread (it stays attached in <see cref="JniAttachMode.AttachOnly"/>).</param>
+        /// <param name="depth">Scopes this wrapper already holds on the thread; a nested scope does nothing.</param>
+        public static JniAttachMode Decide(bool isMainThread, bool isPoolThread, bool alreadyAttached, int depth)
+        {
+            if (depth > 0 || isMainThread || alreadyAttached) return JniAttachMode.None;
+            return isPoolThread ? JniAttachMode.AttachDetach : JniAttachMode.AttachOnly;
+        }
     }
 }
