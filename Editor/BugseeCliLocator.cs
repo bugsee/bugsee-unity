@@ -27,6 +27,9 @@ namespace Bugsee.Editor
     {
         static CliResolution _resolved;
         static bool _notFoundReported;
+        // Kept for the editor session (Reset does not clear it): a blackholed network must cost one timeout, not one per build.
+        static string _downloadFailure;
+        static string _stagingDir;
 
         public static CliResolution Resolve()
         {
@@ -42,7 +45,9 @@ namespace Bugsee.Editor
                 {
                     FileExists = File.Exists,
                     QueryVersion = QueryVersion,
-                    Download = (cacheDir, version) => Download(settings, cacheDir, version),
+                    Fetch = version => Fetch(settings, version),
+                    Install = (staged, cacheDir, version) => Install(settings, staged, cacheDir, version),
+                    Discard = _ => DiscardStaging(),
                 });
             }
             catch (Exception ex)
@@ -118,6 +123,11 @@ namespace Bugsee.Editor
                 Debug.LogWarning("[Bugsee] Ignoring BUGSEE_CLI_VERSION=" + version + ": not a release version like 0.8.1. Using " + BugseeCliPolicy.DefaultVersion + ".");
                 version = null;
             }
+            else if (version != null && !BugseeCliPolicy.VersionAtLeast(version, BugseeCliPolicy.MinVersion))
+            {
+                Debug.LogWarning("[Bugsee] Ignoring BUGSEE_CLI_VERSION=" + version + ": older than " + BugseeCliPolicy.MinVersion + ", which the uploads need. Using " + BugseeCliPolicy.DefaultVersion + ".");
+                version = null;
+            }
 
             var settings = new CliSettings
             {
@@ -131,6 +141,11 @@ namespace Bugsee.Editor
                 DownloadAllowed = BugseeCliPolicy.DownloadAllowed(
                     BugseeCliRunner.HasAppToken, Environment.GetEnvironmentVariable("BUGSEE_NO_CLI_DOWNLOAD") != null),
             };
+            if (_downloadFailure != null)
+            {
+                settings.DownloadAllowed = false;
+                settings.DownloadDisabledNote = "Downloading bugsee-cli failed earlier in this Editor session (" + _downloadFailure + "); not retried until it restarts.";
+            }
 
             // Shared by every project of this user first; the project's own Library when that is not writable.
             string userCache = null;
@@ -161,12 +176,12 @@ namespace Bugsee.Editor
         static string QueryVersion(string path)
         {
             string output;
-            int exit = Capture(path, "--version", 15000, out output);
+            int exit = Capture(path, new[] { "--version" }, 15000, out output);
             return exit == 0 ? BugseeCliPolicy.ParseVersionOutput(output) : null;
         }
 
         /// <summary>Runs a process, returns its exit code (-1 when it did not start or run to the end) and stdout.</summary>
-        static int Capture(string file, string args, int timeoutMs, out string stdout)
+        static int Capture(string file, string[] args, int timeoutMs, out string stdout)
         {
             stdout = null;
             try
@@ -174,12 +189,16 @@ namespace Bugsee.Editor
                 var psi = new ProcessStartInfo
                 {
                     FileName = file,
-                    Arguments = args,
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     CreateNoWindow = true,
                 };
+                foreach (string arg in args)
+                {
+                    psi.ArgumentList.Add(arg);
+                }
+
                 using (Process proc = Process.Start(psi))
                 {
                     if (proc == null)
@@ -214,13 +233,25 @@ namespace Bugsee.Editor
             }
         }
 
-        static string Download(CliSettings settings, string cacheDir, string version)
+        /// <summary>Downloads, verifies and unpacks the release once into a temp directory; returns the binary there.</summary>
+        static string Fetch(CliSettings settings, string version)
+        {
+            try
+            {
+                return FetchUnchecked(settings, version);
+            }
+            catch (Exception ex)
+            {
+                _downloadFailure = ex.Message;
+                DiscardStaging();
+                throw;
+            }
+        }
+
+        static string FetchUnchecked(CliSettings settings, string version)
         {
             string triple = settings.Triple;
             string binaryName = BugseeCliPolicy.BinaryName(BugseeCliPolicy.IsWindowsTriple(triple));
-            string finalDir = Path.GetDirectoryName(BugseeCliPolicy.CachedBinaryPath(settings, cacheDir, version, triple));
-            string finalBinary = Path.Combine(finalDir, binaryName);
-
             string baseUrl = Environment.GetEnvironmentVariable("BUGSEE_CLI_BASE_URL");
             string url = BugseeCliPolicy.ArchiveUrl(baseUrl, version, triple);
             if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
@@ -228,88 +259,132 @@ namespace Bugsee.Editor
                 throw new IOException("refusing a non-https download URL " + url);
             }
 
-            string work = Path.Combine(Path.GetDirectoryName(finalDir), triple + ".part-" + Guid.NewGuid().ToString("N").Substring(0, 8));
-            Directory.CreateDirectory(work);
-            try
+            _stagingDir = Path.Combine(Path.GetTempPath(), "bugsee-cli-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(_stagingDir);
+            Debug.Log("[Bugsee] Downloading bugsee-cli " + version + " for " + triple + " from " + url);
+            string archive = Path.Combine(_stagingDir, BugseeCliPolicy.ArchiveName(triple));
+            FetchFile(url, archive);
+
+            // The pinned hash for the default release; the published sidecar for any other.
+            string expected = BugseeCliPolicy.KnownSha256(version, triple);
+            if (expected == null)
             {
-                Debug.Log("[Bugsee] Downloading bugsee-cli " + version + " for " + triple + " from " + url);
-                string archive = Path.Combine(work, BugseeCliPolicy.ArchiveName(triple));
-                Fetch(url, archive);
-                string expected = BugseeCliPolicy.ParseSha256Sidecar(FetchText(BugseeCliPolicy.ChecksumUrl(url)));
+                string sidecar = Path.Combine(_stagingDir, "archive.sha256");
+                FetchFile(BugseeCliPolicy.ChecksumUrl(url), sidecar);
+                expected = BugseeCliPolicy.ParseSha256Sidecar(File.ReadAllText(sidecar));
                 if (expected == null)
                 {
                     throw new IOException("the published checksum for " + Path.GetFileName(archive) + " is malformed");
                 }
+            }
 
-                string actual = Sha256Hex(archive);
-                if (!string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase))
+            string actual = Sha256Hex(archive);
+            if (!string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException("SHA-256 mismatch for " + Path.GetFileName(archive) + ": expected " + expected + ", got " + actual);
+            }
+
+            string extracted = Path.Combine(_stagingDir, "x");
+            Directory.CreateDirectory(extracted);
+            Extract(archive, extracted, BugseeCliPolicy.IsWindowsTriple(triple));
+            string binary = FindBinary(extracted, binaryName);
+            if (binary == null)
+            {
+                throw new IOException("the archive holds no " + binaryName);
+            }
+
+            if (!BugseeCliPolicy.IsWindowsTriple(triple) && Capture("chmod", new[] { "+x", binary }, 15000, out _) != 0)
+            {
+                throw new IOException("chmod +x failed on " + binary);
+            }
+
+            if (QueryVersion(binary) == null)
+            {
+                throw new IOException("the downloaded " + binaryName + " does not run on this machine");
+            }
+
+            return binary;
+        }
+
+        /// <summary>
+        /// Puts the staged binary into the cache atomically: copied to a temp name next to the target, then moved. A
+        /// binary another build installed meanwhile is kept; only files created by this call are ever deleted.
+        /// </summary>
+        static string Install(CliSettings settings, string staged, string cacheDir, string version)
+        {
+            string finalBinary = BugseeCliPolicy.CachedBinaryPath(settings, cacheDir, version, settings.Triple);
+            string finalDir = Path.GetDirectoryName(finalBinary);
+            Directory.CreateDirectory(finalDir);
+            if (File.Exists(finalBinary) && QueryVersion(finalBinary) != null)
+            {
+                return finalBinary;
+            }
+
+            string temp = Path.Combine(finalDir, Path.GetFileName(finalBinary) + ".tmp-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                File.Copy(staged, temp, false);
+                if (!BugseeCliPolicy.IsWindowsTriple(settings.Triple) && Capture("chmod", new[] { "+x", temp }, 15000, out _) != 0)
                 {
-                    throw new IOException("SHA-256 mismatch for " + Path.GetFileName(archive) + ": expected " + expected + ", got " + actual);
+                    throw new IOException("chmod +x failed on " + temp);
                 }
 
-                string extracted = Path.Combine(work, "x");
-                Directory.CreateDirectory(extracted);
-                Extract(archive, extracted, BugseeCliPolicy.IsWindowsTriple(triple));
-                string binary = FindBinary(extracted, binaryName);
-                if (binary == null)
+                try
                 {
-                    throw new IOException("the archive holds no " + binaryName);
+                    File.Move(temp, finalBinary);
                 }
-
-                if (!BugseeCliPolicy.IsWindowsTriple(triple))
+                catch (IOException)
                 {
-                    int chmod = Capture("chmod", "+x \"" + binary + "\"", 15000, out _);
-                    if (chmod != 0)
+                    // Another build won the race; theirs is kept if it runs.
+                    if (!(File.Exists(finalBinary) && QueryVersion(finalBinary) != null))
                     {
-                        throw new IOException("chmod +x failed on " + binary);
+                        throw;
                     }
-                }
-
-                // A concurrent build may have installed the same release meanwhile: keep theirs.
-                Directory.CreateDirectory(finalDir);
-                if (!File.Exists(finalBinary))
-                {
-                    File.Copy(binary, finalBinary, true);
-                }
-
-                if (!BugseeCliPolicy.IsWindowsTriple(triple))
-                {
-                    Capture("chmod", "+x \"" + finalBinary + "\"", 15000, out _);
-                }
-
-                if (QueryVersion(finalBinary) == null)
-                {
-                    try { File.Delete(finalBinary); } catch { /* ignore */ }
-                    throw new IOException("the downloaded " + binaryName + " does not run on this machine");
                 }
 
                 return finalBinary;
             }
             finally
             {
-                try { Directory.Delete(work, true); } catch { /* ignore */ }
+                try { if (File.Exists(temp)) File.Delete(temp); } catch { /* ignore */ }
             }
         }
 
-        static void Fetch(string url, string destination)
+        static void DiscardStaging()
+        {
+            string dir = _stagingDir;
+            _stagingDir = null;
+            if (dir != null)
+            {
+                try { Directory.Delete(dir, true); } catch { /* ignore */ }
+            }
+        }
+
+        /// <summary>An HTTP error status: the server answered, so a second attempt with curl would get the same answer.</summary>
+        sealed class HttpStatusException : IOException
+        {
+            public HttpStatusException(string message) : base(message) { }
+        }
+
+        static void FetchFile(string url, string destination)
         {
             try
             {
-                var request = (HttpWebRequest)WebRequest.Create(url);
-                request.Timeout = 30000;
-                request.ReadWriteTimeout = 120000;
-                using (var response = (HttpWebResponse)request.GetResponse())
-                using (Stream input = response.GetResponseStream())
-                using (var output = File.Create(destination))
-                {
-                    input.CopyTo(output);
-                }
+                FetchWithRedirects(url, destination);
+            }
+            catch (HttpStatusException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
-                // Mono's TLS stack rejects some hosts' certificate chains: curl uses the system trust store.
+                // Mono's TLS stack rejects some hosts' certificate chains and has its own timeouts: curl uses the system
+                // trust store. Bounded, https only (also across redirects).
                 string ignored;
-                int exit = Capture("curl", "--proto \"=https\" --tlsv1.2 -fsSL --max-time 300 -o \"" + destination + "\" \"" + url + "\"", 330000, out ignored);
+                int exit = Capture(
+                    "curl",
+                    new[] { "--proto", "=https", "--proto-redir", "=https", "--tlsv1.2", "-fsSL", "--connect-timeout", "10", "--max-time", "120", "-o", destination, url },
+                    130000, out ignored);
                 if (exit != 0 || !File.Exists(destination))
                 {
                     throw new IOException("GET " + url + " failed (" + ex.Message + "; curl exit " + exit + ")");
@@ -317,18 +392,56 @@ namespace Bugsee.Editor
             }
         }
 
-        static string FetchText(string url)
+        static void FetchWithRedirects(string url, string destination)
         {
-            string temp = Path.Combine(Path.GetTempPath(), "bugsee-cli-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".sha256");
-            try
+            string current = url;
+            for (int hop = 0; hop <= 5; hop++)
             {
-                Fetch(url, temp);
-                return File.ReadAllText(temp);
+                var request = (HttpWebRequest)WebRequest.Create(current);
+                request.Timeout = 20000;
+                request.ReadWriteTimeout = 60000;
+                request.AllowAutoRedirect = false;
+                HttpWebResponse response;
+                try
+                {
+                    response = (HttpWebResponse)request.GetResponse();
+                }
+                catch (WebException ex) when (ex.Response is HttpWebResponse errorResponse)
+                {
+                    response = errorResponse;
+                }
+
+                using (response)
+                {
+                    int status = (int)response.StatusCode;
+                    if (status >= 300 && status < 400)
+                    {
+                        var next = new Uri(new Uri(current), response.Headers["Location"] ?? "");
+                        if (next.Scheme != Uri.UriSchemeHttps)
+                        {
+                            throw new HttpStatusException("refusing a redirect to " + next + " (not https)");
+                        }
+
+                        current = next.AbsoluteUri;
+                        continue;
+                    }
+
+                    if (status < 200 || status >= 300)
+                    {
+                        throw new HttpStatusException("GET " + current + " returned " + status);
+                    }
+
+                    using (Stream input = response.GetResponseStream())
+                    using (var output = File.Create(destination))
+                    {
+                        input.CopyTo(output);
+                    }
+
+                    return;
+                }
             }
-            finally
-            {
-                try { File.Delete(temp); } catch { /* ignore */ }
-            }
+
+            throw new HttpStatusException("too many redirects from " + url);
         }
 
         static string Sha256Hex(string path)
@@ -355,7 +468,7 @@ namespace Bugsee.Editor
             }
 
             string ignored;
-            int exit = Capture("tar", "-xf \"" + archive + "\" -C \"" + destination + "\"", 120000, out ignored);
+            int exit = Capture("tar", new[] { "-xf", archive, "-C", destination }, 120000, out ignored);
             if (exit != 0)
             {
                 throw new IOException("tar -xf " + Path.GetFileName(archive) + " failed (exit " + exit + "); xz support is needed to unpack it");

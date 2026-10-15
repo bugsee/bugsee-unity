@@ -33,14 +33,6 @@ namespace Bugsee.Editor
 
         const string PrefForcePlugin = "Bugsee.Android.ForceGradlePlugin";
 
-        /// <summary>
-        /// Whether the current Android build writes the mapping-derived build id into the app, either through the Bugsee
-        /// Gradle plugin or through <see cref="GradleBuildIdBlock"/> (AGP too old for the plugin). Then the CLI derives
-        /// the same id from the mapping on its own. Otherwise the SDK derives the id from token, version name and
-        /// code, and the uploads must be keyed by that (<see cref="AndroidBuildUuid"/>).
-        /// </summary>
-        internal static bool BuildIdAssetInjected { get; private set; }
-
         /// <summary>The generated Gradle project of the current Android build (the folder with settings.gradle), or null.</summary>
         internal static string GeneratedProjectRoot { get; private set; }
 
@@ -48,7 +40,6 @@ namespace Bugsee.Editor
         {
             if (report.summary.platform == BuildTarget.Android)
             {
-                BuildIdAssetInjected = false;
                 GeneratedProjectRoot = null;
                 RemoveLegacyTemplates();
             }
@@ -119,18 +110,19 @@ namespace Bugsee.Editor
                     LauncherMarkedGradlePatch());
             }
 
-            bool pluginPresent = apply &&
-                patchedRoot.Contains(GradlePluginMarker) && patchedLauncher.Contains(GradlePluginMarker);
-            bool blockPresent = false;
-            if (!apply && GradleTemplateDefaults.AgpSupportsBuildIdBlock(root))
+            if (!apply && Environment.GetEnvironmentVariable("BUGSEE_NO_GRADLE_BUILD_ID") != null)
+            {
+                // Opt-out (the Unity version regenerates only what changed, so a block from an earlier build is removed).
+                patchedLauncher = GradleBuildIdBlock.Remove(patchedLauncher);
+            }
+            else if (!apply && GradleTemplateDefaults.AgpSupportsBuildIdBlock(root))
             {
                 patchedLauncher = GradleBuildIdBlock.Apply(patchedLauncher, out BuildIdBlockStatus blockStatus);
-                blockPresent = blockStatus != BuildIdBlockStatus.NoAnchor;
-                if (blockPresent)
+                if (blockStatus != BuildIdBlockStatus.NoAnchor)
                 {
                     Debug.Log(
-                        "[Bugsee] Added the build id asset (assets/bugsee_build_id.properties, the id of the R8 mapping) to " + launcherPath +
-                        ": the part of the Bugsee Gradle plugin that works on this AGP.");
+                        "[Bugsee] Added the build id asset task (assets/bugsee_build_id.properties, the id of the R8 mapping) to " + launcherPath +
+                        ": the part of the Bugsee Gradle plugin that works on this AGP. The upload uses whatever id the built app carries.");
                 }
                 else
                 {
@@ -139,8 +131,6 @@ namespace Bugsee.Editor
                         "The SDK derives its own build id and the mapping is uploaded under it.");
                 }
             }
-
-            BuildIdAssetInjected = pluginPresent || blockPresent;
 
             if (!string.Equals(root, patchedRoot, StringComparison.Ordinal))
             {

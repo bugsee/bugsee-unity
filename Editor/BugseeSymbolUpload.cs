@@ -74,30 +74,24 @@ namespace Bugsee.Editor
             // matches it). Only this build's own file is uploaded, see BuildArtifactChoice.
             var stem = OutputStem(report);
             var allowGeneric = OutputIsDirectory(report);
-            // The Gradle plugin (or its stand-in, GradleBuildIdBlock) writes the mapping's content id into the app, and the
-            // CLI derives the same id on its own. Without either the SDK reports an id built from token, version name
-            // and code, so the mapping is uploaded under that one or its Java frames would never be deobfuscated.
-            var mappingExtra = new List<string>();
-            if (!BugseeAndroidGradleSetup.BuildIdAssetInjected)
-            {
-                var buildUuid = BugseeBuildIdentity.ResolveBuildUuid(report);
-                mappingExtra.Add("--uuid");
-                mappingExtra.Add(buildUuid);
-            }
+            // Keyed by the id the built app reports (read back from the APK or Gradle's output, see
+            // BugseeBuildIdentity.ResolveAndroidUploadIdentity), never assumed from what the build script contained.
+            var identity = BugseeBuildIdentity.ResolveAndroidUploadIdentity(report);
+            // Said only when a mapping is actually uploaded under it (R8 off: nothing to match).
+            var identityWarning = identity.Warning != null && identity.Source != BuildIdSource.None ? "Bugsee: " + identity.Warning : null;
 
             // The Gradle plugin attaches the launcher icon to the mapping (the app's icon in the dashboard).
             var icon = FindLauncherIcon();
             if (icon != null)
             {
                 Debug.Log($"Bugsee: attaching launcher icon {icon} to the mapping upload.");
-                mappingExtra.Add("--icon");
-                mappingExtra.Add(icon);
             }
 
+            var mappingExtra = AndroidUploadIdentity.MappingArguments(identity.Uuid, icon);
             UploadIfFound(roots, "*mapping.txt", "proguard", version, build,
-                path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), mappingExtra);
+                path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), mappingExtra, identityWarning);
             // Unity "Create symbols.zip" / Gradle native debug symbols.
-            UploadSymbolsZipOrElf(report, roots, version, build);
+            UploadSymbolsZipOrElf(report, roots, version, build, identity.Uuid ?? Guid.NewGuid().ToString("D"));
         }
 
         static string FindLauncherIcon()
@@ -120,7 +114,7 @@ namespace Bugsee.Editor
             }
         }
 
-        static void UploadSymbolsZipOrElf(BuildReport report, List<string> roots, string version, string build)
+        static void UploadSymbolsZipOrElf(BuildReport report, List<string> roots, string version, string build, string buildUuid)
         {
             var bestZip = FindSymbolsZip(report);
             var elfDirs = new List<string>();
@@ -158,7 +152,6 @@ namespace Bugsee.Editor
                 // bugsee-cli --type elf accepts a zip of ELF objects (Unity symbols.zip layout).
                 // --uuid is the BUILD_UUID correlation key (required by CLI); each .so is still
                 // keyed by its own GNU build-id.
-                var buildUuid = BugseeBuildIdentity.ResolveBuildUuid(report);
                 Debug.Log($"Bugsee: uploading Android symbols zip via {BugseeCliRunner.CliPath}: {bestZip}");
                 var args = new List<string>
                 {
@@ -167,11 +160,8 @@ namespace Bugsee.Editor
                     "--version", version,
                     "--build", build,
                 };
-                if (!string.IsNullOrEmpty(buildUuid))
-                {
-                    args.Add("--uuid");
-                    args.Add(buildUuid);
-                }
+                args.Add("--uuid");
+                args.Add(buildUuid);
                 var exit = BugseeCliRunner.Run(args);
                 if (exit != 0)
                 {
@@ -214,7 +204,8 @@ namespace Bugsee.Editor
             string version,
             string build,
             Func<string, int> rank,
-            IList<string> extraArgs = null)
+            IList<string> extraArgs = null,
+            string warnWhenFound = null)
         {
             string best = null;
             var bestRank = BuildArtifactChoice.Reject;
@@ -233,9 +224,7 @@ namespace Bugsee.Editor
                         {
                             continue;
                         }
-                        // R8 writes an empty mapping when nothing was obfuscated. The Gradle plugin (and the build id
-                        // block) write no id for it, so the app reports the SDK's own id and an upload keyed by the CLI's
-                        // content id could never match: skip it.
+                        // R8 writes an empty mapping when nothing was obfuscated: there is nothing to deobfuscate.
                         if (IsEmptyFile(file))
                         {
                             continue;
@@ -262,6 +251,11 @@ namespace Bugsee.Editor
             if (best == null)
             {
                 return;
+            }
+
+            if (warnWhenFound != null)
+            {
+                Debug.LogWarning(warnWhenFound);
             }
 
             Debug.Log($"Bugsee: uploading {type} via {BugseeCliRunner.CliPath}: {best}");

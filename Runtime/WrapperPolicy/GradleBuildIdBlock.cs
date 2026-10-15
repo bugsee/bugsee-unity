@@ -57,7 +57,7 @@ namespace Bugsee.WrapperPolicy
             "    @TaskAction",
             "    void run() {",
             "        def dst = outputDir.get().asFile",
-            "        project.delete(dst)",
+            "        dst.deleteDir()",
             "        dst.mkdirs()",
             "        def id = idFile.get().asFile.text.trim()",
             "        if (!id.isEmpty()) {",
@@ -143,6 +143,31 @@ namespace Bugsee.WrapperPolicy
             snippet.Add("");
             lines.InsertRange(anchor, snippet);
             status = BuildIdBlockStatus.Applied;
+            return MarkedGradleBlock.JoinLines(lines, newline);
+        }
+
+        /// <summary>
+        /// Takes the block out again (the generated project is not always rebuilt from the template, so a block added
+        /// by an earlier build stays unless it is removed). Returns the text unchanged when there is none.
+        /// </summary>
+        public static string Remove(string launcherGradle)
+        {
+            if (launcherGradle == null)
+            {
+                throw new ArgumentNullException(nameof(launcherGradle));
+            }
+
+            var lines = MarkedGradleBlock.SplitLines(launcherGradle, out string newline);
+            int begin = lines.FindIndex(l => l.Trim() == Begin);
+            int end = begin < 0 ? -1 : lines.FindIndex(begin, l => l.Trim() == End);
+            if (begin < 0 || end < begin)
+            {
+                return launcherGradle;
+            }
+
+            // The blank line Apply put after the block goes with it.
+            int count = end - begin + 1 + (end + 1 < lines.Count && lines[end + 1].Length == 0 ? 1 : 0);
+            lines.RemoveRange(begin, count);
             return MarkedGradleBlock.JoinLines(lines, newline);
         }
 

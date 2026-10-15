@@ -53,6 +53,17 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(fixedUp, Is.EqualTo(once));
         }
 
+        [TestCase("2021.3.45f1")]
+        [TestCase("2022.3.62f3")]
+        public void Removing_the_block_restores_the_template_exactly(string unity)
+        {
+            var launcher = Template(unity, "launcherTemplate.gradle");
+            var patched = GradleBuildIdBlock.Apply(launcher, out _);
+
+            Assert.That(GradleBuildIdBlock.Remove(patched), Is.EqualTo(launcher));
+            Assert.That(GradleBuildIdBlock.Remove(launcher), Is.EqualTo(launcher), "nothing to remove");
+        }
+
         [Test]
         public void A_launcher_without_a_top_level_android_block_is_left_alone()
         {
@@ -75,7 +86,9 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void The_block_never_fails_the_build_and_uses_only_api_present_in_agp_7_4()
+        // Text checks only: no Gradle runs in these tests. That the block loads and produces the asset is what the
+        // real 2021.3 / 2022.3 builds in Documentation~/index.md verify.
+        public void The_block_text_keeps_the_properties_checked_by_the_real_builds()
         {
             var snippet = GradleBuildIdBlock.Snippet();
 
@@ -83,6 +96,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(snippet, Does.Contain("catch (Throwable t)"));
             Assert.That(snippet, Does.Contain("variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.OBFUSCATION_MAPPING_FILE.INSTANCE)"));
             Assert.That(snippet, Does.Not.Contain("toListenTo"), "AGP 7.4.2 has no toListenTo");
+            Assert.That(snippet, Does.Not.Contain("project.delete"), "Task.project at execution time breaks the configuration cache");
             Assert.That(snippet, Does.Not.Contain("toTransform"), "transforming ASSETS on AGP 7.4.2 drops every library asset, Unity's game data included");
             Assert.That(snippet, Does.Contain("variant.sources.assets.addGeneratedSourceDirectory(asset"));
             Assert.That(snippet, Does.Contain("bugsee_build_id.properties"));
@@ -91,13 +105,16 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [TestCase("id 'com.android.application' version '7.4.2' apply false", true)]
+        [TestCase("id 'com.android.application' version '7.4.0' apply false", true)]
+        [TestCase("id 'com.android.application' version '7.3.1' apply false", false)]
         [TestCase("id 'com.android.application' version '7.1.2' apply false", false)]
-        [TestCase("id 'com.android.application' version '8.3.0' apply false", true)]
+        [TestCase("id 'com.android.application' version '7.5.0' apply false", false)]
+        [TestCase("id 'com.android.application' version '8.3.0' apply false", false)]
         [TestCase("id 'com.android.application' version '8.6.0' apply false", false)]
         [TestCase("id 'com.android.application' version '9.0.0' apply false", false)]
         [TestCase("classpath 'com.android.tools.build:gradle:4.0.1'", false)]
         [TestCase("no agp here", false)]
-        public void The_block_is_for_agp_7_4_up_to_the_plugins_own_minimum(string root, bool expected)
+        public void The_block_is_only_for_agp_7_4_the_one_line_it_was_run_on(string root, bool expected)
         {
             Assert.That(GradleTemplateDefaults.AgpSupportsBuildIdBlock(root), Is.EqualTo(expected));
         }

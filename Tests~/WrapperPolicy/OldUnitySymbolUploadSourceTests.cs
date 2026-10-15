@@ -5,9 +5,9 @@ using NUnit.Framework;
 namespace Bugsee.WrapperPolicy.Tests
 {
     /// <summary>
-    /// The Editor scripts are compiled only by Unity, so the wiring the policy classes depend on is checked in source:
-    /// the upload resolves its CLI through the locator, and a mapping is keyed by the SDK id when no build id asset
-    /// runs (Unity 2021.3 / 2022.3).
+    /// The Editor scripts are compiled only by Unity, so these check, in source text and nothing more, that the Editor
+    /// code calls the policy classes whose behaviour is tested elsewhere (BugseeCliPolicy, AndroidUploadIdentity,
+    /// AndroidBuildUuid). They prove wiring, not behaviour: real builds do that (see Documentation~/index.md).
     /// </summary>
     public class OldUnitySymbolUploadSourceTests
     {
@@ -42,73 +42,50 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void The_runner_starts_the_resolved_binary_and_never_the_bare_name()
+        public void The_runner_starts_the_resolved_binary_with_an_argument_list()
         {
             var source = Source("Editor/BugseeCliRunner.cs");
 
             Assert.That(Body(source, "public static string CliPath"), Does.Contain("BugseeCliLocator.Resolve()"));
             Assert.That(Body(source, "public static int Run("), Does.Contain("BugseeCliLocator.ReportIfMissing()"));
-            Assert.That(source, Does.Not.Contain("?? \"bugsee-cli\""));
+            Assert.That(Body(source, "public static int Run("), Does.Contain("psi.ArgumentList.Add("));
+            Assert.That(source, Does.Not.Contain("Arguments = string.Join"));
         }
 
         [Test]
-        public void The_locator_downloads_only_over_https_and_checks_the_published_checksum()
-        {
-            var body = Body(Source("Editor/BugseeCliLocator.cs"), "static string Download(");
-
-            Assert.That(body, Does.Contain("StartsWith(\"https://\""));
-            Assert.That(body, Does.Contain("BugseeCliPolicy.ParseSha256Sidecar("));
-            Assert.That(body, Does.Contain("Sha256Hex(archive)"));
-            Assert.That(body, Does.Contain("SHA-256 mismatch"));
-        }
-
-        [Test]
-        public void The_locator_forgets_a_failed_lookup_when_the_next_build_starts()
+        public void The_download_is_verified_and_installed_through_the_policy_steps()
         {
             var source = Source("Editor/BugseeCliLocator.cs");
+            var fetch = Body(source, "static string FetchUnchecked(");
 
-            Assert.That(source, Does.Contain("class BugseeCliResolutionReset : IPreprocessBuildWithReport"));
+            Assert.That(fetch, Does.Contain("StartsWith(\"https://\""));
+            Assert.That(fetch, Does.Contain("BugseeCliPolicy.KnownSha256("));
+            Assert.That(fetch, Does.Contain("SHA-256 mismatch"));
+            Assert.That(Body(source, "static string Install("), Does.Contain("File.Move(temp, finalBinary)"));
+            Assert.That(source, Does.Contain("Fetch = version => Fetch(settings, version)"));
             Assert.That(source, Does.Contain("public void OnPreprocessBuild(BuildReport report) => BugseeCliLocator.Reset();"));
         }
 
         [Test]
-        public void The_mapping_upload_carries_the_sdk_build_id_unless_the_gradle_plugin_runs()
+        public void The_symbol_upload_keys_mapping_and_native_uploads_by_the_id_read_back_from_the_build()
         {
             var body = Body(Source("Editor/BugseeSymbolUpload.cs"), "static void UploadAndroidSymbols(");
 
-            Assert.That(body, Does.Contain("if (!BugseeAndroidGradleSetup.BuildIdAssetInjected)"));
-            Assert.That(body, Does.Contain("mappingExtra.Add(\"--uuid\")"));
-            Assert.That(body, Does.Contain("BugseeBuildIdentity.ResolveBuildUuid(report)"));
-            Assert.That(body, Does.Contain("mappingExtra.Add(\"--icon\")"), "the plugin attaches the launcher icon to the mapping");
-            Assert.That(Body(Source("Editor/BugseeSymbolUpload.cs"), "static string FindLauncherIcon("), Does.Contain("AndroidIconPicker.Pick("));
+            Assert.That(body, Does.Contain("BugseeBuildIdentity.ResolveAndroidUploadIdentity(report)"));
+            Assert.That(body, Does.Contain("AndroidUploadIdentity.MappingArguments(identity.Uuid, icon)"));
+            Assert.That(body, Does.Contain("UploadSymbolsZipOrElf(report, roots, version, build, identity.Uuid"));
         }
 
         [Test]
-        public void An_empty_mapping_is_never_uploaded()
+        public void The_identity_is_read_from_the_apk_asset_before_the_synthesized_id()
         {
-            var source = Source("Editor/BugseeSymbolUpload.cs");
+            var source = Source("Editor/BugseeBuildIdentity.cs");
+            var body = Body(source, "public static UploadIdentity ResolveAndroidUploadIdentity(");
 
-            Assert.That(Body(source, "static void UploadIfFound("), Does.Contain("if (IsEmptyFile(file))"));
-            Assert.That(Body(source, "static bool IsEmptyFile("), Does.Contain("new FileInfo(path).Length == 0"));
-        }
-
-        [Test]
-        public void The_android_build_id_is_the_one_the_sdk_derives_from_the_app_as_built()
-        {
-            var body = Body(Source("Editor/BugseeBuildIdentity.cs"), "public static string ResolveBuildUuid(");
-
+            Assert.That(body, Does.Contain("ReadAppAssetId(report?.summary.outputPath)"));
+            Assert.That(source, Does.Not.Contain("build-id.txt"), "Gradle's id file can belong to an earlier build");
             Assert.That(body, Does.Contain("AndroidBuildUuid.Synthesize("));
-            Assert.That(body, Does.Contain("names.BundleVersion"));
-            Assert.That(body, Does.Contain("names.VersionCode"));
-        }
-
-        [Test]
-        public void The_gradle_setup_records_whether_the_build_id_asset_was_added_for_this_build_only()
-        {
-            var source = Source("Editor/BugseeAndroidGradleSetup.cs");
-
-            Assert.That(Body(source, "public void OnPreprocessBuild("), Does.Contain("BuildIdAssetInjected = false"));
-            Assert.That(Body(source, "static void PatchGeneratedProject("), Does.Contain("BuildIdAssetInjected = pluginPresent || blockPresent"));
+            Assert.That(body, Does.Contain("GradleTemplateDefaults.ReadGradleVersion("));
         }
     }
 }

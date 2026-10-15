@@ -12,17 +12,26 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             public readonly Dictionary<string, string> Files = new Dictionary<string, string>(); // path -> version ("" = does not run)
             public readonly List<string> Downloads = new List<string>();
-            public Func<string, string, string> OnDownload;
+            public readonly List<string> Installs = new List<string>();
+            public readonly List<string> Discards = new List<string>();
+            public Func<string, string> OnFetch;
+            public Func<string, string, string, string> OnInstall;
 
             public CliProbe Probe() => new CliProbe
             {
                 FileExists = Files.ContainsKey,
                 QueryVersion = p => Files.TryGetValue(p, out var v) && v != "" ? v : null,
-                Download = (dir, version) =>
+                Fetch = version =>
                 {
-                    Downloads.Add(dir + "|" + version);
-                    return OnDownload?.Invoke(dir, version);
+                    Downloads.Add(version);
+                    return OnFetch?.Invoke(version);
                 },
+                Install = (staged, dir, version) =>
+                {
+                    Installs.Add(dir);
+                    return OnInstall?.Invoke(staged, dir, version);
+                },
+                Discard = staged => Discards.Add(staged),
             };
         }
 
@@ -173,6 +182,31 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void On_windows_a_bare_command_also_tries_the_exe_name()
+        {
+            var host = new Host();
+            host.Files["C:\\tools\\bugsee-cli.exe"] = "0.8.1";
+            var s = new CliSettings { IsWindows = true, PathEnv = "C:\\tools", ExplicitPath = "bugsee-cli" };
+
+            var r = BugseeCliPolicy.Resolve(s, host.Probe());
+
+            Assert.That(r.Path, Is.EqualTo("C:\\tools\\bugsee-cli.exe"));
+        }
+
+        [Test]
+        public void The_default_release_has_a_pinned_hash_for_every_published_host_and_other_versions_none()
+        {
+            foreach (var triple in new[] { "aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-pc-windows-msvc" })
+            {
+                Assert.That(BugseeCliPolicy.KnownSha256(BugseeCliPolicy.DefaultVersion, triple), Has.Length.EqualTo(64), triple);
+                Assert.That(BugseeCliPolicy.ParseSha256Sidecar(BugseeCliPolicy.KnownSha256(BugseeCliPolicy.DefaultVersion, triple)), Is.Not.Null);
+            }
+
+            Assert.That(BugseeCliPolicy.KnownSha256("0.8.2", "aarch64-apple-darwin"), Is.Null);
+            Assert.That(BugseeCliPolicy.KnownSha256(BugseeCliPolicy.DefaultVersion, "riscv"), Is.Null);
+        }
+
+        [Test]
         public void Explicit_bare_command_is_looked_up_in_every_search_directory()
         {
             var host = new Host();
@@ -215,10 +249,11 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void A_missing_cli_is_downloaded_into_the_first_cache_directory()
+        public void A_missing_cli_is_downloaded_once_and_installed_into_the_first_cache_directory()
         {
             var host = new Host();
-            host.OnDownload = (dir, version) =>
+            host.OnFetch = version => "/tmp/stage/bugsee-cli";
+            host.OnInstall = (staged, dir, version) =>
             {
                 string path = dir + "/" + version + "/aarch64-apple-darwin/bugsee-cli";
                 host.Files[path] = version;
@@ -229,23 +264,51 @@ namespace Bugsee.WrapperPolicy.Tests
 
             Assert.That(r.Source, Is.EqualTo(CliSource.Downloaded));
             Assert.That(r.Path, Is.EqualTo("/Users/dev/Library/Caches/Bugsee/cli/0.8.1/aarch64-apple-darwin/bugsee-cli"));
-            Assert.That(host.Downloads, Is.EqualTo(new[] { "/Users/dev/Library/Caches/Bugsee/cli|0.8.1" }));
+            Assert.That(host.Downloads, Is.EqualTo(new[] { "0.8.1" }));
+            Assert.That(host.Installs, Is.EqualTo(new[] { "/Users/dev/Library/Caches/Bugsee/cli" }));
+            Assert.That(host.Discards, Is.EqualTo(new[] { "/tmp/stage/bugsee-cli" }), "the staged copy is always removed");
         }
 
         [Test]
-        public void A_failing_download_falls_back_to_the_next_cache_directory_then_reports_every_failure()
+        public void A_failing_download_costs_one_attempt_whatever_the_number_of_cache_directories()
         {
             var host = new Host();
-            host.OnDownload = (dir, version) => throw new InvalidOperationException("SHA-256 mismatch in " + dir);
+            host.OnFetch = version => throw new InvalidOperationException("timed out");
 
             var r = BugseeCliPolicy.Resolve(Mac(), host.Probe());
 
             Assert.That(r.Found, Is.False);
-            Assert.That(host.Downloads, Has.Count.EqualTo(2));
-            Assert.That(r.Notes, Has.Count.EqualTo(2));
+            Assert.That(host.Downloads, Has.Count.EqualTo(1));
+            Assert.That(host.Installs, Is.Empty);
             string message = BugseeCliPolicy.NotFoundMessage(r);
-            Assert.That(message, Does.Contain("SHA-256 mismatch").And.Contain("BUGSEE_CLI_PATH").And.Contain("install.sh"));
+            Assert.That(message, Does.Contain("timed out").And.Contain("BUGSEE_CLI_PATH").And.Contain("install.sh"));
             Assert.That(message, Does.Contain("build continues"));
+        }
+
+        [Test]
+        public void An_unwritable_first_cache_directory_falls_back_to_the_next_without_downloading_again()
+        {
+            var host = new Host();
+            host.OnFetch = version => "/tmp/stage/bugsee-cli";
+            host.OnInstall = (staged, dir, version) =>
+            {
+                if (dir.StartsWith("/Users/dev/Library"))
+                {
+                    throw new InvalidOperationException("read-only file system");
+                }
+
+                string path = dir + "/bugsee-cli";
+                host.Files[path] = version;
+                return path;
+            };
+
+            var r = BugseeCliPolicy.Resolve(Mac(), host.Probe());
+
+            Assert.That(r.Path, Is.EqualTo("/proj/Library/Bugsee/cli/bugsee-cli"));
+            Assert.That(host.Downloads, Has.Count.EqualTo(1));
+            Assert.That(host.Installs, Has.Count.EqualTo(2));
+            Assert.That(r.Notes.Single(), Does.Contain("read-only file system"));
+            Assert.That(host.Discards, Has.Count.EqualTo(1));
         }
 
         [Test]
@@ -258,6 +321,10 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(r.Found, Is.False);
             Assert.That(host.Downloads, Is.Empty);
             Assert.That(r.Notes.Single(), Does.Contain("BUGSEE_NO_CLI_DOWNLOAD"));
+
+            var s = Mac(download: false);
+            s.DownloadDisabledNote = "failed earlier in this Editor session";
+            Assert.That(BugseeCliPolicy.Resolve(s, host.Probe()).Notes.Single(), Is.EqualTo("failed earlier in this Editor session"));
         }
 
         [Test]

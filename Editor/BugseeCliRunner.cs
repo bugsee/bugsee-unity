@@ -46,21 +46,19 @@ namespace Bugsee.Editor
                 return -1;
             }
 
-            var quoted = new string[args.Count];
-            for (var i = 0; i < args.Count; i++)
-            {
-                quoted[i] = Quote(args[i] ?? "");
-            }
-
             var psi = new ProcessStartInfo
             {
                 FileName = CliPath,
-                Arguments = string.Join(" ", quoted),
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true,
             };
+
+            foreach (var arg in args)
+            {
+                psi.ArgumentList.Add(arg ?? "");
+            }
 
             var token = AppToken;
             if (!string.IsNullOrEmpty(token))
@@ -129,8 +127,6 @@ namespace Bugsee.Editor
                 return -1;
             }
         }
-
-        public static string Quote(string s) => $"\"{(s ?? "").Replace("\"", "\\\"")}\"";
     }
 }
 #endif

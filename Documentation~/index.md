@@ -161,13 +161,29 @@ Both ship AGP 7.4.2 / Gradle 7.5.1; Gradle plugin 4.0.8 needs AGP 8.6+ / Gradle 
 | Gradle plugin function | Unity 6 | Unity 2021.3 / 2022.3 |
 |---|---|---|
 | Declare `bugsee-android`, `bugsee-android-ndk` | Package (Maven injection) | Same |
-| `assets/bugsee_build_id.properties` = UUID of the R8 mapping (the id the SDK reports) | Plugin | The package adds the same asset task to the launcher (`GradleBuildIdBlock`); needs AGP 7.4 to 8.5. With R8 off no asset is written and the SDK derives its own id |
-| `com.bugsee.android.BUILD_UUID` manifest meta-data (fallback id when R8 is off) | Plugin | Not added: the SDK derives `UUID(token, versionName, versionCode)` itself when it finds neither; the uploads use that id (`AndroidBuildUuid`) |
-| Mapping upload (`--uuid`, `--icon`) | Package Editor upload (the plugin finds no app token in a Unity build, so its own upload skips) | Same: mapping, same id as the asset, launcher icon attached |
+| `assets/bugsee_build_id.properties` = UUID of the R8 mapping (the id the SDK reports) | Plugin | The package adds the same asset task to the launcher (`GradleBuildIdBlock`), for AGP 7.4.x only (the one line it was run on; other AGPs below 8.6 get no block). With R8 off, or no block, no asset is written and the SDK derives its own id |
+| `com.bugsee.android.BUILD_UUID` manifest meta-data (fallback id when R8 is off) | Plugin | Not added: the SDK derives `UUID(token, versionName, versionCode)` itself when it finds neither; the uploads use that id (`AndroidBuildUuid`) when the built app has no asset |
+| Mapping upload (`--uuid`, `--icon`) | Package Editor upload (the plugin finds no app token in a Unity build, so its own upload skips) | Same, keyed by the id read back from the built APK/AAB's asset (never assumed from the build script), else the SDK's synthesized id with a warning; launcher icon attached |
 | Native symbol upload | Package Editor upload of Unity's `symbols.zip` (same reason) | Same |
 | NDK enabled | Plugin | Not applicable: the NDK artifact is declared and the Editor uploads the symbols |
 | Bytecode instrumentation (OkHttp, HttpEngine, `android.util.Log`, thread, main-thread misuse, operation dispatch, Compose, startup tracing), SDK-extension provider stripping, Compose compiler plugin | Plugin | **Not recovered** (needs AGP 8.6+). They act on the app module's own JVM bytecode, which in a Unity app is a launcher stub, so little is lost, but a Java/Kotlin plugin of yours that uses OkHttp or `HttpEngine` is not auto-captured on these Unity versions |
 | Build-info / size-analysis upload, dependency and timing collection | Plugin (skips, no token) | **Not recovered** |
+
+The mapping and native uploads of an Android build are keyed by the id the built app reports: the APK/AAB's `bugsee_build_id.properties` if it has one, else the id the SDK derives from token, version name and version code (from the generated launcher, which is what the APK carries; split-APK version-code schemes and `versionNameSuffix` set outside Unity can still differ: set `BUGSEE_BUILD_UUID` then). `BUGSEE_NO_GRADLE_BUILD_ID=1` stops the package adding (and removes an earlier) asset block, to use the derived id only. With the derived id, a rebuild with the same token, version name and code but different R8 output re-uses the id: the server keeps the first mapping uploaded under it, so bump the version code for a minified build whose obfuscation changed.
+
+Verified with real IL2CPP arm64 builds (staging token set, `bugsee-cli` 0.8.1, uploads to UNITYTA; the generated launcher's Gradle ran AGP 7.4.2 / Gradle 7.5.1 on both):
+
+| Unity | Build | R8 | Result |
+|---|---|---|---|
+| 2022.3.62f3 | release | off | builds; no asset (nothing to match), game assets intact (24 `assets/bin` entries), no mapping uploaded, native symbols uploaded |
+| 2022.3.62f3 | development | off | same |
+| 2022.3.62f3 | development | on | builds; APK asset id equals the uploaded mapping id |
+| 2022.3.62f3 | release | on | same, plus emulator native, Java and managed crashes symbolicated |
+| 2022.3.62f3 | release | on, `BUGSEE_NO_GRADLE_BUILD_ID=1` | builds; no asset; mapping uploaded under the synthesized id with the warning; the Java crash on an emulator grouped with the symbolicated issue |
+| 2021.3.45f1 | release | off, development off | builds, as above |
+| 2021.3.45f1 | release, development | on | builds; APK asset id equals the uploaded mapping id |
+
+Not verified: AGP 7.5 to 8.5 (no block is added there by design), Unity 2021.3 releases with AGP below 7.4, AAB output, build with Gradle configuration cache (the block avoids `Task.project` at execution time but was run without it), and Windows/Linux Editors.
 
 Releases built without R8 (Minify off, the Unity default) have no mapping and no Java names to restore. If you do minify, add keep rules for the Unity wrapper classes: the package's `bugsee-unity-wrapper.proguard` is not applied by Unity unless you enable Player Settings > Publishing Settings > Custom Proguard File and copy the rules into `Assets/Plugins/Android/proguard-user.txt`, and that file does not yet cover `com.bugsee.unity.UnityManagedException` or `UnityWrapperIdentity` (R8 removes them: `ClassNotFoundException` at launch or on the first managed exception).
 

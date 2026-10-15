@@ -67,31 +67,64 @@ namespace Bugsee.Editor
         }
 
         /// <summary>
-        /// BUILD_UUID the symbol uploads are keyed by (<c>bugsee-cli --uuid</c>): BUGSEE_BUILD_UUID, else on Android the
-        /// id the SDK derives itself for an app the Gradle plugin did not build (<see cref="AndroidBuildUuid"/>: token,
-        /// version name and version code as the APK carries them, not BUGSEE_VERSION/BUGSEE_BUILD), else a random one. Per-.so GNU build-ids remain the real native symbol keys.
+        /// The build id an Android symbol upload is keyed by: the one the built app reports. Read back from what Gradle
+        /// produced (the APK/AAB's <c>assets/bugsee_build_id.properties</c>), with
+        /// the id the SDK derives itself (<see cref="AndroidBuildUuid"/>) as the fallback, see
+        /// <see cref="AndroidUploadIdentity"/>. BUGSEE_BUILD_UUID overrides. Per-.so GNU build-ids remain the real native
+        /// symbol keys; this id is what ties a mapping to a session (and groups the ELF upload with it).
         /// </summary>
-        public static string ResolveBuildUuid(BuildReport report)
+        public static UploadIdentity ResolveAndroidUploadIdentity(BuildReport report)
         {
-            var env = Environment.GetEnvironmentVariable("BUGSEE_BUILD_UUID");
-            if (!string.IsNullOrEmpty(env))
+            var names = AndroidNameSettings(report);
+            string name = names.BundleVersion;
+            string code = names.VersionCode.ToString();
+            // What the APK carries, when the generated launcher says so plainly (split APK codes, overrides).
+            var root = BugseeAndroidGradleSetup.GeneratedProjectRoot;
+            var launcher = string.IsNullOrEmpty(root) ? null : Path.Combine(root, "launcher", "build.gradle");
+            if (launcher != null && File.Exists(launcher))
             {
-                return env.Trim();
+                GradleTemplateDefaults.ReadGradleVersion(File.ReadAllText(launcher), out var gradleName, out var gradleCode);
+                name = gradleName ?? name;
+                code = gradleCode ?? code;
             }
 
-            if (report?.summary.platform == BuildTarget.Android)
+            return AndroidUploadIdentity.Decide(
+                Environment.GetEnvironmentVariable("BUGSEE_BUILD_UUID"),
+                ReadAppAssetId(report?.summary.outputPath),
+                AndroidBuildUuid.Synthesize(BugseeCliRunner.AppToken, name, code));
+        }
+
+        /// <summary>The id in the APK/AAB's build id asset, or null (no such asset, not an archive, unreadable).</summary>
+        static string ReadAppAssetId(string outputPath)
+        {
+            try
             {
-                var names = AndroidNameSettings(report);
-                var synthesized = AndroidBuildUuid.Synthesize(
-                    BugseeCliRunner.AppToken, names.BundleVersion, names.VersionCode.ToString());
-                if (synthesized != null)
+                if (string.IsNullOrEmpty(outputPath) || !File.Exists(outputPath))
                 {
-                    return synthesized;
+                    return null;
+                }
+
+                using (var zip = System.IO.Compression.ZipFile.OpenRead(outputPath))
+                {
+                    foreach (var entry in zip.Entries)
+                    {
+                        if (entry.FullName == "assets/bugsee_build_id.properties" ||
+                            entry.FullName == "base/assets/bugsee_build_id.properties")
+                        {
+                            using (var reader = new StreamReader(entry.Open()))
+                            {
+                                return AndroidUploadIdentity.ParseAssetProperties(reader.ReadToEnd());
+                            }
+                        }
+                    }
                 }
             }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"Bugsee: could not read the build id asset from {outputPath}: {ex.Message}");
+            }
 
-            // Prefer a stable dashed UUID when nothing above applies.
-            return Guid.NewGuid().ToString("D");
+            return null;
         }
 
         /// <summary>

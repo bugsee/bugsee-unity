@@ -37,6 +37,8 @@ namespace Bugsee.WrapperPolicy
         /// <summary>Release triple of this host; null when none is published.</summary>
         public string Triple;
         public bool DownloadAllowed;
+        /// <summary>Why a download is not attempted, for the message when nothing is found.</summary>
+        public string DownloadDisabledNote = "Downloading bugsee-cli is disabled (BUGSEE_NO_CLI_DOWNLOAD is set).";
         /// <summary>Directories a download is cached under, in order of preference.</summary>
         public IList<string> CacheDirectories = new List<string>();
     }
@@ -47,8 +49,12 @@ namespace Bugsee.WrapperPolicy
         public Func<string, bool> FileExists;
         /// <summary>Runs <c>path --version</c>: the version it reports ("0.8.1"), or null when it does not run.</summary>
         public Func<string, string> QueryVersion;
-        /// <summary>Downloads and verifies the release into the directory; returns the binary's path. May throw.</summary>
-        public Func<string, string, string> Download;
+        /// <summary>Downloads, verifies and unpacks the release once into a staging location; returns the binary's path. May throw.</summary>
+        public Func<string, string> Fetch;
+        /// <summary>Installs the staged binary under a cache directory (atomically, keeping a copy another build installed); returns the final path. May throw.</summary>
+        public Func<string, string, string, string> Install;
+        /// <summary>Removes what <see cref="Fetch"/> staged.</summary>
+        public Action<string> Discard;
     }
 
     public sealed class CliResolution
@@ -83,6 +89,29 @@ namespace Bugsee.WrapperPolicy
         public const string DefaultBaseUrl = "https://download.bugsee.com/cli";
 
         public const string CliName = "bugsee-cli";
+
+        /// <summary>
+        /// SHA-256 of the default release's archives, pinned so the default download does not rest on the download host
+        /// alone (checked against download.bugsee.com's own .sha256 files when pinned). Null for any other version,
+        /// which is verified against the published sidecar only.
+        /// </summary>
+        public static string KnownSha256(string version, string triple)
+        {
+            if (version != DefaultVersion)
+            {
+                return null;
+            }
+
+            switch (triple)
+            {
+                case "aarch64-apple-darwin": return "0ef257f16ecd5d4666590a355ab20c1d6b44d94f1c17aea4b357a21ed96a7ecf";
+                case "x86_64-apple-darwin": return "35f6630cb1f05e9dd46d2cdc05741d72098f0d828fa8790412301c6d56912617";
+                case "x86_64-unknown-linux-gnu": return "4d9d985945f3ec20ce56b0dca0bdf208c0d240ea9855d17ea44c6993619b220b";
+                case "aarch64-unknown-linux-gnu": return "7617959bbfb14823a7cb86a1fcf876040b24ff1e5e778b3b557a44f7a375f298";
+                case "x86_64-pc-windows-msvc": return "08f97390a73ec3b710eac498bb05ce9dc436482af7f6f053f73f7b70e12988a5";
+                default: return null;
+            }
+        }
 
         /// <summary>The release triple (as named in the published archives) of a host, or null when none is published.</summary>
         public static string HostTriple(string os, string arch)
@@ -304,15 +333,21 @@ namespace Bugsee.WrapperPolicy
                 else
                 {
                     // A bare command name (the old default was "bugsee-cli"): look it up like any other.
+                    var names = s.IsWindows && !explicitPath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                        ? new[] { explicitPath, explicitPath + ".exe" }
+                        : new[] { explicitPath };
                     foreach (var entry in SearchDirectories(s))
                     {
-                        string candidate = Combine(s, entry.Key, explicitPath);
-                        if (probe.FileExists(candidate))
+                        foreach (string bare in names)
                         {
-                            resolution.Path = candidate;
-                            resolution.Source = CliSource.Explicit;
-                            resolution.Version = probe.QueryVersion(candidate);
-                            return resolution;
+                            string candidate = Combine(s, entry.Key, bare);
+                            if (probe.FileExists(candidate))
+                            {
+                                resolution.Path = candidate;
+                                resolution.Source = CliSource.Explicit;
+                                resolution.Version = probe.QueryVersion(candidate);
+                                return resolution;
+                            }
                         }
                     }
 
@@ -368,27 +403,46 @@ namespace Bugsee.WrapperPolicy
 
             if (!s.DownloadAllowed)
             {
-                resolution.Notes.Add("Downloading bugsee-cli is disabled (BUGSEE_NO_CLI_DOWNLOAD is set).");
+                resolution.Notes.Add(s.DownloadDisabledNote);
                 return resolution;
             }
 
-            foreach (string cacheDir in s.CacheDirectories)
+            // One download, however many cache directories are tried: a blackholed network must cost one timeout.
+            string staged;
+            try
             {
-                try
+                staged = probe.Fetch(s.Version);
+            }
+            catch (Exception ex)
+            {
+                resolution.Notes.Add("Downloading bugsee-cli " + s.Version + " failed: " + ex.Message);
+                return resolution;
+            }
+
+            try
+            {
+                foreach (string cacheDir in s.CacheDirectories)
                 {
-                    string downloaded = probe.Download(cacheDir, s.Version);
-                    if (downloaded != null && probe.FileExists(downloaded))
+                    try
                     {
-                        resolution.Path = downloaded;
-                        resolution.Source = CliSource.Downloaded;
-                        resolution.Version = s.Version;
-                        return resolution;
+                        string installed = probe.Install(staged, cacheDir, s.Version);
+                        if (installed != null && probe.FileExists(installed))
+                        {
+                            resolution.Path = installed;
+                            resolution.Source = CliSource.Downloaded;
+                            resolution.Version = s.Version;
+                            return resolution;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        resolution.Notes.Add("Installing bugsee-cli " + s.Version + " into " + cacheDir + " failed: " + ex.Message);
                     }
                 }
-                catch (Exception ex)
-                {
-                    resolution.Notes.Add("Downloading bugsee-cli " + s.Version + " into " + cacheDir + " failed: " + ex.Message);
-                }
+            }
+            finally
+            {
+                probe.Discard?.Invoke(staged);
             }
 
             return resolution;
