@@ -158,7 +158,7 @@ namespace Bugsee.Sample
                 // "bugsee_status_bar" = 1 shows the status bar, so Unity's view no longer fills the window.
                 if (ReadE2EValue("bugsee_status_bar", "BUGSEE_STATUS_BAR") == "1")
                     Screen.fullScreen = false;
-                // "bugsee_orient_after_s" = "12" rotates the activity to landscape after that many seconds (no sensor needed).
+                // "bugsee_orient_after_s" = "12" rotates the activity to the other orientation after that many seconds (no sensor needed).
                 var orientAfter = ReadE2EValue("bugsee_orient_after_s", "BUGSEE_ORIENT_AFTER_S");
                 if (!string.IsNullOrEmpty(orientAfter))
                     StartCoroutine(RotateAfter(orientAfter));
@@ -429,8 +429,10 @@ namespace Bugsee.Sample
         {
             if (!float.TryParse(seconds, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var at)) yield break;
             yield return new WaitForSeconds(at);
-            Screen.orientation = ScreenOrientation.LandscapeLeft;
-            Debug.Log("[BugseeSample] t=" + Time.realtimeSinceStartup.ToString("F2") + " rotated to landscape");
+            // To the other orientation than the one it is in now.
+            var toPortrait = Screen.width > Screen.height;
+            Screen.orientation = toPortrait ? ScreenOrientation.Portrait : ScreenOrientation.LandscapeLeft;
+            Debug.Log("[BugseeSample] t=" + Time.realtimeSinceStartup.ToString("F2") + (toPortrait ? " rotated to portrait" : " rotated to landscape"));
         }
 
         IEnumerator SecureRectDemo(string fractionsList, string removeAfterSeconds, string delaySeconds)
