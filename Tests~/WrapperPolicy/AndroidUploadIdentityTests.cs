@@ -114,11 +114,11 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Split_apks_where_only_some_carry_an_id_warn_but_use_it()
+        public void Split_apks_where_only_some_carry_an_id_give_none_and_a_conflict()
         {
             var id = AndroidUploadIdentity.SelectAppAssetId(new[] { App, null }, out var conflict);
 
-            Assert.That(id, Is.EqualTo(App));
+            Assert.That(id, Is.Null, "the APKs without an asset report the synthesized id, so the first one's id is no better");
             Assert.That(conflict, Does.Contain("some have none"));
         }
 

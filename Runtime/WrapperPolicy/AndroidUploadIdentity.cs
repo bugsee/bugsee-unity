@@ -133,8 +133,8 @@ namespace Bugsee.WrapperPolicy
 
         /// <summary>
         /// The id of an app delivered as several APKs (Split APKs by target architecture): the one id they all carry. Null
-        /// when none carries one; <paramref name="conflict"/> says so when they differ or only some carry it, because
-        /// one upload cannot match both.
+        /// when none carries one, and also when they differ or only some carry it (<paramref name="conflict"/> says
+        /// so): no single id matches them all, so none is picked from the ones that happen to have it.
         /// </summary>
         public static string SelectAppAssetId(IList<string> idsPerApk, out string conflict)
         {
@@ -168,7 +168,7 @@ namespace Bugsee.WrapperPolicy
             {
                 conflict = "The APKs of this build do not all carry the same build id (" +
                            (differ ? "different ids" : "some have none") + "): crashes from some of them will not match the uploaded mapping.";
-                return differ ? null : first;
+                return null;
             }
 
             return first;
