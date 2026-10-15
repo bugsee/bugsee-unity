@@ -205,6 +205,26 @@ Device/CI proof remains manual.
 
 Managed error/crash **grouping** (one signature per event, Unity-primary when strong): [exception-signatures.md](exception-signatures.md).
 
+### Secure rectangles: coordinate origin
+
+`Bugsee.AddSecureRectangle(RectInt)` and `RemoveSecureRectangle(RectInt)` take screen pixels with the origin at the **top-left** of the screen, y growing downward. This is what both native SDKs expect (Android `Rect` in display pixels; iOS points with a top-left origin, which the wrapper derives by dividing by the screen scale). The wrapper passes the rectangle through as given and does not flip it. Unity's `Screen`, `Input.mousePosition` and `Rect` from screen-space APIs use a **bottom-left** origin, so convert before adding:
+
+```csharp
+// Unity screen rect (bottom-left origin) -> rect for AddSecureRectangle (top-left origin).
+static RectInt ToSecureRect(Rect unityScreenRect)
+{
+    int x = Mathf.FloorToInt(unityScreenRect.xMin);
+    int y = Mathf.FloorToInt(Screen.height - unityScreenRect.yMax);
+    int w = Mathf.CeilToInt(unityScreenRect.xMax) - x;
+    int h = Mathf.CeilToInt(Screen.height - unityScreenRect.yMin) - y;
+    return new RectInt(x, y, w, h);
+}
+```
+
+A `RectTransform` corner from `GetWorldCorners` in a screen-space overlay canvas is also bottom-left: build the `Rect` from those corners, then convert. Rectangles are not flipped, scaled or moved on rotation or resize; rectangles are keyed by their exact left/top/right/bottom, so when the screen size changes remove the old rectangle (or call `RemoveAllSecureRectangles()`) before adding the new one.
+
+**Limitation:** the rectangle must already be in the native display's coordinate space; the wrapper does no scaling or offsetting beyond the iOS points conversion. With Android Resolution Scaling or `Screen.SetResolution`, or a non-fullscreen Unity view (status bar or notch offset), `Screen.height` and pixels differ from native pixels, so scale or offset the rectangle yourself. On iOS the wrapper divides by `UIScreen.scale`, which is wrong if the render size differs from points x scale. A rectangle is removed with the same top-left rectangle it was added with.
+
 ## Native dependencies
 
 - **Android:** Maven `com.bugsee:bugsee-android:7.4.1` + `com.bugsee:bugsee-android-ndk:7.4.1`, declared in the generated Gradle project by `Editor/BugseeAndroidMavenDependencies.cs` (Gradle plugin `4.0.8`). Core publishes no transitives; NDK is a separate artifact and must be declared. Fragment secure-view overloads are typed as `Object`, so Unity JNI does not need `androidx.fragment`.

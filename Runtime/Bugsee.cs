@@ -412,6 +412,18 @@ namespace Bugsee
 
         public static void ClearAllAttributes() => Bridge.ClearAllAttributes();
 
+        /// <summary>
+        /// Hides a screen region in captured video and report screenshots.
+        /// Coordinates are screen pixels with the origin at the TOP-LEFT of the screen, as both native SDKs
+        /// expect (Android pixels; iOS points, converted by the screen scale). The rectangle is passed through
+        /// as given: it is NOT flipped from Unity's bottom-left <c>Screen</c>/<c>Input</c> space. Convert with
+        /// <c>y = Screen.height - rect.yMax</c>; see the package documentation.
+        /// Limitation: the rectangle must already be in the native display's coordinate space. With Android
+        /// Resolution Scaling or <c>Screen.SetResolution</c>, or a non-fullscreen Unity view (status bar or notch
+        /// offset), <c>Screen.height</c> and pixels differ from native pixels, so scale or offset the rectangle
+        /// yourself. On iOS the wrapper divides by <c>UIScreen.scale</c>, which is wrong if the render size
+        /// differs from points x scale.
+        /// </summary>
         public static void AddSecureRectangle(RectInt pixelRect)
         {
             _manualSecureRectOwners.Add(
@@ -424,6 +436,10 @@ namespace Bugsee
             PushSecureBufferForDisplay(DefaultSecureRectDisplayId);
         }
 
+        /// <summary>
+        /// Stops hiding a rectangle added with <see cref="AddSecureRectangle"/>. It must be the same
+        /// top-left-origin rectangle that was added (see <see cref="AddSecureRectangle"/>).
+        /// </summary>
         public static void RemoveSecureRectangle(RectInt pixelRect)
         {
             if (!_manualSecureRectOwners.Remove(
