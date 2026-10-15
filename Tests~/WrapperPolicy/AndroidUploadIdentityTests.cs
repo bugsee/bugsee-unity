@@ -27,19 +27,53 @@ namespace Bugsee.WrapperPolicy.Tests
 
             Assert.That(id.Uuid, Is.EqualTo(Synth));
             Assert.That(id.Source, Is.EqualTo(BuildIdSource.Synthesized));
-            Assert.That(id.Warning, Does.Contain("no bugsee_build_id.properties").And.Contain("BUGSEE_BUILD_UUID"));
+            Assert.That(id.Warning, Does.Contain("no bugsee_build_id.properties").And.Contain("will not match"));
         }
 
         [Test]
-        public void An_environment_override_wins_and_a_conflict_with_the_app_is_called_out()
+        public void The_apps_id_keys_the_mapping_and_the_environment_value_keys_only_the_native_upload()
         {
-            var agrees = AndroidUploadIdentity.Decide(App.ToUpperInvariant(), App, Synth);
-            var conflicts = AndroidUploadIdentity.Decide("11111111-1111-1111-1111-111111111111", App, Synth);
+            // A CI that sets a fresh GUID per build must not move the mapping off the id the app reports.
+            var id = AndroidUploadIdentity.Decide("11111111-1111-1111-1111-111111111111", App, Synth);
 
-            Assert.That(agrees.Source, Is.EqualTo(BuildIdSource.Environment));
+            Assert.That(id.Uuid, Is.EqualTo(App));
+            Assert.That(id.Source, Is.EqualTo(BuildIdSource.AppAsset));
+            Assert.That(id.ElfUuid, Is.EqualTo("11111111-1111-1111-1111-111111111111"));
+            Assert.That(id.Warning, Does.Contain("native upload only"));
+        }
+
+        [Test]
+        public void The_native_upload_follows_the_mapping_when_the_environment_is_unset_or_agrees()
+        {
+            Assert.That(AndroidUploadIdentity.Decide(null, App, Synth).ElfUuid, Is.EqualTo(App));
+            var agrees = AndroidUploadIdentity.Decide(App.ToUpperInvariant(), App, Synth);
             Assert.That(agrees.Warning, Is.Null);
-            Assert.That(conflicts.Uuid, Is.EqualTo("11111111-1111-1111-1111-111111111111"));
-            Assert.That(conflicts.Warning, Does.Contain(App).And.Contain("will not match"));
+            Assert.That(agrees.Uuid, Is.EqualTo(App));
+        }
+
+        [Test]
+        public void Without_an_asset_a_valid_environment_uuid_is_the_mapping_id_and_any_value_keys_the_native_upload()
+        {
+            var uuid = AndroidUploadIdentity.Decide("11111111-1111-1111-1111-111111111111", null, Synth);
+            var free = AndroidUploadIdentity.Decide("my-build-7", null, Synth);
+
+            Assert.That(uuid.Uuid, Is.EqualTo("11111111-1111-1111-1111-111111111111"));
+            Assert.That(uuid.Source, Is.EqualTo(BuildIdSource.Environment));
+            Assert.That(free.Uuid, Is.EqualTo(Synth), "a non-UUID cannot be the mapping's id");
+            Assert.That(free.ElfUuid, Is.EqualTo("my-build-7"), "it still keys the native upload, as before");
+            Assert.That(free.Warning, Does.Contain("not a UUID"));
+        }
+
+        [TestCase("Game.arm64-v8a.apk", "Game", true)]
+        [TestCase("game.ARMEABI-V7A.APK", "Game", true)]
+        [TestCase("GameLite.apk", "Game", false)]
+        [TestCase("Game.apk", "Game", false)]
+        [TestCase("Game..apk", "Game", false)]
+        [TestCase("Game.arm64-v8a.aab", "Game", false)]
+        [TestCase("Game.arm64-v8a.apk", "", false)]
+        public void Only_a_players_own_split_apks_are_siblings(string file, string stem, bool expected)
+        {
+            Assert.That(AndroidUploadIdentity.IsSplitApkOf(file, stem), Is.EqualTo(expected));
         }
 
         [Test]
@@ -143,16 +177,6 @@ namespace Bugsee.WrapperPolicy.Tests
                     "debug-files", "upload", path, "--type", "elf", "--version", "0.1.0", "--build", "2", "--uuid", App,
                 }));
             }
-        }
-
-        [Test]
-        public void A_build_uuid_that_is_not_a_uuid_is_ignored_with_a_warning()
-        {
-            var id = AndroidUploadIdentity.Decide("my-build-7", App, Synth);
-
-            Assert.That(id.Uuid, Is.EqualTo(App));
-            Assert.That(id.Source, Is.EqualTo(BuildIdSource.AppAsset));
-            Assert.That(id.Warning, Does.Contain("BUGSEE_BUILD_UUID is not a UUID"));
         }
 
         [Test]

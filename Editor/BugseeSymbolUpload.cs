@@ -40,7 +40,15 @@ namespace Bugsee.Editor
             switch (report.summary.platform)
             {
                 case BuildTarget.Android:
-                    UploadAndroidSymbols(report, version, build);
+                    try
+                    {
+                        UploadAndroidSymbols(report, version, build);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Whatever goes wrong here (an unreadable file, a locked folder) must not fail the build.
+                        Debug.LogWarning($"Bugsee: Android symbol upload failed: {ex.Message} — build continues.");
+                    }
                     break;
                 case BuildTarget.iOS:
                 case BuildTarget.tvOS:
@@ -91,7 +99,7 @@ namespace Bugsee.Editor
             UploadIfFound(roots, "*mapping.txt", "proguard", version, build,
                 path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), mappingExtra, identityWarning);
             // Unity "Create symbols.zip" / Gradle native debug symbols.
-            UploadSymbolsZipOrElf(report, roots, version, build, identity.Uuid ?? Guid.NewGuid().ToString("D"));
+            UploadSymbolsZipOrElf(report, roots, version, build, identity.ElfUuid ?? Guid.NewGuid().ToString("D"));
         }
 
         static string FindLauncherIcon()

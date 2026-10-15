@@ -27,8 +27,14 @@ namespace Bugsee.Editor
     {
         static CliResolution _resolved;
         static bool _notFoundReported;
-        // Kept for the editor session (Reset does not clear it): a blackholed network must cost one timeout, not one per build.
-        static string _downloadFailure;
+        // Kept for the editor session, across domain reloads (SessionState; Reset does not clear it): a blackholed network
+        // must cost one timeout, not one per build.
+        const string DownloadFailureKey = "Bugsee.CliDownloadFailure";
+        static string DownloadFailure
+        {
+            get { var value = UnityEditor.SessionState.GetString(DownloadFailureKey, ""); return value.Length == 0 ? null : value; }
+            set { UnityEditor.SessionState.SetString(DownloadFailureKey, value ?? ""); }
+        }
         static string _stagingDir;
 
         public static CliResolution Resolve()
@@ -59,9 +65,10 @@ namespace Bugsee.Editor
             if (_resolved.Found)
             {
                 Debug.Log("[Bugsee] Using bugsee-cli " + (_resolved.Version ?? "(version unknown)") + " (" + Describe(_resolved.Source) + "): " + _resolved.Path);
+                // Routine when something was found after all (a shim that does not run, an old install passed over).
                 foreach (string note in _resolved.Notes)
                 {
-                    Debug.LogWarning("[Bugsee] " + note);
+                    Debug.Log("[Bugsee] " + note);
                 }
             }
 
@@ -141,10 +148,10 @@ namespace Bugsee.Editor
                 DownloadAllowed = BugseeCliPolicy.DownloadAllowed(
                     BugseeCliRunner.HasAppToken, Environment.GetEnvironmentVariable("BUGSEE_NO_CLI_DOWNLOAD") != null),
             };
-            if (_downloadFailure != null)
+            if (DownloadFailure != null)
             {
                 settings.DownloadAllowed = false;
-                settings.DownloadDisabledNote = "Downloading bugsee-cli failed earlier in this Editor session (" + _downloadFailure + "); not retried until it restarts.";
+                settings.DownloadDisabledNote = "Downloading bugsee-cli failed earlier in this Editor session (" + DownloadFailure + "); not retried until it restarts.";
             }
 
             // Shared by every project of this user first; the project's own Library when that is not writable.
@@ -242,7 +249,7 @@ namespace Bugsee.Editor
             }
             catch (Exception ex)
             {
-                _downloadFailure = ex.Message;
+                DownloadFailure = ex.Message;
                 DiscardStaging();
                 throw;
             }
@@ -256,12 +263,12 @@ namespace Bugsee.Editor
             string url = BugseeCliPolicy.ArchiveUrl(baseUrl, version, triple);
             if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             {
-                throw new IOException("refusing a non-https download URL " + url);
+                throw new IOException("refusing a non-https download URL " + BugseeCliPolicy.RedactUrl(url));
             }
 
             _stagingDir = Path.Combine(Path.GetTempPath(), "bugsee-cli-" + Guid.NewGuid().ToString("N").Substring(0, 8));
             Directory.CreateDirectory(_stagingDir);
-            Debug.Log("[Bugsee] Downloading bugsee-cli " + version + " for " + triple + " from " + url);
+            Debug.Log("[Bugsee] Downloading bugsee-cli " + version + " for " + triple + " from " + BugseeCliPolicy.RedactUrl(url));
             string archive = Path.Combine(_stagingDir, BugseeCliPolicy.ArchiveName(triple));
             FetchFile(url, archive);
 
@@ -315,9 +322,16 @@ namespace Bugsee.Editor
             string finalBinary = BugseeCliPolicy.CachedBinaryPath(settings, cacheDir, version, settings.Triple);
             string finalDir = Path.GetDirectoryName(finalBinary);
             Directory.CreateDirectory(finalDir);
-            if (File.Exists(finalBinary) && QueryVersion(finalBinary) != null)
+            if (File.Exists(finalBinary))
             {
-                return finalBinary;
+                if (QueryVersion(finalBinary) != null)
+                {
+                    return finalBinary;
+                }
+
+                // A leftover that does not run (an interrupted install, another machine's architecture) would make the
+                // move below fail for ever: replace it.
+                try { File.Delete(finalBinary); } catch { /* the move reports it */ }
             }
 
             string temp = Path.Combine(finalDir, Path.GetFileName(finalBinary) + ".tmp-" + Guid.NewGuid().ToString("N").Substring(0, 8));
@@ -387,7 +401,7 @@ namespace Bugsee.Editor
                     130000, out ignored);
                 if (exit != 0 || !File.Exists(destination))
                 {
-                    throw new IOException("GET " + url + " failed (" + ex.Message + "; curl exit " + exit + ")");
+                    throw new IOException("GET " + BugseeCliPolicy.RedactUrl(url) + " failed (" + ex.Message + "; curl exit " + exit + ")");
                 }
             }
         }
@@ -419,7 +433,7 @@ namespace Bugsee.Editor
                         var next = new Uri(new Uri(current), response.Headers["Location"] ?? "");
                         if (next.Scheme != Uri.UriSchemeHttps)
                         {
-                            throw new HttpStatusException("refusing a redirect to " + next + " (not https)");
+                            throw new HttpStatusException("refusing a redirect to " + BugseeCliPolicy.RedactUrl(next.AbsoluteUri) + " (not https)");
                         }
 
                         current = next.AbsoluteUri;
@@ -428,7 +442,7 @@ namespace Bugsee.Editor
 
                     if (status < 200 || status >= 300)
                     {
-                        throw new HttpStatusException("GET " + current + " returned " + status);
+                        throw new HttpStatusException("GET " + BugseeCliPolicy.RedactUrl(current) + " returned " + status);
                     }
 
                     using (Stream input = response.GetResponseStream())
@@ -441,7 +455,7 @@ namespace Bugsee.Editor
                 }
             }
 
-            throw new HttpStatusException("too many redirects from " + url);
+            throw new HttpStatusException("too many redirects from " + BugseeCliPolicy.RedactUrl(url));
         }
 
         static string Sha256Hex(string path)

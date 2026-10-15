@@ -18,7 +18,10 @@ namespace Bugsee.WrapperPolicy
 
     public sealed class UploadIdentity
     {
+        /// <summary>The id the mapping is keyed by.</summary>
         public string Uuid;
+        /// <summary>The id the native (ELF) upload is keyed by: BUGSEE_BUILD_UUID when set, else <see cref="Uuid"/>.</summary>
+        public string ElfUuid;
         public BuildIdSource Source;
         /// <summary>Why the id may not match what the app reports; shown when a mapping is uploaded under it.</summary>
         public string Warning;
@@ -67,12 +70,17 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>
-        /// Priority: BUGSEE_BUILD_UUID (an explicit choice), the id the app carries, the id the SDK synthesizes. <paramref name="appAssetId"/> is the one the app reports, so a different BUGSEE_BUILD_UUID is
-        /// followed but called out.
+        /// The mapping is keyed by the id the app reports: the id the built app carries, else (no asset) a valid
+        /// BUGSEE_BUILD_UUID the user set as the id they know the app reports, else the id the SDK synthesizes. An asset
+        /// always wins over the environment: a value that differs from what the app reports could never match.
+        /// BUGSEE_BUILD_UUID keeps its older meaning for the native upload (<see cref="UploadIdentity.ElfUuid"/>): any
+        /// non-empty value is that upload's correlation key; without it the mapping's id is used.
         /// </summary>
         public static UploadIdentity Decide(string env, string appAssetId, string synthesized, string appAssetConflict = null)
         {
-            var result = DecideCore(env, appAssetId, synthesized);
+            var result = DecideMapping(env, appAssetId, synthesized);
+            string envValue = string.IsNullOrWhiteSpace(env) ? null : env.Trim();
+            result.ElfUuid = envValue ?? result.Uuid;
             if (appAssetConflict != null)
             {
                 result.Warning = result.Warning == null ? appAssetConflict : appAssetConflict + " " + result.Warning;
@@ -81,39 +89,27 @@ namespace Bugsee.WrapperPolicy
             return result;
         }
 
-        static UploadIdentity DecideCore(string env, string appAssetId, string synthesized)
-        {
-            string invalidEnv = null;
-            if (!string.IsNullOrWhiteSpace(env) && !IsUuid(env))
-            {
-                invalidEnv = "BUGSEE_BUILD_UUID is not a UUID and is ignored.";
-                env = null;
-            }
-
-            var result = DecideValid(env, appAssetId, synthesized);
-            if (invalidEnv != null)
-            {
-                result.Warning = result.Warning == null ? invalidEnv : invalidEnv + " " + result.Warning;
-            }
-
-            return result;
-        }
-
-        static UploadIdentity DecideValid(string env, string appAssetId, string synthesized)
+        static UploadIdentity DecideMapping(string env, string appAssetId, string synthesized)
         {
             string app = IsUuid(appAssetId) ? appAssetId.Trim().ToLowerInvariant() : null;
-            if (!string.IsNullOrWhiteSpace(env))
-            {
-                string value = env.Trim();
-                string warning = app != null && !string.Equals(app, value, StringComparison.OrdinalIgnoreCase)
-                    ? "BUGSEE_BUILD_UUID (" + value + ") differs from the id the app reports (" + app + "): crashes will not match this upload."
-                    : null;
-                return new UploadIdentity { Uuid = value, Source = BuildIdSource.Environment, Warning = warning };
-            }
-
+            string envValue = string.IsNullOrWhiteSpace(env) ? null : env.Trim();
             if (app != null)
             {
-                return new UploadIdentity { Uuid = app, Source = BuildIdSource.AppAsset };
+                string note = envValue != null && !string.Equals(app, envValue, StringComparison.OrdinalIgnoreCase)
+                    ? "BUGSEE_BUILD_UUID (" + envValue + ") is not the id the app reports (" + app + "); the mapping is uploaded under the app's id and BUGSEE_BUILD_UUID is used for the native upload only."
+                    : null;
+                return new UploadIdentity { Uuid = app, Source = BuildIdSource.AppAsset, Warning = note };
+            }
+
+            string envNote = null;
+            if (envValue != null)
+            {
+                if (IsUuid(envValue))
+                {
+                    return new UploadIdentity { Uuid = envValue.ToLowerInvariant(), Source = BuildIdSource.Environment };
+                }
+
+                envNote = "BUGSEE_BUILD_UUID is not a UUID, so it is not used as the mapping's id (it still keys the native upload).";
             }
 
             if (synthesized != null)
@@ -122,13 +118,23 @@ namespace Bugsee.WrapperPolicy
                 {
                     Uuid = synthesized,
                     Source = BuildIdSource.Synthesized,
-                    Warning = "The built app carries no bugsee_build_id.properties, so the SDK reports the id it derives from the app token, " +
+                    Warning = (envNote == null ? "" : envNote + " ") +
+                              "The built app carries no bugsee_build_id.properties, so the SDK reports the id it derives from the app token, " +
                               "version name and version code; uploading under that id. If the app is built with a different token, version " +
-                              "name or code than Player Settings (split APKs, versionCodeOverride), set BUGSEE_BUILD_UUID or rebuild.",
+                              "name or code than Player Settings, the mapping will not match it.",
                 };
             }
 
-            return new UploadIdentity { Uuid = null, Source = BuildIdSource.None };
+            return new UploadIdentity { Uuid = null, Source = BuildIdSource.None, Warning = envNote };
+        }
+
+        /// <summary>Whether an APK file name is a sibling of the player "Game.apk": "Game.arm64-v8a.apk", not "GameLite.apk".</summary>
+        public static bool IsSplitApkOf(string fileName, string stem)
+        {
+            return !string.IsNullOrEmpty(stem) && fileName != null &&
+                   fileName.StartsWith(stem + ".", StringComparison.OrdinalIgnoreCase) &&
+                   fileName.EndsWith(".apk", StringComparison.OrdinalIgnoreCase) &&
+                   fileName.Length > stem.Length + ".apk".Length + 1;
         }
 
         /// <summary>

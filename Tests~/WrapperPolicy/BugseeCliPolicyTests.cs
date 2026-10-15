@@ -362,6 +362,18 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(BugseeCliPolicy.IsValidVersion(version), Is.EqualTo(expected));
         }
 
+        [TestCase("https://user:secret@mirror.example/cli", "https://mirror.example/cli")]
+        [TestCase("https://mirror.example/cli/v0.8.1/x.tar.xz", "https://mirror.example/cli/v0.8.1/x.tar.xz")]
+        [TestCase("not a url", "not a url")]
+        [TestCase(null, null)]
+        public void Credentials_are_removed_from_urls_before_they_are_logged(string url, string expected)
+        {
+            var redacted = BugseeCliPolicy.RedactUrl(url);
+
+            Assert.That(redacted == null ? null : redacted.TrimEnd('/'), Is.EqualTo(expected == null ? null : expected.TrimEnd('/')));
+            Assert.That(redacted ?? "", Does.Not.Contain("secret"));
+        }
+
         [Test]
         public void Cache_layout_is_version_then_triple()
         {

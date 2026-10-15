@@ -139,6 +139,18 @@ namespace Bugsee.WrapperPolicy
             version != null && System.Text.RegularExpressions.Regex.IsMatch(
                 version, @"^[0-9]+(\.[0-9]+)*([-+][0-9A-Za-z.]+)?$");
 
+        /// <summary>The URL without credentials (<c>https://user:pass@host/...</c>), for logs and messages.</summary>
+        public static string RedactUrl(string url)
+        {
+            Uri uri;
+            if (url == null || !Uri.TryCreate(url, UriKind.Absolute, out uri) || string.IsNullOrEmpty(uri.UserInfo))
+            {
+                return url;
+            }
+
+            return new UriBuilder(uri) { UserName = "", Password = "" }.Uri.AbsoluteUri;
+        }
+
         public static bool IsWindowsTriple(string triple) => triple != null && triple.Contains("windows");
 
         public static string BinaryName(bool windows) => windows ? CliName + ".exe" : CliName;

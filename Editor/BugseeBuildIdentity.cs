@@ -82,14 +82,21 @@ namespace Bugsee.Editor
             // What the APK carries, when the generated launcher says so plainly (split APK codes, overrides).
             var root = BugseeAndroidGradleSetup.GeneratedProjectRoot;
             var launcher = string.IsNullOrEmpty(root) ? null : Path.Combine(root, "launcher", "build.gradle");
-            if (launcher != null && File.Exists(launcher))
+            try
             {
-                GradleTemplateDefaults.ReadGradleVersion(File.ReadAllText(launcher), out var gradleName, out var gradleCode);
-                name = gradleName ?? name;
-                code = gradleCode ?? code;
+                if (launcher != null && File.Exists(launcher))
+                {
+                    GradleTemplateDefaults.ReadGradleVersion(File.ReadAllText(launcher), out var gradleName, out var gradleCode);
+                    name = gradleName ?? name;
+                    code = gradleCode ?? code;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"Bugsee: could not read the generated launcher's version: {ex.Message}");
             }
 
-            var appId = AndroidUploadIdentity.SelectAppAssetId(ReadAppAssetIds(report?.summary.outputPath), out var conflict);
+            var appId = AndroidUploadIdentity.SelectAppAssetId(ReadAppAssetIds(report?.summary.outputPath, report == null ? DateTime.MinValue : report.summary.buildStartedAt.ToUniversalTime()), out var conflict);
             if (conflict != null)
             {
                 Debug.LogWarning("Bugsee: " + conflict);
@@ -107,7 +114,7 @@ namespace Bugsee.Editor
         /// per ABI (Split APKs by target architecture), where that path is a folder holding them, every APK in it.
         /// An entry is null when that file carries no id or cannot be read.
         /// </summary>
-        static List<string> ReadAppAssetIds(string outputPath)
+        static List<string> ReadAppAssetIds(string outputPath, DateTime buildStartedUtc)
         {
             var ids = new List<string>();
             if (string.IsNullOrEmpty(outputPath))
@@ -128,7 +135,10 @@ namespace Bugsee.Editor
                 {
                     foreach (var apk in Directory.GetFiles(outputPath, "*.apk"))
                     {
-                        ids.Add(ReadAppAssetId(apk));
+                        if (IsFromThisBuild(apk, buildStartedUtc))
+                        {
+                            ids.Add(ReadAppAssetId(apk));
+                        }
                     }
 
                     return ids;
@@ -139,9 +149,13 @@ namespace Bugsee.Editor
                 if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir) && !string.IsNullOrEmpty(stem) &&
                     outputPath.EndsWith(".apk", StringComparison.OrdinalIgnoreCase))
                 {
-                    foreach (var apk in Directory.GetFiles(dir, stem + "*.apk"))
+                    foreach (var apk in Directory.GetFiles(dir, "*.apk"))
                     {
-                        ids.Add(ReadAppAssetId(apk));
+                        // "Game.arm64-v8a.apk" yes; "GameLite.apk" (another player) and APKs of earlier builds no.
+                        if (AndroidUploadIdentity.IsSplitApkOf(Path.GetFileName(apk), stem) && IsFromThisBuild(apk, buildStartedUtc))
+                        {
+                            ids.Add(ReadAppAssetId(apk));
+                        }
                     }
                 }
             }
@@ -152,6 +166,9 @@ namespace Bugsee.Editor
 
             return ids;
         }
+
+        static bool IsFromThisBuild(string file, DateTime buildStartedUtc) =>
+            File.GetLastWriteTimeUtc(file) >= buildStartedUtc;
 
         /// <summary>The id in one APK/AAB's build id asset, or null (no such asset, not an archive, unreadable).</summary>
         static string ReadAppAssetId(string path)

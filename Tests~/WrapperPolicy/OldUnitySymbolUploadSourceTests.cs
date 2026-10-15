@@ -73,7 +73,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
             Assert.That(body, Does.Contain("BugseeBuildIdentity.ResolveAndroidUploadIdentity(report)"));
             Assert.That(body, Does.Contain("AndroidUploadIdentity.MappingArguments(identity.Uuid, icon)"));
-            Assert.That(body, Does.Contain("UploadSymbolsZipOrElf(report, roots, version, build, identity.Uuid"));
+            Assert.That(body, Does.Contain("UploadSymbolsZipOrElf(report, roots, version, build, identity.ElfUuid"));
 
             var elf = Body(Source("Editor/BugseeSymbolUpload.cs"), "static void UploadSymbolsZipOrElf(");
             Assert.That(elf, Does.Contain("AndroidUploadIdentity.ElfArguments(bestZip, version, build, buildUuid)"));
@@ -86,7 +86,7 @@ namespace Bugsee.WrapperPolicy.Tests
             var source = Source("Editor/BugseeBuildIdentity.cs");
             var body = Body(source, "public static UploadIdentity ResolveAndroidUploadIdentity(");
 
-            Assert.That(body, Does.Contain("ReadAppAssetIds(report?.summary.outputPath)"));
+            Assert.That(body, Does.Contain("ReadAppAssetIds(report?.summary.outputPath,"));
             Assert.That(source, Does.Not.Contain("build-id.txt"), "Gradle's id file can belong to an earlier build");
             Assert.That(body, Does.Contain("AndroidBuildUuid.Synthesize("));
             Assert.That(body, Does.Contain("GradleTemplateDefaults.ReadGradleVersion("));
