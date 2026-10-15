@@ -118,6 +118,8 @@ namespace Bugsee.Sample
                     DetectAndReportHang = true,
                     DetectAndReportExitNotResponding = true,
                     DetectAndReportExitLowMemory = true,
+                    PerformanceMonitoring = ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") != "apmoff",
+                    PerformanceSampleRate = ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "apmleak" ? 0f : 1f,
                     Debug = true
                 };
                 if (!string.IsNullOrWhiteSpace(endpointOverride))
@@ -258,6 +260,15 @@ namespace Bugsee.Sample
                         _pendingE2EFire = "L:e2e-upload-" + _e2eRunId;
                     }
                     break;
+                case "apm":
+                case "apmoff":
+                case "apmleak":
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 99;
+                        _pendingE2EFire = "M:" + _e2eRunId;
+                    }
+                    break;
                 case "none":
                     // Recovery launch: arm nothing, only let the SDK recover and upload what the last run left.
                     break;
@@ -312,6 +323,12 @@ namespace Bugsee.Sample
                     break;
                 case 'K':
                     FireProcessFailure(marker);
+                    break;
+                case 'M':
+                    SetStatus("E2E APM " + marker);
+                    ApmE2E.Run(marker, _e2eScenario == "apmoff", _e2eScenario == "apmleak");
+                    // The report bundle carries every transaction, which is what the backend check reads back.
+                    if (_e2eScenario == "apm") Bugsee.Upload("apm-e2e-" + marker, "APM e2e run " + marker);
                     break;
                 case 'L':
                     SetStatus("E2E manual upload " + marker);
