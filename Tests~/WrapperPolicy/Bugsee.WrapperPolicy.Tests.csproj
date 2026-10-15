@@ -25,4 +25,7 @@
     <Compile Include="..\..\Runtime\Contracts\Options\Options.cs" />
     <Compile Include="**\*Tests.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" LinkBase="Fixtures" />
+  </ItemGroup>
 </Project>
