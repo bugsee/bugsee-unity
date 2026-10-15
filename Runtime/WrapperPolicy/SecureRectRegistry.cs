@@ -9,6 +9,9 @@ namespace Bugsee.WrapperPolicy
 
         public static SecureRectRegistry Instance => SharedInstance;
 
+        // Bugsee.AddSecureRectangle can run on any thread while the frame pusher reads every frame.
+        readonly object _sync = new object();
+
         readonly Dictionary<(string ownerId, int displayId), int[]> _rectsByOwnerDisplay =
             new Dictionary<(string ownerId, int displayId), int[]>();
 
@@ -23,69 +26,103 @@ namespace Bugsee.WrapperPolicy
 
         public void Set(string ownerId, int displayId, int left, int top, int right, int bottom)
         {
-            int normalizedLeft = Math.Min(left, right);
-            int normalizedRight = Math.Max(left, right);
-            int normalizedTop = Math.Min(top, bottom);
-            int normalizedBottom = Math.Max(top, bottom);
-            _rectsByOwnerDisplay[(ownerId, displayId)] = new[]
+            lock (_sync)
             {
-                normalizedLeft,
-                normalizedTop,
-                normalizedRight,
-                normalizedBottom
-            };
+                int normalizedLeft = Math.Min(left, right);
+                int normalizedRight = Math.Max(left, right);
+                int normalizedTop = Math.Min(top, bottom);
+                int normalizedBottom = Math.Max(top, bottom);
+                _rectsByOwnerDisplay[(ownerId, displayId)] = new[]
+                {
+                    normalizedLeft,
+                    normalizedTop,
+                    normalizedRight,
+                    normalizedBottom
+                };
+            }
         }
 
         public void RemoveOwner(string ownerId)
         {
-            var keysToRemove = new List<(string ownerId, int displayId)>();
-            foreach (var key in _rectsByOwnerDisplay.Keys)
+            lock (_sync)
             {
-                if (key.ownerId == ownerId)
-                    keysToRemove.Add(key);
-            }
+                var keysToRemove = new List<(string ownerId, int displayId)>();
+                foreach (var key in _rectsByOwnerDisplay.Keys)
+                {
+                    if (key.ownerId == ownerId)
+                        keysToRemove.Add(key);
+                }
 
-            for (int i = 0; i < keysToRemove.Count; i++)
-                _rectsByOwnerDisplay.Remove(keysToRemove[i]);
+                for (int i = 0; i < keysToRemove.Count; i++)
+                    _rectsByOwnerDisplay.Remove(keysToRemove[i]);
+            }
         }
 
         public void RemoveOwnersWithPrefix(string ownerIdPrefix)
         {
-            if (string.IsNullOrEmpty(ownerIdPrefix))
-                return;
-
-            var keysToRemove = new List<(string ownerId, int displayId)>();
-            foreach (var key in _rectsByOwnerDisplay.Keys)
+            lock (_sync)
             {
-                if (key.ownerId != null && key.ownerId.StartsWith(ownerIdPrefix))
-                    keysToRemove.Add(key);
-            }
+                if (string.IsNullOrEmpty(ownerIdPrefix))
+                    return;
 
-            for (int i = 0; i < keysToRemove.Count; i++)
-                _rectsByOwnerDisplay.Remove(keysToRemove[i]);
+                var keysToRemove = new List<(string ownerId, int displayId)>();
+                foreach (var key in _rectsByOwnerDisplay.Keys)
+                {
+                    if (key.ownerId != null && key.ownerId.StartsWith(ownerIdPrefix))
+                        keysToRemove.Add(key);
+                }
+
+                for (int i = 0; i < keysToRemove.Count; i++)
+                    _rectsByOwnerDisplay.Remove(keysToRemove[i]);
+            }
         }
 
         public int[] Snapshot(int displayId, float pixelsPerNativeUnit)
         {
-            ValidatePixelsPerNativeUnit(pixelsPerNativeUnit);
-
-            int[] converted = BuildConvertedRects(displayId, pixelsPerNativeUnit);
-            DisplaySnapshotState state = GetOrCreateDisplayState(displayId);
-
-            if (state.LastPublishedRects == null)
+            lock (_sync)
             {
-                state.Version = 1;
-                state.LastPublishedRects = Array.Empty<int>();
-            }
+                ValidatePixelsPerNativeUnit(pixelsPerNativeUnit);
 
-            if (!RectBuffersEqual(state.LastPublishedRects, converted))
+                int[] converted = BuildConvertedRects(displayId, pixelsPerNativeUnit);
+                DisplaySnapshotState state = GetOrCreateDisplayState(displayId);
+
+                if (state.LastPublishedRects == null)
+                {
+                    state.Version = 1;
+                    state.LastPublishedRects = Array.Empty<int>();
+                }
+
+                if (!RectBuffersEqual(state.LastPublishedRects, converted))
+                {
+                    int next = state.Version + 1;
+                    state.Version = next == 1 ? 2 : next;
+                    state.LastPublishedRects = (int[])converted.Clone();
+                }
+
+                return PackSnapshot(state.Version, converted);
+            }
+        }
+
+        /// <summary>
+        /// Copies the rectangles of a display as [l, t, r, b, ...] (registered pixels, no scaling) into
+        /// <paramref name="dest"/>, growing it when too small, and returns the rectangle count. Thread-safe; allocates
+        /// only when the buffer has to grow, so it can run every frame.
+        /// </summary>
+        public int CopyRects(int displayId, ref int[] dest)
+        {
+            lock (_sync)
             {
-                int next = state.Version + 1;
-                state.Version = next == 1 ? 2 : next;
-                state.LastPublishedRects = (int[])converted.Clone();
+                int count = 0;
+                foreach (var entry in _rectsByOwnerDisplay)
+                {
+                    if (entry.Key.displayId != displayId) continue;
+                    if (dest == null || dest.Length < (count + 1) * 4)
+                        Array.Resize(ref dest, Math.Max(16, (count + 1) * 8));
+                    Array.Copy(entry.Value, 0, dest, count * 4, 4);
+                    count++;
+                }
+                return count;
             }
-
-            return PackSnapshot(state.Version, converted);
         }
 
         static int[] PackSnapshot(int version, int[] convertedRects)
