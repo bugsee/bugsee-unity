@@ -31,7 +31,7 @@ namespace Bugsee.Platform.Android
             {
                 if (AndroidJNI.AttachCurrentThread() != 0)
                     throw new InvalidOperationException("could not attach the calling thread to the JVM");
-                _weAttached = true;
+                _weAttached = mode == JniAttachMode.AttachDetach;
             }
             _depth++;
             return new AndroidJniScope(mode == JniAttachMode.AttachDetach);

@@ -200,8 +200,13 @@ namespace Bugsee.Sample
         sealed class WorkRunnable : AndroidJavaProxy
         {
             readonly string _where;
-            public WorkRunnable(string where) : base("java.lang.Runnable") { _where = where; }
-            public void run() { Work(_where); }
+            readonly Action _done;
+            public WorkRunnable(string where, Action done = null) : base("java.lang.Runnable") { _where = where; _done = done; }
+            public void run()
+            {
+                Work(_where);
+                _done?.Invoke();
+            }
         }
 #endif
 
@@ -210,6 +215,13 @@ namespace Bugsee.Sample
         public static void Threads(string runId, string scenario)
         {
             Log("threads begin run=" + runId + " scenario=" + scenario);
+#if !(UNITY_ANDROID && !UNITY_EDITOR)
+            if (scenario != "apmthrnew")
+            {
+                Log("UNSUPPORTED: " + scenario + " needs Android; nothing was exercised");
+                return;
+            }
+#endif
             switch (scenario)
             {
                 case "apmthrnew":
@@ -234,13 +246,23 @@ namespace Bugsee.Sample
                 }
                 case "apmthrui":
                 {
+                    // Not blocking Update: the callback reports its own completion, and a watchdog reports a timeout.
+                    int done = 0;
                     using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
                     using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
                     {
-                        activity.Call("runOnUiThread", new WorkRunnable("uithread"));
-                        Thread.Sleep(2000);
+                        activity.Call("runOnUiThread", new WorkRunnable("uithread", () =>
+                        {
+                            Interlocked.Exchange(ref done, 1);
+                            Log("uithread callback finished");
+                        }));
                     }
-                    break;
+                    Task.Delay(10000).ContinueWith(_ =>
+                    {
+                        if (Volatile.Read(ref done) == 0) Log("TIMEOUT: the UI-thread callback did not run");
+                        Log("end run=" + runId);
+                    });
+                    return;
                 }
 #endif
             }

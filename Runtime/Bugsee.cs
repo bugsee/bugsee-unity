@@ -292,13 +292,12 @@ namespace Bugsee
                 Debug.LogWarning("[Bugsee] StartTransaction ignored: a name and an operation are required.");
                 return new NoopSpan();
             }
-            if (!Bridge.GetLaunched()) return new NoopSpan();
-
             var rejected = new List<string>();
             var clean = SpanPolicy.CleanAttributes(attributes, rejected);
             foreach (var reason in rejected) Debug.LogWarning("[Bugsee] StartTransaction attribute dropped: " + reason + ".");
 
             return SpanStart.Transaction(
+                () => Bridge.GetLaunched(),
                 () => Bridge.StartTransaction(name, operation, clean),
                 operation,
                 message => Debug.LogWarning("[Bugsee] " + message));

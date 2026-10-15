@@ -28,7 +28,7 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             var warnings = new List<string>();
             ISpan span = null;
-            Assert.DoesNotThrow(() => span = SpanStart.Transaction(() => throw new InvalidOperationException("jni"), "op", warnings.Add));
+            Assert.DoesNotThrow(() => span = SpanStart.Transaction(() => true, () => throw new InvalidOperationException("jni"), "op", warnings.Add));
             Assert.That(span, Is.InstanceOf<NoopSpan>());
             Assert.That(warnings.Count, Is.EqualTo(1));
             Assert.That(warnings[0], Does.Contain("jni"));
@@ -38,15 +38,35 @@ namespace Bugsee.WrapperPolicy.Tests
         public void A_null_handle_is_inert_without_a_warning()
         {
             var warnings = new List<string>();
-            Assert.That(SpanStart.Transaction(() => null, "op", warnings.Add), Is.InstanceOf<NoopSpan>());
+            Assert.That(SpanStart.Transaction(() => true, () => null, "op", warnings.Add), Is.InstanceOf<NoopSpan>());
             Assert.That(warnings, Is.Empty);
+        }
+
+        [Test]
+        public void Not_launched_is_inert_and_never_starts_natively()
+        {
+            bool started = false;
+            var span = SpanStart.Transaction(() => false, () => { started = true; return new Handle(); }, "op", null);
+            Assert.That(span, Is.InstanceOf<NoopSpan>());
+            Assert.That(started, Is.False);
+        }
+
+        [Test]
+        public void A_throwing_launched_check_warns_and_returns_an_inert_span()
+        {
+            var warnings = new List<string>();
+            ISpan span = null;
+            Assert.DoesNotThrow(() => span = SpanStart.Transaction(() => throw new InvalidOperationException("attach"), () => new Handle(), "op", warnings.Add));
+            Assert.That(span, Is.InstanceOf<NoopSpan>());
+            Assert.That(warnings.Count, Is.EqualTo(1));
+            Assert.That(warnings[0], Does.Contain("attach"));
         }
 
         [Test]
         public void A_handle_is_wrapped()
         {
             var handle = new Handle();
-            var span = SpanStart.Transaction(() => handle, "op", null);
+            var span = SpanStart.Transaction(() => true, () => handle, "op", null);
             Assert.That(span, Is.InstanceOf<ManagedSpan>());
             Assert.That(span.SpanId, Is.EqualTo("s"));
         }

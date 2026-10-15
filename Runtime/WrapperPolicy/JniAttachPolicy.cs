@@ -24,12 +24,16 @@ namespace Bugsee.WrapperPolicy
     /// </summary>
     public static class JniAttachPolicy
     {
-        /// <param name="alreadyAttached">This wrapper already attached the thread (it stays attached in <see cref="JniAttachMode.AttachOnly"/>).</param>
+        /// <param name="alreadyAttached">This wrapper holds a pool-thread attach (<see cref="JniAttachMode.AttachDetach"/>) on the thread.</param>
         /// <param name="depth">Scopes this wrapper already holds on the thread; a nested scope does nothing.</param>
         public static JniAttachMode Decide(bool isMainThread, bool isPoolThread, bool alreadyAttached, int depth)
         {
-            if (depth > 0 || isMainThread || alreadyAttached) return JniAttachMode.None;
-            return isPoolThread ? JniAttachMode.AttachDetach : JniAttachMode.AttachOnly;
+            if (depth > 0 || isMainThread) return JniAttachMode.None;
+            // A pool thread is attached only for a scope, so "already attached" is a nested case. A dedicated thread is
+            // attached again every outermost scope: the attach is idempotent, and a cached flag would go stale if the
+            // application detached the thread itself.
+            if (isPoolThread) return alreadyAttached ? JniAttachMode.None : JniAttachMode.AttachDetach;
+            return JniAttachMode.AttachOnly;
         }
     }
 }

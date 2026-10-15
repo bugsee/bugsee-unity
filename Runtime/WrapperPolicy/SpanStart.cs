@@ -7,15 +7,17 @@ namespace Bugsee.WrapperPolicy
     public static class SpanStart
     {
         /// <summary>
-        /// Starts a transaction through <paramref name="start"/> and wraps the handle. Any failure (the native call, or
-        /// building the wrapper, in which case the handle is released) is reported through <paramref name="warn"/> and
-        /// yields an inert span.
+        /// Starts a transaction through <paramref name="start"/> and wraps the handle, once <paramref name="isLaunched"/>
+        /// says the SDK is launched (otherwise an inert span, and <paramref name="start"/> is not called). Any failure (the
+        /// launched check, the native call, or building the wrapper, in which case the handle is released) is reported
+        /// through <paramref name="warn"/> and yields an inert span.
         /// </summary>
-        public static ISpan Transaction(Func<ISpanHandle> start, string operation, Action<string> warn)
+        public static ISpan Transaction(Func<bool> isLaunched, Func<ISpanHandle> start, string operation, Action<string> warn)
         {
             ISpanHandle handle = null;
             try
             {
+                if (!isLaunched()) return new NoopSpan();
                 handle = start();
                 return handle == null ? new NoopSpan() : new ManagedSpan(handle, operation, warn);
             }
