@@ -62,9 +62,12 @@ namespace Bugsee.Platform.IOS
 
         void Launch(string appToken, IDictionary<string, object> options, Action<bool> started)
         {
-            ManagedExceptionPayload.EnsureBuildIdentity();
+            // Build identity reads Application.buildGUID/version and Resources: main thread only, so inside the hand-off.
             if (!MainThreadDispatcher.RunSyncLifecycle(() =>
-                    LaunchOrDefer("Launch", () => LaunchNow(appToken, options, started), started)))
+                {
+                    ManagedExceptionPayload.EnsureBuildIdentity();
+                    LaunchOrDefer("Launch", () => LaunchNow(appToken, options, started), started);
+                }))
             {
                 Debug.LogError("[Bugsee] Launch timed out waiting for the Unity main thread.");
                 RunResult(started, false);
@@ -664,6 +667,12 @@ namespace Bugsee.Platform.IOS
         public void Notify(string title, string body, IssueSeverity severity, IDictionary<string, string> fields, bool urgent) =>
             _bugsee_notify(title ?? "", NotifyPolicy.Body(body), (int)severity,
                 ToJsonObject(NotifyPolicy.ToWireMap(fields)), urgent ? 1 : 0);
+
+        public ISpanHandle StartTransaction(string name, string operation, IDictionary<string, object> attributes)
+        {
+            long id = IosSpanHandle._bugsee_start_transaction(name, operation, SpanPolicy.AttributesToJson(attributes));
+            return id == 0 ? null : new IosSpanHandle(id);
+        }
 
         public void SetUserIdentifier(string userIdentifier)
         {

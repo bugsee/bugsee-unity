@@ -117,7 +117,7 @@ namespace Bugsee.WrapperPolicy
                 lines.RemoveRange(begin, end - begin + 1);
                 lines.InsertRange(begin, snippet);
                 status = BuildIdBlockStatus.Applied;
-                return MarkedGradleBlock.JoinLines(lines, newline, false);
+                return MarkedGradleBlock.JoinLines(lines, newline);
             }
 
             int depth = 0;
@@ -143,7 +143,7 @@ namespace Bugsee.WrapperPolicy
             snippet.Add("");
             lines.InsertRange(anchor, snippet);
             status = BuildIdBlockStatus.Applied;
-            return MarkedGradleBlock.JoinLines(lines, newline, false);
+            return MarkedGradleBlock.JoinLines(lines, newline);
         }
 
         static bool SameLines(List<string> a, List<string> b)

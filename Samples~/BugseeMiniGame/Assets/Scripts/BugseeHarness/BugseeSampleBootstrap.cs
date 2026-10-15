@@ -24,6 +24,9 @@ namespace Bugsee.Sample
         [SerializeField] bool launchOnStart = true;
         [SerializeField] bool installReportHandler;
         [SerializeField] bool installSampleFilters;
+        /// <summary>Experimental Android frame pusher (off by default); an intent extra "bugsee_frame_pusher" = 1 also turns it on.</summary>
+        [SerializeField] bool experimentalFramePusher;
+        bool _framePusherRequested; // the opt-in as resolved at launch; a relaunch keeps it
 
         readonly Queue<string> _lifecycleLog = new Queue<string>();
         const int MaxLifecycleEntries = 24;
@@ -104,10 +107,26 @@ namespace Bugsee.Sample
             try
             {
 #if UNITY_ANDROID && !UNITY_EDITOR
+                // Asking for DirectBuffers means the Unity-side frame pusher; the wrapper starts it, or falls back to the
+                // default capture (with a warning) when this Unity cannot run it. Without the switch: the default capture.
+                _framePusherRequested = experimentalFramePusher || ReadE2EValue("bugsee_frame_pusher", "BUGSEE_FRAME_PUSHER") == "1";
+                // "bugsee_frame_pattern" = 1 also paints a red-over-blue test pattern and logs the readback rows.
+                var pattern = ReadE2EValue("bugsee_frame_pattern", "BUGSEE_FRAME_PATTERN") == "1";
+                // "bugsee_frame_row_order" = topdown | bottomup declares the readback row order (for measuring an unmeasured graphics API
+                // together with the probe; a wrong value only affects where secure rectangles are masked).
+                var rowOrder = ReadE2EValue("bugsee_frame_row_order", "BUGSEE_FRAME_ROW_ORDER");
+                global::Bugsee.Capture.BugseeFrameCapturer.DefaultOptions = new global::Bugsee.Capture.BugseeFrameCapturerOptions
+                {
+                    LogOrientationProbe = pattern,
+                    LogStats = true,
+                    RowOrder = rowOrder == "topdown" ? global::Bugsee.Contracts.Capture.VideoFrameRowOrder.TopDown
+                        : rowOrder == "bottomup" ? global::Bugsee.Contracts.Capture.VideoFrameRowOrder.BottomUp
+                        : (global::Bugsee.Contracts.Capture.VideoFrameRowOrder?)null
+                };
                 var options = new AndroidLaunchOptions
                 {
                     CaptureVideo = true,
-                    CaptureVideoMode = VideoMode.DirectBuffers,
+                    CaptureVideoMode = _framePusherRequested ? VideoMode.DirectBuffers : VideoMode.V2,
                     CaptureVideoFrameRate = FrameRate.High,
                     CaptureLogs = true,
                     CaptureNetwork = true,
@@ -118,11 +137,49 @@ namespace Bugsee.Sample
                     DetectAndReportHang = true,
                     DetectAndReportExitNotResponding = true,
                     DetectAndReportExitLowMemory = true,
+                    PerformanceMonitoring = ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") != "apmoff",
+                    PerformanceSampleRate = ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "apmleak" || ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "apmpool" || (ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") ?? "").StartsWith("apmthr") ? 0f : 1f,
                     Debug = true
                 };
                 if (!string.IsNullOrWhiteSpace(endpointOverride))
                     options.Endpoint = endpointOverride.Trim();
-                Bugsee.Launch(appToken, options);
+                // "bugsee_launch_thread" = 1 launches from a worker thread (checks that a launch from any thread works).
+                if (ReadE2EValue("bugsee_launch_thread", "BUGSEE_LAUNCH_THREAD") == "1")
+                {
+                    var touched = Bugsee.IsLaunched; // first use of Bugsee initialises its statics, which must happen on the main thread
+                    var launchOptions = options;
+                    var token = appToken;
+                    System.Threading.Tasks.Task.Run(() =>
+                    {
+                        try { Bugsee.Launch(token, launchOptions); Debug.Log("[BugseeSample] off-thread Launch returned"); }
+                        catch (Exception ex) { Debug.LogError("[BugseeSample] off-thread Launch threw " + ex); }
+                    });
+                }
+                else
+                    Bugsee.Launch(appToken, options);
+                // "bugsee_status_bar" = 1 shows the status bar, so Unity's view no longer fills the window.
+                if (ReadE2EValue("bugsee_status_bar", "BUGSEE_STATUS_BAR") == "1")
+                    Screen.fullScreen = false;
+                // "bugsee_orient_after_s" = "12" rotates the activity to the other orientation after that many seconds (no sensor needed).
+                var orientAfter = ReadE2EValue("bugsee_orient_after_s", "BUGSEE_ORIENT_AFTER_S");
+                if (!string.IsNullOrEmpty(orientAfter))
+                    StartCoroutine(RotateAfter(orientAfter));
+                var reportAfter = ReadE2EValue("bugsee_report_after_s", "BUGSEE_REPORT_AFTER_S");
+                if (!string.IsNullOrEmpty(reportAfter))
+                    StartCoroutine(ReportAfter(reportAfter));
+                if (ReadE2EValue("bugsee_frame_stats", "BUGSEE_FRAME_STATS") == "1")
+                    gameObject.AddComponent<FrameTimeLogger>();
+                if (_framePusherRequested || pattern)
+                {
+                    if (pattern)
+                        gameObject.AddComponent<OrientationPatternOverlay>();
+                    // "bugsee_secure_rect" = "l,t,r,b" as fractions of the screen (top-left origin); it is removed after
+                    // "bugsee_secure_rect_remove_s" seconds when that is set; "bugsee_secure_rect_delay_s" (default 2) is the wait before adding it. For checking the mask in the recorded video.
+                    var rect = ReadE2EValue("bugsee_secure_rect", "BUGSEE_SECURE_RECT"); // "l,t,r,b;l,t,r,b"
+                    if (!string.IsNullOrEmpty(rect))
+                        StartCoroutine(SecureRectDemo(rect, ReadE2EValue("bugsee_secure_rect_remove_s", "BUGSEE_SECURE_RECT_REMOVE_S"),
+                            ReadE2EValue("bugsee_secure_rect_delay_s", "BUGSEE_SECURE_RECT_DELAY_S")));
+                }
 #elif UNITY_IOS && !UNITY_EDITOR
                 var iosOptions = new IOSLaunchOptions
                 {
@@ -190,6 +247,7 @@ namespace Bugsee.Sample
         int _e2ePhase;
         float _e2eTimer;
         string _pendingE2EFire;
+        int _apmLaunchWaits;
 
         void Update()
         {
@@ -258,6 +316,19 @@ namespace Bugsee.Sample
                         _pendingE2EFire = "L:e2e-upload-" + _e2eRunId;
                     }
                     break;
+                case "apm":
+                case "apmoff":
+                case "apmleak":
+                case "apmpool":
+                case "apmthrnew":
+                case "apmthrjava":
+                case "apmthrui":
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 99;
+                        _pendingE2EFire = "M:" + _e2eRunId;
+                    }
+                    break;
                 case "none":
                     // Recovery launch: arm nothing, only let the SDK recover and upload what the last run left.
                     break;
@@ -313,6 +384,22 @@ namespace Bugsee.Sample
                 case 'K':
                     FireProcessFailure(marker);
                     break;
+                case 'M':
+                    // Spans started before the SDK reaches Launched are inert wrapper spans, so wait for it.
+                    if (!Bugsee.IsLaunched && _apmLaunchWaits++ < 120)
+                    {
+                        _e2ePhase = 0;
+                        _e2eTimer = 4f;
+                        _e2eRunId = marker;
+                        break;
+                    }
+                    SetStatus("E2E APM " + marker);
+                    Debug.Log("[ApmE2E] sdk status=" + Bugsee.Status + " waits=" + _apmLaunchWaits);
+                    if (_e2eScenario.StartsWith("apmthr")) ApmE2E.Threads(marker, _e2eScenario);
+                    else ApmE2E.Run(marker, _e2eScenario == "apmoff", _e2eScenario == "apmleak", _e2eScenario == "apmpool");
+                    // The report bundle carries every transaction, which is what the backend check reads back.
+                    if (_e2eScenario == "apm") Bugsee.Upload("apm-e2e-" + marker, "APM e2e run " + marker);
+                    break;
                 case 'L':
                     SetStatus("E2E manual upload " + marker);
                     Bugsee.Upload(marker, "uploaded by the e2e harness");
@@ -352,6 +439,60 @@ namespace Bugsee.Sample
                     System.Threading.Thread.Sleep(20000);
 #endif
                     break;
+            }
+        }
+
+        // "bugsee_report_after_s" = "7,14": uploads a manual report after each delay, so the recorded video can be checked later.
+        IEnumerator ReportAfter(string secondsList)
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            float previous = 0f;
+            foreach (var item in secondsList.Split(','))
+            {
+                if (!float.TryParse(item, System.Globalization.NumberStyles.Float, inv, out var at)) continue;
+                yield return new WaitForSeconds(Mathf.Max(0f, at - previous));
+                previous = at;
+                Bugsee.Upload("frame-pusher-check-" + item, "manual report at t+" + item + "s");
+                Debug.Log("[BugseeSample] t=" + Time.realtimeSinceStartup.ToString("F2", inv) + " report uploaded");
+            }
+        }
+
+        IEnumerator RotateAfter(string seconds)
+        {
+            if (!float.TryParse(seconds, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var at)) yield break;
+            yield return new WaitForSeconds(at);
+            // To the other orientation than the one it is in now.
+            var toPortrait = Screen.width > Screen.height;
+            Screen.orientation = toPortrait ? ScreenOrientation.Portrait : ScreenOrientation.LandscapeLeft;
+            Debug.Log("[BugseeSample] t=" + Time.realtimeSinceStartup.ToString("F2") + (toPortrait ? " rotated to portrait" : " rotated to landscape"));
+        }
+
+        IEnumerator SecureRectDemo(string fractionsList, string removeAfterSeconds, string delaySeconds)
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            float.TryParse(delaySeconds, System.Globalization.NumberStyles.Float, inv, out var delay);
+            yield return new WaitForSeconds(delay > 0f ? delay : 2f);
+            var added = new List<RectInt>();
+            foreach (var fractions in fractionsList.Split(';'))
+            {
+                // "px:l,t,r,b" is absolute window pixels, else fractions of the Unity screen.
+                bool absolute = fractions.StartsWith("px:");
+                var p = (absolute ? fractions.Substring(3) : fractions).Split(',');
+                if (p.Length != 4) continue;
+                float l = float.Parse(p[0], inv), t = float.Parse(p[1], inv), r = float.Parse(p[2], inv), b = float.Parse(p[3], inv);
+                var rect = absolute
+                    ? new RectInt((int)l, (int)t, (int)(r - l), (int)(b - t))
+                    : new RectInt((int)(l * Screen.width), (int)(t * Screen.height), (int)((r - l) * Screen.width), (int)((b - t) * Screen.height));
+                Bugsee.AddSecureRectangle(rect);
+                added.Add(rect);
+                Debug.Log("[BugseeSample] t=" + Time.realtimeSinceStartup.ToString("F2", inv) + " secure rect added " + rect + " screen=" + Screen.width + "x" + Screen.height);
+            }
+            if (float.TryParse(removeAfterSeconds, System.Globalization.NumberStyles.Float, inv, out var seconds))
+            {
+                yield return new WaitForSeconds(seconds);
+                foreach (var rect in added)
+                    Bugsee.RemoveSecureRectangle(rect);
+                Debug.Log("[BugseeSample] t=" + Time.realtimeSinceStartup.ToString("F2", inv) + " secure rect removed");
             }
         }
 
@@ -488,7 +629,7 @@ namespace Bugsee.Sample
                 Bugsee.Relaunch(new AndroidLaunchOptions
                 {
                     CaptureVideo = true,
-                    CaptureVideoMode = VideoMode.DirectBuffers
+                    CaptureVideoMode = _framePusherRequested ? VideoMode.DirectBuffers : VideoMode.V2
                 });
 #else
                 Bugsee.Relaunch();
