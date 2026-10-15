@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Text;
 using Bugsee.WrapperPolicy;
 using UnityEditor;
 using UnityEditor.Build;
@@ -162,135 +161,90 @@ namespace Bugsee.Editor
         static void WriteBaseProjectTemplate(bool applyPlugin)
         {
             string path = Path.Combine(Application.dataPath, "Plugins", "Android", "baseProjectTemplate.gradle");
-            if (File.Exists(path))
+            string text = ReadOrCopyUnityDefault(path, "baseProjectTemplate.gradle");
+            if (text == null)
             {
-                if (applyPlugin)
-                {
-                    TryApplyMarkedGradle(
-                        path,
-                        "plugins {",
-                        $"    id 'com.bugsee.android.gradle' version '{GradlePluginVersion}' apply false // bugsee:gradle-plugin");
-                }
-
                 return;
             }
 
-            var sb = new StringBuilder();
-            sb.AppendLine("plugins {");
-            sb.AppendLine("    // If you are changing the Android Gradle Plugin version, make sure it is compatible with the Gradle version preinstalled with Unity");
-            sb.AppendLine("    // See which Gradle version is preinstalled with Unity here https://docs.unity3d.com/Manual/android-gradle-overview.html");
-            sb.AppendLine("    // See official Gradle and Android Gradle Plugin compatibility table here https://developer.android.com/studio/releases/gradle-plugin#updating-gradle");
-            sb.AppendLine("    // To specify a custom Gradle version in Unity, go do \"Preferences > External Tools\", uncheck \"Gradle Installed with Unity (recommended)\" and specify a path to a custom Gradle version");
-            sb.AppendLine("    id 'com.android.application' version '7.4.2' apply false");
-            sb.AppendLine("    id 'com.android.library' version '7.4.2' apply false");
+            WarnIfIncompatibleAgp(path, text, "baseProjectTemplate.gradle");
             if (applyPlugin)
             {
-                sb.AppendLine(
+                TryApplyMarkedGradle(
+                    path,
+                    "plugins {",
                     $"    id 'com.bugsee.android.gradle' version '{GradlePluginVersion}' apply false // bugsee:gradle-plugin");
             }
-
-            sb.AppendLine("    **BUILD_SCRIPT_DEPS**");
-            sb.AppendLine("}");
-            sb.AppendLine();
-            sb.AppendLine("task clean(type: Delete) {");
-            sb.AppendLine("    delete rootProject.buildDir");
-            sb.AppendLine("}");
-            sb.AppendLine();
-            WriteIfChanged(path, sb.ToString());
         }
 
         static void WriteLauncherTemplate(bool applyPlugin)
         {
             string path = Path.Combine(Application.dataPath, "Plugins", "Android", "launcherTemplate.gradle");
-            if (File.Exists(path))
+            bool existed = File.Exists(path);
+            string text = ReadOrCopyUnityDefault(path, "launcherTemplate.gradle");
+            if (text == null)
             {
-                if (applyPlugin)
-                {
-                    TryApplyMarkedGradle(
-                        path,
-                        "apply plugin: 'com.android.application'",
-                        LauncherMarkedGradlePatch());
-                }
-
                 return;
             }
 
-            var sb = new StringBuilder();
-            sb.AppendLine("apply plugin: 'com.android.application'");
-            if (applyPlugin)
+            if (!existed)
             {
-                foreach (string line in LauncherMarkedGradlePatch().Split('\n'))
-                {
-                    sb.AppendLine(line);
-                }
+                // Only for the copy made here; an existing template is the project's own.
+                WriteIfChanged(path, GradleTemplateDefaults.EnsureReleaseDebugSymbols(text));
             }
 
-            sb.AppendLine();
-            sb.AppendLine("dependencies {");
-            sb.AppendLine("    implementation project(':unityLibrary')");
-            sb.AppendLine("}");
-            sb.AppendLine();
-            sb.AppendLine("android {");
-            sb.AppendLine("    namespace \"**NAMESPACE**\"");
-            sb.AppendLine("    ndkPath \"**NDKPATH**\"");
-            sb.AppendLine("    compileSdkVersion **APIVERSION**");
-            sb.AppendLine("    buildToolsVersion '**BUILDTOOLS**'");
-            sb.AppendLine();
-            sb.AppendLine("    compileOptions {");
-            sb.AppendLine("        sourceCompatibility JavaVersion.VERSION_11");
-            sb.AppendLine("        targetCompatibility JavaVersion.VERSION_11");
-            sb.AppendLine("    }");
-            sb.AppendLine();
-            sb.AppendLine("    defaultConfig {");
-            sb.AppendLine("        minSdkVersion **MINSDKVERSION**");
-            sb.AppendLine("        targetSdkVersion **TARGETSDKVERSION**");
-            sb.AppendLine("        applicationId '**APPLICATIONID**'");
-            sb.AppendLine("        ndk {");
-            sb.AppendLine("            abiFilters **ABIFILTERS**");
-            sb.AppendLine("        }");
-            sb.AppendLine("        versionCode **VERSIONCODE**");
-            sb.AppendLine("        versionName '**VERSIONNAME**'");
-            sb.AppendLine("    }");
-            sb.AppendLine();
-            sb.AppendLine("    aaptOptions {");
-            sb.AppendLine("        noCompress = **BUILTIN_NOCOMPRESS** + unityStreamingAssets.tokenize(', ')");
-            sb.AppendLine("        ignoreAssetsPattern = \"!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~\"");
-            sb.AppendLine("    }**SIGN**");
-            sb.AppendLine();
-            sb.AppendLine("    lintOptions {");
-            sb.AppendLine("        abortOnError false");
-            sb.AppendLine("    }");
-            sb.AppendLine();
-            sb.AppendLine("    buildTypes {");
-            sb.AppendLine("        debug {");
-            sb.AppendLine("            minifyEnabled **MINIFY_DEBUG**");
-            sb.AppendLine("            proguardFiles getDefaultProguardFile('proguard-android.txt')**SIGNCONFIG**");
-            sb.AppendLine("            jniDebuggable true");
-            sb.AppendLine("        }");
-            sb.AppendLine("        release {");
-            sb.AppendLine("            minifyEnabled **MINIFY_RELEASE**");
-            sb.AppendLine("            proguardFiles getDefaultProguardFile('proguard-android.txt')**SIGNCONFIG**");
-            sb.AppendLine("            ndk {");
-            // FULL for DWARF line programs — required for IL2CPP LineNumberMappings primary apply.
-            sb.AppendLine("                debugSymbolLevel 'FULL'");
-            sb.AppendLine("            }");
-            sb.AppendLine("        }");
-            sb.AppendLine("    }**PACKAGING_OPTIONS****PLAY_ASSET_PACKS****SPLITS**");
-            sb.AppendLine("**BUILT_APK_LOCATION**");
-            sb.AppendLine("    bundle {");
-            sb.AppendLine("        language {");
-            sb.AppendLine("            enableSplit = false");
-            sb.AppendLine("        }");
-            sb.AppendLine("        density {");
-            sb.AppendLine("            enableSplit = false");
-            sb.AppendLine("        }");
-            sb.AppendLine("        abi {");
-            sb.AppendLine("            enableSplit = true");
-            sb.AppendLine("        }");
-            sb.AppendLine("    }");
-            sb.AppendLine("}**SPLITS_VERSION_CODE****LAUNCHER_SOURCE_BUILD_SETUP**");
-            sb.AppendLine();
-            WriteIfChanged(path, sb.ToString());
+            if (applyPlugin)
+            {
+                TryApplyMarkedGradle(
+                    path,
+                    "apply plugin: 'com.android.application'",
+                    LauncherMarkedGradlePatch());
+            }
+        }
+
+        static string UnityTemplatePath(string name)
+        {
+            // The module is not inside Unity.app on macOS, so ask Unity where Android Build Support lives.
+            string engine = BuildPipeline.GetPlaybackEngineDirectory(BuildTarget.Android, BuildOptions.None);
+            return string.IsNullOrEmpty(engine) ? null : Path.Combine(engine, "Tools", "GradleTemplates", name);
+        }
+
+        /// <summary>
+        /// The project's template, or a copy of the one this Unity ships (AGP/Gradle versions and the launcher
+        /// layout differ per Unity line, so the package never writes its own). Null when there is none to copy
+        /// (no Android Build Support module); the Unity default is then used unmodified.
+        /// </summary>
+        static string ReadOrCopyUnityDefault(string path, string name)
+        {
+            if (File.Exists(path))
+            {
+                return File.ReadAllText(path);
+            }
+
+            string source = UnityTemplatePath(name);
+            if (source == null || !File.Exists(source))
+            {
+                Debug.LogWarning("[Bugsee] Unity's default " + name + " was not found (" + source + "); not creating one.");
+                return null;
+            }
+
+            string text = File.ReadAllText(source);
+            WriteIfChanged(path, text);
+            return text;
+        }
+
+        static void WarnIfIncompatibleAgp(string path, string projectText, string name)
+        {
+            string source = UnityTemplatePath(name);
+            if (source != null && File.Exists(source) && GradleTemplateDefaults.PinsDifferentAgpMajor(projectText, File.ReadAllText(source)))
+            {
+                Debug.LogWarning(
+                    "[Bugsee] " + path + " pins Android Gradle plugin " + GradleTemplateDefaults.PinnedAgpMajor(projectText) +
+                    ".x but Unity " + Application.unityVersion + " builds with " +
+                    GradleTemplateDefaults.PinnedAgpMajor(File.ReadAllText(source)) +
+                    ".x, so the Android build will fail in Gradle. Delete the custom template (Bugsee copies Unity's default) " +
+                    "or update the pinned version.");
+            }
         }
 
         internal static string LauncherMarkedGradlePatch()

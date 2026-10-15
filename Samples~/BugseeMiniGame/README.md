@@ -68,7 +68,7 @@ SetSecureRect / SetAttribute / SetUserIdentifier / Appearance open IMGUI forms f
 3. Build & Run on device.
 
 Each build declares `bugsee-android:7.4.1` + `bugsee-android-ndk:7.4.1` in the generated
-`unityLibrary/build.gradle` (core publishes no transitives; NDK is explicit); no custom Gradle templates are needed.
+`unityLibrary/build.gradle` (core publishes no transitives; NDK is explicit); no custom Gradle templates are needed (the sample ships none; the package copies Unity's own default templates, so it builds on Unity 2021.3 and Unity 6).
 Gradle plugin `4.0.8` is applied on Unity 6+ launcher templates (`ndk { enabled = true }`).
 
 ## Character

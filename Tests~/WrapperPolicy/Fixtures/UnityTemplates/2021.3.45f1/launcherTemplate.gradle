@@ -2,7 +2,7 @@ apply plugin: 'com.android.application'
 
 dependencies {
     implementation project(':unityLibrary')
-}
+    }
 
 android {
     namespace "**NAMESPACE**"
@@ -44,9 +44,6 @@ android {
         release {
             minifyEnabled **MINIFY_RELEASE**
             proguardFiles getDefaultProguardFile('proguard-android.txt')**SIGNCONFIG**
-            ndk {
-                debugSymbolLevel 'FULL'
-            }
         }
     }**PACKAGING_OPTIONS****PLAY_ASSET_PACKS****SPLITS**
 **BUILT_APK_LOCATION**
@@ -62,4 +59,3 @@ android {
         }
     }
 }**SPLITS_VERSION_CODE****LAUNCHER_SOURCE_BUILD_SETUP**
-
