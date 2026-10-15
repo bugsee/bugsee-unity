@@ -469,7 +469,7 @@ namespace Bugsee.WrapperPolicy
             lines.InsertRange(start, replacement);
         }
 
-        static string JoinLines(List<string> lines, string newline)
+        internal static string JoinLines(List<string> lines, string newline)
         {
             var sb = new StringBuilder();
             for (int i = 0; i < lines.Count; i++)
@@ -639,7 +639,7 @@ namespace Bugsee.WrapperPolicy
                    trimmed.IndexOf("apply plugin", StringComparison.Ordinal) >= 0;
         }
 
-        static List<string> SplitLines(string text, out string newline)
+        internal static List<string> SplitLines(string text, out string newline)
         {
             newline = text.IndexOf("\r\n", StringComparison.Ordinal) >= 0 ? "\r\n" : "\n";
             var lines = new List<string>();
@@ -669,7 +669,7 @@ namespace Bugsee.WrapperPolicy
             return lines;
         }
 
-        static void ScanLine(string line, ref int depth, ref bool inBlockComment)
+        internal static void ScanLine(string line, ref int depth, ref bool inBlockComment)
         {
             for (int i = 0; i < line.Length; i++)
             {

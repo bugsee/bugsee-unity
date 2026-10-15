@@ -28,14 +28,19 @@ namespace Bugsee.Editor
         public int callbackOrder => 10;
 
         public const string GradlePluginVersion = "4.0.8";
+        const string GradlePluginMarker = "// bugsee:gradle-plugin";
         public const string SdkVersion = BugseePackageVersion.AndroidSdkVersion;
 
         const string PrefForcePlugin = "Bugsee.Android.ForceGradlePlugin";
+
+        /// <summary>The generated Gradle project of the current Android build (the folder with settings.gradle), or null.</summary>
+        internal static string GeneratedProjectRoot { get; private set; }
 
         public void OnPreprocessBuild(BuildReport report)
         {
             if (report.summary.platform == BuildTarget.Android)
             {
+                GeneratedProjectRoot = null;
                 RemoveLegacyTemplates();
             }
         }
@@ -61,7 +66,8 @@ namespace Bugsee.Editor
         {
             try
             {
-                PatchGeneratedProject(Path.GetDirectoryName(Path.GetFullPath(unityLibraryPath)));
+                GeneratedProjectRoot = Path.GetDirectoryName(Path.GetFullPath(unityLibraryPath));
+                PatchGeneratedProject(GeneratedProjectRoot);
             }
             catch (Exception ex) when (!(ex is BuildFailedException))
             {
@@ -102,6 +108,30 @@ namespace Bugsee.Editor
                     patchedLauncher,
                     "apply plugin: 'com.android.application'",
                     LauncherMarkedGradlePatch());
+            }
+
+            if (!apply && Environment.GetEnvironmentVariable("BUGSEE_NO_GRADLE_BUILD_ID") == null &&
+                GradleTemplateDefaults.AgpSupportsBuildIdBlock(root))
+            {
+                patchedLauncher = GradleBuildIdBlock.Apply(patchedLauncher, out BuildIdBlockStatus blockStatus);
+                if (blockStatus == BuildIdBlockStatus.Applied)
+                {
+                    Debug.Log(
+                        "[Bugsee] Added the build id asset task (assets/bugsee_build_id.properties, the id of the R8 mapping) to " + launcherPath +
+                        ": the part of the Bugsee Gradle plugin that works on this AGP. The upload uses whatever id the built app carries.");
+                }
+                else if (blockStatus == BuildIdBlockStatus.NoAnchor)
+                {
+                    Debug.LogWarning(
+                        "[Bugsee] No top-level android { } block in " + launcherPath + ", so the build id asset was not added. " +
+                        "The SDK derives its own build id and the mapping is uploaded under it.");
+                }
+            }
+            else
+            {
+                // Not applying it (plugin, another AGP, opt-out): the Unity version regenerates only what changed, so a
+                // block an earlier build added (AGP 7.4, then a switch to 8.x) must not stay behind.
+                patchedLauncher = GradleBuildIdBlock.Remove(patchedLauncher);
             }
 
             if (!string.Equals(root, patchedRoot, StringComparison.Ordinal))

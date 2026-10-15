@@ -91,6 +91,37 @@ namespace Bugsee.WrapperPolicy
                    (major > 8 || (major == 8 && minor >= 6));
         }
 
+        /// <summary>
+        /// <see cref="GradleBuildIdBlock"/> is for AGP 7.4.x, the only line it was run on (7.4.2, Unity 2021.3 and 2022.3).
+        /// Other AGPs below the plugin's 8.6 minimum are left to the SDK's own build id rather than trusted with an
+        /// unverified build script. False for older AGPs (Unity 2021.3's first patch releases ship AGP 4.0.1, which has
+        /// no <c>androidComponents</c>) and when the version is unknown.
+        /// </summary>
+        public static bool AgpSupportsBuildIdBlock(string rootBuildFile)
+        {
+            return TryGetAgpVersion(rootBuildFile, out int major, out int minor) && major == 7 && minor == 4;
+        }
+
+        static readonly Regex GradleVersionCode = new Regex(@"^\s*versionCode\s*=?\s*(?<v>\d+)\s*$", RegexOptions.Multiline);
+        static readonly Regex GradleVersionName = new Regex(@"^\s*versionName\s*=?\s*['""](?<v>[^'""\r\n]*)['""]\s*$", RegexOptions.Multiline);
+
+        /// <summary>
+        /// The <c>versionCode</c> / <c>versionName</c> of the generated launcher build.gradle's defaultConfig: what the
+        /// APK carries, which can differ from Player Settings (split APK version codes, an override). Each is null when
+        /// the file does not state it as a plain literal. The version code is also null when the launcher overrides it per
+        /// output (<c>versionCodeOverride</c>, what Unity adds for split-APK version codes through the
+        /// <c>**SPLITS_VERSION_CODE**</c> token): the literal is then not what each APK carries.
+        /// </summary>
+        public static void ReadGradleVersion(string launcherGradle, out string versionName, out string versionCode)
+        {
+            Match code = launcherGradle == null ? Match.Empty : GradleVersionCode.Match(launcherGradle);
+            Match name = launcherGradle == null ? Match.Empty : GradleVersionName.Match(launcherGradle);
+            versionCode = code.Success && launcherGradle.IndexOf("versionCodeOverride", StringComparison.Ordinal) < 0
+                ? code.Groups["v"].Value
+                : null;
+            versionName = name.Success ? name.Groups["v"].Value : null;
+        }
+
         const string PluginMarker = "bugsee:gradle-plugin";
 
         // The baseProjectTemplate.gradle earlier package versions wrote on every Unity line (Unity 2021.3's default

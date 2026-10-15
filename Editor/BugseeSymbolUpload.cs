@@ -40,7 +40,15 @@ namespace Bugsee.Editor
             switch (report.summary.platform)
             {
                 case BuildTarget.Android:
-                    UploadAndroidSymbols(report, version, build);
+                    try
+                    {
+                        UploadAndroidSymbols(report, version, build);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Whatever goes wrong here (an unreadable file, a locked folder) must not fail the build.
+                        Debug.LogWarning($"Bugsee: Android symbol upload failed: {ex.Message} — build continues.");
+                    }
                     break;
                 case BuildTarget.iOS:
                 case BuildTarget.tvOS:
@@ -74,13 +82,47 @@ namespace Bugsee.Editor
             // matches it). Only this build's own file is uploaded, see BuildArtifactChoice.
             var stem = OutputStem(report);
             var allowGeneric = OutputIsDirectory(report);
+            // Keyed by the id the built app reports (read back from the built APK/AAB, see
+            // BugseeBuildIdentity.ResolveAndroidUploadIdentity), never assumed from what the build script contained.
+            var identity = BugseeBuildIdentity.ResolveAndroidUploadIdentity(report);
+            // Said only when a mapping is actually uploaded under it (R8 off: nothing to match).
+            var identityWarning = identity.Warning != null && identity.Source != BuildIdSource.None ? "Bugsee: " + identity.Warning : null;
+
+            // The Gradle plugin attaches the launcher icon to the mapping (the app's icon in the dashboard).
+            var icon = FindLauncherIcon();
+            if (icon != null)
+            {
+                Debug.Log($"Bugsee: attaching launcher icon {icon} to the mapping upload.");
+            }
+
+            var mappingExtra = AndroidUploadIdentity.MappingArguments(identity.Uuid, icon);
             UploadIfFound(roots, "*mapping.txt", "proguard", version, build,
-                path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric));
+                path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), mappingExtra, identityWarning);
             // Unity "Create symbols.zip" / Gradle native debug symbols.
-            UploadSymbolsZipOrElf(report, roots, version, build);
+            UploadSymbolsZipOrElf(report, roots, version, build, identity.ElfUuid ?? Guid.NewGuid().ToString("D"));
         }
 
-        static void UploadSymbolsZipOrElf(BuildReport report, List<string> roots, string version, string build)
+        static string FindLauncherIcon()
+        {
+            var root = BugseeAndroidGradleSetup.GeneratedProjectRoot;
+            var res = string.IsNullOrEmpty(root) ? null : Path.Combine(root, "launcher", "src", "main", "res");
+            if (res == null || !Directory.Exists(res))
+            {
+                return null;
+            }
+
+            try
+            {
+                return AndroidIconPicker.Pick(Directory.EnumerateFiles(res, "app_icon.*", SearchOption.AllDirectories));
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"Bugsee: launcher icon scan failed under {res}: {ex.Message}");
+                return null;
+            }
+        }
+
+        static void UploadSymbolsZipOrElf(BuildReport report, List<string> roots, string version, string build, string buildUuid)
         {
             var bestZip = FindSymbolsZip(report);
             var elfDirs = new List<string>();
@@ -118,20 +160,8 @@ namespace Bugsee.Editor
                 // bugsee-cli --type elf accepts a zip of ELF objects (Unity symbols.zip layout).
                 // --uuid is the BUILD_UUID correlation key (required by CLI); each .so is still
                 // keyed by its own GNU build-id.
-                var buildUuid = BugseeBuildIdentity.ResolveBuildUuid(report);
                 Debug.Log($"Bugsee: uploading Android symbols zip via {BugseeCliRunner.CliPath}: {bestZip}");
-                var args = new List<string>
-                {
-                    "debug-files", "upload", bestZip,
-                    "--type", "elf",
-                    "--version", version,
-                    "--build", build,
-                };
-                if (!string.IsNullOrEmpty(buildUuid))
-                {
-                    args.Add("--uuid");
-                    args.Add(buildUuid);
-                }
+                var args = AndroidUploadIdentity.ElfArguments(bestZip, version, build, buildUuid);
                 var exit = BugseeCliRunner.Run(args);
                 if (exit != 0)
                 {
@@ -145,13 +175,7 @@ namespace Bugsee.Editor
             foreach (var dir in elfDirs)
             {
                 Debug.Log($"Bugsee: uploading ELF folder via {BugseeCliRunner.CliPath}: {dir}");
-                var exit = BugseeCliRunner.Run(new[]
-                {
-                    "debug-files", "upload", dir,
-                    "--type", "elf",
-                    "--version", version,
-                    "--build", build,
-                });
+                var exit = BugseeCliRunner.Run(AndroidUploadIdentity.ElfArguments(dir, version, build, buildUuid));
                 if (exit != 0)
                 {
                     Debug.LogWarning(
@@ -173,7 +197,9 @@ namespace Bugsee.Editor
             string type,
             string version,
             string build,
-            Func<string, int> rank)
+            Func<string, int> rank,
+            IList<string> extraArgs = null,
+            string warnWhenFound = null)
         {
             string best = null;
             var bestRank = BuildArtifactChoice.Reject;
@@ -189,6 +215,11 @@ namespace Bugsee.Editor
                     foreach (var file in Directory.EnumerateFiles(root, pattern, SearchOption.AllDirectories))
                     {
                         if (IsExcludedPath(file))
+                        {
+                            continue;
+                        }
+                        // R8 writes an empty mapping when nothing was obfuscated: there is nothing to deobfuscate.
+                        if (IsEmptyFile(file))
                         {
                             continue;
                         }
@@ -216,14 +247,25 @@ namespace Bugsee.Editor
                 return;
             }
 
+            if (warnWhenFound != null)
+            {
+                Debug.LogWarning(warnWhenFound);
+            }
+
             Debug.Log($"Bugsee: uploading {type} via {BugseeCliRunner.CliPath}: {best}");
-            var exit = BugseeCliRunner.Run(new[]
+            var args = new List<string>
             {
                 "debug-files", "upload", best,
                 "--type", type,
                 "--version", version,
                 "--build", build,
-            });
+            };
+            if (extraArgs != null)
+            {
+                args.AddRange(extraArgs);
+            }
+
+            var exit = BugseeCliRunner.Run(args);
             if (exit != 0)
             {
                 Debug.LogWarning($"Bugsee: bugsee-cli {type} upload failed (exit {exit}) — build continues.");
@@ -297,7 +339,12 @@ namespace Bugsee.Editor
             if (string.IsNullOrEmpty(path)) return null;
             if (OutputIsDirectory(report))
             {
-                return Path.GetFileName(path.TrimEnd('/', '\\'));
+                // Split APKs by target architecture turn "Game.apk" into a folder of that name; Unity still names the
+                // symbols zip after "Game".
+                var folder = Path.GetFileName(path.TrimEnd('/', '\\'));
+                return folder.EndsWith(".apk", StringComparison.OrdinalIgnoreCase) || folder.EndsWith(".aab", StringComparison.OrdinalIgnoreCase)
+                    ? Path.GetFileNameWithoutExtension(folder)
+                    : folder;
             }
 
             return Path.GetFileNameWithoutExtension(path);
@@ -336,6 +383,12 @@ namespace Bugsee.Editor
             }
 
             return roots;
+        }
+
+        static bool IsEmptyFile(string path)
+        {
+            try { return new FileInfo(path).Length == 0; }
+            catch { return false; }
         }
 
         static bool IsExcludedPath(string path)

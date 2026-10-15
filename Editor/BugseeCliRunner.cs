@@ -16,8 +16,18 @@ namespace Bugsee.Editor
     {
         public const int DefaultTimeoutMs = 5 * 60 * 1000;
 
-        public static string CliPath =>
-            Environment.GetEnvironmentVariable("BUGSEE_CLI_PATH") ?? "bugsee-cli";
+        /// <summary>
+        /// The resolved CLI (see <see cref="BugseeCliLocator"/>), or the bare name for messages when none was found:
+        /// the editor's PATH is often not the shell's, so a bare name alone is not enough.
+        /// </summary>
+        public static string CliPath
+        {
+            get
+            {
+                var resolved = BugseeCliLocator.Resolve();
+                return resolved.Found ? resolved.Path : "bugsee-cli";
+            }
+        }
 
         public static string AppToken =>
             Environment.GetEnvironmentVariable("BUGSEE_APP_TOKEN");
@@ -31,21 +41,24 @@ namespace Bugsee.Editor
                 return -1;
             }
 
-            var quoted = new string[args.Count];
-            for (var i = 0; i < args.Count; i++)
+            if (BugseeCliLocator.ReportIfMissing())
             {
-                quoted[i] = Quote(args[i] ?? "");
+                return -1;
             }
 
             var psi = new ProcessStartInfo
             {
                 FileName = CliPath,
-                Arguments = string.Join(" ", quoted),
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true,
             };
+
+            foreach (var arg in args)
+            {
+                psi.ArgumentList.Add(arg ?? "");
+            }
 
             var token = AppToken;
             if (!string.IsNullOrEmpty(token))
@@ -114,8 +127,6 @@ namespace Bugsee.Editor
                 return -1;
             }
         }
-
-        public static string Quote(string s) => $"\"{(s ?? "").Replace("\"", "\\\"")}\"";
     }
 }
 #endif

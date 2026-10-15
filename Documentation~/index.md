@@ -126,7 +126,13 @@ IL2CPP **C# file/line** via LNM always needs uploaded `il2cpp-linemap` + matchin
 
 ## Symbol upload (Editor / CI)
 
-Set `BUGSEE_APP_TOKEN` in the environment (opt-in). Optionally `BUGSEE_CLI_PATH`, `BUGSEE_VERSION`, `BUGSEE_BUILD`, `BUGSEE_IL2CPP_MAPPING`, `BUGSEE_IL2CPP_UUIDS`.
+Set `BUGSEE_APP_TOKEN` in the environment (opt-in). Optionally `BUGSEE_CLI_PATH`, `BUGSEE_VERSION`, `BUGSEE_BUILD`, `BUGSEE_IL2CPP_MAPPING`, `BUGSEE_IL2CPP_UUIDS`, `BUGSEE_BUILD_UUID`.
+
+### Where `bugsee-cli` comes from (Editor uploads)
+
+This lookup serves every Editor upload on any platform that uses the CLI from the Editor (the Android mapping and symbols, and the IL2CPP linemap upload of a standalone or Android build). A Unity Editor started from the Hub or the Finder does not inherit your shell's `PATH`, so a CLI installed with Homebrew or `install.sh` is often invisible to it. The Editor uploads therefore look, in order, at: `BUGSEE_CLI_PATH`; the Editor's `PATH`; the places the installers use (`/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`, `~/.cargo/bin`, `~/.bugsee/bin`, `%LOCALAPPDATA%\Bugsee\bin`); the package's cache (`~/Library/Caches/Bugsee/cli` on macOS, `$XDG_CACHE_HOME/bugsee/cli` or `~/.cache/bugsee/cli` on Linux, `%LOCALAPPDATA%\Bugsee\cache\cli` on Windows, else `Library/Bugsee/cli` in the project). An installed CLI older than 0.8.0 is passed over.
+
+When none is found and a token is set, the pinned release (0.8.1, the Bugsee Gradle plugin's default) is downloaded from `https://download.bugsee.com/cli/v<version>/bugsee-cli-<triple>.tar.xz` (`.zip` on Windows), checked against the SHA-256 pinned in the package for that release (a release you pin with `BUGSEE_CLI_VERSION` is checked against the published `.sha256` only), unpacked into that cache and run once to prove it works. For a release pinned in the package the checksum does not depend on the download host; for any other it comes from the same host as the archive, so it detects corruption, not a compromised host: set `BUGSEE_CLI_PATH` to a binary you vetted if that matters. Credentials in `BUGSEE_CLI_BASE_URL` are not logged. Not verified on Windows (the zip and `.exe` paths are covered by unit tests only). `BUGSEE_NO_CLI_DOWNLOAD=1` turns the download off, `BUGSEE_CLI_VERSION` pins another release and `BUGSEE_CLI_BASE_URL` points at a mirror (https only), as for `install.sh`. If nothing can be found or downloaded the build warns once, naming what was tried, and continues without uploading. The iOS Run Script still starts a bare `bugsee-cli` (or `BUGSEE_CLI_PATH`) and does not use this lookup.
 
 The iOS Run Script uploads for **every** Xcode configuration (Debug included, so a crash from a development build is symbolicated) and runs on every build that has the token in its environment, not only archives. Set `BUGSEE_SKIP_UPLOAD_ON_DEBUG=1` to skip the Debug configuration, for example for local Xcode runs.
 
@@ -146,7 +152,45 @@ Failure policy: **never fail the Unity build**. Missing maps/UUIDs/CLI → warn 
 1. Scripting Backend: **IL2CPP** is the supported configuration for fully symbolicated native crashes. With Mono, frames inside the Mono runtime (`libmonobdwgc-2.0.so`, `libmono-native.so`, `libMonoPosixHelper.so`) cannot be symbolicated: Unity 2021.3 has no Mono ARM64 (ARMv7 only) and those libraries have no GNU build-id. Frames in `libunity.so` and `libmain.so` still symbolicate. A Mono Android build logs a one-time warning at build time (whether or not symbol upload is configured) and is never failed
 2. Create symbols.zip / native debug symbols enabled
 3. For primary LNM apply: native debug symbol level **FULL** (DWARF lines), not SYMBOL_TABLE-only
-4. No custom Gradle templates needed: Bugsee patches the generated Gradle project (the Bugsee Gradle plugin with `ndk { enabled = true }` when it pins AGP 8.6+, i.e. Unity 6); a template of your own that pins another AGP major than your Unity's default fails the build and is reported
+4. No custom Gradle templates needed: Bugsee patches the generated Gradle project (the Bugsee Gradle plugin with `ndk { enabled = true }` when it pins AGP 8.6+, i.e. Unity 6; on older AGPs, see below); a template of your own that pins another AGP major than your Unity's default fails the build and is reported
+
+### Unity 2021.3 and 2022.3 (no Bugsee Gradle plugin)
+
+Both ship AGP 7.4.2 / Gradle 7.5.1; Gradle plugin 4.0.8 needs AGP 8.6+ / Gradle 8.7+ and fails to load there (checked on 2022.3.62f3: `NoClassDefFoundError: KotlinCompilerPluginSupportPlugin`, then `NoSuchMethodError` on `OutOperationRequest.toListenTo`). What it does for a Unity app, and what stands in for it:
+
+| Gradle plugin function | Unity 6 with AGP 8.6+ (6000.0.84f1 has AGP 9.0.0; an earlier 6000.0 on AGP below 8.6 gets neither the plugin nor the block) | Unity 2021.3 / 2022.3 (AGP 7.4.x) |
+|---|---|---|
+| Declare `bugsee-android`, `bugsee-android-ndk` | Package (Maven injection) | Same |
+| `assets/bugsee_build_id.properties` = UUID of the R8 mapping (the id the SDK reports) | Plugin | The package adds the same asset task to the launcher (`GradleBuildIdBlock`), for AGP 7.4.x only (the one line it was run on; other AGPs below 8.6 get no block). With R8 off, or no block, no asset is written and the SDK derives its own id |
+| `com.bugsee.android.BUILD_UUID` manifest meta-data (fallback id when R8 is off) | Plugin | Not added: the SDK derives `UUID(token, versionName, versionCode)` itself when it finds neither; the uploads use that id (`AndroidBuildUuid`) when the built app has no asset |
+| Mapping upload (`--uuid`, `--icon`) | Package Editor upload (the plugin finds no app token in a Unity build, so its own upload skips) | Same, keyed by the id read back from the built APK/AAB's asset (never assumed from the build script), else the SDK's synthesized id with a warning; launcher icon attached |
+| Native symbol upload | Package Editor upload of Unity's `symbols.zip` (same reason) | Same |
+| NDK enabled | Plugin | Not applicable: the NDK artifact is declared and the Editor uploads the symbols |
+| Bytecode instrumentation (OkHttp, HttpEngine, `android.util.Log`, thread, main-thread misuse, operation dispatch, Compose, startup tracing), SDK-extension provider stripping, Compose compiler plugin | Plugin | **Not recovered** (needs AGP 8.6+). They act on the app module's own JVM bytecode, which in a Unity app is a launcher stub, so little is lost, but a Java/Kotlin plugin of yours that uses OkHttp or `HttpEngine` is not auto-captured on these Unity versions |
+| Build-info / size-analysis upload, dependency and timing collection | Plugin (skips, no token) | **Not recovered** |
+
+The mapping upload of an Android build is keyed by the id the built app reports: the APK/AAB's `bugsee_build_id.properties` if it has one, else (when `BUGSEE_BUILD_UUID` is not a UUID) the id the SDK derives from token, version name and version code (from the generated launcher, which is what the APK carries; a `versionNameSuffix` or version code changed outside Unity's generated launcher can still differ, and then a mapping uploaded under the derived id will not match; only the asset avoids that). The native upload uses the same id unless `BUGSEE_BUILD_UUID` is set, which keys it as before (any non-empty value); for the mapping `BUGSEE_BUILD_UUID` is used only when the app carries no asset and the value is a UUID, and never overrides the app's own id. The asset block is added on AGP 7.4.x whenever the build is Android, token or not (like the Unity 6 plugin, which is applied regardless); `BUGSEE_NO_GRADLE_BUILD_ID=1` stops the package adding it (and removes an earlier one) and leaves only the derived id. Its Groovy classes are compiled by Gradle for every build, and the part that runs per variant is guarded so a failure there only costs the id; a tokenless 2022.3 release build with R8 on was run to check they do not break Gradle (see the matrix). With the derived id, a rebuild with the same token, version name and code but different R8 output re-uses the id: the server keeps the first mapping uploaded under it, so bump the version code for a minified build whose obfuscation changed.
+
+With Split APKs by target architecture the id is read from every APK; if they disagree (or only some carry one) the build warns and the upload uses the synthesized id. A launcher that overrides the version code per output (`versionCodeOverride`, what Unity's split version-code setting adds) is not trusted for the synthesized id's version code: Player Settings' is used.
+
+Verified with real IL2CPP arm64 builds (staging token set, `bugsee-cli` 0.8.1, uploads to UNITYTA; the generated launcher's Gradle ran AGP 7.4.2 / Gradle 7.5.1 on both):
+
+| Unity | Build | R8 | Result |
+|---|---|---|---|
+| 2022.3.62f3 | release | off | builds; no asset (nothing to match), game assets intact (24 `assets/bin` entries), no mapping uploaded, native symbols uploaded |
+| 2022.3.62f3 | development | off | same |
+| 2022.3.62f3 | development | on | builds; APK asset id equals the uploaded mapping id |
+| 2022.3.62f3 | release | on | same, plus emulator native, Java and managed crashes symbolicated |
+| 2022.3.62f3 | release | on, `BUGSEE_NO_GRADLE_BUILD_ID=1` | builds; no asset; mapping uploaded under the synthesized id with the warning; the Java crash on an emulator grouped with the symbolicated issue |
+| 2022.3.62f3 | release, Split APKs by target architecture (ARMv7 + ARM64) | on | builds; Unity writes a folder `split.apk/` of per-ABI APKs: both carry the same asset id, equal to the uploaded mapping id; the symbols zip (named after `split`, not `split.apk`) is found and uploaded |
+| 2022.3.62f3 | release, no app token | on | builds; the block is added regardless and the asset is in the APK; no upload, no warning |
+| 2022.3.62f3 | Export Project | on | builds; no native libraries exist in the export, so no ELF upload (the CLI refuses a directory upload without `--uuid`, which every ELF upload now carries; checked with `bugsee-cli --dry-run`) |
+| 2021.3.45f1 | release | off, development off | builds, as above |
+| 2021.3.45f1 | release, development | on | builds; APK asset id equals the uploaded mapping id |
+
+Not verified: AGP 8.0 to 8.5 (no block is added there by design), Unity 2021.3 releases with AGP below 7.4, AAB output, build with Gradle configuration cache (the block avoids `Task.project` at execution time but was run without it), and Windows/Linux Editors.
+
+Releases built without R8 (Minify off, the Unity default) have no mapping and no Java names to restore. If you do minify, add keep rules for the Unity wrapper classes: the package's `bugsee-unity-wrapper.proguard` is not applied by Unity unless you enable Player Settings > Publishing Settings > Custom Proguard File and copy the rules into `Assets/Plugins/Android/proguard-user.txt`, and that file does not yet cover `com.bugsee.unity.UnityManagedException` or `UnityWrapperIdentity` (R8 removes them: `ClassNotFoundException` at launch or on the first managed exception).
 
 **iOS**
 
