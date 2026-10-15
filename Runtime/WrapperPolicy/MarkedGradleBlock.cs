@@ -57,7 +57,7 @@ namespace Bugsee.WrapperPolicy
 
             if (changed)
             {
-                return JoinLines(lines, newline, existing.EndsWith("\n", StringComparison.Ordinal));
+                return JoinLines(lines, newline);
             }
 
             int depth = 0;
@@ -469,17 +469,13 @@ namespace Bugsee.WrapperPolicy
             lines.InsertRange(start, replacement);
         }
 
-        static string JoinLines(List<string> lines, string newline, bool trailingNewline)
+        static string JoinLines(List<string> lines, string newline)
         {
             var sb = new StringBuilder();
             for (int i = 0; i < lines.Count; i++)
             {
                 sb.Append(lines[i]);
                 if (i < lines.Count - 1)
-                {
-                    sb.Append(newline);
-                }
-                else if (trailingNewline)
                 {
                     sb.Append(newline);
                 }
@@ -527,7 +523,6 @@ namespace Bugsee.WrapperPolicy
             int anchorIndex,
             string markedLine)
         {
-            bool trailingNewline = existing.EndsWith("\n", StringComparison.Ordinal);
             var sb = new StringBuilder(existing.Length + markedLine.Length + newline.Length + 8);
             for (int i = 0; i < lines.Count; i++)
             {
@@ -539,10 +534,6 @@ namespace Bugsee.WrapperPolicy
                 }
 
                 if (i < lines.Count - 1)
-                {
-                    sb.Append(newline);
-                }
-                else if (trailingNewline)
                 {
                     sb.Append(newline);
                 }
