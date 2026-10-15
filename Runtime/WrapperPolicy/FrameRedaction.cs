@@ -1,3 +1,4 @@
+using System;
 using Bugsee.Contracts.Capture;
 
 namespace Bugsee.WrapperPolicy
@@ -17,12 +18,12 @@ namespace Bugsee.WrapperPolicy
         /// number of rectangles that touched the frame. No allocations.
         /// </summary>
         public static int BlankRects(
-            byte[] rgba, int width, int height, VideoFrameRowOrder order,
+            Span<byte> rgba, int width, int height, VideoFrameRowOrder order,
             int[] rects, int count, int sourceWidth, int sourceHeight)
         {
-            if (rgba == null || rects == null || count <= 0 || rects.Length < count * 4) return 0;
+            if (rects == null || count <= 0 || rects.Length < count * 4) return 0;
             if (width <= 0 || height <= 0 || sourceWidth <= 0 || sourceHeight <= 0) return 0;
-            if (rgba.LongLength < (long)width * height * FramePushPolicy.PixelStride) return 0;
+            if (rgba.Length < (long)width * height * FramePushPolicy.PixelStride) return 0;
 
             int applied = 0;
             for (int i = 0; i < count; i++)
@@ -50,7 +51,7 @@ namespace Bugsee.WrapperPolicy
         /// scaled with the native window size of its own moment: after a rotation or resize the live rectangles are in the new pixel space.
         /// </summary>
         public static int BlankRequestAndLive(
-            byte[] rgba, int width, int height, VideoFrameRowOrder order,
+            Span<byte> rgba, int width, int height, VideoFrameRowOrder order,
             int[] requestRects, int requestCount, int requestSourceWidth, int requestSourceHeight,
             int[] liveRects, int liveCount, int liveSourceWidth, int liveSourceHeight)
         {
@@ -59,15 +60,15 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>Fills the whole frame with opaque black: the fail-closed choice when the row order is unverified and a secure rectangle is registered.</summary>
-        public static void BlankAll(byte[] rgba, int width, int height)
+        public static void BlankAll(Span<byte> rgba, int width, int height)
         {
-            if (rgba == null || width <= 0 || height <= 0) return;
+            if (width <= 0 || height <= 0) return;
             long pixels = (long)width * height;
-            if (rgba.LongLength < pixels * FramePushPolicy.PixelStride) return;
+            if (rgba.Length < pixels * FramePushPolicy.PixelStride) return;
             FillBlack(rgba, 0, (int)pixels);
         }
 
-        static void FillBlack(byte[] rgba, int start, int pixels)
+        static void FillBlack(Span<byte> rgba, int start, int pixels)
         {
             int p = start;
             for (int x = 0; x < pixels; x++)

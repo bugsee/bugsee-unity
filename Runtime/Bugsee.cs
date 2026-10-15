@@ -65,7 +65,9 @@ namespace Bugsee
                 throw new ArgumentException("appToken is required", nameof(appToken));
 
             MainThreadDispatcher.Ensure();
+            options = ApplyCapturePolicy(options, out bool startPusher);
             Bridge.Launch(appToken, options);
+            AfterLaunch(startPusher, options);
         }
 
         /// <summary>
@@ -73,8 +75,39 @@ namespace Bugsee
         /// <see cref="Launch"/> (the same 5 s main-thread hand-off applies on iOS). Android ignores it with a
         /// warning unless the SDK is Launched. See <see cref="RelaunchAsync"/> for the result.
         /// </summary>
-        public static void Relaunch(Dictionary<string, object> options = null) =>
+        public static void Relaunch(Dictionary<string, object> options = null)
+        {
+            options = ApplyCapturePolicy(options, out bool startPusher);
             Bridge.Relaunch(options);
+            AfterLaunch(startPusher, options);
+        }
+
+        // VideoMode.DirectBuffers needs a frame source, and in Unity that is the Unity-side capturer (Unity 2022.2+). When it
+        // cannot run, the native SDK is launched in its default capture mode instead, never in a DirectBuffers session
+        // without frames. See UnityCapturePolicy.
+        static Dictionary<string, object> ApplyCapturePolicy(Dictionary<string, object> options, out bool startPusher)
+        {
+            var effective = UnityCapturePolicy.Apply(options, UnityCaptureProbe.Current(), out VideoModeDecision decision);
+            startPusher = decision.UseUnityCapture;
+            if (decision.FallbackReason != null)
+                Debug.LogWarning("[Bugsee] VideoMode.DirectBuffers was requested, but Unity-side capture cannot run: "
+                    + decision.FallbackReason + ". Launching with the SDK's default capture instead.");
+            return effective;
+        }
+
+        // Starts the pusher for a DirectBuffers launch, and if it cannot start, relaunches with the default capture so the
+        // session still records video. Stops it when a launch no longer wants it.
+        static void AfterLaunch(bool startPusher, Dictionary<string, object> options)
+        {
+            if (!startPusher)
+            {
+                Capture.BugseeFrameCapturer.Disable();
+                return;
+            }
+            if (Capture.BugseeFrameCapturer.Enable(Capture.BugseeFrameCapturer.DefaultOptions)) return;
+            Debug.LogWarning("[Bugsee] the Unity-side frame pusher could not start; relaunching with the SDK's default capture.");
+            Bridge.Relaunch(UnityCapturePolicy.WithFallback(options));
+        }
 
         /// <summary>
         /// Stop Bugsee. <paramref name="completion"/> runs once the SDK has finished stopping. A Launch/Relaunch
@@ -104,6 +137,7 @@ namespace Bugsee
                 throw new ArgumentException("appToken is required", nameof(appToken));
 
             MainThreadDispatcher.Ensure();
+            options = ApplyCapturePolicy(options, out bool startPusher);
             var result = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             if (Bridge is ILifecycleResultBridge bridge)
             {
@@ -114,12 +148,14 @@ namespace Bugsee
                 Bridge.Launch(appToken, options);
                 result.TrySetResult(IsStartingOrLaunched(Bridge.GetStatus()));
             }
+            AfterLaunch(startPusher, options);
             return result.Task;
         }
 
         /// <summary><see cref="Relaunch"/> that completes with the SDK's answer, as <see cref="LaunchAsync"/>.</summary>
         public static Task<bool> RelaunchAsync(Dictionary<string, object> options = null)
         {
+            options = ApplyCapturePolicy(options, out bool startPusher);
             var result = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             if (Bridge is ILifecycleResultBridge bridge)
             {
@@ -130,6 +166,7 @@ namespace Bugsee
                 Bridge.Relaunch(options);
                 result.TrySetResult(IsStartingOrLaunched(Bridge.GetStatus()));
             }
+            AfterLaunch(startPusher, options);
             return result.Task;
         }
 

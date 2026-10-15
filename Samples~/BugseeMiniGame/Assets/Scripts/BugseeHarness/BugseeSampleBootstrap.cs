@@ -106,10 +106,17 @@ namespace Bugsee.Sample
             try
             {
 #if UNITY_ANDROID && !UNITY_EDITOR
+                // Asking for DirectBuffers means the Unity-side frame pusher; the wrapper starts it, or falls back to the
+                // default capture (with a warning) when this Unity cannot run it. Without the switch: the default capture.
+                var pusher = experimentalFramePusher || ReadE2EValue("bugsee_frame_pusher", "BUGSEE_FRAME_PUSHER") == "1";
+                // "bugsee_frame_pattern" = 1 also paints a red-over-blue test pattern and logs the readback rows.
+                var pattern = ReadE2EValue("bugsee_frame_pattern", "BUGSEE_FRAME_PATTERN") == "1";
+                global::Bugsee.Capture.BugseeFrameCapturer.DefaultOptions =
+                    new global::Bugsee.Capture.BugseeFrameCapturerOptions { LogOrientationProbe = pattern };
                 var options = new AndroidLaunchOptions
                 {
                     CaptureVideo = true,
-                    CaptureVideoMode = VideoMode.DirectBuffers,
+                    CaptureVideoMode = pusher ? VideoMode.DirectBuffers : VideoMode.V2,
                     CaptureVideoFrameRate = FrameRate.High,
                     CaptureLogs = true,
                     CaptureNetwork = true,
@@ -125,17 +132,18 @@ namespace Bugsee.Sample
                 if (!string.IsNullOrWhiteSpace(endpointOverride))
                     options.Endpoint = endpointOverride.Trim();
                 Bugsee.Launch(appToken, options);
-                if (experimentalFramePusher || ReadE2EValue("bugsee_frame_pusher", "BUGSEE_FRAME_PUSHER") == "1")
+                var reportAfter = ReadE2EValue("bugsee_report_after_s", "BUGSEE_REPORT_AFTER_S");
+                if (!string.IsNullOrEmpty(reportAfter))
+                    StartCoroutine(ReportAfter(reportAfter));
+                if (ReadE2EValue("bugsee_frame_stats", "BUGSEE_FRAME_STATS") == "1")
+                    gameObject.AddComponent<FrameTimeLogger>();
+                if (pusher || pattern)
                 {
-                    // "bugsee_frame_pattern" = 1 also paints a red-over-blue test pattern and logs the readback rows.
-                    var pattern = ReadE2EValue("bugsee_frame_pattern", "BUGSEE_FRAME_PATTERN") == "1";
                     if (pattern)
                         gameObject.AddComponent<OrientationPatternOverlay>();
-                    global::Bugsee.Capture.BugseeFrameCapturer.Enable(
-                        new global::Bugsee.Capture.BugseeFrameCapturerOptions { LogOrientationProbe = pattern });
                     // "bugsee_secure_rect" = "l,t,r,b" as fractions of the screen (top-left origin); it is removed after
                     // "bugsee_secure_rect_remove_s" seconds when that is set; "bugsee_secure_rect_delay_s" (default 2) is the wait before adding it. For checking the mask in the recorded video.
-                    var rect = ReadE2EValue("bugsee_secure_rect", "BUGSEE_SECURE_RECT");
+                    var rect = ReadE2EValue("bugsee_secure_rect", "BUGSEE_SECURE_RECT"); // "l,t,r,b;l,t,r,b"
                     if (!string.IsNullOrEmpty(rect))
                         StartCoroutine(SecureRectDemo(rect, ReadE2EValue("bugsee_secure_rect_remove_s", "BUGSEE_SECURE_RECT_REMOVE_S"),
                             ReadE2EValue("bugsee_secure_rect_delay_s", "BUGSEE_SECURE_RECT_DELAY_S")));
@@ -372,24 +380,43 @@ namespace Bugsee.Sample
             }
         }
 
-        IEnumerator SecureRectDemo(string fractions, string removeAfterSeconds, string delaySeconds)
+        // "bugsee_report_after_s" = "7,14": uploads a manual report after each delay, so the recorded video can be checked later.
+        IEnumerator ReportAfter(string secondsList)
         {
-            float.TryParse(delaySeconds, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var delay);
-            yield return new WaitForSeconds(delay > 0f ? delay : 2f);
-            var p = fractions.Split(',');
-            if (p.Length != 4) yield break;
             var inv = System.Globalization.CultureInfo.InvariantCulture;
-            var rect = new RectInt(
-                (int)(float.Parse(p[0], inv) * Screen.width), (int)(float.Parse(p[1], inv) * Screen.height),
-                (int)((float.Parse(p[2], inv) - float.Parse(p[0], inv)) * Screen.width),
-                (int)((float.Parse(p[3], inv) - float.Parse(p[1], inv)) * Screen.height));
-            Bugsee.AddSecureRectangle(rect);
-            Debug.Log("[BugseeSample] secure rect added " + rect);
+            float previous = 0f;
+            foreach (var item in secondsList.Split(','))
+            {
+                if (!float.TryParse(item, System.Globalization.NumberStyles.Float, inv, out var at)) continue;
+                yield return new WaitForSeconds(Mathf.Max(0f, at - previous));
+                previous = at;
+                Bugsee.Upload("frame-pusher-check-" + item, "manual report at t+" + item + "s");
+                Debug.Log("[BugseeSample] t=" + Time.realtimeSinceStartup.ToString("F2", inv) + " report uploaded");
+            }
+        }
+
+        IEnumerator SecureRectDemo(string fractionsList, string removeAfterSeconds, string delaySeconds)
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            float.TryParse(delaySeconds, System.Globalization.NumberStyles.Float, inv, out var delay);
+            yield return new WaitForSeconds(delay > 0f ? delay : 2f);
+            var added = new List<RectInt>();
+            foreach (var fractions in fractionsList.Split(';'))
+            {
+                var p = fractions.Split(',');
+                if (p.Length != 4) continue;
+                float l = float.Parse(p[0], inv), t = float.Parse(p[1], inv), r = float.Parse(p[2], inv), b = float.Parse(p[3], inv);
+                var rect = new RectInt((int)(l * Screen.width), (int)(t * Screen.height), (int)((r - l) * Screen.width), (int)((b - t) * Screen.height));
+                Bugsee.AddSecureRectangle(rect);
+                added.Add(rect);
+                Debug.Log("[BugseeSample] t=" + Time.realtimeSinceStartup.ToString("F2", inv) + " secure rect added " + rect + " screen=" + Screen.width + "x" + Screen.height);
+            }
             if (float.TryParse(removeAfterSeconds, System.Globalization.NumberStyles.Float, inv, out var seconds))
             {
                 yield return new WaitForSeconds(seconds);
-                Bugsee.RemoveSecureRectangle(rect);
-                Debug.Log("[BugseeSample] secure rect removed");
+                foreach (var rect in added)
+                    Bugsee.RemoveSecureRectangle(rect);
+                Debug.Log("[BugseeSample] t=" + Time.realtimeSinceStartup.ToString("F2", inv) + " secure rect removed");
             }
         }
 
@@ -526,7 +553,7 @@ namespace Bugsee.Sample
                 Bugsee.Relaunch(new AndroidLaunchOptions
                 {
                     CaptureVideo = true,
-                    CaptureVideoMode = VideoMode.DirectBuffers
+                    CaptureVideoMode = VideoMode.V2
                 });
 #else
                 Bugsee.Relaunch();

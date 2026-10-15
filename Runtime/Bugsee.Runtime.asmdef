@@ -4,7 +4,7 @@
   "references": [],
   "includePlatforms": [],
   "excludePlatforms": [],
-  "allowUnsafeCode": false,
+  "allowUnsafeCode": true,
   "overrideReferences": false,
   "precompiledReferences": [],
   "autoReferenced": true,
@@ -14,6 +14,11 @@
       "name": "com.unity.modules.screencapture",
       "expression": "",
       "define": "BUGSEE_HAS_SCREENCAPTURE"
+    },
+    {
+      "name": "Unity",
+      "expression": "2022.2",
+      "define": "BUGSEE_UNITY_CAPTURE"
     }
   ],
   "noEngineReferences": false

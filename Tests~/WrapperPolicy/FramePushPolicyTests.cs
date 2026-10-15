@@ -133,6 +133,19 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(FramePushPolicy.IsReadbackUsable(supported, vulkan, version), Is.EqualTo(expected));
         }
 
+        [TestCase("2021.3.45f1", false)]
+        [TestCase("2022.1.24f1", false)]
+        [TestCase("2022.2.0f1", true)]
+        [TestCase("2022.3.62f3", true)]
+        [TestCase("2023.1.1f1", true)]
+        [TestCase("6000.0.84f1", true)]
+        [TestCase("garbage", false)]
+        [TestCase(null, false)]
+        public void Native_direct_byte_buffer_gate(string version, bool expected)
+        {
+            Assert.That(UnityCapturePolicy.IsSupportedUnityVersion(version), Is.EqualTo(expected));
+        }
+
         [Test]
         public void Measured_gles3_is_bottom_up_and_verified()
         {
@@ -293,6 +306,32 @@ namespace Bugsee.WrapperPolicy.Tests
             FrameRedaction.BlankRequestAndLive(b, W, H, VideoFrameRowOrder.TopDown, request, 1, 8, 4, null, 0, 4, 8);
             Assert.That(Blank(b, 0, 0) && Blank(b, 1, 1), Is.True);
             Assert.That(Untouched(b, 2, 0) && Untouched(b, 0, 2), Is.True);
+        }
+
+        [Test]
+        public void Masking_works_in_place_on_memory_that_is_not_a_byte_array()
+        {
+            // The zero-copy path masks a span over native memory; stackalloc stands in for it (no array, no copy).
+            System.Span<byte> native = stackalloc byte[W * H * 4];
+            native.Fill(255);
+            int n = FrameRedaction.BlankRects(native, W, H, VideoFrameRowOrder.BottomUp, One(0, 0, 2, 1), 1, 4, 4);
+            Assert.That(n, Is.EqualTo(1));
+            int lastRow = (H - 1) * W * 4;
+            Assert.That(native[lastRow], Is.EqualTo(0));
+            Assert.That(native[lastRow + 3], Is.EqualTo(255));
+            Assert.That(native[0], Is.EqualTo(255));
+            FrameRedaction.BlankAll(native, W, H);
+            Assert.That(native[0] == 0 && native[native.Length - 4] == 0, Is.True);
+        }
+
+        [Test]
+        public void A_span_shorter_than_the_frame_is_left_alone()
+        {
+            System.Span<byte> shortSpan = stackalloc byte[8];
+            shortSpan.Fill(255);
+            Assert.That(FrameRedaction.BlankRects(shortSpan, W, H, VideoFrameRowOrder.TopDown, One(0, 0, 4, 4), 1, 4, 4), Is.EqualTo(0));
+            FrameRedaction.BlankAll(shortSpan, W, H);
+            Assert.That(shortSpan[0], Is.EqualTo(255));
         }
 
         [Test]
