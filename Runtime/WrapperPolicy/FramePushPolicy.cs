@@ -157,17 +157,31 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>
-        /// Row order of the readback buffer. Textures whose UV origin is at the top (Vulkan, Metal, D3D) read back
-        /// top row first; GL-style textures read back bottom row first. An explicit override wins. Not verified on
-        /// devices: ScreenCapture's own orientation per graphics API is undocumented.
+        /// Row order of the readback buffer for a graphics API, or false when it was never measured. Measured
+        /// empirically with a known pattern (top red, bottom blue) through the whole capture path; see the tests.
         /// </summary>
-        public static VideoFrameRowOrder RowOrderFor(
-            bool uvStartsAtTop, VideoFrameRowOrder? overrideOrder)
+        public static bool TryMeasuredRowOrder(string graphicsApi, out VideoFrameRowOrder order)
         {
-            if (overrideOrder.HasValue) return overrideOrder.Value;
-            return uvStartsAtTop
-                ? VideoFrameRowOrder.TopDown
-                : VideoFrameRowOrder.BottomUp;
+            order = VideoFrameRowOrder.BottomUp;
+            switch (graphicsApi)
+            {
+                // Measured on an Android 16 arm64 emulator, Unity 2021.3.45: the first buffer row was the screen's bottom.
+                case "OpenGLES3": order = VideoFrameRowOrder.BottomUp; return true;
+                default: return false;
+            }
+        }
+
+        /// <summary>
+        /// Row order to push with, and whether it is verified. An explicit override counts as verified (the host
+        /// declared it). An API without a measurement gets a guess and verified=false: the caller must not rely on
+        /// it for masking and blanks the whole frame instead when a secure rectangle is registered.
+        /// </summary>
+        public static VideoFrameRowOrder ResolveRowOrder(string graphicsApi, VideoFrameRowOrder? overrideOrder, out bool verified)
+        {
+            if (overrideOrder.HasValue) { verified = true; return overrideOrder.Value; }
+            if (TryMeasuredRowOrder(graphicsApi, out VideoFrameRowOrder measured)) { verified = true; return measured; }
+            verified = false;
+            return VideoFrameRowOrder.TopDown;
         }
     }
 }

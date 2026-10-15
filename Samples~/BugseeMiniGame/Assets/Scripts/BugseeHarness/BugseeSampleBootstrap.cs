@@ -126,7 +126,14 @@ namespace Bugsee.Sample
                     options.Endpoint = endpointOverride.Trim();
                 Bugsee.Launch(appToken, options);
                 if (experimentalFramePusher || ReadE2EValue("bugsee_frame_pusher", "BUGSEE_FRAME_PUSHER") == "1")
-                    global::Bugsee.Capture.BugseeFrameCapturer.Enable();
+                {
+                    // "bugsee_frame_pattern" = 1 also paints a red-over-blue test pattern and logs the readback rows.
+                    var pattern = ReadE2EValue("bugsee_frame_pattern", "BUGSEE_FRAME_PATTERN") == "1";
+                    if (pattern)
+                        gameObject.AddComponent<OrientationPatternOverlay>();
+                    global::Bugsee.Capture.BugseeFrameCapturer.Enable(
+                        new global::Bugsee.Capture.BugseeFrameCapturerOptions { LogOrientationProbe = pattern });
+                }
 #elif UNITY_IOS && !UNITY_EDITOR
                 var iosOptions = new IOSLaunchOptions
                 {

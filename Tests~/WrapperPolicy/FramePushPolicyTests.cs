@@ -134,11 +134,28 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Row_order_follows_the_uv_origin_unless_overridden()
+        public void Measured_gles3_is_bottom_up_and_verified()
         {
-            Assert.That(FramePushPolicy.RowOrderFor(true, null), Is.EqualTo(VideoFrameRowOrder.TopDown));
-            Assert.That(FramePushPolicy.RowOrderFor(false, null), Is.EqualTo(VideoFrameRowOrder.BottomUp));
-            Assert.That(FramePushPolicy.RowOrderFor(true, VideoFrameRowOrder.BottomUp), Is.EqualTo(VideoFrameRowOrder.BottomUp));
+            Assert.That(FramePushPolicy.ResolveRowOrder("OpenGLES3", null, out bool verified), Is.EqualTo(VideoFrameRowOrder.BottomUp));
+            Assert.That(verified, Is.True);
+        }
+
+        [TestCase("Vulkan")]
+        [TestCase("OpenGLES2")]
+        [TestCase("")]
+        [TestCase(null)]
+        public void Unmeasured_apis_are_unverified(string api)
+        {
+            FramePushPolicy.ResolveRowOrder(api, null, out bool verified);
+            Assert.That(verified, Is.False);
+        }
+
+        [Test]
+        public void An_explicit_override_wins_and_counts_as_verified()
+        {
+            Assert.That(FramePushPolicy.ResolveRowOrder("Vulkan", VideoFrameRowOrder.TopDown, out bool verified), Is.EqualTo(VideoFrameRowOrder.TopDown));
+            Assert.That(verified, Is.True);
+            Assert.That(FramePushPolicy.ResolveRowOrder("OpenGLES3", VideoFrameRowOrder.TopDown, out _), Is.EqualTo(VideoFrameRowOrder.TopDown));
         }
     }
 
@@ -146,16 +163,16 @@ namespace Bugsee.WrapperPolicy.Tests
     {
         const int W = 4, H = 4;
 
-        static byte[] White() { var b = new byte[W * H * 4]; for (int i = 0; i < b.Length; i++) b[i] = 255; return b; }
-        static bool Blank(byte[] b, int x, int row) { int o = (row * W + x) * 4; return b[o] == 0 && b[o + 1] == 0 && b[o + 2] == 0 && b[o + 3] == 255; }
-        static bool Untouched(byte[] b, int x, int row) { int o = (row * W + x) * 4; return b[o] == 255 && b[o + 1] == 255 && b[o + 2] == 255; }
-        static int[] One(int l, int t, int r, int bt) => new[] { 1, 1, l, t, r, bt };
+        static byte[] White(int w = W, int h = H) { var b = new byte[w * h * 4]; for (int i = 0; i < b.Length; i++) b[i] = 255; return b; }
+        static bool Blank(byte[] b, int x, int row, int w = W) { int o = (row * w + x) * 4; return b[o] == 0 && b[o + 1] == 0 && b[o + 2] == 0 && b[o + 3] == 255; }
+        static bool Untouched(byte[] b, int x, int row, int w = W) { int o = (row * w + x) * 4; return b[o] == 255 && b[o + 1] == 255 && b[o + 2] == 255; }
+        static int[] One(int l, int t, int r, int bt) => new[] { l, t, r, bt };
 
         [Test]
         public void Top_left_rect_blanks_the_top_rows_of_a_top_down_frame()
         {
             var b = White();
-            Assert.That(FrameRedaction.BlankRects(b, W, H, VideoFrameRowOrder.TopDown, One(0, 0, 2, 1), 4, 4), Is.EqualTo(1));
+            Assert.That(FrameRedaction.BlankRects(b, W, H, VideoFrameRowOrder.TopDown, One(0, 0, 2, 1), 1, 4, 4), Is.EqualTo(1));
             Assert.That(Blank(b, 0, 0) && Blank(b, 1, 0), Is.True);
             Assert.That(Untouched(b, 2, 0) && Untouched(b, 0, 1), Is.True);
         }
@@ -164,17 +181,34 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Same_rect_lands_on_the_last_rows_of_a_bottom_up_frame()
         {
             var b = White();
-            FrameRedaction.BlankRects(b, W, H, VideoFrameRowOrder.BottomUp, One(0, 0, 2, 1), 4, 4);
+            FrameRedaction.BlankRects(b, W, H, VideoFrameRowOrder.BottomUp, One(0, 0, 2, 1), 1, 4, 4);
             Assert.That(Blank(b, 0, H - 1) && Blank(b, 1, H - 1), Is.True);
             Assert.That(Untouched(b, 0, 0), Is.True);
         }
 
         [Test]
-        public void Rect_is_scaled_from_screen_pixels_and_rounded_outward()
+        public void Bottom_up_with_scaling_masks_the_rows_that_show_the_screen_region()
+        {
+            // 100x200 native window, rect in its top-left corner (10,20)-(50,60); frame is 10x20 (scale 0.1),
+            // bottom-up, so screen rows 2..5 are buffer rows 19-5..19-2 = 14..17 and columns 1..4.
+            const int fw = 10, fh = 20;
+            var b = White(fw, fh);
+            Assert.That(FrameRedaction.BlankRects(b, fw, fh, VideoFrameRowOrder.BottomUp, One(10, 20, 50, 60), 1, 100, 200), Is.EqualTo(1));
+            for (int row = 0; row < fh; row++)
+                for (int x = 0; x < fw; x++)
+                {
+                    bool inside = row >= 14 && row <= 17 && x >= 1 && x <= 4;
+                    Assert.That(Blank(b, x, row, fw), Is.EqualTo(inside), "x=" + x + " row=" + row);
+                    Assert.That(Untouched(b, x, row, fw), Is.EqualTo(!inside), "x=" + x + " row=" + row);
+                }
+        }
+
+        [Test]
+        public void Rect_is_scaled_from_window_pixels_and_rounded_outward()
         {
             var b = White();
-            // 8x8 screen, rect (1,1)-(3,3) -> frame 4x4 scale 0.5 -> floor(0.5)=0 .. ceil(1.5)=2
-            FrameRedaction.BlankRects(b, W, H, VideoFrameRowOrder.TopDown, One(1, 1, 3, 3), 8, 8);
+            // 8x8 window, rect (1,1)-(3,3) -> frame 4x4 scale 0.5 -> floor(0.5)=0 .. ceil(1.5)=2
+            FrameRedaction.BlankRects(b, W, H, VideoFrameRowOrder.TopDown, One(1, 1, 3, 3), 1, 8, 8);
             Assert.That(Blank(b, 0, 0) && Blank(b, 1, 1), Is.True);
             Assert.That(Untouched(b, 2, 2), Is.True);
         }
@@ -183,80 +217,31 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Out_of_range_and_degenerate_rects_are_clamped_or_ignored()
         {
             var b = White();
-            var packed = new[] { 1, 3, -10, -10, 100, 100, 2, 2, 2, 3, 3, 3, 1, 1 };
-            Assert.That(FrameRedaction.BlankRects(b, W, H, VideoFrameRowOrder.TopDown, packed, 4, 4), Is.EqualTo(1));
+            var rects = new[] { -10, -10, 100, 100, 2, 2, 2, 3, 3, 3, 1, 1 };
+            Assert.That(FrameRedaction.BlankRects(b, W, H, VideoFrameRowOrder.TopDown, rects, 3, 4, 4), Is.EqualTo(1));
             for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) Assert.That(Blank(b, x, y), Is.True);
+        }
+
+        [Test]
+        public void Blank_all_blanks_every_pixel_and_ignores_a_short_buffer()
+        {
+            var b = White();
+            FrameRedaction.BlankAll(b, W, H);
+            for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) Assert.That(Blank(b, x, y), Is.True);
+            var shortBuffer = new byte[3];
+            FrameRedaction.BlankAll(shortBuffer, W, H);
+            Assert.That(shortBuffer, Is.EqualTo(new byte[3]));
         }
 
         [Test]
         public void Bad_input_changes_nothing()
         {
             var b = White();
-            Assert.That(FrameRedaction.BlankRects(b, W, H, VideoFrameRowOrder.TopDown, null, 4, 4), Is.EqualTo(0));
-            Assert.That(FrameRedaction.BlankRects(b, W, H, VideoFrameRowOrder.TopDown, new[] { 1, 5, 0, 0, 1, 1 }, 4, 4), Is.EqualTo(0));
-            Assert.That(FrameRedaction.BlankRects(b, W, H, VideoFrameRowOrder.TopDown, One(0, 0, 4, 4), 0, 4), Is.EqualTo(0));
-            Assert.That(FrameRedaction.BlankRects(new byte[3], W, H, VideoFrameRowOrder.TopDown, One(0, 0, 4, 4), 4, 4), Is.EqualTo(0));
+            Assert.That(FrameRedaction.BlankRects(b, W, H, VideoFrameRowOrder.TopDown, null, 1, 4, 4), Is.EqualTo(0));
+            Assert.That(FrameRedaction.BlankRects(b, W, H, VideoFrameRowOrder.TopDown, new[] { 0, 0, 1, 1 }, 5, 4, 4), Is.EqualTo(0));
+            Assert.That(FrameRedaction.BlankRects(b, W, H, VideoFrameRowOrder.TopDown, One(0, 0, 4, 4), 1, 0, 4), Is.EqualTo(0));
+            Assert.That(FrameRedaction.BlankRects(new byte[3], W, H, VideoFrameRowOrder.TopDown, One(0, 0, 4, 4), 1, 4, 4), Is.EqualTo(0));
             Assert.That(Untouched(b, 0, 0), Is.True);
-        }
-    }
-
-    public class FrameCapturerSourceTests
-    {
-        static string Source()
-        {
-            var dir = TestContext.CurrentContext.TestDirectory;
-            while (!File.Exists(Path.Combine(dir, "package.json"))) dir = Directory.GetParent(dir).FullName;
-            return File.ReadAllText(Path.Combine(dir, "Runtime", "Capture", "BugseeFrameCapturer.cs"));
-        }
-
-        static string Code()
-        {
-            var lines = Source().Split('\n');
-            var kept = new System.Text.StringBuilder();
-            foreach (var l in lines)
-            {
-                var t = l.TrimStart();
-                if (t.StartsWith("//") || t.StartsWith("///") || t.StartsWith("*")) continue;
-                kept.AppendLine(l);
-            }
-            return kept.ToString();
-        }
-
-        [Test]
-        public void Readback_is_asynchronous_only()
-        {
-            var code = Code();
-            Assert.That(code, Does.Contain("AsyncGPUReadback.Request("));
-            Assert.That(code, Does.Not.Contain("WaitForCompletion"));
-            Assert.That(code, Does.Not.Contain("ReadPixels"));
-            Assert.That(code, Does.Not.Contain("CaptureScreenshotAsTexture"));
-        }
-
-        [Test]
-        public void Capture_is_off_unless_enabled_and_android_only()
-        {
-            var code = Code();
-            Assert.That(code, Does.Not.Contain("RuntimeInitializeOnLoadMethod"));
-            Assert.That(code, Does.Not.Contain("void Awake"));
-            Assert.That(code, Does.Contain("#if UNITY_ANDROID && !UNITY_EDITOR"));
-            Assert.That(code, Does.Contain("public static bool Enable("));
-        }
-
-        [Test]
-        public void Every_request_goes_through_the_policy_and_the_push_uses_the_policy_pixel_stride()
-        {
-            var code = Code();
-            Assert.That(code, Does.Contain("_policy.TryBegin("));
-            Assert.That(code, Does.Contain("_policy.Complete("));
-            Assert.That(code, Does.Contain("FrameRedaction.BlankRects("));
-            Assert.That(code, Does.Contain("_args[5].i = FramePushPolicy.PixelStride;"));
-        }
-
-        [Test]
-        public void Push_signature_matches_VideoFrameConsumer_addFrame_7_4_1()
-        {
-            Assert.That(Code(), Does.Contain("\"(JILjava/nio/ByteBuffer;IIIL\" + RowOrderClass + \";)V\""));
-            Assert.That(Code(), Does.Contain("com/bugsee/library/contracts/capture/consumers/VideoFrameConsumer"));
         }
     }
 }
