@@ -95,18 +95,43 @@ namespace Bugsee
             return effective;
         }
 
-        // Starts the pusher for a DirectBuffers launch, and if it cannot start, relaunches with the default capture so the
-        // session still records video. Stops it when a launch no longer wants it.
+        // The options of the last launch that runs the pusher; the fallback relaunch uses them if the pusher stops itself.
+        static Dictionary<string, object> _pusherLaunchOptions;
+        static bool _pusherFailureHooked;
+
+        // After a DirectBuffers launch: start the pusher on the main thread, and if it cannot start (now, or later after
+        // repeated readback failures) relaunch with the default capture so the session still records video. Off the main
+        // thread the start is queued, and the fallback still runs afterwards. A launch that no longer wants the pusher
+        // stops it.
         static void AfterLaunch(bool startPusher, Dictionary<string, object> options)
         {
-            if (!startPusher)
+            if (startPusher)
             {
-                Capture.BugseeFrameCapturer.Disable();
-                return;
+                _pusherLaunchOptions = options;
+                if (!_pusherFailureHooked)
+                {
+                    _pusherFailureHooked = true;
+                    Capture.BugseeFrameCapturer.Failed += () => MainThreadDispatcher.Run(() =>
+                    {
+                        if (_pusherLaunchOptions == null) return;
+                        var failedOptions = _pusherLaunchOptions;
+                        _pusherLaunchOptions = null;
+                        CaptureStartup.OnPusherFailed(failedOptions, Bridge.Relaunch, message => Debug.LogWarning("[Bugsee] " + message));
+                    });
+                }
             }
-            if (Capture.BugseeFrameCapturer.Enable(Capture.BugseeFrameCapturer.DefaultOptions)) return;
-            Debug.LogWarning("[Bugsee] the Unity-side frame pusher could not start; relaunching with the SDK's default capture.");
-            Bridge.Relaunch(UnityCapturePolicy.WithFallback(options));
+            else
+            {
+                _pusherLaunchOptions = null;
+            }
+            CaptureStartup.Run(
+                startPusher,
+                options,
+                () => Capture.BugseeFrameCapturer.Enable(Capture.BugseeFrameCapturer.DefaultOptions),
+                Capture.BugseeFrameCapturer.Disable,
+                Bridge.Relaunch,
+                message => Debug.LogWarning("[Bugsee] " + message),
+                MainThreadDispatcher.Run);
         }
 
         /// <summary>

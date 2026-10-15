@@ -68,6 +68,9 @@ namespace Bugsee.Capture
         /// </summary>
         public static BugseeFrameCapturerOptions DefaultOptions = new BugseeFrameCapturerOptions();
 
+        /// <summary>Raised on the main thread when a running pusher turned itself off after repeated readback failures.</summary>
+        internal static event Action Failed;
+
         public static BugseeFrameCapturerStats Stats => _instance != null ? _instance.ReadStats() : default;
 
         /// <summary>
@@ -324,7 +327,12 @@ namespace Bugsee.Capture
                         + " size=" + _captureW + "x" + _captureH + " rowOrder=" + _rowOrder + (_rowOrderVerified ? "" : " (unverified)") + " api=" + SystemInfo.graphicsDeviceType
                         + " avgMs[readbackLatency/addFrame]=" + AvgMs(Interlocked.Read(ref _latencySum)) + "/" + AvgMs(Interlocked.Read(ref _addSum)));
                 }
-                if (_policy.IsDisabled) _enabled = false;
+                if (_policy.IsDisabled)
+                {
+                    _enabled = false;
+                    Debug.LogWarning("[BugseeFrameCapturer] turned itself off after repeated readback failures.");
+                    Failed?.Invoke();
+                }
                 return;
             }
             if (_releaseDone || _policy.HasInFlight) return;

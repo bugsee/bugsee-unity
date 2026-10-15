@@ -26,6 +26,7 @@ namespace Bugsee.Sample
         [SerializeField] bool installSampleFilters;
         /// <summary>Experimental Android frame pusher (off by default); an intent extra "bugsee_frame_pusher" = 1 also turns it on.</summary>
         [SerializeField] bool experimentalFramePusher;
+        bool _framePusherRequested; // the opt-in as resolved at launch; a relaunch keeps it
 
         readonly Queue<string> _lifecycleLog = new Queue<string>();
         const int MaxLifecycleEntries = 24;
@@ -108,7 +109,7 @@ namespace Bugsee.Sample
 #if UNITY_ANDROID && !UNITY_EDITOR
                 // Asking for DirectBuffers means the Unity-side frame pusher; the wrapper starts it, or falls back to the
                 // default capture (with a warning) when this Unity cannot run it. Without the switch: the default capture.
-                var pusher = experimentalFramePusher || ReadE2EValue("bugsee_frame_pusher", "BUGSEE_FRAME_PUSHER") == "1";
+                _framePusherRequested = experimentalFramePusher || ReadE2EValue("bugsee_frame_pusher", "BUGSEE_FRAME_PUSHER") == "1";
                 // "bugsee_frame_pattern" = 1 also paints a red-over-blue test pattern and logs the readback rows.
                 var pattern = ReadE2EValue("bugsee_frame_pattern", "BUGSEE_FRAME_PATTERN") == "1";
                 global::Bugsee.Capture.BugseeFrameCapturer.DefaultOptions =
@@ -116,7 +117,7 @@ namespace Bugsee.Sample
                 var options = new AndroidLaunchOptions
                 {
                     CaptureVideo = true,
-                    CaptureVideoMode = pusher ? VideoMode.DirectBuffers : VideoMode.V2,
+                    CaptureVideoMode = _framePusherRequested ? VideoMode.DirectBuffers : VideoMode.V2,
                     CaptureVideoFrameRate = FrameRate.High,
                     CaptureLogs = true,
                     CaptureNetwork = true,
@@ -137,7 +138,7 @@ namespace Bugsee.Sample
                     StartCoroutine(ReportAfter(reportAfter));
                 if (ReadE2EValue("bugsee_frame_stats", "BUGSEE_FRAME_STATS") == "1")
                     gameObject.AddComponent<FrameTimeLogger>();
-                if (pusher || pattern)
+                if (_framePusherRequested || pattern)
                 {
                     if (pattern)
                         gameObject.AddComponent<OrientationPatternOverlay>();
@@ -553,7 +554,7 @@ namespace Bugsee.Sample
                 Bugsee.Relaunch(new AndroidLaunchOptions
                 {
                     CaptureVideo = true,
-                    CaptureVideoMode = VideoMode.V2
+                    CaptureVideoMode = _framePusherRequested ? VideoMode.DirectBuffers : VideoMode.V2
                 });
 #else
                 Bugsee.Relaunch();
