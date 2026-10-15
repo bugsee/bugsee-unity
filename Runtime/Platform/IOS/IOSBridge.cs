@@ -62,9 +62,12 @@ namespace Bugsee.Platform.IOS
 
         void Launch(string appToken, IDictionary<string, object> options, Action<bool> started)
         {
-            ManagedExceptionPayload.EnsureBuildIdentity();
+            // Build identity reads Application.buildGUID/version and Resources: main thread only, so inside the hand-off.
             if (!MainThreadDispatcher.RunSyncLifecycle(() =>
-                    LaunchOrDefer("Launch", () => LaunchNow(appToken, options, started), started)))
+                {
+                    ManagedExceptionPayload.EnsureBuildIdentity();
+                    LaunchOrDefer("Launch", () => LaunchNow(appToken, options, started), started);
+                }))
             {
                 Debug.LogError("[Bugsee] Launch timed out waiting for the Unity main thread.");
                 RunResult(started, false);

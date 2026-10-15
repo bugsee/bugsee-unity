@@ -100,6 +100,19 @@ namespace Bugsee.WrapperPolicy
             }
         }
 
+        /// <summary>
+        /// Sanity check of the view the capturer found (the first SurfaceView under the content view) against Unity's
+        /// screen: Unity renders at a uniform scale of its own view, so the aspect ratios must agree. A plugin's
+        /// SurfaceView ahead of Unity's, or a view caught mid-rotation, fails it and masking fails closed.
+        /// </summary>
+        public static bool IsPlausibleUnityView(int viewWidth, int viewHeight, int screenWidth, int screenHeight)
+        {
+            if (viewWidth <= 0 || viewHeight <= 0 || screenWidth <= 0 || screenHeight <= 0) return false;
+            double view = (double)viewWidth / viewHeight;
+            double screen = (double)screenWidth / screenHeight;
+            return Math.Abs(view - screen) <= 0.02 * screen;
+        }
+
         /// <summary>A failure outside a request (an exception while preparing one): counts toward the self-disable streak.</summary>
         public void RecordFailure()
         {

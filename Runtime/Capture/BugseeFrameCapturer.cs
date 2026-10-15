@@ -455,6 +455,8 @@ namespace Bugsee.Capture
                 AndroidJNI.DeleteLocalRef(surface);
                 if (ClearPendingException()) return default;
                 var region = new SourceRegion(left, top, width, height);
+                // Not Unity's surface (a plugin's SurfaceView, or a view caught mid-rotation): unknown, so masking fails closed.
+                if (!FramePushPolicy.IsPlausibleUnityView(width, height, Screen.width, Screen.height)) return default;
                 if (_options.LogStats && (region.Left != _loggedRegion.Left || region.Top != _loggedRegion.Top
                     || region.Width != _loggedRegion.Width || region.Height != _loggedRegion.Height))
                 {

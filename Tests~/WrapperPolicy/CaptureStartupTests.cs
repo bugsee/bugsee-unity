@@ -323,6 +323,22 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void A_launch_accepted_with_direct_buffers_but_not_the_latest_keeps_its_options_for_the_owed_fallback()
+        {
+            var f = FailedWhileWaiting();
+            // request A is answered (accepted, DirectBuffers, options "other"=2) but request B is still waiting
+            f.Latest = false;
+            f.Result(true, true, new Dictionary<string, object> { { Options.CaptureVideoMode, (int)VideoMode.DirectBuffers }, { "other", 2 } });
+            Assert.That(f.Relaunches, Is.Empty);
+            Assert.That(f.State.FallbackPending, Is.True);
+            // B is ignored: the fallback runs on top of A's options, not the first session's
+            f.Latest = true;
+            f.Result(false, false, Mode(VideoMode.V2));
+            Assert.That(f.Relaunches, Has.Count.EqualTo(1));
+            Assert.That(f.Relaunches[0]["other"], Is.EqualTo(2));
+        }
+
+        [Test]
         public void Stopping_the_session_cancels_a_deferred_fallback()
         {
             var f = FailedWhileWaiting();

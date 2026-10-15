@@ -310,6 +310,11 @@ namespace Bugsee.WrapperPolicy.Tests
             string bridge = android;
             Assert.That(ExtractMethodBody(bridge, "internal void Launch(string appToken, IDictionary<string, object> options, Action<bool> completion)"),
                 Does.Contain("Lifecycle.Launch(appToken, options, completion);"));
+            string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
+            string iosLaunch = ExtractMethodBody(ios, "void Launch(string appToken, IDictionary<string, object> options, Action<bool> started)");
+            Assert.That(iosLaunch.IndexOf("RunSyncLifecycle", StringComparison.Ordinal),
+                Is.LessThan(iosLaunch.IndexOf("ManagedExceptionPayload.EnsureBuildIdentity()", StringComparison.Ordinal)),
+                "iOS Launch must read the build identity inside the main-thread hand-off");
             // The identity/wrapper setup reads main-thread-only Unity APIs, so it must run inside the main-thread hop.
             string launchBody = ExtractMethodBody(bridge, "internal void Launch(string appToken, IDictionary<string, object> options, Action<bool> completion)");
             Assert.That(launchBody.IndexOf("MainThreadDispatcher.Run", StringComparison.Ordinal),

@@ -332,7 +332,20 @@ namespace Bugsee.WrapperPolicy.Tests
             for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) Assert.That(Blank(d, x, y), Is.True);
             var e = White();
             FrameRedaction.BlankRects(e, W, H, VideoFrameRowOrder.TopDown, new[] { int.MinValue, 0, 2, 1 }, 1, new SourceRegion(int.MaxValue, 0, 4, 4));
-            Assert.That(Untouched(e, 0, 0) || Blank(e, 0, 0), Is.True);
+            Assert.That(Blank(e, 0, 0), Is.False, "far outside the view: left alone, no wrap-around");
+            Assert.That(Untouched(e, 0, 0), Is.True);
+        }
+
+        [TestCase(1600, 2560, 1600, 2560, true)]
+        [TestCase(1600, 2560, 800, 1280, true)]   // reduced render resolution, same aspect
+        [TestCase(2560, 1492, 2560, 1492, true)]
+        [TestCase(2560, 1600, 1600, 2560, false)] // mid-rotation or the wrong view
+        [TestCase(1000, 200, 1600, 2560, false)]  // a banner-like plugin surface
+        [TestCase(0, 0, 1600, 2560, false)]
+        [TestCase(1600, 2560, 0, 0, false)]
+        public void Unity_view_plausibility_matches_the_screen_aspect(int vw, int vh, int sw, int sh, bool expected)
+        {
+            Assert.That(FramePushPolicy.IsPlausibleUnityView(vw, vh, sw, sh), Is.EqualTo(expected));
         }
 
         [Test]

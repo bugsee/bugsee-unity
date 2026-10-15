@@ -156,6 +156,11 @@ namespace Bugsee.WrapperPolicy
                         warn("the Unity-side frame pusher had stopped; relaunching with the SDK's default capture.");
                         relaunch(UnityCapturePolicy.WithFallback(options ?? deferred));
                     }
+                    else
+                    {
+                        // Still not the last request: keep this session's options for the fallback that is still owed.
+                        state.DeferFallback(options);
+                    }
                     return;
                 }
 
