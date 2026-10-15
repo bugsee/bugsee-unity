@@ -12,10 +12,11 @@ dir="$root/Tools~/CompileCheck"
 
 # name|player-only (true = Runtime assembly only, no UnityEditor)|defines
 configs='
-android-player|true|UNITY_ANDROID
-android-player-il2cpp|true|UNITY_ANDROID;ENABLE_IL2CPP
+android-player|true|UNITY_ANDROID;BUGSEE_HAS_SCREENCAPTURE
+android-player-il2cpp|true|UNITY_ANDROID;ENABLE_IL2CPP;BUGSEE_HAS_SCREENCAPTURE
 ios-player-il2cpp|true|UNITY_IOS;ENABLE_IL2CPP;UNITY_2023_1_OR_NEWER
 standalone-player|true|UNITY_STANDALONE_OSX
+android-player-no-screencapture|true|UNITY_ANDROID
 editor-android|false|UNITY_EDITOR;UNITY_ANDROID
 editor-ios|false|UNITY_EDITOR;UNITY_IOS
 editor-standalone-il2cpp|false|UNITY_EDITOR;UNITY_STANDALONE_OSX;ENABLE_IL2CPP

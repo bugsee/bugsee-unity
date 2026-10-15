@@ -24,6 +24,8 @@ namespace Bugsee.Sample
         [SerializeField] bool launchOnStart = true;
         [SerializeField] bool installReportHandler;
         [SerializeField] bool installSampleFilters;
+        /// <summary>Experimental Android frame pusher (off by default); an intent extra "bugsee_frame_pusher" = 1 also turns it on.</summary>
+        [SerializeField] bool experimentalFramePusher;
 
         readonly Queue<string> _lifecycleLog = new Queue<string>();
         const int MaxLifecycleEntries = 24;
@@ -123,6 +125,8 @@ namespace Bugsee.Sample
                 if (!string.IsNullOrWhiteSpace(endpointOverride))
                     options.Endpoint = endpointOverride.Trim();
                 Bugsee.Launch(appToken, options);
+                if (experimentalFramePusher || ReadE2EValue("bugsee_frame_pusher", "BUGSEE_FRAME_PUSHER") == "1")
+                    global::Bugsee.Capture.BugseeFrameCapturer.Enable();
 #elif UNITY_IOS && !UNITY_EDITOR
                 var iosOptions = new IOSLaunchOptions
                 {

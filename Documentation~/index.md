@@ -229,3 +229,28 @@ Wired: Launch/Stop, blackout, log/trace/event, exceptions (JSON-in-reason), Test
 Both native SDKs have `startTransaction` / `startSpan` / `getActiveSpan`, but the Unity package does not expose them yet: a span is a live native object (it needs a handle that crosses JNI and P/Invoke and a lifetime rule), the active span is per native thread (not propagated across `dispatch_async` on iOS), and the no-op behaviour when APM is disabled is only documented on iOS. See the proposal on the tracking issue.
 
 Full product documentation: [docs.bugsee.com/sdk/unity](https://docs.bugsee.com/sdk/unity/).
+
+## Experimental: Unity frame pusher (Android)
+
+Not benchmarked on devices; do not enable it in production without measuring. Nothing here changes unless you opt in: by default the Android SDK captures the window itself (`VideoMode.V2`), and `BugseeFrameCapturer` does not exist at runtime until you call `Enable()`.
+
+```csharp
+// using Bugsee.Capture;
+#if UNITY_ANDROID && !UNITY_EDITOR
+Bugsee.Launch(token, new AndroidLaunchOptions { CaptureVideo = true, CaptureVideoMode = VideoMode.DirectBuffers });
+BugseeFrameCapturer.Enable(new BugseeFrameCapturerOptions { TargetFps = 5, MaxDimension = 640 });
+#endif
+```
+
+How it works: at the end of each due frame it calls `ScreenCapture.CaptureScreenshotIntoRenderTexture`, scales into a small RenderTexture and reads it back with `AsyncGPUReadback` (never a synchronous read). One request is in flight at a time; frames that come due meanwhile are dropped, not queued. Buffers are reused; the pixels reach the SDK's `VideoFrameConsumer.addFrame` from a background thread with the capture time as the timestamp. `BugseeFrameCapturer.Stats` and a log line every 10 s show requested, pushed, failed and dropped counts.
+
+What to know before using it:
+
+- Needs the Screen Capture built-in module (`com.unity.modules.screencapture`, on by default in new projects); without it the capturer is compiled out and `Enable()` returns false. Needs `VideoMode.DirectBuffers`. With any other mode the SDK ignores the frames; with `DirectBuffers` and no `Enable()` nothing pushes frames, so there is no real video.
+- It records Unity's final composite, including screen-space overlay UI. Native Android views (WebViews, dialogs, system UI) are not in the video.
+- Redaction: the SDK does not mask frames pushed this way. The pusher blanks rectangles registered with `Bugsee.AddSecureRectangle` (screen pixels, top-left origin). Secure native views are not known to it. Blackout is honoured by the SDK.
+- Readback is refused when the device lacks `SystemInfo.supportsAsyncGPUReadback`, or on Vulkan with Unity older than 2021.3.18 (crash in older builds). After 5 failed readbacks in a row it turns itself off.
+- Row order of the readback is unverified per graphics API. It defaults to top-down when `SystemInfo.graphicsUVStartsAtTop`, bottom-up otherwise; if video comes out upside down, set `BugseeFrameCapturerOptions.RowOrder`.
+- Unity cannot hand native memory to Java as a `ByteBuffer`, so each pushed frame costs one Java `byte[]` (about 0.7 MB at 640 px) plus a copy into a reused direct buffer. Lower `MaxDimension` or `TargetFps` to reduce it. The secure-rectangle snapshot also allocates a few ints per frame.
+- The SDK caps pushed frames by `CaptureVideoFrameRate` as well; a `TargetFps` above that is dropped by the SDK.
+- Exercised only on an Android 16 arm64 emulator (IL2CPP development build): frames were pushed and the SDK wrote video exports. Video orientation and content were not inspected, and there are no device or performance numbers.
