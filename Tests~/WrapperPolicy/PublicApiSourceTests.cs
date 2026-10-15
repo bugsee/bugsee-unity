@@ -149,9 +149,13 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));
             string launch = ExtractMethodBody(facade, "public static Task<bool> LaunchAsync(string appToken, Dictionary<string, object> options = null)");
-            Assert.That(launch, Does.Contain("bridge.Launch(appToken, options, accepted => result.TrySetResult(accepted))"));
+            Assert.That(launch, Does.Contain("bridge.Launch(appToken, options, accepted =>"));
+            Assert.That(launch, Does.Contain("try { AfterLaunchResultCounted(accepted, startPusher, options); }"));
+            Assert.That(launch, Does.Contain("finally { result.TrySetResult(accepted); }"));
             string relaunch = ExtractMethodBody(facade, "public static Task<bool> RelaunchAsync(Dictionary<string, object> options = null)");
-            Assert.That(relaunch, Does.Contain("bridge.Relaunch(options, accepted => result.TrySetResult(accepted))"));
+            Assert.That(relaunch, Does.Contain("bridge.Relaunch(options, accepted =>"));
+            Assert.That(relaunch, Does.Contain("try { AfterLaunchResultCounted(accepted, startPusher, options); }"));
+            Assert.That(relaunch, Does.Contain("finally { result.TrySetResult(accepted); }"));
             string stop = ExtractMethodBody(facade, "public static Task StopAsync()");
             Assert.That(stop, Does.Contain("bridge.Stop("));
             Assert.That(stop, Does.Contain("TimeoutException"));
@@ -305,7 +309,16 @@ namespace Bugsee.WrapperPolicy.Tests
             // stale-result and deadline rules are covered by AndroidLaunchStatePolicyTests.
             string bridge = android;
             Assert.That(ExtractMethodBody(bridge, "internal void Launch(string appToken, IDictionary<string, object> options, Action<bool> completion)"),
-                Does.Contain("MainThreadDispatcher.Run(() => Lifecycle.Launch(appToken, options, completion))"));
+                Does.Contain("Lifecycle.Launch(appToken, options, completion);"));
+            string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
+            string iosLaunch = ExtractMethodBody(ios, "void Launch(string appToken, IDictionary<string, object> options, Action<bool> started)");
+            Assert.That(iosLaunch.IndexOf("RunSyncLifecycle", StringComparison.Ordinal),
+                Is.LessThan(iosLaunch.IndexOf("ManagedExceptionPayload.EnsureBuildIdentity()", StringComparison.Ordinal)),
+                "iOS Launch must read the build identity inside the main-thread hand-off");
+            // The identity/wrapper setup reads main-thread-only Unity APIs, so it must run inside the main-thread hop.
+            string launchBody = ExtractMethodBody(bridge, "internal void Launch(string appToken, IDictionary<string, object> options, Action<bool> completion)");
+            Assert.That(launchBody.IndexOf("MainThreadDispatcher.Run", StringComparison.Ordinal),
+                Is.LessThan(launchBody.IndexOf("ManagedExceptionPayload.EnsureBuildIdentity()", StringComparison.Ordinal)));
             Assert.That(ExtractMethodBody(bridge, "internal void Relaunch(IDictionary<string, object> options, Action<bool> completion)"),
                 Does.Contain("Lifecycle.Relaunch(options, completion)"));
             Assert.That(ExtractMethodBody(bridge, "void Stop(Action completion, Action<bool> finished)"),

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Threading;
 using System.Threading.Tasks;
 using Bugsee.Contracts.Appearance;
 using Bugsee.Contracts.Exchange;
@@ -65,7 +66,17 @@ namespace Bugsee
                 throw new ArgumentException("appToken is required", nameof(appToken));
 
             MainThreadDispatcher.Ensure();
-            Bridge.Launch(appToken, options);
+            options = ApplyCapturePolicy(options, out bool startPusher);
+            if (Bridge is ILifecycleResultBridge bridge)
+            {
+                Interlocked.Increment(ref _pendingLaunches);
+                bridge.Launch(appToken, options, accepted => AfterLaunchResultCounted(accepted, startPusher, options));
+            }
+            else
+            {
+                Bridge.Launch(appToken, options);
+                AfterLaunchResult(true, startPusher, options);
+            }
         }
 
         /// <summary>
@@ -73,8 +84,88 @@ namespace Bugsee
         /// <see cref="Launch"/> (the same 5 s main-thread hand-off applies on iOS). Android ignores it with a
         /// warning unless the SDK is Launched. See <see cref="RelaunchAsync"/> for the result.
         /// </summary>
-        public static void Relaunch(Dictionary<string, object> options = null) =>
-            Bridge.Relaunch(options);
+        public static void Relaunch(Dictionary<string, object> options = null)
+        {
+            options = ApplyCapturePolicy(options, out bool startPusher);
+            if (Bridge is ILifecycleResultBridge bridge)
+            {
+                Interlocked.Increment(ref _pendingLaunches);
+                bridge.Relaunch(options, accepted => AfterLaunchResultCounted(accepted, startPusher, options));
+            }
+            else
+            {
+                Bridge.Relaunch(options);
+                AfterLaunchResult(true, startPusher, options);
+            }
+        }
+
+        // VideoMode.DirectBuffers needs a frame source, and in Unity that is the Unity-side capturer (Unity 2022.2+). When it
+        // cannot run, the native SDK is launched in its default capture mode instead, never in a DirectBuffers session
+        // without frames. See UnityCapturePolicy.
+        static Dictionary<string, object> ApplyCapturePolicy(Dictionary<string, object> options, out bool startPusher)
+        {
+            var effective = UnityCapturePolicy.Apply(options, UnityCaptureProbe.Current, out VideoModeDecision decision);
+            startPusher = decision.UseUnityCapture;
+            if (decision.FallbackReason != null)
+                Debug.LogWarning("[Bugsee] VideoMode.DirectBuffers was requested, but Unity-side capture cannot run: "
+                    + decision.FallbackReason + ". Launching with the SDK's default capture instead.");
+            return effective;
+        }
+
+        static readonly PusherLaunchState PusherState = new PusherLaunchState();
+        static bool _pusherFailureHooked;
+        // Launch/Relaunch requests handed to the native SDK whose answer has not arrived. While one is waiting, a fallback
+        // relaunch would replace its options in the lifecycle queue, so the fallback is left to that request.
+        static int _pendingLaunches;
+
+        // Not atomic with the lifecycle machine: a request can arrive between this check and the relaunch. The window is
+        // small, a request made then is queued behind it (it still runs and decides), and the worst case is that the fallback
+        // relaunch's options are replaced by that request's, which has its own policy/fallback handling when it is answered.
+        static bool NoNewerLaunchWaiting() => Volatile.Read(ref _pendingLaunches) == 0;
+
+        static void AfterLaunchResultCounted(bool accepted, bool startPusher, Dictionary<string, object> options)
+        {
+            Interlocked.Decrement(ref _pendingLaunches);
+            AfterLaunchResult(accepted, startPusher, options);
+        }
+
+        // The pusher follows what the native SDK actually did with a launch request, once its answer is known: an ignored or
+        // refused request (e.g. a Launch while the SDK is running) leaves it alone, an accepted one is read back from the
+        // effective launch options. If it cannot start (now, or later after repeated readback failures) the session is
+        // relaunched with the default capture. All of it runs on the main thread.
+        static void AfterLaunchResult(bool accepted, bool startPusher, Dictionary<string, object> options)
+        {
+            if (!_pusherFailureHooked)
+            {
+                _pusherFailureHooked = true;
+                Capture.BugseeFrameCapturer.Failed += () => MainThreadDispatcher.Run(() =>
+                    CaptureStartup.OnPusherFailed(PusherState, NoNewerLaunchWaiting, Bridge.Relaunch,
+                        message => Debug.LogWarning("[Bugsee] " + message)));
+            }
+            CaptureStartup.OnLaunchResult(
+                accepted,
+                startPusher,
+                options,
+                PusherState,
+                NoNewerLaunchWaiting,
+                () => IsStartingOrLaunched(Bridge.GetStatus()),
+                EffectiveVideoMode,
+                () => Capture.BugseeFrameCapturer.Enable(Capture.BugseeFrameCapturer.DefaultOptions),
+                Capture.BugseeFrameCapturer.Disable,
+                Bridge.Relaunch,
+                message => Debug.LogWarning("[Bugsee] " + message),
+                MainThreadDispatcher.Run);
+        }
+
+        // The video mode the native SDK is really running with, from its effective launch options; null when unreadable.
+        static VideoMode? EffectiveVideoMode()
+        {
+            IReadOnlyDictionary<string, object> launch = Bridge.GetLaunchOptions();
+            if (launch == null || !launch.TryGetValue(Options.CaptureVideoMode, out object mode) || mode == null) return null;
+            return int.TryParse(Convert.ToString(mode, System.Globalization.CultureInfo.InvariantCulture), out int value)
+                ? VideoModeExtensions.FromIntValue(value)
+                : (VideoMode?)null;
+        }
 
         /// <summary>
         /// Stop Bugsee. <paramref name="completion"/> runs once the SDK has finished stopping. A Launch/Relaunch
@@ -87,7 +178,18 @@ namespace Bugsee
         /// wrapper stops waiting for the stop. Residual race after that: on iOS a late native stop can still stop a
         /// Launch made after the 60 s give-up.
         /// </summary>
-        public static void Stop(Action completion = null) => Bridge.Stop(completion);
+        public static void Stop(Action completion = null)
+        {
+            ForgetPusherSession();
+            Bridge.Stop(completion);
+        }
+
+        // A stopped session has no DirectBuffers state: a later pusher failure must not relaunch it with old options.
+        static void ForgetPusherSession()
+        {
+            PusherState.OnStopped();
+            Capture.BugseeFrameCapturer.Disable();
+        }
 
         /// <summary>
         /// <see cref="Launch"/> that completes with the SDK's answer: true when it accepted the launch, false
@@ -104,14 +206,22 @@ namespace Bugsee
                 throw new ArgumentException("appToken is required", nameof(appToken));
 
             MainThreadDispatcher.Ensure();
+            options = ApplyCapturePolicy(options, out bool startPusher);
             var result = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             if (Bridge is ILifecycleResultBridge bridge)
             {
-                bridge.Launch(appToken, options, accepted => result.TrySetResult(accepted));
+                Interlocked.Increment(ref _pendingLaunches);
+                bridge.Launch(appToken, options, accepted =>
+                {
+                    // The task must complete even if the capture follow-up throws (the lifecycle machine swallows it).
+                    try { AfterLaunchResultCounted(accepted, startPusher, options); }
+                    finally { result.TrySetResult(accepted); }
+                });
             }
             else
             {
                 Bridge.Launch(appToken, options);
+                AfterLaunchResult(true, startPusher, options);
                 result.TrySetResult(IsStartingOrLaunched(Bridge.GetStatus()));
             }
             return result.Task;
@@ -120,14 +230,21 @@ namespace Bugsee
         /// <summary><see cref="Relaunch"/> that completes with the SDK's answer, as <see cref="LaunchAsync"/>.</summary>
         public static Task<bool> RelaunchAsync(Dictionary<string, object> options = null)
         {
+            options = ApplyCapturePolicy(options, out bool startPusher);
             var result = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             if (Bridge is ILifecycleResultBridge bridge)
             {
-                bridge.Relaunch(options, accepted => result.TrySetResult(accepted));
+                Interlocked.Increment(ref _pendingLaunches);
+                bridge.Relaunch(options, accepted =>
+                {
+                    try { AfterLaunchResultCounted(accepted, startPusher, options); }
+                    finally { result.TrySetResult(accepted); }
+                });
             }
             else
             {
                 Bridge.Relaunch(options);
+                AfterLaunchResult(true, startPusher, options);
                 result.TrySetResult(IsStartingOrLaunched(Bridge.GetStatus()));
             }
             return result.Task;
@@ -143,6 +260,7 @@ namespace Bugsee
         /// </summary>
         public static Task StopAsync()
         {
+            ForgetPusherSession();
             var result = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             if (Bridge is ILifecycleResultBridge bridge)
             {
@@ -206,8 +324,11 @@ namespace Bugsee
         /// handed to the native SDK can finish after the 10 s warning, and after the 60 s hard deadline an Android
         /// Launch can run while a native delete is still wiping.
         /// </summary>
-        public static void DeleteCollectedDataOnDevice() =>
+        public static void DeleteCollectedDataOnDevice()
+        {
+            ForgetPusherSession(); // it stops the SDK
             Bridge.DeleteCollectedDataOnDevice();
+        }
 
         public static IReport CreateReport() => Bridge.CreateReport();
 

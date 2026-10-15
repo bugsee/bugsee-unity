@@ -6,6 +6,35 @@ namespace Bugsee.WrapperPolicy.Tests
     public class SecureRectRegistryTests
     {
         [Test]
+        public void CopyRects_returns_the_rects_of_one_display_without_scaling_and_reuses_the_buffer()
+        {
+            var registry = new SecureRectRegistry();
+            registry.Set("a", 0, 5, 6, 1, 2); // normalised to 1,2,5,6
+            registry.Set("b", 1, 9, 9, 10, 10);
+            int[] buffer = null;
+            Assert.That(registry.CopyRects(0, ref buffer), Is.EqualTo(1));
+            Assert.That(buffer[0], Is.EqualTo(1));
+            Assert.That(buffer[3], Is.EqualTo(6));
+            int[] same = buffer;
+            Assert.That(registry.CopyRects(0, ref buffer), Is.EqualTo(1));
+            Assert.That(buffer, Is.SameAs(same));
+            Assert.That(registry.CopyRects(2, ref buffer), Is.EqualTo(0));
+        }
+
+        [Test]
+        public void CopyRects_is_safe_while_another_thread_registers_rects()
+        {
+            var registry = new SecureRectRegistry();
+            var writer = System.Threading.Tasks.Task.Run(() =>
+            {
+                for (int i = 0; i < 5000; i++) { registry.Set("o" + (i % 50), 0, 0, 0, i, i); if (i % 7 == 0) registry.RemoveOwner("o" + (i % 50)); }
+            });
+            int[] buffer = null;
+            Assert.DoesNotThrow(() => { while (!writer.IsCompleted) registry.CopyRects(0, ref buffer); });
+            writer.Wait();
+        }
+
+        [Test]
         public void Ios_scale_3_rounds_outward_after_convert()
         {
             var registry = new SecureRectRegistry();

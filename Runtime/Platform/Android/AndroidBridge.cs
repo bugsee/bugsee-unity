@@ -81,10 +81,15 @@ namespace Bugsee.Platform.Android
         // request was superseded, or no result came within AndroidLifecycleMachine.OperationTimeout.
         internal void Launch(string appToken, IDictionary<string, object> options, Action<bool> completion)
         {
-            ManagedExceptionPayload.EnsureBuildIdentity();
-            EnsureWrapperRegistered();
-            InstallDefaultListeners();
-            MainThreadDispatcher.Run(() => Lifecycle.Launch(appToken, options, completion));
+            // All of it on the main thread: build identity reads Application.buildGUID/version and Resources, which throw
+            // UnityException when Launch is called from another thread.
+            MainThreadDispatcher.Run(() =>
+            {
+                ManagedExceptionPayload.EnsureBuildIdentity();
+                EnsureWrapperRegistered();
+                InstallDefaultListeners();
+                Lifecycle.Launch(appToken, options, completion);
+            });
         }
 
         public void Relaunch(IDictionary<string, object> options) => Relaunch(options, null);
