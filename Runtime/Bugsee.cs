@@ -298,10 +298,10 @@ namespace Bugsee
             var clean = SpanPolicy.CleanAttributes(attributes, rejected);
             foreach (var reason in rejected) Debug.LogWarning("[Bugsee] StartTransaction attribute dropped: " + reason + ".");
 
-            var handle = Bridge.StartTransaction(name, operation, clean);
-            return handle == null
-                ? new NoopSpan()
-                : new ManagedSpan(handle, operation, message => Debug.LogWarning("[Bugsee] " + message));
+            return SpanStart.Transaction(
+                () => Bridge.StartTransaction(name, operation, clean),
+                operation,
+                message => Debug.LogWarning("[Bugsee] " + message));
         }
 
         public static void SetUserIdentifier(string userIdentifier) =>

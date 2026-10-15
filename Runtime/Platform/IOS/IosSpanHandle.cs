@@ -18,8 +18,15 @@ namespace Bugsee.Platform.IOS
         public IosSpanHandle(long id)
         {
             _id = id;
-            SpanId = Read(_bugsee_span_get_id(id));
-            TraceId = Read(_bugsee_span_get_trace_id(id));
+            // A constructor that throws never reaches the caller's Release, so it frees the registry entry itself.
+            SpanStart.ReadIds(
+                () => Read(_bugsee_span_get_id(id)),
+                () => Read(_bugsee_span_get_trace_id(id)),
+                Release,
+                out var spanId,
+                out var traceId);
+            SpanId = spanId;
+            TraceId = traceId;
         }
 
         ~IosSpanHandle() => Release();
