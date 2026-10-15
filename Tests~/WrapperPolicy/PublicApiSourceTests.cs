@@ -309,7 +309,11 @@ namespace Bugsee.WrapperPolicy.Tests
             // stale-result and deadline rules are covered by AndroidLaunchStatePolicyTests.
             string bridge = android;
             Assert.That(ExtractMethodBody(bridge, "internal void Launch(string appToken, IDictionary<string, object> options, Action<bool> completion)"),
-                Does.Contain("MainThreadDispatcher.Run(() => Lifecycle.Launch(appToken, options, completion))"));
+                Does.Contain("Lifecycle.Launch(appToken, options, completion);"));
+            // The identity/wrapper setup reads main-thread-only Unity APIs, so it must run inside the main-thread hop.
+            string launchBody = ExtractMethodBody(bridge, "internal void Launch(string appToken, IDictionary<string, object> options, Action<bool> completion)");
+            Assert.That(launchBody.IndexOf("MainThreadDispatcher.Run", StringComparison.Ordinal),
+                Is.LessThan(launchBody.IndexOf("ManagedExceptionPayload.EnsureBuildIdentity()", StringComparison.Ordinal)));
             Assert.That(ExtractMethodBody(bridge, "internal void Relaunch(IDictionary<string, object> options, Action<bool> completion)"),
                 Does.Contain("Lifecycle.Relaunch(options, completion)"));
             Assert.That(ExtractMethodBody(bridge, "void Stop(Action completion, Action<bool> finished)"),
