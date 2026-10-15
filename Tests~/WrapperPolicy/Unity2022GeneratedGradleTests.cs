@@ -35,7 +35,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string twice = GradleTemplateDefaults.EnsureReleaseDebugSymbols(once);
 
             Assert.That(raw, Does.Not.Contain("debugSymbolLevel"), "Unity 2022.3 sets none itself");
-            Assert.That(once, Does.Contain("        release {\n            ndk {\n                debugSymbolLevel 'FULL'\n            }\n"));
+            Assert.That(once.Replace("\r\n", "\n"), Does.Contain("        release {\n            ndk {\n                debugSymbolLevel 'FULL'\n            }\n"));
             Assert.That(twice, Is.EqualTo(once));
         }
     }
