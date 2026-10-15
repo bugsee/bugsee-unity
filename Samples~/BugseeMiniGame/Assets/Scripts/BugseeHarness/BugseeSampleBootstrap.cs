@@ -133,6 +133,11 @@ namespace Bugsee.Sample
                         gameObject.AddComponent<OrientationPatternOverlay>();
                     global::Bugsee.Capture.BugseeFrameCapturer.Enable(
                         new global::Bugsee.Capture.BugseeFrameCapturerOptions { LogOrientationProbe = pattern });
+                    // "bugsee_secure_rect" = "l,t,r,b" as fractions of the screen (top-left origin); it is removed after
+                    // "bugsee_secure_rect_remove_s" seconds when that is set. For checking the mask in the recorded video.
+                    var rect = ReadE2EValue("bugsee_secure_rect", "BUGSEE_SECURE_RECT");
+                    if (!string.IsNullOrEmpty(rect))
+                        StartCoroutine(SecureRectDemo(rect, ReadE2EValue("bugsee_secure_rect_remove_s", "BUGSEE_SECURE_RECT_REMOVE_S")));
                 }
 #elif UNITY_IOS && !UNITY_EDITOR
                 var iosOptions = new IOSLaunchOptions
@@ -363,6 +368,26 @@ namespace Bugsee.Sample
                     System.Threading.Thread.Sleep(20000);
 #endif
                     break;
+            }
+        }
+
+        IEnumerator SecureRectDemo(string fractions, string removeAfterSeconds)
+        {
+            yield return new WaitForSeconds(2f);
+            var p = fractions.Split(',');
+            if (p.Length != 4) yield break;
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            var rect = new RectInt(
+                (int)(float.Parse(p[0], inv) * Screen.width), (int)(float.Parse(p[1], inv) * Screen.height),
+                (int)((float.Parse(p[2], inv) - float.Parse(p[0], inv)) * Screen.width),
+                (int)((float.Parse(p[3], inv) - float.Parse(p[1], inv)) * Screen.height));
+            Bugsee.AddSecureRectangle(rect);
+            Debug.Log("[BugseeSample] secure rect added " + rect);
+            if (float.TryParse(removeAfterSeconds, System.Globalization.NumberStyles.Float, inv, out var seconds))
+            {
+                yield return new WaitForSeconds(seconds);
+                Bugsee.RemoveSecureRectangle(rect);
+                Debug.Log("[BugseeSample] secure rect removed");
             }
         }
 

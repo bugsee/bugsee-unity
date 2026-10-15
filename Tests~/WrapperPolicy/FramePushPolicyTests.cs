@@ -232,7 +232,7 @@ namespace Bugsee.WrapperPolicy.Tests
             registry.RemoveOwner("a");
             int liveCount = registry.CopyRects(0, ref live);
             var b = White();
-            FrameRedaction.BlankRequestAndLive(b, W, H, VideoFrameRowOrder.TopDown, atRequest, requestCount, live, liveCount, 4, 4);
+            FrameRedaction.BlankRequestAndLive(b, W, H, VideoFrameRowOrder.TopDown, atRequest, requestCount, 4, 4, live, liveCount, 4, 4);
             Assert.That(Blank(b, 0, 0) && Blank(b, 1, 0), Is.True);
         }
 
@@ -245,7 +245,7 @@ namespace Bugsee.WrapperPolicy.Tests
             registry.Set("late", 0, 0, 2, 4, 3);
             int liveCount = registry.CopyRects(0, ref live);
             var b = White();
-            FrameRedaction.BlankRequestAndLive(b, W, H, VideoFrameRowOrder.TopDown, atRequest, requestCount, live, liveCount, 4, 4);
+            FrameRedaction.BlankRequestAndLive(b, W, H, VideoFrameRowOrder.TopDown, atRequest, requestCount, 4, 4, live, liveCount, 4, 4);
             Assert.That(Blank(b, 3, 2), Is.True);
             Assert.That(Untouched(b, 0, 0), Is.True);
         }
@@ -260,8 +260,33 @@ namespace Bugsee.WrapperPolicy.Tests
             registry.Set("m", 0, 3, 3, 4, 4);
             int liveCount = registry.CopyRects(0, ref live);
             var b = White();
-            FrameRedaction.BlankRequestAndLive(b, W, H, VideoFrameRowOrder.TopDown, atRequest, requestCount, live, liveCount, 4, 4);
+            FrameRedaction.BlankRequestAndLive(b, W, H, VideoFrameRowOrder.TopDown, atRequest, requestCount, 4, 4, live, liveCount, 4, 4);
             Assert.That(Blank(b, 0, 0) && Blank(b, 3, 3), Is.True);
+        }
+
+        [Test]
+        public void Rect_added_after_a_rotation_is_mapped_with_the_new_window_size()
+        {
+            // At request time the window was 8x4 (landscape), after rotating it is 4x8; a rect registered in the new
+            // space at (0,4)-(4,8) is the bottom half of the 4x4 frame, not the area the old 8x4 space would give.
+            var b = White();
+            int[] request = null, live = One(0, 4, 4, 8);
+            FrameRedaction.BlankRequestAndLive(b, W, H, VideoFrameRowOrder.TopDown, request, 0, 8, 4, live, 1, 4, 8);
+            for (int x = 0; x < W; x++)
+            {
+                Assert.That(Untouched(b, x, 0) && Untouched(b, x, 1), Is.True, "x=" + x);
+                Assert.That(Blank(b, x, 2) && Blank(b, x, 3), Is.True, "x=" + x);
+            }
+        }
+
+        [Test]
+        public void Request_rects_keep_the_request_time_window_size_after_a_rotation()
+        {
+            var b = White();
+            int[] request = One(0, 0, 4, 2); // left half of the top half of the old 8x4 window
+            FrameRedaction.BlankRequestAndLive(b, W, H, VideoFrameRowOrder.TopDown, request, 1, 8, 4, null, 0, 4, 8);
+            Assert.That(Blank(b, 0, 0) && Blank(b, 1, 1), Is.True);
+            Assert.That(Untouched(b, 2, 0) && Untouched(b, 0, 2), Is.True);
         }
 
         [Test]

@@ -472,13 +472,16 @@ namespace Bugsee.Capture
 
             // The SDK does not mask pushed frames: blank the registered secure rectangles first. If the row order is
             // unverified the mask could land on mirrored rows and leak the real area, so blank the whole frame instead.
-            // Mask what was secure when the capture started as well as what is secure now.
+            // Mask what was secure when the capture started as well as what is secure now. Live rectangles are in the
+            // window size of now (it may have changed since the request), request-time ones in the size of the request.
+            UpdateNativeSize();
             int count = SecureRectRegistry.Instance.CopyRects(0, ref _rects);
             if (count > 0 || _requestRectCount > 0)
             {
                 if (_rowOrderVerified)
                     FrameRedaction.BlankRequestAndLive(_pixels, _captureW, _captureH, _rowOrder,
-                        _requestRects, _requestRectCount, _rects, count, _requestNativeW, _requestNativeH);
+                        _requestRects, _requestRectCount, _requestNativeW, _requestNativeH,
+                        _rects, count, _nativeW, _nativeH);
                 else
                     FrameRedaction.BlankAll(_pixels, _captureW, _captureH);
             }

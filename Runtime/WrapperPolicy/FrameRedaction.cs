@@ -46,14 +46,16 @@ namespace Bugsee.WrapperPolicy
 
         /// <summary>
         /// Blanks the union of the rectangles registered when the capture started and those registered when the pixels
-        /// arrived, so a rectangle removed or moved in between never unmasks something that was secure at capture time.
+        /// arrived, so a rectangle removed or moved in between never unmasks something that was secure at capture time. Each set is
+        /// scaled with the native window size of its own moment: after a rotation or resize the live rectangles are in the new pixel space.
         /// </summary>
         public static int BlankRequestAndLive(
             byte[] rgba, int width, int height, VideoFrameRowOrder order,
-            int[] requestRects, int requestCount, int[] liveRects, int liveCount, int sourceWidth, int sourceHeight)
+            int[] requestRects, int requestCount, int requestSourceWidth, int requestSourceHeight,
+            int[] liveRects, int liveCount, int liveSourceWidth, int liveSourceHeight)
         {
-            return BlankRects(rgba, width, height, order, requestRects, requestCount, sourceWidth, sourceHeight)
-                + BlankRects(rgba, width, height, order, liveRects, liveCount, sourceWidth, sourceHeight);
+            return BlankRects(rgba, width, height, order, requestRects, requestCount, requestSourceWidth, requestSourceHeight)
+                + BlankRects(rgba, width, height, order, liveRects, liveCount, liveSourceWidth, liveSourceHeight);
         }
 
         /// <summary>Fills the whole frame with opaque black: the fail-closed choice when the row order is unverified and a secure rectangle is registered.</summary>
