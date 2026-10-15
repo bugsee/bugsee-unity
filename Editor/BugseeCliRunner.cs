@@ -16,8 +16,18 @@ namespace Bugsee.Editor
     {
         public const int DefaultTimeoutMs = 5 * 60 * 1000;
 
-        public static string CliPath =>
-            Environment.GetEnvironmentVariable("BUGSEE_CLI_PATH") ?? "bugsee-cli";
+        /// <summary>
+        /// The resolved CLI (see <see cref="BugseeCliLocator"/>), or the bare name for messages when none was found:
+        /// the editor's PATH is often not the shell's, so a bare name alone is not enough.
+        /// </summary>
+        public static string CliPath
+        {
+            get
+            {
+                var resolved = BugseeCliLocator.Resolve();
+                return resolved.Found ? resolved.Path : "bugsee-cli";
+            }
+        }
 
         public static string AppToken =>
             Environment.GetEnvironmentVariable("BUGSEE_APP_TOKEN");
@@ -27,6 +37,11 @@ namespace Bugsee.Editor
         public static int Run(IList<string> args, int timeoutMs = DefaultTimeoutMs)
         {
             if (args == null || args.Count == 0)
+            {
+                return -1;
+            }
+
+            if (BugseeCliLocator.ReportIfMissing())
             {
                 return -1;
             }
