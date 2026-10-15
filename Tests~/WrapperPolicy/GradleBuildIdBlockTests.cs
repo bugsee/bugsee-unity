@@ -104,6 +104,19 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(snippet.Split('\n').Count(l => l.StartsWith("import ")), Is.Zero);
         }
 
+        [Test]
+        public void Annotations_are_fully_qualified_so_a_launcher_import_cannot_shadow_them()
+        {
+            // With Split APKs Unity's launcher imports com.android.build.OutputFile, which broke an unqualified @OutputFile.
+            foreach (var line in GradleBuildIdBlock.Snippet().Split('\n'))
+            {
+                foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(line, @"@(\w+(\.\w+)*)"))
+                {
+                    Assert.That(m.Groups[1].Value, Does.StartWith("org.gradle.api.tasks."), line);
+                }
+            }
+        }
+
         [TestCase("id 'com.android.application' version '7.4.2' apply false", true)]
         [TestCase("id 'com.android.application' version '7.4.0' apply false", true)]
         [TestCase("id 'com.android.application' version '7.3.1' apply false", false)]

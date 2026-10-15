@@ -93,5 +93,77 @@ namespace Bugsee.WrapperPolicy.Tests
             GradleTemplateDefaults.ReadGradleVersion(null, out name, out code);
             Assert.That(code, Is.Null);
         }
+
+        [Test]
+        public void Split_apks_that_all_carry_the_same_id_give_that_id()
+        {
+            var id = AndroidUploadIdentity.SelectAppAssetId(new[] { App, App.ToUpperInvariant() }, out var conflict);
+
+            Assert.That(id, Is.EqualTo(App));
+            Assert.That(conflict, Is.Null);
+        }
+
+        [Test]
+        public void Split_apks_with_different_ids_give_none_and_a_conflict()
+        {
+            var id = AndroidUploadIdentity.SelectAppAssetId(new[] { App, "11111111-1111-1111-1111-111111111111" }, out var conflict);
+
+            Assert.That(id, Is.Null);
+            Assert.That(conflict, Does.Contain("different ids"));
+            Assert.That(AndroidUploadIdentity.Decide(null, id, Synth, conflict).Warning, Does.Contain("different ids"));
+        }
+
+        [Test]
+        public void Split_apks_where_only_some_carry_an_id_warn_but_use_it()
+        {
+            var id = AndroidUploadIdentity.SelectAppAssetId(new[] { App, null }, out var conflict);
+
+            Assert.That(id, Is.EqualTo(App));
+            Assert.That(conflict, Does.Contain("some have none"));
+        }
+
+        [Test]
+        public void No_apks_or_none_with_an_id_is_not_a_conflict()
+        {
+            Assert.That(AndroidUploadIdentity.SelectAppAssetId(new string[0], out var c1), Is.Null);
+            Assert.That(c1, Is.Null);
+            Assert.That(AndroidUploadIdentity.SelectAppAssetId(new string[] { null, "" }, out var c2), Is.Null);
+            Assert.That(c2, Is.Null);
+        }
+
+        [Test]
+        public void Every_elf_upload_carries_the_uuid_the_cli_requires()
+        {
+            foreach (var path in new[] { "/o/symbols.zip", "/o/Il2CppOutputProject/libs" })
+            {
+                var args = AndroidUploadIdentity.ElfArguments(path, "0.1.0", "2", App);
+
+                Assert.That(args, Is.EqualTo(new[]
+                {
+                    "debug-files", "upload", path, "--type", "elf", "--version", "0.1.0", "--build", "2", "--uuid", App,
+                }));
+            }
+        }
+
+        [Test]
+        public void A_build_uuid_that_is_not_a_uuid_is_ignored_with_a_warning()
+        {
+            var id = AndroidUploadIdentity.Decide("my-build-7", App, Synth);
+
+            Assert.That(id.Uuid, Is.EqualTo(App));
+            Assert.That(id.Source, Is.EqualTo(BuildIdSource.AppAsset));
+            Assert.That(id.Warning, Does.Contain("BUGSEE_BUILD_UUID is not a UUID"));
+        }
+
+        [Test]
+        public void A_launcher_that_overrides_the_version_code_per_output_does_not_state_one()
+        {
+            string gradle = "defaultConfig {\n versionCode 2\n versionName '0.1.0'\n}\nandroid.applicationVariants.all { v -> v.outputs.each { it.versionCodeOverride = 3 } }\n";
+
+            GradleTemplateDefaults.ReadGradleVersion(gradle, out var name, out var code);
+
+            Assert.That(name, Is.EqualTo("0.1.0"));
+            Assert.That(code, Is.Null, "the literal is not what each APK carries");
+        }
     }
 }

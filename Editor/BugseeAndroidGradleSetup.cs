@@ -110,26 +110,28 @@ namespace Bugsee.Editor
                     LauncherMarkedGradlePatch());
             }
 
-            if (!apply && Environment.GetEnvironmentVariable("BUGSEE_NO_GRADLE_BUILD_ID") != null)
-            {
-                // Opt-out (the Unity version regenerates only what changed, so a block from an earlier build is removed).
-                patchedLauncher = GradleBuildIdBlock.Remove(patchedLauncher);
-            }
-            else if (!apply && GradleTemplateDefaults.AgpSupportsBuildIdBlock(root))
+            if (!apply && Environment.GetEnvironmentVariable("BUGSEE_NO_GRADLE_BUILD_ID") == null &&
+                GradleTemplateDefaults.AgpSupportsBuildIdBlock(root))
             {
                 patchedLauncher = GradleBuildIdBlock.Apply(patchedLauncher, out BuildIdBlockStatus blockStatus);
-                if (blockStatus != BuildIdBlockStatus.NoAnchor)
+                if (blockStatus == BuildIdBlockStatus.Applied)
                 {
                     Debug.Log(
                         "[Bugsee] Added the build id asset task (assets/bugsee_build_id.properties, the id of the R8 mapping) to " + launcherPath +
                         ": the part of the Bugsee Gradle plugin that works on this AGP. The upload uses whatever id the built app carries.");
                 }
-                else
+                else if (blockStatus == BuildIdBlockStatus.NoAnchor)
                 {
                     Debug.LogWarning(
                         "[Bugsee] No top-level android { } block in " + launcherPath + ", so the build id asset was not added. " +
                         "The SDK derives its own build id and the mapping is uploaded under it.");
                 }
+            }
+            else
+            {
+                // Not applying it (plugin, another AGP, opt-out): the Unity version regenerates only what changed, so a
+                // block an earlier build added (AGP 7.4, then a switch to 8.x) must not stay behind.
+                patchedLauncher = GradleBuildIdBlock.Remove(patchedLauncher);
             }
 
             if (!string.Equals(root, patchedRoot, StringComparison.Ordinal))

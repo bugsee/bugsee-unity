@@ -74,7 +74,7 @@ namespace Bugsee.Editor
             // matches it). Only this build's own file is uploaded, see BuildArtifactChoice.
             var stem = OutputStem(report);
             var allowGeneric = OutputIsDirectory(report);
-            // Keyed by the id the built app reports (read back from the APK or Gradle's output, see
+            // Keyed by the id the built app reports (read back from the built APK/AAB, see
             // BugseeBuildIdentity.ResolveAndroidUploadIdentity), never assumed from what the build script contained.
             var identity = BugseeBuildIdentity.ResolveAndroidUploadIdentity(report);
             // Said only when a mapping is actually uploaded under it (R8 off: nothing to match).
@@ -153,15 +153,7 @@ namespace Bugsee.Editor
                 // --uuid is the BUILD_UUID correlation key (required by CLI); each .so is still
                 // keyed by its own GNU build-id.
                 Debug.Log($"Bugsee: uploading Android symbols zip via {BugseeCliRunner.CliPath}: {bestZip}");
-                var args = new List<string>
-                {
-                    "debug-files", "upload", bestZip,
-                    "--type", "elf",
-                    "--version", version,
-                    "--build", build,
-                };
-                args.Add("--uuid");
-                args.Add(buildUuid);
+                var args = AndroidUploadIdentity.ElfArguments(bestZip, version, build, buildUuid);
                 var exit = BugseeCliRunner.Run(args);
                 if (exit != 0)
                 {
@@ -175,13 +167,7 @@ namespace Bugsee.Editor
             foreach (var dir in elfDirs)
             {
                 Debug.Log($"Bugsee: uploading ELF folder via {BugseeCliRunner.CliPath}: {dir}");
-                var exit = BugseeCliRunner.Run(new[]
-                {
-                    "debug-files", "upload", dir,
-                    "--type", "elf",
-                    "--version", version,
-                    "--build", build,
-                });
+                var exit = BugseeCliRunner.Run(AndroidUploadIdentity.ElfArguments(dir, version, build, buildUuid));
                 if (exit != 0)
                 {
                     Debug.LogWarning(
@@ -345,7 +331,12 @@ namespace Bugsee.Editor
             if (string.IsNullOrEmpty(path)) return null;
             if (OutputIsDirectory(report))
             {
-                return Path.GetFileName(path.TrimEnd('/', '\\'));
+                // Split APKs by target architecture turn "Game.apk" into a folder of that name; Unity still names the
+                // symbols zip after "Game".
+                var folder = Path.GetFileName(path.TrimEnd('/', '\\'));
+                return folder.EndsWith(".apk", StringComparison.OrdinalIgnoreCase) || folder.EndsWith(".aab", StringComparison.OrdinalIgnoreCase)
+                    ? Path.GetFileNameWithoutExtension(folder)
+                    : folder;
             }
 
             return Path.GetFileNameWithoutExtension(path);

@@ -108,13 +108,17 @@ namespace Bugsee.WrapperPolicy
         /// <summary>
         /// The <c>versionCode</c> / <c>versionName</c> of the generated launcher build.gradle's defaultConfig: what the
         /// APK carries, which can differ from Player Settings (split APK version codes, an override). Each is null when
-        /// the file does not state it as a plain literal.
+        /// the file does not state it as a plain literal. The version code is also null when the launcher overrides it per
+        /// output (<c>versionCodeOverride</c>, what Unity adds for split-APK version codes through the
+        /// <c>**SPLITS_VERSION_CODE**</c> token): the literal is then not what each APK carries.
         /// </summary>
         public static void ReadGradleVersion(string launcherGradle, out string versionName, out string versionCode)
         {
             Match code = launcherGradle == null ? Match.Empty : GradleVersionCode.Match(launcherGradle);
             Match name = launcherGradle == null ? Match.Empty : GradleVersionName.Match(launcherGradle);
-            versionCode = code.Success ? code.Groups["v"].Value : null;
+            versionCode = code.Success && launcherGradle.IndexOf("versionCodeOverride", StringComparison.Ordinal) < 0
+                ? code.Groups["v"].Value
+                : null;
             versionName = name.Success ? name.Groups["v"].Value : null;
         }
 

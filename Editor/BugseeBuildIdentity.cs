@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using System;
+using System.Collections.Generic;
 using System.IO;
 using Bugsee.WrapperPolicy;
 using UnityEditor;
@@ -88,23 +89,76 @@ namespace Bugsee.Editor
                 code = gradleCode ?? code;
             }
 
+            var appId = AndroidUploadIdentity.SelectAppAssetId(ReadAppAssetIds(report?.summary.outputPath), out var conflict);
+            if (conflict != null)
+            {
+                Debug.LogWarning("Bugsee: " + conflict);
+            }
+
             return AndroidUploadIdentity.Decide(
                 Environment.GetEnvironmentVariable("BUGSEE_BUILD_UUID"),
-                ReadAppAssetId(report?.summary.outputPath),
-                AndroidBuildUuid.Synthesize(BugseeCliRunner.AppToken, name, code));
+                appId,
+                AndroidBuildUuid.Synthesize(BugseeCliRunner.AppToken, name, code),
+                conflict);
         }
 
-        /// <summary>The id in the APK/AAB's build id asset, or null (no such asset, not an archive, unreadable).</summary>
-        static string ReadAppAssetId(string outputPath)
+        /// <summary>
+        /// The build id asset of each APK/AAB this build produced: the output file itself, or, when Unity wrote one APK
+        /// per ABI (Split APKs by target architecture), where that path is a folder holding them, every APK in it.
+        /// An entry is null when that file carries no id or cannot be read.
+        /// </summary>
+        static List<string> ReadAppAssetIds(string outputPath)
+        {
+            var ids = new List<string>();
+            if (string.IsNullOrEmpty(outputPath))
+            {
+                return ids;
+            }
+
+            try
+            {
+                if (File.Exists(outputPath))
+                {
+                    ids.Add(ReadAppAssetId(outputPath));
+                    return ids;
+                }
+
+                // Split APKs by target architecture: Unity turns the output path into a folder holding one APK per ABI.
+                if (Directory.Exists(outputPath))
+                {
+                    foreach (var apk in Directory.GetFiles(outputPath, "*.apk"))
+                    {
+                        ids.Add(ReadAppAssetId(apk));
+                    }
+
+                    return ids;
+                }
+
+                var dir = Path.GetDirectoryName(Path.GetFullPath(outputPath));
+                var stem = Path.GetFileNameWithoutExtension(outputPath);
+                if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir) && !string.IsNullOrEmpty(stem) &&
+                    outputPath.EndsWith(".apk", StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (var apk in Directory.GetFiles(dir, stem + "*.apk"))
+                    {
+                        ids.Add(ReadAppAssetId(apk));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"Bugsee: could not look for split APKs of {outputPath}: {ex.Message}");
+            }
+
+            return ids;
+        }
+
+        /// <summary>The id in one APK/AAB's build id asset, or null (no such asset, not an archive, unreadable).</summary>
+        static string ReadAppAssetId(string path)
         {
             try
             {
-                if (string.IsNullOrEmpty(outputPath) || !File.Exists(outputPath))
-                {
-                    return null;
-                }
-
-                using (var zip = System.IO.Compression.ZipFile.OpenRead(outputPath))
+                using (var zip = System.IO.Compression.ZipFile.OpenRead(path))
                 {
                     foreach (var entry in zip.Entries)
                     {
@@ -121,7 +175,7 @@ namespace Bugsee.Editor
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"Bugsee: could not read the build id asset from {outputPath}: {ex.Message}");
+                Debug.LogWarning($"Bugsee: could not read the build id asset from {path}: {ex.Message}");
             }
 
             return null;

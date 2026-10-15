@@ -70,7 +70,36 @@ namespace Bugsee.WrapperPolicy
         /// Priority: BUGSEE_BUILD_UUID (an explicit choice), the id the app carries, the id the SDK synthesizes. <paramref name="appAssetId"/> is the one the app reports, so a different BUGSEE_BUILD_UUID is
         /// followed but called out.
         /// </summary>
-        public static UploadIdentity Decide(string env, string appAssetId, string synthesized)
+        public static UploadIdentity Decide(string env, string appAssetId, string synthesized, string appAssetConflict = null)
+        {
+            var result = DecideCore(env, appAssetId, synthesized);
+            if (appAssetConflict != null)
+            {
+                result.Warning = result.Warning == null ? appAssetConflict : appAssetConflict + " " + result.Warning;
+            }
+
+            return result;
+        }
+
+        static UploadIdentity DecideCore(string env, string appAssetId, string synthesized)
+        {
+            string invalidEnv = null;
+            if (!string.IsNullOrWhiteSpace(env) && !IsUuid(env))
+            {
+                invalidEnv = "BUGSEE_BUILD_UUID is not a UUID and is ignored.";
+                env = null;
+            }
+
+            var result = DecideValid(env, appAssetId, synthesized);
+            if (invalidEnv != null)
+            {
+                result.Warning = result.Warning == null ? invalidEnv : invalidEnv + " " + result.Warning;
+            }
+
+            return result;
+        }
+
+        static UploadIdentity DecideValid(string env, string appAssetId, string synthesized)
         {
             string app = IsUuid(appAssetId) ? appAssetId.Trim().ToLowerInvariant() : null;
             if (!string.IsNullOrWhiteSpace(env))
@@ -100,6 +129,64 @@ namespace Bugsee.WrapperPolicy
             }
 
             return new UploadIdentity { Uuid = null, Source = BuildIdSource.None };
+        }
+
+        /// <summary>
+        /// The id of an app delivered as several APKs (Split APKs by target architecture): the one id they all carry. Null
+        /// when none carries one; <paramref name="conflict"/> says so when they differ or only some carry it, because
+        /// one upload cannot match both.
+        /// </summary>
+        public static string SelectAppAssetId(IList<string> idsPerApk, out string conflict)
+        {
+            conflict = null;
+            string first = null;
+            bool anyMissing = false;
+            bool differ = false;
+            foreach (string raw in idsPerApk)
+            {
+                string id = IsUuid(raw) ? raw.Trim().ToLowerInvariant() : null;
+                if (id == null)
+                {
+                    anyMissing = true;
+                }
+                else if (first == null)
+                {
+                    first = id;
+                }
+                else if (first != id)
+                {
+                    differ = true;
+                }
+            }
+
+            if (first == null)
+            {
+                return null;
+            }
+
+            if (differ || anyMissing)
+            {
+                conflict = "The APKs of this build do not all carry the same build id (" +
+                           (differ ? "different ids" : "some have none") + "): crashes from some of them will not match the uploaded mapping.";
+                return differ ? null : first;
+            }
+
+            return first;
+        }
+
+        /// <summary>Arguments of an <c>elf</c> upload of a symbols zip or a directory: <c>--uuid</c> is required by the CLI for this type.</summary>
+        public static List<string> ElfArguments(string path, string version, string build, string uuid)
+        {
+            var args = new List<string>
+            {
+                "debug-files", "upload", path,
+                "--type", "elf",
+                "--version", version,
+                "--build", build,
+            };
+            args.Add("--uuid");
+            args.Add(uuid);
+            return args;
         }
 
         /// <summary>Extra <c>debug-files upload --type proguard</c> arguments: the id (always explicit) and the launcher icon.</summary>

@@ -158,7 +158,7 @@ Failure policy: **never fail the Unity build**. Missing maps/UUIDs/CLI → warn 
 
 Both ship AGP 7.4.2 / Gradle 7.5.1; Gradle plugin 4.0.8 needs AGP 8.6+ / Gradle 8.7+ and fails to load there (checked on 2022.3.62f3: `NoClassDefFoundError: KotlinCompilerPluginSupportPlugin`, then `NoSuchMethodError` on `OutOperationRequest.toListenTo`). What it does for a Unity app, and what stands in for it:
 
-| Gradle plugin function | Unity 6 | Unity 2021.3 / 2022.3 |
+| Gradle plugin function | Unity 6 with AGP 8.6+ (6000.0.84f1 has AGP 9.0.0; an earlier 6000.0 on AGP below 8.6 gets neither the plugin nor the block) | Unity 2021.3 / 2022.3 (AGP 7.4.x) |
 |---|---|---|
 | Declare `bugsee-android`, `bugsee-android-ndk` | Package (Maven injection) | Same |
 | `assets/bugsee_build_id.properties` = UUID of the R8 mapping (the id the SDK reports) | Plugin | The package adds the same asset task to the launcher (`GradleBuildIdBlock`), for AGP 7.4.x only (the one line it was run on; other AGPs below 8.6 get no block). With R8 off, or no block, no asset is written and the SDK derives its own id |
@@ -171,6 +171,8 @@ Both ship AGP 7.4.2 / Gradle 7.5.1; Gradle plugin 4.0.8 needs AGP 8.6+ / Gradle 
 
 The mapping and native uploads of an Android build are keyed by the id the built app reports: the APK/AAB's `bugsee_build_id.properties` if it has one, else the id the SDK derives from token, version name and version code (from the generated launcher, which is what the APK carries; split-APK version-code schemes and `versionNameSuffix` set outside Unity can still differ: set `BUGSEE_BUILD_UUID` then). `BUGSEE_NO_GRADLE_BUILD_ID=1` stops the package adding (and removes an earlier) asset block, to use the derived id only. With the derived id, a rebuild with the same token, version name and code but different R8 output re-uses the id: the server keeps the first mapping uploaded under it, so bump the version code for a minified build whose obfuscation changed.
 
+With Split APKs by target architecture the id is read from every APK; if they disagree (or only some carry one) the build warns and the upload uses the synthesized id. A launcher that overrides the version code per output (`versionCodeOverride`, what Unity's split version-code setting adds) is not trusted for the synthesized id's version code: Player Settings' is used.
+
 Verified with real IL2CPP arm64 builds (staging token set, `bugsee-cli` 0.8.1, uploads to UNITYTA; the generated launcher's Gradle ran AGP 7.4.2 / Gradle 7.5.1 on both):
 
 | Unity | Build | R8 | Result |
@@ -180,10 +182,12 @@ Verified with real IL2CPP arm64 builds (staging token set, `bugsee-cli` 0.8.1, u
 | 2022.3.62f3 | development | on | builds; APK asset id equals the uploaded mapping id |
 | 2022.3.62f3 | release | on | same, plus emulator native, Java and managed crashes symbolicated |
 | 2022.3.62f3 | release | on, `BUGSEE_NO_GRADLE_BUILD_ID=1` | builds; no asset; mapping uploaded under the synthesized id with the warning; the Java crash on an emulator grouped with the symbolicated issue |
+| 2022.3.62f3 | release, Split APKs by target architecture (ARMv7 + ARM64) | on | builds; Unity writes a folder `split.apk/` of per-ABI APKs: both carry the same asset id, equal to the uploaded mapping id; the symbols zip (named after `split`, not `split.apk`) is found and uploaded |
+| 2022.3.62f3 | Export Project | on | builds; no native libraries exist in the export, so no ELF upload (the CLI refuses a directory upload without `--uuid`, which every ELF upload now carries; checked with `bugsee-cli --dry-run`) |
 | 2021.3.45f1 | release | off, development off | builds, as above |
 | 2021.3.45f1 | release, development | on | builds; APK asset id equals the uploaded mapping id |
 
-Not verified: AGP 7.5 to 8.5 (no block is added there by design), Unity 2021.3 releases with AGP below 7.4, AAB output, build with Gradle configuration cache (the block avoids `Task.project` at execution time but was run without it), and Windows/Linux Editors.
+Not verified: AGP 8.0 to 8.5 (no block is added there by design), Unity 2021.3 releases with AGP below 7.4, AAB output, build with Gradle configuration cache (the block avoids `Task.project` at execution time but was run without it), and Windows/Linux Editors.
 
 Releases built without R8 (Minify off, the Unity default) have no mapping and no Java names to restore. If you do minify, add keep rules for the Unity wrapper classes: the package's `bugsee-unity-wrapper.proguard` is not applied by Unity unless you enable Player Settings > Publishing Settings > Custom Proguard File and copy the rules into `Assets/Plugins/Android/proguard-user.txt`, and that file does not yet cover `com.bugsee.unity.UnityManagedException` or `UnityWrapperIdentity` (R8 removes them: `ClassNotFoundException` at launch or on the first managed exception).
 
