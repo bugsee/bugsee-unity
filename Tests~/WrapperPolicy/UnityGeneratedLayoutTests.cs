@@ -5,18 +5,27 @@ using NUnit.Framework;
 namespace Bugsee.WrapperPolicy.Tests
 {
     /// <summary>
-    /// The injector over Gradle files a real Unity 6000.0.84f1 editor generated (Android Gradle project exported,
-    /// not built), minus Bugsee's own edits. Two fixture sets:
+    /// The injector over Gradle files real Unity editors generated (Unity 6000.0.84f1 exported, not built; Unity
+    /// 2022.3.62f3 from an APK build and from Export Project), minus Bugsee's own edits. Fixture sets:
     /// <list type="bullet">
     /// <item>Unity6000.0.84f1-default: a bare project with no custom Gradle templates (AGP 9.0.0, Java 17 launcher).</item>
     /// <item>Unity6000.0.84f1-sample-templates: the BugseeMiniGame sample, whose root and launcher files come from
     /// the CUSTOM base/launcher templates the package writes into Assets/Plugins/Android (AGP 7.4.2, Java 11).</item>
+    /// <item>Unity2022.3.62f3-default: the sample's generated project from an APK build, no custom templates
+    /// (AGP 7.4.2, Gradle 7.5.1, Java 11 launcher; the root build.gradle is the base file). Unity 2022.3's launcher
+    /// has no debugSymbolLevel, so the fixture is without the release <c>ndk { debugSymbolLevel 'FULL' }</c> block the package patches in.</item>
+    /// <item>Unity2022.3.62f3-export: the same project from Export Project. Only unityLibrary differs: it carries
+    /// the IL2CPP/NDK build tasks that Unity runs itself for an APK build.</item>
     /// </list>
-    /// No Unity 2022 LTS export is checked in: that editor could not be installed (#48).
     /// </summary>
     public class UnityGeneratedLayoutTests
     {
-        static readonly string[] Sets = { "Unity6000.0.84f1-default", "Unity6000.0.84f1-sample-templates" };
+        static readonly string[] Sets =
+        {
+            "Unity6000.0.84f1-default", "Unity6000.0.84f1-sample-templates",
+            "Unity2022.3.62f3-default", "Unity2022.3.62f3-export",
+        };
+        static readonly string[] Unity2022Sets = { "Unity2022.3.62f3-default", "Unity2022.3.62f3-export" };
         static readonly string[] Artifacts = { "bugsee-android", "bugsee-android-ndk" };
 
         // The anchors and payloads BugseeAndroidGradleSetup passes to MarkedGradleBlock.Apply.
@@ -147,6 +156,26 @@ namespace Bugsee.WrapperPolicy.Tests
                 Is.GreaterThan(once.IndexOf(LauncherAnchor, System.StringComparison.Ordinal)));
             Assert.That(once.IndexOf("bugsee {", System.StringComparison.Ordinal),
                 Is.LessThan(once.IndexOf("android {", System.StringComparison.Ordinal)));
+        }
+
+        [TestCaseSource(nameof(Unity2022Sets))]
+        public void Unity_2022_3_pins_an_AGP_older_than_the_Bugsee_Gradle_plugin_needs(string set)
+        {
+            string root = Read(set, "root.build.gradle");
+
+            Assert.That(root, Does.Contain("id 'com.android.application' version '7.4.2' apply false"));
+            Assert.That(Read(set, "gradle-wrapper.properties"), Does.Contain("gradle-7.5.1-bin.zip"));
+        }
+
+        [Test]
+        public void Unity_2022_3_export_library_keeps_the_native_build_tasks_the_apk_build_leaves_out()
+        {
+            string apk = Read("Unity2022.3.62f3-default", "unityLibrary.build.gradle");
+            string export = Read("Unity2022.3.62f3-export", "unityLibrary.build.gradle");
+
+            Assert.That(export, Does.Contain("def BuildIl2Cpp("));
+            Assert.That(apk, Does.Not.Contain("def BuildIl2Cpp("));
+            Assert.That(Apply(export).Text, Does.Contain("// bugsee:maven-dependencies begin"));
         }
     }
 }
