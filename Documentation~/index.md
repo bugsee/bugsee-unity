@@ -196,14 +196,14 @@ Releases built without R8 (Minify off, the Unity default) have no mapping and no
 **iOS**
 
 1. Scripting Backend: IL2CPP
-2. Enable source mapping / Script Debugging as needed for LineNumberMappings generation
+2. Nothing to enable for LineNumberMappings: with a Bugsee app token set the package adds `--emit-source-mapping --emit-method-map` to the IL2CPP arguments for the build (restored afterwards, also after a failed build)
 3. Build or archive in Xcode: the Run Script uploads the dSYMs of the configuration being built. Debug has a dSYM only with `DEBUG_INFORMATION_FORMAT = dwarf-with-dsym` (Unity exports Debug as `dwarf`); without one the script prints a warning and uploads no dSYM
 4. Ensure `BUGSEE_APP_TOKEN` is visible to the Xcode Run Script phase
 5. The iOS export sets `DEBUG_INFORMATION_FORMAT=dwarf-with-dsym` on every configuration of Unity-iPhone and UnityFramework, so Debug builds have a dSYM too. `dsymutil` on UnityFramework adds time to each Debug build; to keep Unity's own setting, tick **Bugsee → iOS → Keep Xcode Debug Info Format (skip dSYM force)** or set `BUGSEE_NO_DSYM_FORCE` in the Editor's environment (CI)
 
 ### Script Debugging vs dSYM
 
-- **Script Debugging** / IL2CPP stacktrace information controls managed stack quality and LineNumberMappings generation.
+- **Script Debugging** / IL2CPP stacktrace information controls managed stack quality. LineNumberMappings.json and MethodMap.tsv come from the IL2CPP arguments the package adds for the build when the upload is on (not from Script Debugging); set `BUGSEE_NO_IL2CPP_MAPPING` to turn that and the upload off, or `BUGSEE_IL2CPP_MAPPING` to upload a file you made yourself (Player Settings are then left alone). Adding or removing the token changes the arguments, which makes IL2CPP regenerate its cache once.
 - **dSYM / ELF** carry native line programs used for the primary LNM remap (native PC → C++ file/line → C#).
 - You need **both** the linemap upload and native symbols with line info for viewer C# file/line on native fatals.
 

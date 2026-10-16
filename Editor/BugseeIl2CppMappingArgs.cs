@@ -14,13 +14,19 @@ namespace Bugsee.Editor
     /// (see <see cref="Il2CppMappingArgs"/>): IL2CPP writes neither unless asked, so the il2cpp-linemap upload had no
     /// mapping, or one without MethodMap (mangled names could not be demangled). Runs only when the il2cpp-linemap upload
     /// is on (a Bugsee app token, and BUGSEE_NO_IL2CPP_MAPPING unset). The arguments are added for this build and the
-    /// Player Settings string is restored afterwards; the saved state is kept in Library/Bugsee so an interrupted build
-    /// is restored on the next editor load or build. A string the user changed meanwhile is left alone.
+    /// Player Settings string is restored afterwards (the string is saved in the VCS-tracked ProjectSettings.asset while
+    /// the build runs). The post-build callback is skipped when the pipeline aborts, so a one-shot editor update handler
+    /// restores once no build is running (success, failure or cancel); the saved state in Library/Bugsee also covers an
+    /// editor exit. A string the user changed meanwhile is kept (see <see cref="Il2CppArgsRestorePolicy"/>).
+    /// Unity itself adds --emit-source-mapping on 2022.3 and 6000 when Cloud Diagnostics crash reporting is on; the
+    /// duplicate argument is harmless. Toggling the token changes the arguments and so invalidates the IL2CPP cache.
     /// </summary>
     [InitializeOnLoad]
     sealed class BugseeIl2CppMappingArgs : IPreprocessBuildWithReport, IPostprocessBuildWithReport
     {
         public int callbackOrder => 20;
+
+        const string InProgressKey = "Bugsee.Il2CppArgsBuildInProgress";
 
         [Serializable]
         sealed class PendingRestore
@@ -36,31 +42,55 @@ namespace Bugsee.Editor
         {
             EditorApplication.delayCall += () =>
             {
-                if (!BuildPipeline.isBuildingPlayer)
+                if (!File.Exists(PendingPath))
                 {
-                    ResolvePending();
+                    return;
+                }
+
+                // A domain reload during a build loses the update handler: set it again until the build is over.
+                if (BuildPipeline.isBuildingPlayer || SessionState.GetBool(InProgressKey, false))
+                {
+                    EditorApplication.update += RestoreWhenBuildEnds;
+                }
+                else
+                {
+                    ResolvePending(force: false);
                 }
             };
         }
 
+        static void RestoreWhenBuildEnds()
+        {
+            if (BuildPipeline.isBuildingPlayer)
+            {
+                return;
+            }
+
+            EditorApplication.update -= RestoreWhenBuildEnds;
+            ResolvePending(force: false);
+        }
+
         static bool Applies(BuildReport report)
         {
-            if (report.summary.platform != BuildTarget.Android && report.summary.platform != BuildTarget.iOS)
+            BuildTarget platform = report.summary.platform;
+            if (platform != BuildTarget.Android && platform != BuildTarget.iOS && platform != BuildTarget.tvOS)
             {
                 return false;
             }
 
             // iOS has no Mono backend; Android builds Mono too, which writes no IL2CPP output.
-            bool il2cpp = report.summary.platform == BuildTarget.iOS ||
+            bool il2cpp = platform != BuildTarget.Android ||
                           PlayerSettings.GetScriptingBackend(NamedBuildTarget.Android) == ScriptingImplementation.IL2CPP;
             return il2cpp &&
                    BugseeCliRunner.HasAppToken &&
-                   Environment.GetEnvironmentVariable("BUGSEE_NO_IL2CPP_MAPPING") == null;
+                   Environment.GetEnvironmentVariable("BUGSEE_NO_IL2CPP_MAPPING") == null &&
+                   string.IsNullOrEmpty(Environment.GetEnvironmentVariable("BUGSEE_IL2CPP_MAPPING"));
         }
 
         public void OnPreprocessBuild(BuildReport report)
         {
-            ResolvePending();
+            // A restore left by an earlier build is settled first (no build of this kind is running yet).
+            ResolvePending(force: true);
             if (!Applies(report))
             {
                 return;
@@ -75,16 +105,21 @@ namespace Bugsee.Editor
 
             Directory.CreateDirectory(Path.GetDirectoryName(PendingPath));
             File.WriteAllText(PendingPath, JsonUtility.ToJson(new PendingRestore { previous = previous, applied = applied }));
+            SessionState.SetBool(InProgressKey, true);
             PlayerSettings.SetAdditionalIl2CppArgs(applied);
+            EditorApplication.update -= RestoreWhenBuildEnds;
+            EditorApplication.update += RestoreWhenBuildEnds;
             Debug.Log("[Bugsee] Building with IL2CPP arguments \"" + applied + "\" so the line-number map and MethodMap are written (restored afterwards).");
         }
 
         public void OnPostprocessBuild(BuildReport report)
         {
-            ResolvePending();
+            // Fast path: BuildPipeline.isBuildingPlayer is still true inside this callback.
+            ResolvePending(force: true);
         }
 
-        static void ResolvePending()
+        /// <param name="force">The caller knows no build of ours is running (post-build callback, or before a new build).</param>
+        static void ResolvePending(bool force)
         {
             if (!File.Exists(PendingPath))
             {
@@ -94,20 +129,29 @@ namespace Bugsee.Editor
             try
             {
                 PendingRestore pending = JsonUtility.FromJson<PendingRestore>(File.ReadAllText(PendingPath));
-                if (pending != null && string.Equals(PlayerSettings.GetAdditionalIl2CppArgs(), pending.applied, StringComparison.Ordinal))
+                if (pending != null)
                 {
-                    PlayerSettings.SetAdditionalIl2CppArgs(pending.previous ?? string.Empty);
-                    Debug.Log("[Bugsee] Restored the additional IL2CPP arguments.");
+                    bool unchanged = string.Equals(PlayerSettings.GetAdditionalIl2CppArgs(), pending.applied, StringComparison.Ordinal);
+                    switch (Il2CppArgsRestorePolicy.Decide(!force && BuildPipeline.isBuildingPlayer, unchanged))
+                    {
+                        case SymbolRestoreAction.Skip:
+                            return;
+                        case SymbolRestoreAction.Restore:
+                            PlayerSettings.SetAdditionalIl2CppArgs(pending.previous ?? string.Empty);
+                            Debug.Log("[Bugsee] Restored the additional IL2CPP arguments.");
+                            break;
+                        default:
+                            Debug.Log("[Bugsee] The additional IL2CPP arguments were changed since the Bugsee build added the mapping arguments; keeping your setting.");
+                            break;
+                    }
                 }
             }
             catch (Exception ex)
             {
                 Debug.LogWarning("[Bugsee] Could not restore the additional IL2CPP arguments: " + ex.Message);
             }
-            finally
-            {
-                try { File.Delete(PendingPath); } catch (Exception) { }
-            }
+            SessionState.EraseBool(InProgressKey);
+            try { File.Delete(PendingPath); } catch (Exception) { }
         }
     }
 }

@@ -59,7 +59,8 @@ namespace Bugsee.Editor
                 {
                     Debug.LogWarning(
                         "Bugsee: LineNumberMappings.json not found — skipping il2cpp-linemap upload. " +
-                        "Set BUGSEE_IL2CPP_MAPPING or enable IL2CPP source mapping in Player Settings.");
+                        "The package adds --emit-source-mapping --emit-method-map to the IL2CPP arguments of an IL2CPP build when this upload is on; " +
+                        "check that the scripting backend is IL2CPP, or set BUGSEE_IL2CPP_MAPPING to a LineNumberMappings.json.");
                     return;
                 }
             }
