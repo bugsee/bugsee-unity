@@ -138,7 +138,7 @@ The iOS Run Script uploads for **every** Xcode configuration (Debug included, so
 
 | Artifact | When | CLI type |
 |---|---|---|
-| `LineNumberMappings.json` (+ MethodMap) | Android post-build; iOS at **Xcode build** (every configuration) | `il2cpp-linemap` |
+| `LineNumberMappings.json` + `MethodMap.tsv` (the package passes `--emit-source-mapping --emit-method-map` to IL2CPP for the build) | Android post-build; iOS at **Xcode build** (every configuration) | `il2cpp-linemap` |
 | Android `symbols.zip` / ELF | Android post-build | `elf` |
 | ProGuard / R8 `mapping.txt` | Android post-build when present | `proguard` |
 | iOS `.dSYM` | Xcode Run Script (`Bugsee Upload Symbols`), every configuration | `dsym` |
