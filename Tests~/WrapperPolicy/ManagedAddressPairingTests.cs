@@ -1,3 +1,6 @@
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Text.Json;
 using NUnit.Framework;
 
 namespace Bugsee.WrapperPolicy.Tests
@@ -210,6 +213,63 @@ namespace Bugsee.WrapperPolicy.Tests
                 Assert.That(ManagedAddressPairing.Pair(lines, new ulong[] { 1, 2, 3 }).Length, Is.EqualTo(frames.Length));
                 Assert.That(ManagedFrameAssembly.FromStackTrace(text, new ulong[] { 1, 2, 3 }).Addresses.Length, Is.EqualTo(frames.Length));
             }
+        }
+
+        static string Level(string name, string reason, string extra = "")
+        {
+            return "{\"name\":" + JsonSerializer.Serialize(name) + ",\"reason\":" + JsonSerializer.Serialize(reason) + ",\"frames\":[]" + extra + "}";
+        }
+
+        [Test]
+        public void Chain_round_trips_through_a_real_parser_with_adversarial_strings()
+        {
+            var nasty = new[] { "q\"uote", "back\\slash", "brace } and { and [ ]", "ctl\u0001", "ls\u2028ps\u2029", "emoji \ud83d\ude00", "\"cause\":{\"x\":1}" };
+            var levels = new List<string>();
+            foreach (var n in nasty) levels.Add(Level("E", n));
+            var doc = JsonDocument.Parse(ManagedPayloadJson.Chain(levels));
+            var node = doc.RootElement;
+            foreach (var n in nasty)
+            {
+                Assert.That(node.GetProperty("reason").GetString(), Is.EqualTo(n));
+                if (!node.TryGetProperty("cause", out var next)) { Assert.That(n, Is.EqualTo(nasty[nasty.Length - 1])); break; }
+                node = next;
+            }
+        }
+
+        [Test]
+        public void An_existing_cause_member_is_replaced_not_duplicated()
+        {
+            var withCause = Level("A", "r", ",\"cause\":{\"name\":\"old\",\"frames\":[{\"t\":\"}\"}]}");
+            var json = ManagedPayloadJson.Chain(new[] { withCause, Level("B", "r2") });
+            var doc = JsonDocument.Parse(json);
+            Assert.That(doc.RootElement.GetProperty("cause").GetProperty("name").GetString(), Is.EqualTo("B"));
+            Assert.That(json.Split(new[] { "\"cause\"" }, System.StringSplitOptions.None).Length, Is.EqualTo(2));
+            Assert.That(ManagedPayloadJson.StripCause(withCause), Is.EqualTo(Level("A", "r")));
+            Assert.That(ManagedPayloadJson.StripCause("{\"cause\":null,\"a\":1}"), Is.EqualTo("{\"a\":1}"));
+        }
+
+        [Test]
+        public void Chain_is_linear_for_a_thousand_levels()
+        {
+            var levels = new List<string>();
+            for (var i = 0; i < 1000; i++) levels.Add(Level("E" + i, new string('x', 700)));
+            var sw = Stopwatch.StartNew();
+            var json = ManagedPayloadJson.Chain(levels);
+            sw.Stop();
+            Assert.That(sw.ElapsedMilliseconds, Is.LessThan(500));
+            Assert.That(json.Length, Is.LessThan(levels.Count * 800 + 100));
+        }
+
+        [Test]
+        public void Node_budget_caps_the_payload_and_counts_siblings()
+        {
+            var b = new ManagedNodeBudget();
+            var taken = 0;
+            for (var i = 0; i < 1000 && b.TryTake(); i++) taken++;
+            Assert.That(taken, Is.EqualTo(ManagedNodeBudget.DefaultMax));
+            Assert.That(b.IsExhausted, Is.True);
+            Assert.That(b.TryTake(), Is.False);
+            Assert.That(new ManagedNodeBudget(0).TryTake(), Is.False);
         }
     }
 }

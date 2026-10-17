@@ -131,12 +131,14 @@ namespace Bugsee.Internal
             return Sha256Hex(sb.ToString());
         }
 
+        public const int MaxPayloadNodes = ManagedNodeBudget.DefaultMax;
+
         public static Payload FromException(Exception exception)
         {
-            return FromException(exception, depth: 0);
+            return FromException(exception, 0, new ManagedNodeBudget());
         }
 
-        static Payload FromException(Exception exception, int depth)
+        static Payload FromException(Exception exception, int depth, ManagedNodeBudget budget)
         {
             if (exception == null || depth > 8)
             {
@@ -146,7 +148,12 @@ namespace Bugsee.Internal
             // Prefer a concrete inner over Aggregate wrapper when possible.
             if (exception is AggregateException ae && ae.InnerExceptions != null && ae.InnerExceptions.Count == 1)
             {
-                return FromException(ae.InnerExceptions[0], depth);
+                return FromException(ae.InnerExceptions[0], depth, budget);
+            }
+
+            if (!budget.TryTake())
+            {
+                return null;
             }
 
             // Exception.StackTrace is formatted anew on every read: read it once.
@@ -190,7 +197,8 @@ namespace Bugsee.Internal
                 Payload tail = null;
                 for (var i = 0; i < agg.InnerExceptions.Count; i++)
                 {
-                    var nested = FromException(agg.InnerExceptions[i], depth + 1);
+                    if (budget.IsExhausted) break;
+                    var nested = FromException(agg.InnerExceptions[i], depth + 1, budget);
                     if (nested == null) continue;
                     if (head == null)
                     {
@@ -209,7 +217,7 @@ namespace Bugsee.Internal
             }
             else if (exception.InnerException != null)
             {
-                cause = FromException(exception.InnerException, depth + 1);
+                cause = FromException(exception.InnerException, depth + 1, budget);
             }
 
             return new Payload
@@ -252,17 +260,21 @@ namespace Bugsee.Internal
                 return "{}";
             }
             // JsonUtility drops the self-typed `cause` field, so each level is serialized without it and the
-            // cause chain is spliced in (see ManagedPayloadJson).
-            var self = new Payload
+            // levels are joined once (see ManagedPayloadJson).
+            var levels = new List<string>();
+            for (var p = payload; p != null && levels.Count < MaxPayloadNodes; p = p.cause)
             {
-                name = payload.name,
-                reason = payload.reason,
-                frames = payload.frames,
-                signature = payload.signature,
-                buildID = payload.buildID,
-                moduleUUID = payload.moduleUUID,
-            };
-            return ManagedPayloadJson.WithCause(JsonUtility.ToJson(self), payload.cause != null ? ToJson(payload.cause) : null);
+                levels.Add(JsonUtility.ToJson(new Payload
+                {
+                    name = p.name,
+                    reason = p.reason,
+                    frames = p.frames,
+                    signature = p.signature,
+                    buildID = p.buildID,
+                    moduleUUID = p.moduleUUID,
+                }));
+            }
+            return ManagedPayloadJson.Chain(levels);
         }
 
         static string Sha256Hex(string input)
