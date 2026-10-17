@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#include <TargetConditionals.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -199,6 +200,23 @@ static void BugseeBridgeApplyExtendedReportDict(BugseeExtendedReport *report, NS
     }
 }
 
+// bugsee-cocoa files nothing for logException, logUnhandledException and logError on the simulator and Mac Catalyst
+// (its simulator slices ship without the crash reporter), so a managed exception there silently goes nowhere. Said once
+// per process, at the first launch.
+static int gSimulatorWarningCount = 0;
+
+static void BugseeWarnIfExceptionsNotFiled(void)
+{
+#if TARGET_OS_SIMULATOR || TARGET_OS_MACCATALYST
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        gSimulatorWarningCount++;
+        NSLog(@"[Bugsee] Running on the iOS simulator or Mac Catalyst: managed exceptions (logged, handled and unhandled) "
+              @"are not filed here, only from a device. Test exception reporting on a physical device.");
+    });
+#endif
+}
+
 extern "C" {
 
 typedef void (*BugseeLaunchStartedFn)(int token, int success);
@@ -214,6 +232,7 @@ static BugseeStartedBlock BugseeStartedBlockFor(int token, BugseeLaunchStartedFn
 // dictionary goes through +[BugseeOptions optionsFrom:] because only the BugseeOptions variant takes a block.
 void _bugsee_launch(const char *appToken, const char *optionsJson, int startedToken, BugseeLaunchStartedFn started)
 {
+    BugseeWarnIfExceptionsNotFiled();
     NSDictionary *dict = nil;
     if (optionsJson) {
         id parsed = BugseeDeserializeJson(optionsJson);
@@ -232,6 +251,7 @@ void _bugsee_launch(const char *appToken, const char *optionsJson, int startedTo
 
 void _bugsee_relaunch(const char *optionsJson, int startedToken, BugseeLaunchStartedFn started)
 {
+    BugseeWarnIfExceptionsNotFiled();
     NSDictionary *dict = nil;
     if (optionsJson) {
         id parsed = BugseeDeserializeJson(optionsJson);
@@ -356,6 +376,7 @@ void _bugsee_logException(const char *name, const char *reason, bool handled, co
 }
 
 #if BUGSEE_UNITY_TESTS
+int _bugsee_test_simulator_warning_count(void) { return gSimulatorWarningCount; }
 const char *_bugsee_test_exception_options(const char *optionsJson)
 {
     BugseeExceptionLoggingOptions *o = BugseeExceptionOptionsFrom(optionsJson);

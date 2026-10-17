@@ -93,6 +93,8 @@ Residual races after the hard deadline (the native SDKs cannot cancel an operati
 | Android hang | `DetectAndReportHang` | hang report |
 | Android ANR / OOM | `DetectAndReportExitNotResponding` / `DetectAndReportExitLowMemory` | exit reports |
 
+**iOS simulator and Mac Catalyst:** managed exceptions, handled (`LogException`, `Debug.LogException`) and unhandled (`LogUnhandledException`, `AppDomain.UnhandledException`), are **not reported** there; they are reported only from a device. The native SDK's simulator build ships without the crash reporter and files nothing for them (this is intentional, bugsee-cocoa#241). The iOS wrapper logs a one-time `[Bugsee] Running on the iOS simulator or Mac Catalyst` warning at the first launch. Validate exception reporting on a physical device.
+
 Managed exceptions use the **UnityManagedException** JSON-in-reason contract (`name`, `reason`, `frames[{trace,address?}]`, `signature`, `buildID`, `moduleUUID`, optional nested `cause`).
 
 ### How to get C# class + file:line on `LogException`

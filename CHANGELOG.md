@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Managed exceptions (handled and unhandled) are not reported from the iOS simulator or Mac Catalyst, only from devices: the native SDK files nothing for them there. The iOS bridge now logs a one-time warning at the first launch on a simulator build, and the docs say so.
+
 - Documented the secure-rectangle origin: `AddSecureRectangle`/`RemoveSecureRectangle` take a top-left-origin pixel rectangle on both platforms and pass it to native unchanged (no flip from Unity's bottom-left screen space). Behaviour is unchanged; the docs now include a conversion helper.
 
 - Documented what `Launch`, `Relaunch`, `Stop` and `DeleteCollectedDataOnDevice` guarantee on each platform, the 10 s soft and 60 s hard deadlines, and the residual races: iOS, a late native stop (or wipe) can still affect a `Launch` made after the 60 s give-up; Android, a late launch/relaunch result after the hard reset is ignored when no stop intent is set, a queued `Launch` can run while a native delete is still wiping after the reset, and a delete handed to native can finish after its 10 s warning.
