@@ -14,8 +14,11 @@ namespace Bugsee.Editor
     /// <c>com.android.application</c>, not unityLibrary). Plugin 4.x needs AGP 8.6+ / Gradle 8.7+.
     ///
     /// The package creates no Gradle template. It patches the Gradle project Unity generated (the hook
-    /// <see cref="BugseeAndroidMavenDependencies"/> already uses): the plugin goes into the root
-    /// <c>plugins {}</c> block and the launcher <c>build.gradle</c>, only when the generated root file pins AGP 8.6+.
+    /// <see cref="BugseeAndroidMavenDependencies"/> already uses): the plugin goes into the root and the launcher build
+    /// file, only when the generated root file pins AGP 8.6+ (read through <c>gradle/libs.versions.toml</c> when the root
+    /// names AGP by alias). Unity generates Groovy files; a project that converted them to the Kotlin DSL is patched
+    /// in Kotlin syntax. The edits are <see cref="GradlePluginInjection"/> (unit-tested); a layout it cannot edit safely
+    /// is left alone with a warning that names the lines to add.
     /// So there is no file in Assets to go stale across Unity upgrades, and the AGP/Gradle versions are always the
     /// installed Unity's own. A project's own custom templates are patched the same way as Unity's defaults.
     /// Earlier package versions wrote hand-made AGP 7.4.2 templates into Assets/Plugins/Android; those exact files
@@ -77,54 +80,82 @@ namespace Bugsee.Editor
 
         static void PatchGeneratedProject(string projectRoot)
         {
-            string rootPath = Path.Combine(projectRoot, "build.gradle");
-            string launcherPath = Path.Combine(projectRoot, "launcher", "build.gradle");
-            if (!File.Exists(rootPath) || !File.Exists(launcherPath))
+            // Unity generates Groovy files; a project that converts them to the Kotlin DSL in its own post-generate step
+            // leaves .kts files here (Groovy first when both exist, as in BugseeAndroidMavenDependencies).
+            string rootPath = BugseeAndroidMavenDependencies.FindGradleFile(projectRoot, "build");
+            string launcherPath = BugseeAndroidMavenDependencies.FindGradleFile(Path.Combine(projectRoot, "launcher"), "build");
+            if (rootPath == null || launcherPath == null)
             {
                 Debug.LogWarning(
-                    "[Bugsee] No Groovy root/launcher build.gradle in the generated Gradle project; " +
-                    "the Bugsee Gradle plugin is not applied.");
+                    "[Bugsee] No root or launcher build.gradle(.kts) in the generated Gradle project (" + projectRoot + "); " +
+                    "the Bugsee Gradle plugin is not applied. " + GradlePluginInjection.ManualInstructions(GradleMavenInjection.GradleDsl.Groovy, GradlePluginVersion));
                 return;
             }
 
+            var rootDsl = GradleMavenInjection.DslForFile(rootPath);
+            var launcherDsl = GradleMavenInjection.DslForFile(launcherPath);
             string root = File.ReadAllText(rootPath);
             string launcher = File.ReadAllText(launcherPath);
+            string catalogPath = Path.Combine(projectRoot, "gradle", "libs.versions.toml");
+            string catalog = File.Exists(catalogPath) ? File.ReadAllText(catalogPath) : null;
 
             // 2021.3's template sets no native symbol level; 6000.x sets it from Player Settings and is left alone.
-            string patchedLauncher = GradleTemplateDefaults.EnsureReleaseDebugSymbols(launcher);
+            string patchedLauncher = GradleTemplateDefaults.EnsureReleaseDebugSymbols(launcher, launcherDsl);
 
             bool force = EditorPrefs.GetBool(PrefForcePlugin, false);
-            bool apply = force || GradleTemplateDefaults.AgpMeetsBugseePlugin(root);
+            bool wanted = force || GradleTemplateDefaults.AgpMeetsBugseePlugin(root, catalog);
             string patchedRoot = root;
-            if (apply)
+            bool applied = false;
+            GradlePluginInjection.PluginPatch patch = null;
+            if (wanted)
             {
-                patchedRoot = TryApplyMarkedGradle(
-                    rootPath,
-                    root,
-                    "plugins {",
-                    $"    id 'com.bugsee.android.gradle' version '{GradlePluginVersion}' apply false // bugsee:gradle-plugin");
-                patchedLauncher = TryApplyMarkedGradle(
-                    launcherPath,
-                    patchedLauncher,
-                    "apply plugin: 'com.android.application'",
-                    LauncherMarkedGradlePatch());
+                patch = GradlePluginInjection.Apply(root, rootDsl, patchedLauncher, launcherDsl, GradlePluginVersion);
+                patchedRoot = patch.Root;
+                patchedLauncher = patch.Launcher;
+                applied = patch.Applied;
+                if (patch.Message != null)
+                {
+                    if (patch.IsWarning)
+                    {
+                        Debug.LogWarning("[Bugsee] " + patch.Message);
+                    }
+                    else
+                    {
+                        Debug.Log("[Bugsee] " + patch.Message);
+                    }
+                }
+
+                if (applied && patch.NeedsPluginRepository)
+                {
+                    EnsurePluginRepositories(projectRoot);
+                }
             }
 
-            if (!apply && Environment.GetEnvironmentVariable("BUGSEE_NO_GRADLE_BUILD_ID") == null &&
-                GradleTemplateDefaults.AgpSupportsBuildIdBlock(root))
+            if (!applied && Environment.GetEnvironmentVariable("BUGSEE_NO_GRADLE_BUILD_ID") == null &&
+                GradleTemplateDefaults.AgpSupportsBuildIdBlock(root, catalog))
             {
-                patchedLauncher = GradleBuildIdBlock.Apply(patchedLauncher, out BuildIdBlockStatus blockStatus);
-                if (blockStatus == BuildIdBlockStatus.Applied)
+                if (launcherDsl == GradleMavenInjection.GradleDsl.Kotlin)
                 {
+                    // The block is Groovy code; it cannot be spliced into a Kotlin script.
                     Debug.Log(
-                        "[Bugsee] Added the build id asset task (assets/bugsee_build_id.properties, the id of the R8 mapping) to " + launcherPath +
-                        ": the part of the Bugsee Gradle plugin that works on this AGP. The upload uses whatever id the built app carries.");
-                }
-                else if (blockStatus == BuildIdBlockStatus.NoAnchor)
-                {
-                    Debug.LogWarning(
-                        "[Bugsee] No top-level android { } block in " + launcherPath + ", so the build id asset was not added. " +
+                        "[Bugsee] " + launcherPath + " is a Kotlin DSL file, so the build id asset task (a Groovy script) was not added. " +
                         "The SDK derives its own build id and the mapping is uploaded under it.");
+                }
+                else
+                {
+                    patchedLauncher = GradleBuildIdBlock.Apply(patchedLauncher, out BuildIdBlockStatus blockStatus);
+                    if (blockStatus == BuildIdBlockStatus.Applied)
+                    {
+                        Debug.Log(
+                            "[Bugsee] Added the build id asset task (assets/bugsee_build_id.properties, the id of the R8 mapping) to " + launcherPath +
+                            ": the part of the Bugsee Gradle plugin that works on this AGP. The upload uses whatever id the built app carries.");
+                    }
+                    else if (blockStatus == BuildIdBlockStatus.NoAnchor)
+                    {
+                        Debug.LogWarning(
+                            "[Bugsee] No top-level android { } block in " + launcherPath + ", so the build id asset was not added. " +
+                            "The SDK derives its own build id and the mapping is uploaded under it.");
+                    }
                 }
             }
             else
@@ -144,26 +175,48 @@ namespace Bugsee.Editor
                 File.WriteAllText(launcherPath, patchedLauncher);
             }
 
-            if (apply)
+            if (applied)
             {
                 Debug.Log(
                     $"[Bugsee] Launcher applies com.bugsee.android.gradle:{GradlePluginVersion}. " +
                     $"Runtime AAR pin {SdkVersion} with NDK enabled.");
             }
-            else if (!GradleTemplateDefaults.TryGetAgpVersion(root, out _, out _))
+            else if (wanted)
+            {
+                // GradlePluginInjection already said why and what to add.
+            }
+            else if (!GradleTemplateDefaults.TryGetAgpVersion(root, catalog, out int agpMajor, out int agpMinor))
             {
                 Debug.LogWarning(
-                    "[Bugsee] Could not read the Android Gradle plugin version from " + rootPath + " (a version catalog alias(...) or a " +
-                    "computed version), so the Bugsee Gradle plugin was NOT applied. bugsee-android + bugsee-android-ndk are still declared. " +
-                    "If the project uses AGP 8.6+, add \"id 'com.bugsee.android.gradle' version '" + GradlePluginVersion +
-                    "' apply false\" to the root plugins block and \"apply plugin: 'com.bugsee.android.gradle'\" to the launcher, " +
-                    "or enable Bugsee > Android > Force Gradle Plugin On Older AGP (unsupported) to apply it regardless of the detected version.");
+                    "[Bugsee] Could not read the Android Gradle plugin version from " + rootPath + " (a version catalog other than " +
+                    "gradle/libs.versions.toml, or a computed version), so the Bugsee Gradle plugin was NOT applied. " +
+                    "bugsee-android + bugsee-android-ndk are still declared. If the project uses AGP 8.6+, " +
+                    GradlePluginInjection.ManualInstructions(launcherDsl, GradlePluginVersion) +
+                    " Or enable Bugsee > Android > Force Gradle Plugin On Older AGP (unsupported) to apply it regardless of the detected version.");
             }
             else
             {
                 Debug.Log(
-                    "[Bugsee] Bugsee Gradle plugin not applied: it needs AGP 8.6+ and the generated project pins an older version. " +
-                    "bugsee-android + bugsee-android-ndk are still declared in the generated Gradle project.");
+                    "[Bugsee] Bugsee Gradle plugin not applied: it needs AGP 8.6+ and the generated project pins " + agpMajor + "." + agpMinor +
+                    ". bugsee-android + bugsee-android-ndk are still declared in the generated Gradle project.");
+            }
+        }
+
+        /// <summary>The plugin resolves from Maven Central; a settings file that lists plugin repositories without it gets it added.</summary>
+        static void EnsurePluginRepositories(string projectRoot)
+        {
+            string settingsPath = BugseeAndroidMavenDependencies.FindGradleFile(projectRoot, "settings");
+            if (settingsPath == null)
+            {
+                return;
+            }
+
+            string settings = File.ReadAllText(settingsPath);
+            var status = GradleMavenInjection.EnsurePluginRepositories(settings, out string updated);
+            if (status == GradleMavenInjection.RepositoryStatus.Inserted)
+            {
+                File.WriteAllText(settingsPath, updated);
+                Debug.Log("[Bugsee] Added mavenCentral() to the pluginManagement repositories in " + settingsPath + " so the Bugsee Gradle plugin resolves.");
             }
         }
 
@@ -276,30 +329,6 @@ namespace Bugsee.Editor
             Debug.LogWarning(
                 "[Bugsee] Removed " + asset + ": " + reason + ". Unity's default template is used and the Bugsee Gradle plugin is " +
                 "patched into the generated project. A copy is in " + backup + ".");
-        }
-
-        internal static string LauncherMarkedGradlePatch()
-        {
-            return "apply plugin: 'com.bugsee.android.gradle' // bugsee:gradle-plugin\n\n" +
-                   "bugsee {\n" +
-                   "    // App token is supplied at runtime via Bugsee.Launch.\n" +
-                   "    ndk {\n" +
-                   "        enabled = true\n" +
-                   "    }\n" +
-                   "} // bugsee:gradle-ndk";
-        }
-
-        static string TryApplyMarkedGradle(string path, string text, string anchorLine, string markedLine)
-        {
-            try
-            {
-                return MarkedGradleBlock.Apply(text, anchorLine, markedLine);
-            }
-            catch (InvalidOperationException ex)
-            {
-                Debug.LogWarning("[Bugsee] Could not add the Bugsee Gradle plugin to " + path + ": " + ex.Message);
-                return text;
-            }
         }
 
         static string ToAssetPath(string absolutePath)
