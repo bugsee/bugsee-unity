@@ -245,20 +245,42 @@ namespace Bugsee.WrapperPolicy.Tests
         static readonly string CatastrophicInput = new string('a', 26) + "!";
 
         [Test]
-        public void A_runaway_filter_regex_is_cut_off_at_the_timeout_and_read_as_matching()
+        public void A_runaway_filter_regex_is_cut_off_at_the_timeout_and_read_as_not_serving_Bugsee()
         {
-            // Documented fallback: a regex that cannot be evaluated in time counts as matching. The real answer is "no match", so the
+            // A regex that cannot be evaluated (in time, or at all) reads so that the filter does NOT serve Bugsee: an include filter does not
+            // match (Central is added), an exclude filter does (nothing is claimed). The real answer is "no match", so the exclude
             // result differs from an unbounded evaluation, which is what proves the timeout is applied; no clock is read.
-            Assert.That(GradleMavenInjection.RegexMatches(Catastrophic, CatastrophicInput, TimeSpan.FromMilliseconds(20)), Is.True);
+            var short20 = TimeSpan.FromMilliseconds(20);
+            Assert.That(GradleMavenInjection.RegexMatches(Catastrophic, CatastrophicInput, short20, matchOnTimeout: true), Is.True);
+            Assert.That(GradleMavenInjection.RegexMatches(Catastrophic, CatastrophicInput, short20, matchOnTimeout: false), Is.False);
+            Assert.That(GradleMavenInjection.FilterMatches("GroupByRegex", Catastrophic, null, CatastrophicInput, "x", matchOnTimeout: true, timeout: short20), Is.True,
+                "exclude side");
+            Assert.That(GradleMavenInjection.FilterMatches("GroupByRegex", Catastrophic, null, CatastrophicInput, "x", matchOnTimeout: false, timeout: short20), Is.False,
+                "include side");
         }
 
         [Test]
         public void A_regex_that_finishes_inside_the_timeout_gives_its_real_answer()
         {
-            Assert.That(GradleMavenInjection.RegexMatches("com\\.bugsee", "com.bugsee", TimeSpan.FromMilliseconds(20)), Is.True);
-            Assert.That(GradleMavenInjection.RegexMatches("com\\.bugsee", "org.other", TimeSpan.FromMilliseconds(20)), Is.False);
-            Assert.That(GradleMavenInjection.RegexMatches("(unclosed", "com.bugsee", TimeSpan.FromMilliseconds(20)), Is.True, "an invalid pattern also reads as matching");
+            var short20 = TimeSpan.FromMilliseconds(20);
+            Assert.That(GradleMavenInjection.RegexMatches("com\\.bugsee", "com.bugsee", short20, matchOnTimeout: false), Is.True);
+            Assert.That(GradleMavenInjection.RegexMatches("com\\.bugsee", "org.other", short20, matchOnTimeout: true), Is.False);
+            Assert.That(GradleMavenInjection.RegexMatches("(unclosed", "com.bugsee", short20, matchOnTimeout: false), Is.False, "an invalid include pattern does not serve Bugsee");
+            Assert.That(GradleMavenInjection.RegexMatches("(unclosed", "com.bugsee", short20, matchOnTimeout: true), Is.True, "an invalid exclude pattern may exclude it");
         }
+
+        [TestCase("includeGroupByRegex('(unclosed')")]
+        [TestCase("includeGroup('com.bugsee'); excludeGroupByRegex('(unclosed')")]
+        public void An_unreadable_filter_is_not_known_to_serve_Bugsee_so_Central_is_appended(string filter)
+        {
+            string settings = ProxyFilter(filter);
+
+            Assert.That(Plugins(settings, out string updated), Is.EqualTo(GradleMavenInjection.RepositoryStatus.Inserted), filter);
+            Assert.That(updated, Does.Contain("mavenCentral() // bugsee:maven-repository"));
+        }
+
+        static string ProxyFilter(string filter) =>
+            Settings("        maven {\n            url 'https://nexus.corp/proxy'\n            content { " + filter + " }\n        }\n");
 
         [Test]
         public void The_filters_use_a_half_second_limit()

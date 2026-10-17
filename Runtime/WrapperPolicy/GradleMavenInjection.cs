@@ -1535,7 +1535,7 @@ namespace Bugsee.WrapperPolicy
                 {
                     foreach (string[] target in targets)
                     {
-                        if (FilterMatches(kind, first, second, target[0], target[1]))
+                        if (FilterMatches(kind, first, second, target[0], target[1], matchOnTimeout: true))
                         {
                             return false;
                         }
@@ -1547,7 +1547,7 @@ namespace Bugsee.WrapperPolicy
                 anyInclude = true;
                 for (int t = 0; t < targets.Length; t++)
                 {
-                    covered[t] |= FilterMatches(kind, first, second, targets[t][0], targets[t][1]);
+                    covered[t] |= FilterMatches(kind, first, second, targets[t][0], targets[t][1], matchOnTimeout: false);
                 }
             }
 
@@ -1560,7 +1560,8 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>True when a content-filter call (kind, first and optional second string) matches the Bugsee group and <paramref name="artifact"/>; an unparsable regex matches.</summary>
-        static bool FilterMatches(string kind, string first, string second, string bugseeGroup, string artifact)
+        internal static bool FilterMatches(
+            string kind, string first, string second, string bugseeGroup, string artifact, bool matchOnTimeout, TimeSpan? timeout = null)
         {
             switch (kind)
             {
@@ -1569,11 +1570,11 @@ namespace Bugsee.WrapperPolicy
                 case "GroupAndSubgroups":
                     return bugseeGroup == first || bugseeGroup.StartsWith(first + ".", StringComparison.Ordinal);
                 case "GroupByRegex":
-                    return RegexMatches(first, bugseeGroup);
+                    return RegexMatches(first, bugseeGroup, timeout ?? FilterRegexTimeout, matchOnTimeout);
                 case "Module":
                     return first == bugseeGroup && second == artifact;
                 case "ModuleByRegex":
-                    return RegexMatches(first, bugseeGroup) && second != null && RegexMatches(second, artifact);
+                    return RegexMatches(first, bugseeGroup, timeout ?? FilterRegexTimeout, matchOnTimeout) && second != null && RegexMatches(second, artifact, timeout ?? FilterRegexTimeout, matchOnTimeout);
                 default:
                     return true;
             }
@@ -1582,12 +1583,12 @@ namespace Bugsee.WrapperPolicy
         /// <summary>How long one project-written filter regex may run (a runaway one is read as matching).</summary>
         internal static readonly TimeSpan FilterRegexTimeout = TimeSpan.FromMilliseconds(500);
 
-        static bool RegexMatches(string pattern, string input)
-        {
-            return RegexMatches(pattern, input, FilterRegexTimeout);
-        }
-
-        internal static bool RegexMatches(string pattern, string input, TimeSpan timeout)
+        /// <summary>
+        /// Whether a filter regex matches. An unparsable pattern, or one that does not finish in time, reads as
+        /// <paramref name="matchOnTimeout"/>, chosen so that the filter is always taken as NOT serving Bugsee: false for an include
+        /// filter (it may not cover the Bugsee groups), true for an exclude filter (it may exclude them).
+        /// </summary>
+        internal static bool RegexMatches(string pattern, string input, TimeSpan timeout, bool matchOnTimeout)
         {
             try
             {
@@ -1597,11 +1598,11 @@ namespace Bugsee.WrapperPolicy
             }
             catch (ArgumentException)
             {
-                return true;
+                return matchOnTimeout;
             }
             catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
             {
-                return true;
+                return matchOnTimeout;
             }
         }
 
