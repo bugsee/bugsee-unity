@@ -85,6 +85,14 @@ namespace Bugsee.Sample
                 }
                 catch (Exception ex) { Report("5c-aggregate-two", ex); }
 
+                // 20 inner exceptions: the payload carries at most 8 nodes.
+                var many = new System.Collections.Generic.List<Exception>();
+                for (var i = 0; i < 20; i++)
+                {
+                    try { Throw("5d-" + i); } catch (Exception inner) { many.Add(inner); }
+                }
+                try { throw new AggregateException("many", many); } catch (Exception ex) { Report("5d-aggregate-20", ex); }
+
                 var first = ThrowInFirstPart();
                 if (first.Exception != null) Report("6a-first-part-task-exception", first.Exception.InnerException);
                 try { await first; } catch (Exception ex) { Report("6b-first-part-awaited", ex); }
@@ -115,6 +123,9 @@ namespace Bugsee.Sample
                 var payload = ManagedExceptionPayload.FromException(ex);
                 var json = ManagedExceptionPayload.ToJson(payload);
                 Debug.Log("[SHAPE] " + name + " json cause=" + json.Contains("\"cause\":{") + " bytes=" + json.Length);
+                // The whole JSON in chunks (logcat cuts long lines), to be parsed offline.
+                for (var c = 0; c * 700 < json.Length; c++)
+                    Debug.Log("[SHAPE] " + name + " jsonchunk" + c + "=" + json.Substring(c * 700, Math.Min(700, json.Length - c * 700)));
                 var level = 0;
                 for (var p = payload; p != null; p = p.cause, level++)
                 {
