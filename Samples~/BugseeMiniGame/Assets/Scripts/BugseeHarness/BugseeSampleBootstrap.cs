@@ -196,6 +196,10 @@ namespace Bugsee.Sample
                 };
                 if (!string.IsNullOrWhiteSpace(endpointOverride))
                     iosOptions.Endpoint = endpointOverride.Trim();
+                // BUGSEE_E2E_CRASH_HANDLER = 1 (BSD) | 2 (Mach) | 3 (Mach + BSD): the SDK option the draft IOSLaunchOptions.CrashHandlerType sends.
+                var crashHandler = Environment.GetEnvironmentVariable("BUGSEE_E2E_CRASH_HANDLER");
+                if (int.TryParse(crashHandler, out var handlerType))
+                    iosOptions.SetCustomOption("com.bugsee.option.capture.crash-handler-type", handlerType);
                 Bugsee.Launch(appToken, iosOptions);
 #else
                 // Editor / unsupported: still call Launch (no-op bridge).
@@ -210,7 +214,7 @@ namespace Bugsee.Sample
                 // Scenarios via Android intent extra "bugsee_e2e" (default: sig).
                 //   handled | unhandled | crash | sig | pipeline | native | abort | fatal | java | hang | upload | none
                 // Armed when an endpoint override is set or the extra is given explicitly.
-                var requestedScenario = ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO");
+                var requestedScenario = _skipE2EArming ? "none" : ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO");
                 var launchRun = ReadE2EValue("bugsee_e2e_run", "BUGSEE_E2E_RUN");
                 if (requestedScenario != null && !ConsumeE2ERun(launchRun))
                 {
@@ -219,7 +223,11 @@ namespace Bugsee.Sample
                     Debug.Log("[BugseeSample] E2E run " + launchRun + " already ran (restart after a crash): arming nothing");
                     requestedScenario = "none";
                 }
-                if (!string.IsNullOrWhiteSpace(endpointOverride) || requestedScenario != null)
+                if (_skipE2EArming)
+                {
+                    // A relaunch from a scenario that is already running arms nothing.
+                }
+                else if (!string.IsNullOrWhiteSpace(endpointOverride) || requestedScenario != null)
                 {
                     _e2eScenario = requestedScenario ?? "sig";
                     _e2eArmed = true;
@@ -242,6 +250,7 @@ namespace Bugsee.Sample
         // call site (`PumpPendingE2EFire`) so identical throws share the same
         // Update() IL offset — worker error signatures hash cleaned frame traces.
         string _e2eScenario;
+        bool _skipE2EArming;
         string _e2eRunId;
         bool _e2eArmed;
         int _e2ePhase;
@@ -306,6 +315,17 @@ namespace Bugsee.Sample
                     {
                         _e2ePhase = 99;
                         _pendingE2EFire = "K:" + _e2eScenario;
+                    }
+                    break;
+                case "labels":
+                case "logerror":
+                case "sigraise":
+                case "nullderef":
+                case "delete":
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 99;
+                        _pendingE2EFire = "X:" + _e2eScenario + "-" + _e2eRunId;
                     }
                     break;
                 case "upload":
@@ -411,11 +431,74 @@ namespace Bugsee.Sample
                     // The report bundle carries every transaction, which is what the backend check reads back.
                     if (_e2eScenario == "apm") Bugsee.Upload("apm-e2e-" + marker, "APM e2e run " + marker);
                     break;
+                case 'X':
+                    FireExtra(marker);
+                    break;
                 case 'L':
                     SetStatus("E2E manual upload " + marker);
                     Bugsee.Upload(marker, "uploaded by the e2e harness");
                     break;
             }
+        }
+
+#if UNITY_IOS && !UNITY_EDITOR
+        [System.Runtime.InteropServices.DllImport("__Internal")]
+        static extern int raise(int signal);
+#endif
+
+        // Device validation scenarios for the iOS 7.0.0-beta7 SDK: labels, Unity LogError, a raised signal, delete.
+        void FireExtra(string marker)
+        {
+            SetStatus("E2E extra " + marker);
+            if (marker.StartsWith("labels"))
+            {
+                try { throw new InvalidOperationException("E2E labels " + marker); }
+                catch (Exception ex)
+                {
+                    Bugsee.LogException(ex, new Dictionary<string, object>
+                    {
+                        { "labels", new List<string> { "checkout", "beta7" } },
+                        { "includeVideo", false },
+                        { "mergingRules", new Dictionary<string, object> { { "k", 1 } } },
+                        { "skipFrames", 1 },
+                    });
+                }
+            }
+            else if (marker.StartsWith("logerror"))
+            {
+                Debug.LogError("E2E LogError " + marker);
+            }
+            else if (marker.StartsWith("sigraise"))
+            {
+#if UNITY_IOS && !UNITY_EDITOR
+                raise(11);
+#endif
+            }
+            else if (marker.StartsWith("nullderef"))
+            {
+                // A raw write to an unmapped address: a hardware fault (EXC_BAD_ACCESS), not a raised signal.
+                System.Runtime.InteropServices.Marshal.WriteInt32((IntPtr)16, 1);
+            }
+            else if (marker.StartsWith("delete"))
+            {
+                StartCoroutine(DeleteThenLaunch(marker));
+            }
+        }
+
+        IEnumerator DeleteThenLaunch(string marker)
+        {
+            Debug.Log("[BugseeSample] delete: calling DeleteCollectedDataOnDevice, status=" + Bugsee.Status);
+            Bugsee.DeleteCollectedDataOnDevice();
+            yield return new WaitForSeconds(8f);
+            Debug.Log("[BugseeSample] delete: after 8 s status=" + Bugsee.Status + " launched=" + Bugsee.IsLaunched);
+            // The relaunch reads the scenario again; without a run id it would arm `delete` once more.
+            _e2eArmed = false;
+            _e2eScenario = "none";
+            _skipE2EArming = true;
+            LaunchSdk();
+            yield return new WaitForSeconds(8f);
+            Debug.Log("[BugseeSample] delete: relaunched status=" + Bugsee.Status + " launched=" + Bugsee.IsLaunched);
+            Bugsee.Upload("e2e-after-delete-" + marker, "report after the delete and a launch");
         }
 
         void FireProcessFailure(string scenario)

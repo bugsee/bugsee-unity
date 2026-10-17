@@ -658,8 +658,21 @@ namespace Bugsee.Platform.IOS
             IDictionary<string, object> options = null)
         {
             if (payload == null) return;
+            WarnOnceAboutDroppedOptions(options);
             _bugsee_logException("UnityManagedException", ManagedExceptionPayload.ToJson(payload), true,
                 ToJsonObject(options));
+        }
+
+        static bool _warnedDroppedOptions;
+
+        // The native bridge drops these keys on iOS SDK 7.0.0-beta7 and later; say so once, in the Unity console too.
+        static void WarnOnceAboutDroppedOptions(IDictionary<string, object> options)
+        {
+            if (_warnedDroppedOptions || _bugsee_exception_options_dropped() == 0) return;
+            var dropped = ExceptionOptionDrops.PresentIn(options);
+            if (dropped.Count == 0) return;
+            _warnedDroppedOptions = true;
+            Debug.LogWarning("[Bugsee] " + ExceptionOptionDrops.Message(dropped));
         }
 
         public void LogUnhandledExceptionPayload(
@@ -892,6 +905,7 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_event(string name, string paramsJson);
         [DllImport("__Internal")] static extern void _bugsee_logException(string name, string reason, bool handled, string optionsJson);
         [DllImport("__Internal")] static extern void _bugsee_test_crash();
+        [DllImport("__Internal")] static extern int _bugsee_exception_options_dropped();
         [DllImport("__Internal")] static extern void _bugsee_show_report(string summary, string description, int severity, string labelsJson);
         [DllImport("__Internal")] static extern void _bugsee_upload(string summary, string description, int severity, string labelsJson);
         [DllImport("__Internal")] static extern void _bugsee_notify(string title, string body, int severity, string fieldsJson, int urgent);
