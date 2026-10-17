@@ -65,6 +65,13 @@ namespace Bugsee.WrapperPolicy
 
             /// <summary><c>mavenCentral()</c> was inserted.</summary>
             Inserted,
+
+            /// <summary>
+            /// The outer block declares repositories in a shape that could not be read (everything on one line, or
+            /// <c>repositories {</c> on the line of the outer brace). Only reported for plugin repositories, where a wrong guess
+            /// fails the build.
+            /// </summary>
+            Unparsable,
         }
 
         public sealed class DependencyResult
@@ -216,6 +223,47 @@ namespace Bugsee.WrapperPolicy
         /// </summary>
         public static RepositoryStatus EnsureMavenCentral(string gradle, string outerBlock, out string updated)
         {
+            return EnsureRepository(gradle, outerBlock, RepoKind.Dependencies, out updated);
+        }
+
+        /// <summary>What a repositories block has to serve: the SDK artifacts, the Gradle plugin's marker and jar, or the plugin jar as a buildscript classpath entry.</summary>
+        internal enum RepoKind
+        {
+            Dependencies,
+            Plugins,
+            Classpath,
+        }
+
+        // (group, artifact) pairs a repository has to serve, per kind.
+        static readonly string[][] DependencyTargets =
+        {
+            new[] { "com.bugsee", CoreArtifactToken },
+            new[] { "com.bugsee", NdkArtifactToken },
+        };
+
+        static readonly string[][] PluginTargets =
+        {
+            new[] { "com.bugsee.android.gradle", "com.bugsee.android.gradle.gradle.plugin" },
+            new[] { "com.bugsee", "bugsee-android-gradle-plugin" },
+        };
+
+        static readonly string[][] ClasspathTargets =
+        {
+            new[] { "com.bugsee", "bugsee-android-gradle-plugin" },
+        };
+
+        static string[][] TargetsFor(RepoKind kind)
+        {
+            return kind == RepoKind.Dependencies ? DependencyTargets : kind == RepoKind.Plugins ? PluginTargets : ClasspathTargets;
+        }
+
+        /// <summary>
+        /// The shared edit behind <see cref="EnsureMavenCentral"/> and <see cref="EnsurePluginRepositories"/>. Dependency repositories get the
+        /// marked <c>mavenCentral()</c> first (as always); plugin and classpath repositories get it LAST, so a repository the project
+        /// deliberately lists ahead of Central (a corporate mirror) keeps resolving everything else first.
+        /// </summary>
+        internal static RepositoryStatus EnsureRepository(string gradle, string outerBlock, RepoKind kind, out string updated)
+        {
             if (gradle == null)
             {
                 throw new ArgumentNullException(nameof(gradle));
@@ -226,6 +274,7 @@ namespace Bugsee.WrapperPolicy
                 throw new ArgumentException("Outer block name is required.", nameof(outerBlock));
             }
 
+            bool last = kind != RepoKind.Dependencies;
             updated = gradle;
             var lines = SplitLines(gradle, out string newline);
             int outerOpen = FindTopLevelBlockOpen(lines, outerBlock);
@@ -238,13 +287,62 @@ namespace Bugsee.WrapperPolicy
             int reposOpen = FindChildBlockOpen(lines, outerOpen, outerClose, "repositories");
             if (reposOpen < 0)
             {
+                if (kind == RepoKind.Plugins && MentionsRepositories(lines, outerOpen, outerClose))
+                {
+                    return RepositoryStatus.Unparsable;
+                }
+
                 return RepositoryStatus.BlockNotFound;
             }
 
             int reposClose = FindBlockClose(lines, reposOpen);
-            if (BlockDeclaresMavenCentral(lines, reposOpen, reposClose))
+            if (BlockDeclaresMavenCentral(lines, reposOpen, reposClose, kind))
             {
                 return RepositoryStatus.AlreadyPresent;
+            }
+
+            if (last)
+            {
+                // Appended after the last entry. The closing brace is found by lexing (a comment after it may hold braces), and an
+                // entry that shares the closing line (`google() }`) is split off it so the new line really comes last.
+                var code = CodeLines(lines);
+                int depthAtStart = 0;
+                for (int i = reposOpen; i < reposClose; i++)
+                {
+                    depthAtStart += BraceDelta(code[i]);
+                }
+
+                int closeAt = CloseBraceIndex(lines[reposClose], reposOpen == reposClose ? 0 : depthAtStart);
+                if (closeAt < 0)
+                {
+                    return RepositoryStatus.BlockNotFound;
+                }
+
+                string before = lines[reposClose].Substring(0, closeAt);
+                string rest = lines[reposClose].Substring(closeAt);
+                if (reposOpen == reposClose)
+                {
+                    lines[reposClose] = before.TrimEnd() + "; mavenCentral() " + rest;
+                }
+                else
+                {
+                    string entryIndent = LeadingWhitespace(lines[reposOpen]) + "    ";
+                    var tail = new List<string>();
+                    if (before.Trim().Length > 0)
+                    {
+                        lines[reposClose] = before.TrimEnd();
+                        tail.Add(entryIndent + "mavenCentral() " + RepositoryMarker);
+                        tail.Add(LeadingWhitespace(lines[reposOpen]) + rest);
+                        lines.InsertRange(reposClose + 1, tail);
+                    }
+                    else
+                    {
+                        lines.Insert(reposClose, entryIndent + "mavenCentral() " + RepositoryMarker);
+                    }
+                }
+
+                updated = JoinLines(lines, newline, gradle.EndsWith("\n", StringComparison.Ordinal));
+                return RepositoryStatus.Inserted;
             }
 
             if (reposOpen == reposClose)
@@ -267,6 +365,93 @@ namespace Bugsee.WrapperPolicy
             lines.Insert(reposOpen + 1, indent + "mavenCentral() " + RepositoryMarker);
             updated = JoinLines(lines, newline, gradle.EndsWith("\n", StringComparison.Ordinal));
             return RepositoryStatus.Inserted;
+        }
+
+        static bool MentionsRepositories(List<string> lines, int open, int close)
+        {
+            var code = CodeLines(lines);
+            for (int i = open; i <= close && i < code.Count; i++)
+            {
+                if (System.Text.RegularExpressions.Regex.IsMatch(code[i], @"\brepositories\s*\{"))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Index in <paramref name="line"/> of the <c>}</c> that brings the brace depth, starting at <paramref name="depthAtStart"/>,
+        /// to zero (strings and comments skipped; a first line starts at zero and its opening brace raises the depth); -1 when none.
+        /// </summary>
+        static int CloseBraceIndex(string line, int depthAtStart)
+        {
+            int depth = depthAtStart;
+            char quote = '\0';
+            for (int i = 0; i < line.Length; i++)
+            {
+                char c = line[i];
+                if (quote != '\0')
+                {
+                    if (c == '\\')
+                    {
+                        i++;
+                    }
+                    else if (c == quote)
+                    {
+                        quote = '\0';
+                    }
+
+                    continue;
+                }
+
+                if (c == '/' && i + 1 < line.Length && line[i + 1] == '/')
+                {
+                    return -1;
+                }
+
+                if (c == '/' && i + 1 < line.Length && line[i + 1] == '*')
+                {
+                    int end = line.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                    if (end < 0)
+                    {
+                        return -1;
+                    }
+
+                    i = end + 1;
+                    continue;
+                }
+
+                if (c == '\'' || c == '"')
+                {
+                    quote = c;
+                }
+                else if (c == '{')
+                {
+                    depth++;
+                }
+                else if (c == '}' && --depth == 0)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        /// <summary>
+        /// Makes sure the plugin repositories of a settings file can serve the Bugsee Gradle plugin: when the top-level
+        /// <c>pluginManagement</c> block declares a <c>repositories</c> block that serves neither through the plugin portal
+        /// (<c>gradlePluginPortal()</c> or its <c>plugins.gradle.org/m2</c> URL), Maven Central, nor a repository whose
+        /// content filter explicitly includes the Bugsee groups, <c>mavenCentral()</c> is appended after the existing entries.
+        /// <see cref="RepositoryStatus.BlockNotFound"/> means the settings declare no plugin repositories, so Gradle's
+        /// default (the plugin portal) applies; <see cref="RepositoryStatus.Unparsable"/> means they declare some in a shape
+        /// that could not be read, so nothing can be said about whether the plugin resolves.
+        /// </summary>
+        public static RepositoryStatus EnsurePluginRepositories(string settings, out string updated)
+        {
+            return EnsureRepository(settings, "pluginManagement", RepoKind.Plugins, out updated);
         }
 
         /// <summary>
@@ -369,7 +554,7 @@ namespace Bugsee.WrapperPolicy
             return result;
         }
 
-        static bool TryAddRepositoriesBlock(string gradle, string outerBlock, out string updated)
+        internal static bool TryAddRepositoriesBlock(string gradle, string outerBlock, out string updated)
         {
             updated = gradle;
             var lines = SplitLines(gradle, out string newline);
@@ -1136,8 +1321,10 @@ namespace Bugsee.WrapperPolicy
         /// them. A filter that cannot be read (version filters, unparsable regex) counts as not serving them, and the
         /// caller then adds the marked unfiltered <c>mavenCentral()</c> (Gradle unions repositories).
         /// </summary>
-        static bool BlockDeclaresMavenCentral(List<string> lines, int open, int close)
+        static bool BlockDeclaresMavenCentral(List<string> lines, int open, int close, RepoKind kind = RepoKind.Dependencies)
         {
+            string[][] targets = TargetsFor(kind);
+            bool plugins = kind != RepoKind.Dependencies;
             var lex = new LexState();
             var text = new StringBuilder();
             for (int i = open; i <= close; i++)
@@ -1176,17 +1363,51 @@ namespace Bugsee.WrapperPolicy
                 int openAt = m.Index + m.Length - 1;
                 int closeAt = MatchingClose(masked, openAt);
                 string body = closeAt < 0 ? block.Substring(openAt + 1) : block.Substring(openAt + 1, closeAt - openAt - 1);
-                if ((body.IndexOf("repo.maven.apache.org/maven2", StringComparison.Ordinal) >= 0 ||
-                     body.IndexOf("repo1.maven.org/maven2", StringComparison.Ordinal) >= 0) &&
-                    ContentFilterServesBugsee(body, "content") &&
-                    ExclusiveFiltersServe(block, exclusive, m.Index))
+                bool central = body.IndexOf("repo.maven.apache.org/maven2", StringComparison.Ordinal) >= 0 ||
+                               body.IndexOf("repo1.maven.org/maven2", StringComparison.Ordinal) >= 0 ||
+                               (plugins && body.IndexOf("plugins.gradle.org/m2", StringComparison.Ordinal) >= 0);
+                // A proxy at another URL counts only when its content filter explicitly claims the Bugsee groups.
+                bool claimed = plugins && !central && ContentFilterServesBugsee(body, "content", targets, requireInclude: true);
+                if ((central || claimed) && ContentFilterServesBugsee(body, "content", targets) &&
+                    ExclusiveFiltersServe(block, exclusive, m.Index, targets))
+                {
+                    return true;
+                }
+            }
+
+            // Kotlin shorthands: maven("https://...") and maven(url = "...") [{ content { } }].
+            foreach (System.Text.RegularExpressions.Match m in
+                     System.Text.RegularExpressions.Regex.Matches(masked, @"\bmaven\s*\("))
+            {
+                int openParen = m.Index + m.Length - 1;
+                int closeParen = MatchingClose(block, openParen);
+                if (closeParen < 0)
+                {
+                    continue;
+                }
+
+                string args = block.Substring(openParen + 1, closeParen - openParen - 1);
+                string body = args;
+                int after = SkipWhitespace(block, closeParen + 1);
+                if (after < block.Length && block[after] == '{')
+                {
+                    int closeBrace = MatchingClose(masked, after);
+                    body += " " + (closeBrace < 0 ? block.Substring(after + 1) : block.Substring(after + 1, closeBrace - after - 1));
+                }
+
+                bool central = args.IndexOf("repo.maven.apache.org/maven2", StringComparison.Ordinal) >= 0 ||
+                               args.IndexOf("repo1.maven.org/maven2", StringComparison.Ordinal) >= 0 ||
+                               (plugins && args.IndexOf("plugins.gradle.org/m2", StringComparison.Ordinal) >= 0);
+                bool claimed = plugins && !central && ContentFilterServesBugsee(body, "content", targets, requireInclude: true);
+                if ((central || claimed) && ContentFilterServesBugsee(body, "content", targets) &&
+                    ExclusiveFiltersServe(block, exclusive, m.Index, targets))
                 {
                     return true;
                 }
             }
 
             foreach (System.Text.RegularExpressions.Match m in
-                     System.Text.RegularExpressions.Regex.Matches(masked, @"\bmavenCentral\b"))
+                     System.Text.RegularExpressions.Regex.Matches(masked, plugins ? @"\b(?:mavenCentral|gradlePluginPortal)\b" : @"\bmavenCentral\b"))
             {
                 int p = SkipWhitespace(block, m.Index + m.Length);
                 if (p < block.Length && block[p] == '(')
@@ -1205,10 +1426,10 @@ namespace Bugsee.WrapperPolicy
                 {
                     int closeBrace = MatchingClose(masked, p);
                     string body = closeBrace < 0 ? block.Substring(p + 1) : block.Substring(p + 1, closeBrace - p - 1);
-                    served = ContentFilterServesBugsee(body, "content");
+                    served = ContentFilterServesBugsee(body, "content", targets);
                 }
 
-                served &= ExclusiveFiltersServe(block, exclusive, m.Index);
+                served &= ExclusiveFiltersServe(block, exclusive, m.Index, targets);
                 if (served)
                 {
                     return true;
@@ -1219,13 +1440,13 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>True unless the repository at <paramref name="index"/> sits in an <c>exclusiveContent</c> whose <c>filter</c> does not serve Bugsee.</summary>
-        static bool ExclusiveFiltersServe(string block, List<int[]> exclusive, int index)
+        static bool ExclusiveFiltersServe(string block, List<int[]> exclusive, int index, string[][] targets)
         {
             foreach (int[] span in exclusive)
             {
                 if (index > span[0] && index < span[1] &&
                     !ContentFilterServesBugsee(
-                        block.Substring(span[0] + 1, span[1] - span[0] - 1), "filter", requireFilter: true))
+                        block.Substring(span[0] + 1, span[1] - span[0] - 1), "filter", targets, requireFilter: true))
                 {
                     return false;
                 }
@@ -1283,12 +1504,12 @@ namespace Bugsee.WrapperPolicy
             return p;
         }
 
-        static bool ContentFilterServesBugsee(string body, string filterName, bool requireFilter = false)
+        static bool ContentFilterServesBugsee(string body, string filterName, string[][] targets, bool requireFilter = false, bool requireInclude = false)
         {
             var content = System.Text.RegularExpressions.Regex.Match(body, @"\b" + filterName + @"\s*\{");
             if (!content.Success)
             {
-                return !requireFilter;
+                return !requireFilter && !requireInclude;
             }
 
             int open = content.Index + content.Length - 1;
@@ -1296,8 +1517,7 @@ namespace Bugsee.WrapperPolicy
             string filter = closeBrace < 0 ? body.Substring(open + 1) : body.Substring(open + 1, closeBrace - open - 1);
 
             bool anyInclude = false;
-            bool coversCore = false;
-            bool coversNdk = false;
+            var covered = new bool[targets.Length];
             foreach (System.Text.RegularExpressions.Match call in System.Text.RegularExpressions.Regex.Matches(
                          filter,
                          @"\b(include|exclude)(Group|GroupAndSubgroups|GroupByRegex|Module|ModuleByRegex|Version|VersionByRegex)\s*\(?\s*(['""])(.*?)\3(?:\s*,\s*(['""])(.*?)\5)?"))
@@ -1311,30 +1531,37 @@ namespace Bugsee.WrapperPolicy
                     return false;
                 }
 
-                bool core = FilterMatches(kind, first, second, CoreArtifactToken);
-                bool ndk = FilterMatches(kind, first, second, NdkArtifactToken);
                 if (!include)
                 {
-                    if (core || ndk)
+                    foreach (string[] target in targets)
                     {
-                        return false;
+                        if (FilterMatches(kind, first, second, target[0], target[1]))
+                        {
+                            return false;
+                        }
                     }
 
                     continue;
                 }
 
                 anyInclude = true;
-                coversCore |= core;
-                coversNdk |= ndk;
+                for (int t = 0; t < targets.Length; t++)
+                {
+                    covered[t] |= FilterMatches(kind, first, second, targets[t][0], targets[t][1]);
+                }
             }
 
-            return !anyInclude || (coversCore && coversNdk);
+            if (!anyInclude)
+            {
+                return !requireInclude;
+            }
+
+            return Array.TrueForAll(covered, c => c);
         }
 
         /// <summary>True when a content-filter call (kind, first and optional second string) matches the Bugsee group and <paramref name="artifact"/>; an unparsable regex matches.</summary>
-        static bool FilterMatches(string kind, string first, string second, string artifact)
+        static bool FilterMatches(string kind, string first, string second, string bugseeGroup, string artifact)
         {
-            const string bugseeGroup = "com.bugsee";
             switch (kind)
             {
                 case "Group":
@@ -1352,20 +1579,47 @@ namespace Bugsee.WrapperPolicy
             }
         }
 
+        /// <summary>How long one project-written filter regex may run (a runaway one is read as matching).</summary>
+        internal static readonly TimeSpan FilterRegexTimeout = TimeSpan.FromMilliseconds(500);
+
         static bool RegexMatches(string pattern, string input)
+        {
+            return RegexMatches(pattern, input, FilterRegexTimeout);
+        }
+
+        internal static bool RegexMatches(string pattern, string input, TimeSpan timeout)
         {
             try
             {
-                return System.Text.RegularExpressions.Regex.IsMatch(input, "^(?:" + pattern + ")$");
+                // A project's own filter regex runs inside the Editor build step: bound it.
+                return System.Text.RegularExpressions.Regex.IsMatch(
+                    input, "^(?:" + pattern + ")$", System.Text.RegularExpressions.RegexOptions.None, timeout);
             }
             catch (ArgumentException)
             {
                 return true;
             }
+            catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
+            {
+                return true;
+            }
+        }
+
+        /// <summary>Each line reduced to its code (comments removed, string contents kept, their braces blanked), for structure scans.</summary>
+        internal static List<string> CodeLines(List<string> lines)
+        {
+            var state = new LexState();
+            var code = new List<string>(lines.Count);
+            foreach (string line in lines)
+            {
+                code.Add(StripComments(line, ref state));
+            }
+
+            return code;
         }
 
         /// <summary>Index of the line opening a depth-0 <c>name {</c> block, or -1.</summary>
-        static int FindTopLevelBlockOpen(List<string> lines, string name)
+        internal static int FindTopLevelBlockOpen(List<string> lines, string name)
         {
             int depth = 0;
             var inBlockComment = new LexState();
@@ -1385,7 +1639,7 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>Index of the line opening <c>name {</c> directly inside the block opened at <paramref name="open"/>.</summary>
-        static int FindChildBlockOpen(List<string> lines, int open, int close, string name)
+        internal static int FindChildBlockOpen(List<string> lines, int open, int close, string name)
         {
             var inBlockComment = new LexState();
             int depth = BraceDelta(StripComments(lines[open], ref inBlockComment));
@@ -1405,7 +1659,7 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>Index of the line where the block opened at <paramref name="open"/> closes.</summary>
-        static int FindBlockClose(List<string> lines, int open)
+        internal static int FindBlockClose(List<string> lines, int open)
         {
             int depth = 0;
             var inBlockComment = new LexState();
@@ -1433,7 +1687,7 @@ namespace Bugsee.WrapperPolicy
             return rest.StartsWith("{", StringComparison.Ordinal);
         }
 
-        static bool IsSingleLineBlock(string line)
+        internal static bool IsSingleLineBlock(string line)
         {
             var inBlockComment = new LexState();
             string code = StripComments(line, ref inBlockComment);
@@ -1441,7 +1695,7 @@ namespace Bugsee.WrapperPolicy
             return open >= 0 && code.IndexOf('}', open) >= 0;
         }
 
-        static int BraceDelta(string code)
+        internal static int BraceDelta(string code)
         {
             int delta = 0;
             foreach (char c in code)
@@ -1470,11 +1724,11 @@ namespace Bugsee.WrapperPolicy
             for (int i = 0; i < line.Length; i++)
             {
                 char c = line[i];
-                if (inBlockComment.RawString)
+                if (inBlockComment.RawQuote != '\0')
                 {
-                    if (c == '"' && i + 2 < line.Length && line[i + 1] == '"' && line[i + 2] == '"')
+                    if (c == inBlockComment.RawQuote && i + 2 < line.Length && line[i + 1] == c && line[i + 2] == c)
                     {
-                        inBlockComment.RawString = false;
+                        inBlockComment.RawQuote = '\0';
                         i += 2;
                     }
 
@@ -1522,10 +1776,10 @@ namespace Bugsee.WrapperPolicy
                     continue;
                 }
 
-                // Kotlin / Groovy triple-quoted strings can span lines: their content is dropped like a comment.
-                if (quote == '\0' && c == '"' && i + 2 < line.Length && line[i + 1] == '"' && line[i + 2] == '"')
+                // Kotlin / Groovy triple-quoted strings (Groovy also with three single quotes) can span lines: their content is dropped like a comment.
+                if (quote == '\0' && (c == '"' || c == '\'') && i + 2 < line.Length && line[i + 1] == c && line[i + 2] == c)
                 {
-                    inBlockComment.RawString = true;
+                    inBlockComment.RawQuote = c;
                     i += 2;
                     continue;
                 }
@@ -1541,15 +1795,15 @@ namespace Bugsee.WrapperPolicy
             return sb.ToString();
         }
 
-        /// <summary>Lexer state carried across lines: inside a block comment or a triple-quoted string.</summary>
+        /// <summary>Lexer state carried across lines: inside a block comment or a triple-quoted string (<see cref="RawQuote"/> is its quote character).</summary>
         struct LexState
         {
             public bool Block;
-            public bool RawString;
+            public char RawQuote;
 
             public static implicit operator bool(LexState state)
             {
-                return state.Block || state.RawString;
+                return state.Block || state.RawQuote != '\0';
             }
         }
 
@@ -1563,7 +1817,7 @@ namespace Bugsee.WrapperPolicy
             return char.IsLetterOrDigit(c) || c == '.' || c == '-' || c == '_' || c == '+';
         }
 
-        static string LeadingWhitespace(string line)
+        internal static string LeadingWhitespace(string line)
         {
             int i = 0;
             while (i < line.Length && (line[i] == ' ' || line[i] == '\t'))

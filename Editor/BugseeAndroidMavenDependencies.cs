@@ -61,7 +61,7 @@ namespace Bugsee.Editor
         static readonly string[] GradleExtensions = { ".gradle", ".gradle.kts" };
 
         /// <summary>The existing <c>name.gradle</c> or <c>name.gradle.kts</c> in <paramref name="dir"/> (Groovy first), or null.</summary>
-        static string FindGradleFile(string dir, string name)
+        internal static string FindGradleFile(string dir, string name)
         {
             foreach (string extension in GradleExtensions)
             {
