@@ -329,6 +329,14 @@ namespace Bugsee.Sample
                         _pendingE2EFire = "M:" + _e2eRunId;
                     }
                     break;
+                case "shapes":
+                    // Throw shapes that change frame/IP pairing (see ShapesE2E).
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 99;
+                        _pendingE2EFire = "S:shapes";
+                    }
+                    break;
                 case "none":
                     // Recovery launch: arm nothing, only let the SDK recover and upload what the last run left.
                     break;
@@ -376,6 +384,9 @@ namespace Bugsee.Sample
                     break;
                 case 'P':
                     FirePipelineLogException(marker);
+                    break;
+                case 'S':
+                    ShapesE2E.Run(this);
                     break;
                 case 'C':
                     SetStatus("E2E native TestCrash");

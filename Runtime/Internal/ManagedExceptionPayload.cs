@@ -251,8 +251,18 @@ namespace Bugsee.Internal
             {
                 return "{}";
             }
-            // JsonUtility serializes nested [Serializable] cause.
-            return JsonUtility.ToJson(payload);
+            // JsonUtility drops the self-typed `cause` field, so each level is serialized without it and the
+            // cause chain is spliced in (see ManagedPayloadJson).
+            var self = new Payload
+            {
+                name = payload.name,
+                reason = payload.reason,
+                frames = payload.frames,
+                signature = payload.signature,
+                buildID = payload.buildID,
+                moduleUUID = payload.moduleUUID,
+            };
+            return ManagedPayloadJson.WithCause(JsonUtility.ToJson(self), payload.cause != null ? ToJson(payload.cause) : null);
         }
 
         static string Sha256Hex(string input)

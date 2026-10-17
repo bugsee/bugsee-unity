@@ -18,14 +18,13 @@ namespace Bugsee.WrapperPolicy
     /// state machine, so segments can be concatenated silently.
     ///
     /// Rule: only the live segment is paired, anchored at the BOTTOM (oldest text frame with the oldest native IP).
-    /// Hidden frames (<c>[StackTraceHidden]</c> throw helpers, awaiter <c>GetResult</c>/<c>ThrowForNonSuccess</c>,
-    /// <c>ExceptionDispatchInfo.Throw</c>) are native frames with no text and sit at the top of the live segment,
-    /// so the bottom anchor is right exactly when the counts differ. The live segment starts after the last
-    /// separator and after the last async state machine <c>MoveNext</c> line that has frames below it (a
-    /// possible silent boundary); lines above that cannot be proven to belong to it and get no address. Anything
-    /// else (no native IPs, a live segment longer than the IP list) sends no address, because a wrong address
-    /// makes the worker map a plausible but wrong C# line; the worker's per-frame method-name check is only the
-    /// backstop.
+    /// Hidden frames (<c>[StackTraceHidden]</c> throw helpers such as <c>ExceptionDispatchInfo.Throw</c>) are
+    /// native frames with no text and sit at the top of the live segment, so the bottom anchor is right exactly
+    /// when the counts differ. The live segment starts after the last separator; lines of earlier segments get no
+    /// address, and neither does a live segment longer than the IP list. Not handled: two segments joined with no
+    /// separator (no such text was seen on a device; the worker's per-frame method-name check is the backstop).
+    /// A wrong address makes the worker map a plausible but wrong C# line, so nothing is sent where the alignment
+    /// cannot be shown.
     ///
     /// Address contract: every address sent is a RETURN address, hex, MODULE-RELATIVE (the instruction pointer
     /// minus the load address of the image that holds IL2CPP code: UnityFramework on iOS, libil2cpp.so on Android;
@@ -42,11 +41,6 @@ namespace Bugsee.WrapperPolicy
         // Release IL2CPP without a usym file prints "in <32 hex>:0".
         static readonly Regex SourceLocation = new Regex(
             @"\sin\s+(?<file>.+):(?<line>\d+)\s*$",
-            RegexOptions.Compiled);
-
-        // "Ns.Type.<Foo>d__3.MoveNext ()": an async state machine, after which a silent segment boundary may be.
-        static readonly Regex StateMachineMoveNext = new Regex(
-            @"d__\d+[^\s(]*\.MoveNext\b",
             RegexOptions.Compiled);
 
         /// <summary>A line of the stack text that separates segments instead of being a frame.</summary>
@@ -72,11 +66,6 @@ namespace Bugsee.WrapperPolicy
             if (!m.Success) return false;
             int number;
             return int.TryParse(m.Groups["line"].Value, out number) && number > 0;
-        }
-
-        public static bool IsStateMachineMoveNext(string line)
-        {
-            return !string.IsNullOrEmpty(line) && StateMachineMoveNext.IsMatch(line);
         }
 
         public static string FormatAddress(ulong moduleRelative)
@@ -107,12 +96,6 @@ namespace Bugsee.WrapperPolicy
             if (nativeIps == null || nativeIps.Length == 0 || frameLines.Count == 0)
             {
                 return result;
-            }
-
-            // A state machine line with frames below it may be the end of an earlier, silently joined segment.
-            for (var i = liveStart; i < frameLines.Count - 1; i++)
-            {
-                if (IsStateMachineMoveNext(frameLines[i])) liveStart = i + 1;
             }
 
             var live = frameLines.Count - liveStart;

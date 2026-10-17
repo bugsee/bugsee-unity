@@ -65,25 +65,11 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Segments_joined_without_a_separator_are_cut_after_the_state_machine_line()
+        public void A_coroutine_or_iterator_MoveNext_line_does_not_cut_a_single_segment()
         {
-            // old segment ended in <Run>d__1.MoveNext so StackTrace printed no separator; old_visible (2) equals
-            // the live segment's hidden frames (2), the accidental case: counts match, yet the old lines must not
-            // get the live IPs.
-            var lines = new[]
-            {
-                Line("Old.Throw ()"), Line("Ns.Old.<Run>d__1.MoveNext ()"),
-                Line("New.Caller ()"), Line("New.Root ()"),
-            };
-            var a = ManagedAddressPairing.Pair(lines, new ulong[] { 0x1, 0x2, 0x3000, 0x4000 });
-            Assert.That(a, Is.EqualTo(new[] { null, null, "0x3000", "0x4000" }));
-        }
-
-        [Test]
-        public void A_state_machine_line_at_the_bottom_does_not_cut_the_segment()
-        {
-            var lines = new[] { Line("A.Throw ()"), Line("Ns.C.<Go>d__2.MoveNext ()") };
-            Assert.That(ManagedAddressPairing.Pair(lines, new ulong[] { 0x1000, 0x2000 }), Is.EqualTo(new[] { "0x1000", "0x2000" }));
+            // Device: iterator frames print as "<Coroutine>d__8.MoveNext" and the counts match.
+            var lines = new[] { Line("A.Throw ()"), Line("Ns.C+<Coroutine>d__8.MoveNext ()"), Line("UnityEngine.SetupCoroutine.InvokeMoveNext ()") };
+            Assert.That(ManagedAddressPairing.Pair(lines, new ulong[] { 0x1000, 0x2000, 0x3000 }), Is.EqualTo(new[] { "0x1000", "0x2000", "0x3000" }));
         }
 
         [Test]
@@ -179,6 +165,51 @@ namespace Bugsee.WrapperPolicy.Tests
             var set = ManagedFrameAssembly.FromLogText(
                 "at A.B () [0x00023] in <hash>:0\n#00 pc 000000000012abcd /lib/libil2cpp.so\nat C.D () <0x104a125e0 + 0x34> in <h>:0\n");
             Assert.That(set.Addresses, Is.EqualTo(new[] { null, "0x000000000012abcd", null }));
+        }
+
+        [Test]
+        public void Cause_json_is_appended_as_the_last_member_at_every_level()
+        {
+            var inner = ManagedPayloadJson.WithCause("{\"name\":\"B\",\"frames\":[]}", null);
+            Assert.That(inner, Is.EqualTo("{\"name\":\"B\",\"frames\":[]}"));
+            var outer = ManagedPayloadJson.WithCause("{\"name\":\"A\",\"frames\":[{\"trace\":\"x}\"}]}", inner);
+            Assert.That(outer, Is.EqualTo("{\"name\":\"A\",\"frames\":[{\"trace\":\"x}\"}],\"cause\":{\"name\":\"B\",\"frames\":[]}}"));
+            Assert.That(ManagedPayloadJson.WithCause("{}", "{\"a\":1}"), Is.EqualTo("{\"cause\":{\"a\":1}}"));
+            Assert.That(ManagedPayloadJson.WithCause("not json", "{}"), Is.EqualTo("not json"));
+        }
+
+        [Test]
+        public void Converted_async_names_are_ordinary_frames()
+        {
+            // IL2CPP prints an async method by its own name ("Ns.C.Run ()"), never as <Run>d__1.MoveNext.
+            var lines = new[] { Line("Ns.C.Run ()"), Line("System.Threading.ExecutionContext.RunInternal ()"), Line("UnityEngine.UnitySynchronizationContext.Exec ()") };
+            Assert.That(ManagedAddressPairing.Pair(lines, new ulong[] { 0x1, 0x2, 0x3 }), Is.EqualTo(new[] { "0x1", "0x2", "0x3" }));
+        }
+
+        [Test]
+        public void A_separator_as_the_last_line_leaves_an_empty_live_segment_and_no_addresses()
+        {
+            var lines = new[] { Line("A ()"), Line("B ()"), Sep };
+            Assert.That(ManagedAddressPairing.Pair(lines, new ulong[] { 0x1, 0x2 }), Is.EqualTo(new string[2]));
+        }
+
+        [Test]
+        public void Pair_returns_one_entry_per_frame_line_for_every_shape()
+        {
+            var shapes = new[]
+            {
+                new[] { Line("A ()"), Sep, Line("B ()"), Line("C ()") },
+                new[] { Sep, Line("A ()") },
+                new[] { Line("A ()"), "--->", Line("B ()"), Sep },
+                new string[0],
+            };
+            foreach (var lines in shapes)
+            {
+                var text = string.Join("\n", lines);
+                var frames = ManagedFrameAssembly.FrameLines(ManagedFrameAssembly.StackLines(text));
+                Assert.That(ManagedAddressPairing.Pair(lines, new ulong[] { 1, 2, 3 }).Length, Is.EqualTo(frames.Length));
+                Assert.That(ManagedFrameAssembly.FromStackTrace(text, new ulong[] { 1, 2, 3 }).Addresses.Length, Is.EqualTo(frames.Length));
+            }
         }
     }
 }
