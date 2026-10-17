@@ -17,7 +17,8 @@ namespace Bugsee.Editor
     /// Player Settings string is restored afterwards (the string is saved in the VCS-tracked ProjectSettings.asset while
     /// the build runs). The post-build callback is skipped when the pipeline aborts, so a one-shot editor update handler
     /// restores once no build is running (success, failure or cancel); the saved state in Library/Bugsee also covers an
-    /// editor exit. A string the user changed meanwhile is kept (see <see cref="Il2CppArgsRestorePolicy"/>).
+    /// editor exit (an editor quit restores too, so a batchmode run that exits right after a failed build is clean; only a
+    /// killed editor process leaves the arguments for the next session). A string the user changed meanwhile is kept (see <see cref="Il2CppArgsRestorePolicy"/>).
     /// Unity itself adds --emit-source-mapping on 2022.3 and 6000 when Cloud Diagnostics crash reporting is on; the
     /// duplicate argument is harmless. Toggling the token changes the arguments and so invalidates the IL2CPP cache.
     /// </summary>
@@ -40,6 +41,7 @@ namespace Bugsee.Editor
 
         static BugseeIl2CppMappingArgs()
         {
+            EditorApplication.quitting += RestoreOnQuit;
             EditorApplication.delayCall += () =>
             {
                 if (!File.Exists(PendingPath))
@@ -57,6 +59,23 @@ namespace Bugsee.Editor
                     ResolvePending(force: false);
                 }
             };
+        }
+
+        static void RestoreOnQuit()
+        {
+            try
+            {
+                // A batchmode run that exits straight after a failed build never reaches an update: restore here (the
+                // change is written to ProjectSettings.asset before the editor exits, checked on 2022.3.62f3).
+                // Never while a build is still running.
+                if (!BuildPipeline.isBuildingPlayer)
+                {
+                    ResolvePending(force: true);
+                }
+            }
+            catch (Exception)
+            {
+            }
         }
 
         static void RestoreWhenBuildEnds()

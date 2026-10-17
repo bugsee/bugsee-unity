@@ -196,7 +196,7 @@ Releases built without R8 (Minify off, the Unity default) have no mapping and no
 **iOS**
 
 1. Scripting Backend: IL2CPP
-2. Nothing to enable for LineNumberMappings: with a Bugsee app token set the package adds `--emit-source-mapping --emit-method-map` to the IL2CPP arguments for the build (restored afterwards, also after a failed build)
+2. Nothing to enable for LineNumberMappings: when `BUGSEE_APP_TOKEN` is set in the environment of the Unity Editor process during the build, the package adds `--emit-source-mapping --emit-method-map` to the IL2CPP arguments for the build (restored afterward, also after a failed build). A token set only for the Xcode Run Script (step 4) is too late: Unity then adds no arguments and the export may lack `MethodMap.tsv`
 3. Build or archive in Xcode: the Run Script uploads the dSYMs of the configuration being built. Debug has a dSYM only with `DEBUG_INFORMATION_FORMAT = dwarf-with-dsym` (Unity exports Debug as `dwarf`); without one the script prints a warning and uploads no dSYM
 4. Ensure `BUGSEE_APP_TOKEN` is visible to the Xcode Run Script phase
 5. The iOS export sets `DEBUG_INFORMATION_FORMAT=dwarf-with-dsym` on every configuration of Unity-iPhone and UnityFramework, so Debug builds have a dSYM too. `dsymutil` on UnityFramework adds time to each Debug build; to keep Unity's own setting, tick **Bugsee → iOS → Keep Xcode Debug Info Format (skip dSYM force)** or set `BUGSEE_NO_DSYM_FORCE` in the Editor's environment (CI)
