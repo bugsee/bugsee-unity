@@ -81,10 +81,10 @@ namespace Bugsee.Editor
             string code = names.VersionCode.ToString();
             // What the APK carries, when the generated launcher says so plainly (split APK codes, overrides).
             var root = BugseeAndroidGradleSetup.GeneratedProjectRoot;
-            var launcher = string.IsNullOrEmpty(root) ? null : Path.Combine(root, "launcher", "build.gradle");
+            var launcher = string.IsNullOrEmpty(root) ? null : BugseeAndroidMavenDependencies.FindGradleFile(Path.Combine(root, "launcher"), "build");
             try
             {
-                if (launcher != null && File.Exists(launcher))
+                if (launcher != null)
                 {
                     GradleTemplateDefaults.ReadGradleVersion(File.ReadAllText(launcher), out var gradleName, out var gradleCode);
                     name = gradleName ?? name;
