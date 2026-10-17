@@ -267,10 +267,15 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(editor, Does.Contain("is the export's own '{LocalPackageFolderName}' folder"));
             int refusal = editor.IndexOf("is not a copy of the Bugsee package", System.StringComparison.Ordinal);
             Assert.That(refusal, Is.LessThan(editor.IndexOf("Directory.Delete(destPackageDir, true)", System.StringComparison.Ordinal)));
-            // The folder's contents never prove it is ours, and both copy modes stamp the marker.
+            // The folder's contents never prove it is ours: the marker goes in before any copy, so a failed copy stays ours.
             Assert.That(editor, Does.Not.Contain("Directory.Exists(Path.Combine(destPackageDir, \"Bugsee.xcframework\"))"));
-            Assert.That(editor.IndexOf("CopyDirectory(localPackageSource, destPackageDir);", System.StringComparison.Ordinal),
-                Is.LessThan(editor.IndexOf("File.WriteAllText(Path.Combine(destPackageDir, LocalPackageMarker)", System.StringComparison.Ordinal)));
+            int marker = editor.IndexOf("File.WriteAllText(Path.Combine(destPackageDir, LocalPackageMarker)", System.StringComparison.Ordinal);
+            Assert.That(marker, Is.GreaterThan(0));
+            Assert.That(marker, Is.LessThan(editor.IndexOf("CopyPackagePreservingLinks(localPackageSource, destPackageDir);", System.StringComparison.Ordinal)));
+            Assert.That(marker, Is.LessThan(editor.IndexOf("CopyDirectory(localPackageSource, destPackageDir);", System.StringComparison.Ordinal)));
+            // Same directory under another spelling is found by probing, and a copy that leaves no package fails loudly.
+            Assert.That(editor, Does.Contain(".bugsee-same-dir-probe-"));
+            Assert.That(editor, Does.Contain("left no usable package"));
             string sample = Read("Samples~", "BugseeMiniGame", "Assets", "Scripts", "BugseeHarness", "BugseeSampleBootstrap.cs");
             Assert.That(sample, Does.Contain("_skipE2EArming = false;"));
         }

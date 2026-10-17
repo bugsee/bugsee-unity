@@ -170,9 +170,23 @@ namespace Bugsee.Editor
 
             if (Directory.Exists(destPackageDir))
             {
+                // The same directory under another spelling (symlinks such as /tmp, a case-insensitive volume): a file written
+                // into the copy shows up in the source.
+                string probe = ".bugsee-same-dir-probe-" + System.Guid.NewGuid().ToString("N");
+                File.WriteAllText(Path.Combine(destPackageDir, probe), "");
+                bool sameDirectory = File.Exists(Path.Combine(localPackageSource, probe));
+                File.Delete(Path.Combine(destPackageDir, probe));
+                if (sameDirectory)
+                {
+                    throw new BuildFailedException($"[Bugsee] The local iOS SDK package {localPackageSource} is the export's own '{LocalPackageFolderName}' folder; point {LocalPackageEnvVar} at the assembled package instead.");
+                }
+
                 Directory.Delete(destPackageDir, true);
             }
 
+            // The marker goes in first, so a copy that fails half way is still recognised as the export's own next time.
+            Directory.CreateDirectory(destPackageDir);
+            File.WriteAllText(Path.Combine(destPackageDir, LocalPackageMarker), "Copied by the Bugsee iOS export; removed when the export links the published package again.\n");
             if (overridePackage != null)
             {
                 CopyPackagePreservingLinks(localPackageSource, destPackageDir);
@@ -182,7 +196,11 @@ namespace Bugsee.Editor
                 CopyDirectory(localPackageSource, destPackageDir);
             }
 
-            File.WriteAllText(Path.Combine(destPackageDir, LocalPackageMarker), "Copied by the Bugsee iOS export; removed when the export links the published package again.\n");
+            string copied = LocalPackageProblem(destPackageDir);
+            if (copied != null)
+            {
+                throw new BuildFailedException($"[Bugsee] Copying the local iOS SDK package {localPackageSource} to {destPackageDir} left no usable package: {copied}");
+            }
 
             string converted = XcodeLocalPackage.FromRemote(File.ReadAllText(projectPath), RemoteSpmUrl, LocalPackageFolderName);
             if (converted == null)
@@ -408,11 +426,6 @@ namespace Bugsee.Editor
 
         static void CopyDirectory(string sourceDir, string destDir)
         {
-            if (Directory.Exists(destDir))
-            {
-                Directory.Delete(destDir, true);
-            }
-
             Directory.CreateDirectory(destDir);
 
             foreach (string file in Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
