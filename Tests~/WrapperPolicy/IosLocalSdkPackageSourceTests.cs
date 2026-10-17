@@ -242,7 +242,7 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Export_removes_its_copied_package_only_when_it_made_it()
         {
             string text = Read("Editor", "BugseeIosSpmPostProcess.cs");
-            Assert.That(text, Does.Contain("LocalPackageMarker = \".bugsee-local-package\""));
+            Assert.That(Read("Editor", "LocalPackageCopy.cs"), Does.Contain("Marker = \".bugsee-local-package\""));
             Assert.That(text, Does.Contain("File.Exists(Path.Combine(packageFolder, LocalPackageMarker))"));
         }
 
@@ -260,39 +260,47 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Export_replaces_only_a_package_folder_it_made_and_keeps_the_arming_flag_to_one_launch()
+        public void Export_refuses_and_copies_before_the_project_is_touched_and_fails_the_build_on_any_error()
         {
             string editor = Read("Editor", "BugseeIosSpmPostProcess.cs");
-            Assert.That(editor, Does.Contain("is not a copy of the Bugsee package made by an earlier export"));
-            Assert.That(editor, Does.Contain("is in the export's own '{LocalPackageFolderName}' folder"));
-            Assert.That(editor, Does.Contain("(sourceFull + Path.DirectorySeparatorChar).StartsWith(destFull + Path.DirectorySeparatorChar"));
-            int refusal = editor.IndexOf("is not a copy of the Bugsee package", System.StringComparison.Ordinal);
-            Assert.That(refusal, Is.LessThan(editor.IndexOf("Directory.Delete(destPackageDir, true)", System.StringComparison.Ordinal)));
-            // The folder's contents never prove it is ours: the marker goes into the staged copy before it is copied into.
-            Assert.That(editor, Does.Not.Contain("Directory.Exists(Path.Combine(destPackageDir, \"Bugsee.xcframework\"))"));
-            int marker = editor.IndexOf("File.WriteAllText(Path.Combine(staging, LocalPackageMarker)", System.StringComparison.Ordinal);
-            Assert.That(marker, Is.GreaterThan(0));
-            Assert.That(marker, Is.LessThan(editor.IndexOf("CopyPackagePreservingLinks(localPackageSource, staging);", System.StringComparison.Ordinal)));
-            Assert.That(marker, Is.LessThan(editor.IndexOf("CopyDirectory(localPackageSource, staging);", System.StringComparison.Ordinal)));
-            // The old copy is deleted only after the new one is staged and checked, so a source that is an alias of it survives the read.
-            int staged = editor.IndexOf("left no usable package", System.StringComparison.Ordinal);
-            Assert.That(staged, Is.GreaterThan(0));
-            Assert.That(staged, Is.LessThan(editor.IndexOf("Directory.Delete(destPackageDir, true)", System.StringComparison.Ordinal)));
-            Assert.That(editor, Does.Contain("Directory.Move(staging, destPackageDir)"));
-            // Every refusal comes before the Xcode project is read, so a refused export leaves it as it was.
             int readProject = editor.IndexOf("File.ReadAllText(projectPath)", System.StringComparison.Ordinal);
-            Assert.That(editor.IndexOf("is not a copy of the Bugsee package", System.StringComparison.Ordinal), Is.LessThan(readProject));
-            Assert.That(editor.IndexOf("Local iOS SDK package {localPackageSource}: {problem}", System.StringComparison.Ordinal), Is.LessThan(readProject));
-            Assert.That(editor.IndexOf("is in the export's own", System.StringComparison.Ordinal), Is.LessThan(readProject));
+            foreach (var step in new[]
+            {
+                "is not a copy of the Bugsee package made by an earlier export",
+                "Local iOS SDK package {localPackageSource}: {problem}",
+                "is inside the export {pathToBuiltProject}",
+                "LocalPackageCopy.CopyAndSwapIn(localPackageSource, packageFolder",
+            })
+            {
+                int at = editor.IndexOf(step, System.StringComparison.Ordinal);
+                Assert.That(at, Is.GreaterThan(0), step);
+                Assert.That(at, Is.LessThan(readProject), step);
+            }
+
+            // Only a BuildFailedException fails a post-processor, so every other exception is turned into one.
+            Assert.That(editor, Does.Contain("catch (Exception e) when (!(e is BuildFailedException))"));
+            Assert.That(editor, Does.Contain("throw new BuildFailedException($\"[Bugsee] Linking the iOS SDK failed"));
             string sample = Read("Samples~", "BugseeMiniGame", "Assets", "Scripts", "BugseeHarness", "BugseeSampleBootstrap.cs");
             Assert.That(sample, Does.Contain("_skipE2EArming = false;"));
+        }
+
+        [Test]
+        public void Assemble_script_creates_the_output_after_its_refusals_and_takes_a_lock()
+        {
+            string script = Read("Tools~", "scripts", "assemble-local-ios-sdk.sh");
+            int create = script.IndexOf("mkdir -p \"${OUT}\"", System.StringComparison.Ordinal);
+            Assert.That(create, Is.GreaterThan(script.IndexOf("it contains the bugsee-cocoa checkout", System.StringComparison.Ordinal)));
+            Assert.That(create, Is.GreaterThan(script.IndexOf("holds no BUILD-INFO.txt", System.StringComparison.Ordinal)));
+            Assert.That(script, Does.Contain("Another assemble run seems to be using"));
+            Assert.That(script.IndexOf("restore_stamped; rm -rf", System.StringComparison.Ordinal),
+                Is.LessThan(script.IndexOf("mkdir \"${LOCK}\"", System.StringComparison.Ordinal)));
         }
 
         [Test]
         public void Assemble_script_puts_the_stamped_files_back_on_exit()
         {
             string script = Read("Tools~", "scripts", "assemble-local-ios-sdk.sh");
-            Assert.That(script, Does.Contain("trap 'restore_stamped; rm -rf \"${STAGE}\"' EXIT"));
+            Assert.That(script, Does.Contain("trap 'restore_stamped; rm -rf \"${STAGE}\"; [[ \"${LOCKED}\" == 1 ]] && rmdir \"${LOCK}\"; true' EXIT"));
             Assert.That(script.IndexOf("trap 'restore_stamped", System.StringComparison.Ordinal),
                 Is.LessThan(script.IndexOf("> \"${COCOA}/BugseeDev/BugseeLib/BugseeLib/BGSSdkVersion.h\"", System.StringComparison.Ordinal)));
         }

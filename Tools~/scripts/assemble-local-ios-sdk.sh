@@ -13,7 +13,9 @@
 #   version defaults to the checkout's version.txt. It is stamped into the SDK (BGSSdkVersion.h, tools.bundle/version.txt,
 #   both git-ignored build files that the script puts back, or removes, when it exits) without editing the tracked
 #   version.txt, so a checkout that has not bumped it yet can still be built as the next beta. The checkout's build/
-#   directory is deleted and rebuilt.
+#   directory is deleted and rebuilt. The output directory must be empty or hold the BUILD-INFO.txt of an earlier run, and
+#   may not be (or be inside, or contain) the checkout or its build/; that non-empty/BUILD-INFO.txt check is also the
+#   backstop where a path spelled with another case or a symlink slips past the string comparison.
 #
 # Needs the checkout's plcrashreporter submodule (git submodule update --init) and the iOS, tvOS, visionOS and
 # Mac Catalyst SDKs, as the release build does.
@@ -30,8 +32,13 @@ if [[ $# -lt 2 ]]; then
 fi
 
 COCOA="$(cd "$1" && pwd -P)"
-mkdir -p "$2"
-OUT="$(cd "$2" && pwd -P)"
+# The output is created only after every refusal below, so a refused path is not left behind. A directory that does not
+# exist yet is resolved through its parent.
+if [[ -d "$2" ]]; then
+  OUT="$(cd "$2" && pwd -P)"
+else
+  OUT="$(cd "$(dirname "$2")" && pwd -P)/$(basename "$2")"
+fi
 VERSION="${3:-$(head -n 1 "${COCOA}/version.txt" | tr -d '[:space:]')}"
 
 # The build wipes ${COCOA}/build, and this script wipes the output: neither may take the other, the checkout or anything above it.
@@ -51,7 +58,7 @@ case "${COCOA}/" in
 esac
 
 # The output is wiped on every run, so only an empty directory or an earlier output of this script may be used.
-if [[ -n "$(ls -A "${OUT}")" && ! -f "${OUT}/BUILD-INFO.txt" ]]; then
+if [[ -d "${OUT}" && -n "$(ls -A "${OUT}")" && ! -f "${OUT}/BUILD-INFO.txt" ]]; then
   echo "Refusing to use ${OUT}: it is not empty and holds no BUILD-INFO.txt from an earlier run." >&2
   exit 1
 fi
@@ -67,6 +74,10 @@ fi
 
 SHA="$(git -C "${COCOA}" rev-parse HEAD)"
 SHORT="$(git -C "${COCOA}" rev-parse --short HEAD)"
+
+# One run per checkout: a second run would save the first one's stamped files as the originals. A stale lock (a killed
+# run) is removed by hand, the message says where.
+LOCK="${TMPDIR:-/tmp}/bugsee-assemble-$(printf '%s' "${COCOA}" | shasum | cut -c1-12).lock"
 
 # The two files the stamp writes, put back as they were (or removed when they did not exist) however the script ends.
 STAGE="$(mktemp -d)"
@@ -85,7 +96,14 @@ for file in "${STAMPED_HEADER}" "${STAMPED_VERSION}"; do
   if [[ -f "${file}" ]]; then cp "${file}" "${STAGE}/saved.${index}"; else : > "${STAGE}/saved.${index}.absent"; fi
   index=$((index + 1))
 done
-trap 'restore_stamped; rm -rf "${STAGE}"' EXIT
+LOCKED=0
+trap 'restore_stamped; rm -rf "${STAGE}"; [[ "${LOCKED}" == 1 ]] && rmdir "${LOCK}"; true' EXIT
+if ! mkdir "${LOCK}" 2>/dev/null; then
+  echo "Another assemble run seems to be using ${COCOA} (lock ${LOCK}); remove the lock if it is stale." >&2
+  exit 1
+fi
+LOCKED=1
+mkdir -p "${OUT}"
 
 # What build.sh stamps before build_new.sh runs (build_new.sh has its own injectCode disabled).
 cat > "${COCOA}/BugseeDev/BugseeLib/BugseeLib/BGSSdkVersion.h" <<INJ

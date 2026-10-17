@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 using System.IO;
 using UnityEditor;
@@ -45,7 +46,7 @@ namespace Bugsee.Editor
         public const string MinIosVersion = "15.0";
 
         const string LocalPackageFolderName = "Bugsee";
-        const string LocalPackageMarker = ".bugsee-local-package";
+        const string LocalPackageMarker = LocalPackageCopy.Marker;
         const string LocalPackageRelativePath = "Native~/ios/Bugsee";
         const string PrefNoDsymForce = "Bugsee.Ios.NoDsymForce";
         const string MenuNoDsymForce = "Bugsee/iOS/Keep Xcode Debug Info Format (skip dSYM force)";
@@ -80,11 +81,27 @@ namespace Bugsee.Editor
                 return;
             }
 
-            string packageFolder = Path.Combine(pathToBuiltProject, LocalPackageFolderName);
-            string destPackageDir = packageFolder;
+            // Only a BuildFailedException fails a Unity build from a post-processor; any other exception is logged and the
+            // build still reports success, with whatever the project links by then. Turn every failure into one.
+            try
+            {
+                LocalPackageCopy.Warn = message => Debug.LogWarning($"[Bugsee] {message}");
+                Link(pathToBuiltProject, development);
+            }
+            catch (Exception e) when (!(e is BuildFailedException))
+            {
+                Debug.LogException(e);
+                throw new BuildFailedException($"[Bugsee] Linking the iOS SDK failed: {e.GetType().Name}: {e.Message}");
+            }
+        }
 
-            // Everything that can refuse the export is checked before the Xcode project is touched, so a refused export
-            // leaves the project as it was. An explicit local package (env var) beats everything; UseRemoteSpm = false
+        static void Link(string pathToBuiltProject, bool development)
+        {
+            string packageFolder = Path.Combine(pathToBuiltProject, LocalPackageFolderName);
+
+            // Everything that can refuse the export, and the copy of the local package, happen before the Xcode project is
+            // touched, so a refused or failed export leaves the SPM link as it was (later post-processors, such as the
+            // symbol-upload Run Script, still run). An explicit local package (env var) beats everything; UseRemoteSpm = false
             // falls back to the in-package stub.
             string overridePackage = LocalPackageOverride(development);
             string localPackageSource = overridePackage;
@@ -103,30 +120,35 @@ namespace Bugsee.Editor
             {
                 // A package that cannot be used fails the build instead of exporting a project with no SDK (the offline stub
                 // Native~/ios/Bugsee has no xcframework until Tools~/scripts/update-native-sdks.sh has run).
-                string problem = LocalPackageProblem(localPackageSource);
+                string problem = LocalPackageCopy.Problem(localPackageSource);
                 if (problem != null)
                 {
                     string how = overridePackage != null ? $" ({LocalPackageEnvVar})" : " Run Tools~/scripts/update-native-sdks.sh first.";
                     throw new BuildFailedException($"[Bugsee] Local iOS SDK package {localPackageSource}: {problem}{how}");
                 }
 
-                // The export must not delete its own source, nor a folder of the user's own named Bugsee: only a copy that carries
-                // the export's marker (every copy it makes does) is replaced, whatever the folder holds.
-                string sourceFull = Path.GetFullPath(localPackageSource).TrimEnd(Path.DirectorySeparatorChar);
-                string destFull = Path.GetFullPath(destPackageDir).TrimEnd(Path.DirectorySeparatorChar);
-                // The source may not be the copy, nor inside it: replacing the copy would delete the source first.
-                if (sourceFull.Equals(destFull, System.StringComparison.OrdinalIgnoreCase) ||
-                    (sourceFull + Path.DirectorySeparatorChar).StartsWith(destFull + Path.DirectorySeparatorChar, System.StringComparison.OrdinalIgnoreCase))
+                // The package may not live inside the export (the copy there is replaced, and so would be the source). Compared
+                // as physical paths: symlinks (/tmp, aliases) and the volume's case are resolved first.
+                string sourcePhysical = LocalPackageCopy.PhysicalPath(localPackageSource);
+                string exportPhysical = LocalPackageCopy.PhysicalPath(pathToBuiltProject);
+                if ((sourcePhysical + "/").StartsWith(exportPhysical.TrimEnd('/') + "/", StringComparison.Ordinal))
                 {
-                    throw new BuildFailedException($"[Bugsee] The local iOS SDK package {localPackageSource} is in the export's own '{LocalPackageFolderName}' folder; point {LocalPackageEnvVar} at the assembled package instead.");
+                    throw new BuildFailedException($"[Bugsee] The local iOS SDK package {localPackageSource} is inside the export {pathToBuiltProject}; point {LocalPackageEnvVar} at the assembled package instead.");
                 }
 
-                if (Directory.Exists(destPackageDir) && !File.Exists(Path.Combine(destPackageDir, LocalPackageMarker)))
+                if (Directory.Exists(packageFolder) && !File.Exists(Path.Combine(packageFolder, LocalPackageMarker)))
                 {
                     throw new BuildFailedException(
-                        $"[Bugsee] {destPackageDir} exists and is not a copy of the Bugsee package made by an earlier export; " +
+                        $"[Bugsee] {packageFolder} exists and is not a copy of the Bugsee package made by an earlier export; " +
                         $"move it away, or export into a project without a '{LocalPackageFolderName}' folder at its root.");
                 }
+
+                LocalPackageCopy.CopyAndSwapIn(localPackageSource, packageFolder, overridePackage != null);
+            }
+            else if (File.Exists(Path.Combine(packageFolder, LocalPackageMarker)))
+            {
+                // An earlier export that linked a local package left a copy next to the project; drop it (only ours).
+                LocalPackageCopy.DeleteTree(packageFolder);
             }
 
             string projectPath = PBXProject.GetPBXProjectPath(pathToBuiltProject);
@@ -162,52 +184,8 @@ namespace Bugsee.Editor
 
             if (localPackageSource == null)
             {
-                // An earlier export that linked a local package left a copy next to the project; drop it (only ours).
-                if (File.Exists(Path.Combine(packageFolder, LocalPackageMarker)))
-                {
-                    Directory.Delete(packageFolder, true);
-                }
-
                 Debug.Log($"[Bugsee] Linked remote SPM {RemoteSpmUrl}@{RemoteSpmVersion} (iOS {MinIosVersion}+)");
                 return;
-            }
-
-            // Copy into a staging folder and swap it in: the source is read before anything is deleted, so an alias of the export's
-            // own folder (a symlink, another case) cannot lose the package, and a copy that fails half way never lands as the
-            // package. The marker goes into the staged copy, so every copy that lands is recognised as the export's own.
-            string staging = destPackageDir + ".staging-" + System.Guid.NewGuid().ToString("N");
-            try
-            {
-                Directory.CreateDirectory(staging);
-                File.WriteAllText(Path.Combine(staging, LocalPackageMarker), "Copied by the Bugsee iOS export; removed when the export links the published package again.\n");
-                if (overridePackage != null)
-                {
-                    CopyPackagePreservingLinks(localPackageSource, staging);
-                }
-                else
-                {
-                    CopyDirectory(localPackageSource, staging);
-                }
-
-                string copied = LocalPackageProblem(staging);
-                if (copied != null)
-                {
-                    throw new BuildFailedException($"[Bugsee] Copying the local iOS SDK package {localPackageSource} left no usable package: {copied}");
-                }
-
-                if (Directory.Exists(destPackageDir))
-                {
-                    Directory.Delete(destPackageDir, true);
-                }
-
-                Directory.Move(staging, destPackageDir);
-            }
-            finally
-            {
-                if (Directory.Exists(staging))
-                {
-                    Directory.Delete(staging, true);
-                }
             }
 
             string converted = XcodeLocalPackage.FromRemote(File.ReadAllText(projectPath), RemoteSpmUrl, LocalPackageFolderName);
@@ -225,7 +203,7 @@ namespace Bugsee.Editor
             }
             else
             {
-                Debug.Log($"[Bugsee] Linked local SPM package at {destPackageDir}");
+                Debug.Log($"[Bugsee] Linked local SPM package at {packageFolder}");
             }
         }
 
@@ -359,58 +337,6 @@ namespace Bugsee.Editor
             return Path.GetFullPath(value);
         }
 
-        /// <summary>Why <paramref name="packageDir"/> cannot be used as the SDK package, or null when it can.</summary>
-        static string LocalPackageProblem(string packageDir)
-        {
-            if (!File.Exists(Path.Combine(packageDir, "Package.swift")))
-            {
-                return "no Package.swift there.";
-            }
-
-            if (!Directory.Exists(Path.Combine(packageDir, "Bugsee.xcframework")))
-            {
-                return "no Bugsee.xcframework there.";
-            }
-
-            return null;
-        }
-
-        /// <summary>
-        /// Copies what the package needs to resolve (not the zip, Tools/ or build notes the assembled package also holds).
-        /// ditto keeps the symlinks inside the xcframework's frameworks, which a file-by-file copy would turn into duplicate trees.
-        /// </summary>
-        static void CopyPackagePreservingLinks(string sourceDir, string destDir)
-        {
-            Directory.CreateDirectory(destDir);
-            foreach (string item in new[] { "Package.swift", "Bugsee.xcframework", Path.Combine("Sources", "BugseeSwiftUI") })
-            {
-                string source = Path.Combine(sourceDir, item);
-                if (!File.Exists(source) && !Directory.Exists(source))
-                {
-                    continue;
-                }
-
-                string dest = Path.Combine(destDir, item);
-                Directory.CreateDirectory(Path.GetDirectoryName(dest));
-                var info = new ProcessStartInfo("/usr/bin/ditto")
-                {
-                    UseShellExecute = false,
-                    RedirectStandardError = true,
-                };
-                info.ArgumentList.Add(source);
-                info.ArgumentList.Add(dest);
-                using (var process = Process.Start(info))
-                {
-                    string error = process.StandardError.ReadToEnd();
-                    process.WaitForExit();
-                    if (process.ExitCode != 0)
-                    {
-                        throw new BuildFailedException($"[Bugsee] Copying {source} failed: {error}");
-                    }
-                }
-            }
-        }
-
         static string ResolveLocalPackagePath()
         {
             foreach (var info in UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages())
@@ -430,31 +356,6 @@ namespace Bugsee.Editor
             // Fallback when developing with the package embedded / opened as the project root.
             string fromCwd = Path.GetFullPath(Path.Combine(Application.dataPath, "..", LocalPackageRelativePath));
             return Directory.Exists(fromCwd) ? fromCwd : null;
-        }
-
-        static void CopyDirectory(string sourceDir, string destDir)
-        {
-            Directory.CreateDirectory(destDir);
-
-            foreach (string file in Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
-            {
-                if (file.Contains($"{Path.DirectorySeparatorChar}.git{Path.DirectorySeparatorChar}") ||
-                    Path.GetFileName(file) == ".DS_Store")
-                {
-                    continue;
-                }
-
-                string relative = file.Substring(sourceDir.Length)
-                    .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                string destFile = Path.Combine(destDir, relative);
-                string destParent = Path.GetDirectoryName(destFile);
-                if (!string.IsNullOrEmpty(destParent))
-                {
-                    Directory.CreateDirectory(destParent);
-                }
-
-                File.Copy(file, destFile, true);
-            }
         }
     }
 
