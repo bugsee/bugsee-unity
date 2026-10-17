@@ -28,6 +28,7 @@ namespace Bugsee.Platform.IOS
         public string errorShortMessage;
         public string errorDescription;
         public string stage;
+        public long timestampMs;
         public IosKv[] headers;
     }
 
@@ -117,6 +118,9 @@ namespace Bugsee.Platform.IOS
             }
         }
 
+        // No iOS counterpart: kept on the managed event only, not part of the DTO or the channel JSON.
+        public bool IsOverride { get; set; }
+
         public NetworkEventStage Stage => ParseStage(_dto.stage);
 
         public string ToResultJson()
@@ -125,11 +129,50 @@ namespace Bugsee.Platform.IOS
             return JsonUtility.ToJson(_dto);
         }
 
+        /// <summary>
+        /// Serializes for the wrapper channel. The SDK types events by its own strings
+        /// ("before" / "complete" / "cancel" / "error": BugseeNetworkEventBegin is the string "before"),
+        /// not by <see cref="NetworkEventStage"/> names. The timestamp is the event's own time when it has
+        /// one, else <paramref name="timestampMs"/> (Unix milliseconds, the unit the SDK uses).
+        /// </summary>
+        internal string ToChannelJson(string nativeStage, long timestampMs)
+        {
+            _dto.headers = ToKv(_headers);
+            var stage = _dto.stage;
+            var stamp = _dto.timestampMs;
+            _dto.stage = nativeStage;
+            // An event minted earlier (and held in the launch buffer) keeps the time it happened.
+            if (_dto.timestampMs <= 0 && timestampMs > 0) _dto.timestampMs = timestampMs;
+            try { return JsonUtility.ToJson(_dto); }
+            finally
+            {
+                _dto.stage = stage;
+                _dto.timestampMs = stamp;
+            }
+        }
+
+        /// <summary>
+        /// SDK event type for a stage, or null when iOS has no equivalent (redirect, timings-only,
+        /// WebSocket without a sub-type): such events are not submitted rather than mistyped.
+        /// </summary>
+        internal static string ToNativeStage(NetworkEventStage stage)
+        {
+            switch (stage)
+            {
+                case NetworkEventStage.RequestStarted: return "before";
+                case NetworkEventStage.RequestCompleted: return "complete";
+                case NetworkEventStage.RequestErrored: return "error";
+                case NetworkEventStage.RequestAborted: return "cancel";
+                default: return null;
+            }
+        }
+
         static NetworkEventStage ParseStage(string stage)
         {
             if (string.IsNullOrEmpty(stage)) return NetworkEventStage.RequestCompleted;
             if (stage.IndexOf("Begin", StringComparison.OrdinalIgnoreCase) >= 0
-                || stage.IndexOf("Start", StringComparison.OrdinalIgnoreCase) >= 0)
+                || stage.IndexOf("Start", StringComparison.OrdinalIgnoreCase) >= 0
+                || string.Equals(stage, "before", StringComparison.OrdinalIgnoreCase)) // the SDK's BugseeNetworkEventBegin
                 return NetworkEventStage.RequestStarted;
             if (stage.IndexOf("Cancel", StringComparison.OrdinalIgnoreCase) >= 0
                 || stage.IndexOf("Abort", StringComparison.OrdinalIgnoreCase) >= 0)

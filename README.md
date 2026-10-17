@@ -19,37 +19,30 @@ Pin a version/tag when available:
 https://github.com/bugsee/bugsee-unity.git#0.1.0
 ```
 
-The package depends on [EDM4U](https://openupm.com/packages/com.google.external-dependency-manager/).
-Add the OpenUPM scoped registry to your project’s `Packages/manifest.json` if it is not already present:
+That is the whole install: no scoped registry, no EDM4U, no dependency-resolve step and no custom
+Gradle templates to enable. On Android the package declares the Bugsee SDK in the Gradle project Unity
+generates for each build (see below); on iOS it adds the Bugsee Swift package to the Xcode project.
 
-```json
-{
-  "scopedRegistries": [
-    {
-      "name": "package.openupm.com",
-      "url": "https://package.openupm.com",
-      "scopes": [
-        "com.google.external-dependency-manager"
-      ]
-    }
-  ]
-}
-```
+Projects that use [EDM4U](https://github.com/googlesamples/unity-jar-resolver) for other SDKs keep working.
+If the project already declares `com.bugsee:bugsee-android` itself (through EDM4U, a custom
+`mainTemplate.gradle` or a local AAR), that declaration is kept, nothing is added next to it, and the build
+log warns when its version differs from the one this package pins.
 
 ## Native SDKs
 
 | Platform | Integration | Current pin |
 |---|---|---|
-| **Android** | [EDM4U](https://github.com/googlesamples/unity-jar-resolver) → Maven Central | `bugsee-android:7.3.0` + `bugsee-android-ndk:7.3.0` |
-| **iOS** | Swift Package Manager + `Plugins/iOS/BugseeUnityBridge.mm` | [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta5` |
+| **Android** | Maven Central, declared in the generated Gradle project by `BugseeAndroidMavenDependencies` | `bugsee-android:7.4.1` + `bugsee-android-ndk:7.4.1` |
+| **iOS** | Swift Package Manager + `Plugins/iOS/BugseeUnityBridge.mm` | [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta6` |
 
 **Android stack**
 
 | Piece | Status |
 |---|---|
-| `bugsee-android` | Default via EDM **7.3.0** (no Maven transitives) |
-| `bugsee-android-ndk` | Declared explicitly (native fatal capture for IL2CPP primary LNM) |
-| Gradle plugin `4.0.8` | Applied on launcher by `BugseeAndroidGradleSetup` on Unity 6+ (`ndk { enabled = true }`) |
+| `bugsee-android` | **7.4.1**, added to `unityLibrary/build.gradle` at build time (no Maven transitives) |
+| `bugsee-android-ndk` | Same version, declared alongside (native fatal capture for IL2CPP primary LNM) |
+| `mavenCentral()` | Added to the generated project repositories only if Unity's layout lacks it |
+| Gradle plugin `4.0.8` | Patched into the generated Gradle project by `BugseeAndroidGradleSetup` when it pins AGP 8.6+ (Unity 6; `ndk { enabled = true }`). On Unity 2021.3 / 2022.3 (AGP 7.4.2) it cannot run; the build-id asset is added instead and symbols are uploaded by the Editor with `bugsee-cli` found or downloaded automatically, see [Documentation~/index.md](Documentation~/index.md#unity-20213-and-20223-no-bugsee-gradle-plugin) |
 
 ### Refreshing native artifacts
 
@@ -73,7 +66,7 @@ See [Documentation~/index.md](Documentation~/index.md) for:
 
 ```
 Runtime/           # C# runtime API + asmdef
-Editor/            # EDM, Gradle, iOS SPM, linemap + symbol upload
+Editor/            # Android Gradle injection, iOS SPM, linemap + symbol upload
 Plugins/           # iOS ObjC++ bridge, Android UnityManagedException.java
 Native~/ios/Bugsee # Unused local SPM stub (Xcode uses github.com/bugsee/spm)
 Tools~/            # Version pins + maintenance scripts

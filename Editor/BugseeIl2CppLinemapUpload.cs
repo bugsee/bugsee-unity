@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Bugsee.WrapperPolicy;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -87,7 +88,7 @@ namespace Bugsee.Editor
                 return;
             }
 
-            Upload(jsonPath, uuids, BugseeBuildIdentity.ResolveVersion(),
+            Upload(jsonPath, uuids, BugseeBuildIdentity.ResolveVersion(report),
                 BugseeBuildIdentity.ResolveBuildNumber(report));
         }
 
@@ -136,17 +137,19 @@ namespace Bugsee.Editor
             }
         }
 
+        // Only this build's own output is searched. A single APK's IL2CPP output is in the folder Unity creates
+        // beside it ("<player>_BackUpThisFolder_ButDontShipItWithYourGame"); an exported project (Xcode, Gradle)
+        // is a folder of its own. Searching the parent as well found another build's file: an iOS export
+        // was pointed at the Android build's LineNumberMappings.json, which would be uploaded under the iOS module
+        // id. No match means no upload (with a warning), never someone else's file.
         static string FindLineNumberMappings(BuildReport report)
         {
             var roots = new List<string>();
-            if (!string.IsNullOrEmpty(report.summary.outputPath))
+            var outputRoot = BuildArtifactChoice.Il2CppOutputRoot(
+                report.summary.outputPath, BugseeSymbolUpload.OutputIsDirectory(report));
+            if (outputRoot != null)
             {
-                roots.Add(report.summary.outputPath);
-                var parent = Path.GetDirectoryName(report.summary.outputPath);
-                if (!string.IsNullOrEmpty(parent))
-                {
-                    roots.Add(parent);
-                }
+                roots.Add(outputRoot);
             }
 
             string bestPreferred = null;

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using Bugsee.WrapperPolicy;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -33,13 +34,21 @@ namespace Bugsee.Editor
                 return;
             }
 
-            var version = BugseeBuildIdentity.ResolveVersion();
+            var version = BugseeBuildIdentity.ResolveVersion(report);
             var build = BugseeBuildIdentity.ResolveBuildNumber(report);
 
             switch (report.summary.platform)
             {
                 case BuildTarget.Android:
-                    UploadAndroidSymbols(report, version, build);
+                    try
+                    {
+                        UploadAndroidSymbols(report, version, build);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Whatever goes wrong here (an unreadable file, a locked folder) must not fail the build.
+                        Debug.LogWarning($"Bugsee: Android symbol upload failed: {ex.Message} — build continues.");
+                    }
                     break;
                 case BuildTarget.iOS:
                 case BuildTarget.tvOS:
@@ -69,15 +78,53 @@ namespace Bugsee.Editor
         static void UploadAndroidSymbols(BuildReport report, string version, string build)
         {
             var roots = CollectRoots(report);
-            UploadIfFound(roots, "**/mapping.txt", "proguard", version, build, preferNewest: true);
+            // Unity writes the R8 mapping beside the player as "<name>_mapping.txt" (a bare "mapping.txt" never
+            // matches it). Only this build's own file is uploaded, see BuildArtifactChoice.
+            var stem = OutputStem(report);
+            var allowGeneric = OutputIsDirectory(report);
+            // Keyed by the id the built app reports (read back from the built APK/AAB, see
+            // BugseeBuildIdentity.ResolveAndroidUploadIdentity), never assumed from what the build script contained.
+            var identity = BugseeBuildIdentity.ResolveAndroidUploadIdentity(report);
+            // Said only when a mapping is actually uploaded under it (R8 off: nothing to match).
+            var identityWarning = identity.Warning != null && identity.Source != BuildIdSource.None ? "Bugsee: " + identity.Warning : null;
+
+            // The Gradle plugin attaches the launcher icon to the mapping (the app's icon in the dashboard).
+            var icon = FindLauncherIcon();
+            if (icon != null)
+            {
+                Debug.Log($"Bugsee: attaching launcher icon {icon} to the mapping upload.");
+            }
+
+            var mappingExtra = AndroidUploadIdentity.MappingArguments(identity.Uuid, icon);
+            UploadIfFound(roots, "*mapping.txt", "proguard", version, build,
+                path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), mappingExtra, identityWarning);
             // Unity "Create symbols.zip" / Gradle native debug symbols.
-            UploadSymbolsZipOrElf(report, roots, version, build);
+            UploadSymbolsZipOrElf(report, roots, version, build, identity.ElfUuid ?? Guid.NewGuid().ToString("D"));
         }
 
-        static void UploadSymbolsZipOrElf(BuildReport report, List<string> roots, string version, string build)
+        static string FindLauncherIcon()
         {
-            string bestZip = null;
-            DateTime bestZipTime = DateTime.MinValue;
+            var root = BugseeAndroidGradleSetup.GeneratedProjectRoot;
+            var res = string.IsNullOrEmpty(root) ? null : Path.Combine(root, "launcher", "src", "main", "res");
+            if (res == null || !Directory.Exists(res))
+            {
+                return null;
+            }
+
+            try
+            {
+                return AndroidIconPicker.Pick(Directory.EnumerateFiles(res, "app_icon.*", SearchOption.AllDirectories));
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"Bugsee: launcher icon scan failed under {res}: {ex.Message}");
+                return null;
+            }
+        }
+
+        static void UploadSymbolsZipOrElf(BuildReport report, List<string> roots, string version, string build, string buildUuid)
+        {
+            var bestZip = FindSymbolsZip(report);
             var elfDirs = new List<string>();
 
             foreach (var root in roots)
@@ -89,28 +136,6 @@ namespace Bugsee.Editor
 
                 try
                 {
-                    foreach (var zip in Directory.EnumerateFiles(root, "*.zip", SearchOption.AllDirectories))
-                    {
-                        var name = Path.GetFileName(zip);
-                        if (name.IndexOf("symbols", StringComparison.OrdinalIgnoreCase) < 0
-                            && name.IndexOf("native-debug", StringComparison.OrdinalIgnoreCase) < 0)
-                        {
-                            continue;
-                        }
-                        if (IsExcludedPath(zip))
-                        {
-                            continue;
-                        }
-                        DateTime mtime;
-                        try { mtime = File.GetLastWriteTimeUtc(zip); }
-                        catch { mtime = DateTime.MinValue; }
-                        if (bestZip == null || mtime >= bestZipTime)
-                        {
-                            bestZip = zip;
-                            bestZipTime = mtime;
-                        }
-                    }
-
                     foreach (var so in Directory.EnumerateFiles(root, "libil2cpp.so", SearchOption.AllDirectories))
                     {
                         if (IsExcludedPath(so))
@@ -135,20 +160,8 @@ namespace Bugsee.Editor
                 // bugsee-cli --type elf accepts a zip of ELF objects (Unity symbols.zip layout).
                 // --uuid is the BUILD_UUID correlation key (required by CLI); each .so is still
                 // keyed by its own GNU build-id.
-                var buildUuid = BugseeBuildIdentity.ResolveBuildUuid(report);
                 Debug.Log($"Bugsee: uploading Android symbols zip via {BugseeCliRunner.CliPath}: {bestZip}");
-                var args = new List<string>
-                {
-                    "debug-files", "upload", bestZip,
-                    "--type", "elf",
-                    "--version", version,
-                    "--build", build,
-                };
-                if (!string.IsNullOrEmpty(buildUuid))
-                {
-                    args.Add("--uuid");
-                    args.Add(buildUuid);
-                }
+                var args = AndroidUploadIdentity.ElfArguments(bestZip, version, build, buildUuid);
                 var exit = BugseeCliRunner.Run(args);
                 if (exit != 0)
                 {
@@ -162,13 +175,7 @@ namespace Bugsee.Editor
             foreach (var dir in elfDirs)
             {
                 Debug.Log($"Bugsee: uploading ELF folder via {BugseeCliRunner.CliPath}: {dir}");
-                var exit = BugseeCliRunner.Run(new[]
-                {
-                    "debug-files", "upload", dir,
-                    "--type", "elf",
-                    "--version", version,
-                    "--build", build,
-                });
+                var exit = BugseeCliRunner.Run(AndroidUploadIdentity.ElfArguments(dir, version, build, buildUuid));
                 if (exit != 0)
                 {
                     Debug.LogWarning(
@@ -186,16 +193,17 @@ namespace Bugsee.Editor
 
         static void UploadIfFound(
             List<string> roots,
-            string fileName,
+            string pattern,
             string type,
             string version,
             string build,
-            bool preferNewest)
+            Func<string, int> rank,
+            IList<string> extraArgs = null,
+            string warnWhenFound = null)
         {
-            // fileName may be a plain name (mapping.txt)
-            var plain = fileName.Replace("**/", "");
             string best = null;
-            DateTime bestTime = DateTime.MinValue;
+            var bestRank = BuildArtifactChoice.Reject;
+            var bestTime = DateTime.MinValue;
             foreach (var root in roots)
             {
                 if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
@@ -204,23 +212,30 @@ namespace Bugsee.Editor
                 }
                 try
                 {
-                    foreach (var file in Directory.EnumerateFiles(root, plain, SearchOption.AllDirectories))
+                    foreach (var file in Directory.EnumerateFiles(root, pattern, SearchOption.AllDirectories))
                     {
                         if (IsExcludedPath(file))
+                        {
+                            continue;
+                        }
+                        // R8 writes an empty mapping when nothing was obfuscated: there is nothing to deobfuscate.
+                        if (IsEmptyFile(file))
+                        {
+                            continue;
+                        }
+                        var fileRank = rank(file);
+                        if (fileRank == BuildArtifactChoice.Reject)
                         {
                             continue;
                         }
                         DateTime mtime;
                         try { mtime = File.GetLastWriteTimeUtc(file); }
                         catch { mtime = DateTime.MinValue; }
-                        if (best == null || mtime >= bestTime)
+                        if (best == null || BuildArtifactChoice.Better(fileRank, mtime, bestRank, bestTime))
                         {
                             best = file;
+                            bestRank = fileRank;
                             bestTime = mtime;
-                        }
-                        if (!preferNewest)
-                        {
-                            break;
                         }
                     }
                 }
@@ -232,33 +247,148 @@ namespace Bugsee.Editor
                 return;
             }
 
+            if (warnWhenFound != null)
+            {
+                Debug.LogWarning(warnWhenFound);
+            }
+
             Debug.Log($"Bugsee: uploading {type} via {BugseeCliRunner.CliPath}: {best}");
-            var exit = BugseeCliRunner.Run(new[]
+            var args = new List<string>
             {
                 "debug-files", "upload", best,
                 "--type", type,
                 "--version", version,
                 "--build", build,
-            });
+            };
+            if (extraArgs != null)
+            {
+                args.AddRange(extraArgs);
+            }
+
+            var exit = BugseeCliRunner.Run(args);
             if (exit != 0)
             {
                 Debug.LogWarning($"Bugsee: bugsee-cli {type} upload failed (exit {exit}) — build continues.");
             }
         }
 
+        /// <summary>
+        /// This build's symbols zip, or null. Shared by the upload and by the IL2CPP module-id lookup so both
+        /// use the same file.
+        /// </summary>
+        internal static string FindSymbolsZip(BuildReport report)
+        {
+            var stem = OutputStem(report);
+            var allowGeneric = OutputIsDirectory(report);
+            // Unity puts the scripting backend in the zip name; matching it keeps the other backend's zip of the
+            // same player, version and code (a reused output folder) from being chosen by modification time.
+            // Version, code and backend are the build-time values, not whatever a later postprocessor set.
+            var names = BugseeBuildIdentity.AndroidNameSettings(report);
+            string best = null;
+            var bestRank = BuildArtifactChoice.Reject;
+            var bestTime = DateTime.MinValue;
+            foreach (var root in CollectRoots(report))
+            {
+                if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    foreach (var zip in Directory.EnumerateFiles(root, "*.zip", SearchOption.AllDirectories))
+                    {
+                        if (IsExcludedPath(zip))
+                        {
+                            continue;
+                        }
+                        var rank = BuildArtifactChoice.SymbolsZipRank(
+                            zip, stem, allowGeneric, names.BundleVersion, names.VersionCode, names.Backend);
+                        if (rank == BuildArtifactChoice.Reject)
+                        {
+                            continue;
+                        }
+                        DateTime mtime;
+                        try { mtime = File.GetLastWriteTimeUtc(zip); }
+                        catch { mtime = DateTime.MinValue; }
+                        if (best == null || BuildArtifactChoice.Better(rank, mtime, bestRank, bestTime))
+                        {
+                            best = zip;
+                            bestRank = rank;
+                            bestTime = mtime;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"Bugsee: Android symbols zip scan failed under {root}: {ex.Message}");
+                }
+            }
+
+            return best;
+        }
+
+        /// <summary>
+        /// Name of the player being built ("MyGame" for MyGame.apk, "proj" for an exported project folder).
+        /// Unity names the symbols zip and the R8 mapping after it, which tells this build's files apart from
+        /// other builds' in the same folder.
+        /// </summary>
+        internal static string OutputStem(BuildReport report)
+        {
+            var path = report?.summary.outputPath;
+            if (string.IsNullOrEmpty(path)) return null;
+            if (OutputIsDirectory(report))
+            {
+                // Split APKs by target architecture turn "Game.apk" into a folder of that name; Unity still names the
+                // symbols zip after "Game".
+                var folder = Path.GetFileName(path.TrimEnd('/', '\\'));
+                return folder.EndsWith(".apk", StringComparison.OrdinalIgnoreCase) || folder.EndsWith(".aab", StringComparison.OrdinalIgnoreCase)
+                    ? Path.GetFileNameWithoutExtension(folder)
+                    : folder;
+            }
+
+            return Path.GetFileNameWithoutExtension(path);
+        }
+
+        /// <summary>An exported project (Android Gradle project, Xcode folder), not a single APK/AAB file.</summary>
+        internal static bool OutputIsDirectory(BuildReport report)
+        {
+            var path = report?.summary.outputPath;
+            return !string.IsNullOrEmpty(path)
+                && (Directory.Exists(path) || path.EndsWith("/", StringComparison.Ordinal) || path.EndsWith("\\", StringComparison.Ordinal));
+        }
+
+        // A single APK/AAB sits among its siblings in one folder, so that folder is searched (by exact name, see
+        // BuildArtifactChoice). An exported project is a folder of its own: search only inside it, never its
+        // parent, where sibling exports and unrelated builds live.
         static List<string> CollectRoots(BuildReport report)
         {
             var roots = new List<string>();
-            if (!string.IsNullOrEmpty(report.summary.outputPath))
+            var output = report.summary.outputPath;
+            if (string.IsNullOrEmpty(output))
             {
-                roots.Add(report.summary.outputPath);
-                var parent = Path.GetDirectoryName(report.summary.outputPath);
-                if (!string.IsNullOrEmpty(parent))
-                {
-                    roots.Add(parent);
-                }
+                return roots;
             }
+
+            if (OutputIsDirectory(report))
+            {
+                roots.Add(output);
+                return roots;
+            }
+
+            var parent = Path.GetDirectoryName(output);
+            if (!string.IsNullOrEmpty(parent))
+            {
+                roots.Add(parent);
+            }
+
             return roots;
+        }
+
+        static bool IsEmptyFile(string path)
+        {
+            try { return new FileInfo(path).Length == 0; }
+            catch { return false; }
         }
 
         static bool IsExcludedPath(string path)
@@ -279,97 +409,25 @@ namespace Bugsee.Editor
 
             const string phaseName = "Bugsee Upload Symbols";
             // Write a dedicated shell script and add a run-script phase.
-            // Duplicate phases on re-export are annoying but harmless (token-gated).
 
             var scriptsDir = Path.Combine(pathToBuiltProject, "BugseeScripts");
             Directory.CreateDirectory(scriptsDir);
             var scriptPath = Path.Combine(scriptsDir, "upload-symbols.sh");
-            File.WriteAllText(scriptPath, BuildArchiveScript(), new UTF8Encoding(false));
+            File.WriteAllText(scriptPath, IosArchiveUploadScript.Build(), new UTF8Encoding(false));
 
-            project.AddShellScriptBuildPhase(
-                target,
-                phaseName,
-                "/bin/sh",
-                "\"${PROJECT_DIR}/BugseeScripts/upload-symbols.sh\"\n");
+            // Run it through sh: a file written from C# has no executable bit, so invoking the path directly
+            // fails the whole build with "Permission denied" (Debug and Release alike, before the script's own
+            // "never fail the build" handling can run). The "||" keeps a failing upload from failing the build.
+            const string shellScript =
+                "/bin/sh \"${PROJECT_DIR}/BugseeScripts/upload-symbols.sh\" || echo \"Bugsee: symbol upload script failed (the build continues).\"\n";
+            // An "Append" export keeps the phase an earlier package version added (the bare-path one fails), and
+            // AddShellScriptBuildPhase reuses a phase only when its script is identical: update it in place first.
+            project.ReadFromString(XcodeShellScriptPhase.RewriteScript(project.WriteToString(), phaseName, shellScript));
+            project.AddShellScriptBuildPhase(target, phaseName, "/bin/sh", shellScript);
             project.WriteToFile(projectPath);
             Debug.Log(
                 "[Bugsee] Injected Xcode Run Script 'Bugsee Upload Symbols' for archive-time " +
                 "dSYM + il2cpp-linemap upload (requires BUGSEE_APP_TOKEN in the Xcode/CI env).");
-        }
-
-        static string BuildArchiveScript()
-        {
-            // Uses DWARF_DSYM_FOLDER_PATH / DWARF_DSYM_FILE_NAME from Xcode.
-            // Resolves UnityFramework UUID via dwarfdump / otool when available.
-            var sb = new StringBuilder();
-            sb.AppendLine("#!/bin/sh");
-            sb.AppendLine("set -e");
-            sb.AppendLine("# Bugsee archive-time symbol upload (dSYM + il2cpp-linemap).");
-            sb.AppendLine("# Never fail the Archive — swallow CLI errors.");
-            sb.AppendLine("if [ \"${CONFIGURATION}\" != \"Release\" ] && [ \"${BUGSEE_UPLOAD_ON_DEBUG}\" != \"1\" ]; then");
-            sb.AppendLine("  echo \"Bugsee: skip symbol upload for ${CONFIGURATION} (set BUGSEE_UPLOAD_ON_DEBUG=1 to force).\"");
-            sb.AppendLine("  exit 0");
-            sb.AppendLine("fi");
-            sb.AppendLine("if [ -z \"${BUGSEE_APP_TOKEN}\" ]; then");
-            sb.AppendLine("  echo \"Bugsee: BUGSEE_APP_TOKEN unset — skip archive symbol upload.\"");
-            sb.AppendLine("  exit 0");
-            sb.AppendLine("fi");
-            sb.AppendLine("CLI=\"${BUGSEE_CLI_PATH:-bugsee-cli}\"");
-            sb.AppendLine("VERSION=\"${BUGSEE_VERSION:-${MARKETING_VERSION}}\"");
-            sb.AppendLine("BUILD=\"${BUGSEE_BUILD:-${CURRENT_PROJECT_VERSION}}\"");
-            sb.AppendLine("upload() {");
-            sb.AppendLine("  \"$@\" || echo \"Bugsee: upload command failed (archive continues): $*\"");
-            sb.AppendLine("}");
-            sb.AppendLine("");
-            sb.AppendLine("# --- dSYM ---");
-            sb.AppendLine("if [ -n \"${DWARF_DSYM_FOLDER_PATH}\" ] && [ -n \"${DWARF_DSYM_FILE_NAME}\" ]; then");
-            sb.AppendLine("  DSYM=\"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}\"");
-            sb.AppendLine("  if [ -d \"${DSYM}\" ]; then");
-            sb.AppendLine("    echo \"Bugsee: uploading dSYM ${DSYM}\"");
-            sb.AppendLine("    upload \"${CLI}\" debug-files upload \"${DSYM}\" --type dsym --version \"${VERSION}\" --build \"${BUILD}\"");
-            sb.AppendLine("  fi");
-            sb.AppendLine("fi");
-            sb.AppendLine("");
-            sb.AppendLine("# Also upload UnityFramework.framework.dSYM when present beside the app dSYM.");
-            sb.AppendLine("if [ -n \"${DWARF_DSYM_FOLDER_PATH}\" ]; then");
-            sb.AppendLine("  UF_DSYM=\"${DWARF_DSYM_FOLDER_PATH}/UnityFramework.framework.dSYM\"");
-            sb.AppendLine("  if [ -d \"${UF_DSYM}\" ]; then");
-            sb.AppendLine("    echo \"Bugsee: uploading UnityFramework dSYM ${UF_DSYM}\"");
-            sb.AppendLine("    upload \"${CLI}\" debug-files upload \"${UF_DSYM}\" --type dsym --version \"${VERSION}\" --build \"${BUILD}\"");
-            sb.AppendLine("  fi");
-            sb.AppendLine("fi");
-            sb.AppendLine("");
-            sb.AppendLine("# --- il2cpp-linemap (UUID from UnityFramework binary / dSYM) ---");
-            sb.AppendLine("LINEMAP=\"\"");
-            sb.AppendLine("if [ -f \"${PROJECT_DIR}/BugseePendingIl2CppLinemap.txt\" ]; then");
-            sb.AppendLine("  LINEMAP=$(head -n1 \"${PROJECT_DIR}/BugseePendingIl2CppLinemap.txt\")");
-            sb.AppendLine("fi");
-            sb.AppendLine("if [ -z \"${LINEMAP}\" ] || [ ! -f \"${LINEMAP}\" ]; then");
-            sb.AppendLine("  LINEMAP=$(find \"${PROJECT_DIR}\" -name LineNumberMappings.json 2>/dev/null | head -n1 || true)");
-            sb.AppendLine("fi");
-            sb.AppendLine("UUID=\"${BUGSEE_IL2CPP_UUIDS:-}\"");
-            sb.AppendLine("if [ -z \"${UUID}\" ]; then");
-            sb.AppendLine("  UF_BIN=\"${BUILT_PRODUCTS_DIR}/UnityFramework.framework/UnityFramework\"");
-            sb.AppendLine("  if [ ! -f \"${UF_BIN}\" ]; then");
-            sb.AppendLine("    UF_BIN=$(find \"${BUILT_PRODUCTS_DIR}\" -path '*/UnityFramework.framework/UnityFramework' 2>/dev/null | head -n1 || true)");
-            sb.AppendLine("  fi");
-            sb.AppendLine("  if [ -f \"${UF_BIN}\" ]; then");
-            sb.AppendLine("    if command -v dwarfdump >/dev/null 2>&1; then");
-            sb.AppendLine("      UUID=$(dwarfdump -u \"${UF_BIN}\" 2>/dev/null | sed -n 's/.*UUID: \\([^ ]*\\).*/\\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' || true)");
-            sb.AppendLine("    fi");
-            sb.AppendLine("    if [ -z \"${UUID}\" ] && command -v otool >/dev/null 2>&1; then");
-            sb.AppendLine("      UUID=$(otool -l \"${UF_BIN}\" 2>/dev/null | awk '/uuid/ {print tolower($2); exit}' || true)");
-            sb.AppendLine("    fi");
-            sb.AppendLine("  fi");
-            sb.AppendLine("fi");
-            sb.AppendLine("if [ -n \"${LINEMAP}\" ] && [ -f \"${LINEMAP}\" ] && [ -n \"${UUID}\" ]; then");
-            sb.AppendLine("  echo \"Bugsee: uploading il2cpp-linemap ${LINEMAP} uuid=${UUID}\"");
-            sb.AppendLine("  upload \"${CLI}\" debug-files upload \"${LINEMAP}\" --type il2cpp-linemap --version \"${VERSION}\" --build \"${BUILD}\" --uuid \"${UUID}\"");
-            sb.AppendLine("else");
-            sb.AppendLine("  echo \"Bugsee: skip il2cpp-linemap (map='${LINEMAP}' uuid='${UUID}')\"");
-            sb.AppendLine("fi");
-            sb.AppendLine("exit 0");
-            return sb.ToString();
         }
     }
 }

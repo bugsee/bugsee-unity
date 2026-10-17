@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Feedback;
 using Bugsee.Contracts.Lifecycle;
@@ -377,13 +378,10 @@ namespace Bugsee.Sample
                 if (report != null)
                 {
                     report.Summary = "[Sample] " + (report.Summary ?? "");
-                    var att = report.CreateAndAddAttachment("sample-note.txt");
-                    if (att != null)
-                    {
-                        att.Filename = "sample-note.txt";
-                        att.MimeType = "text/plain";
-                        att.SetData("Attached by MiniGame SampleReportHandler");
-                    }
+                    report.AddAttachmentBytes(
+                        Encoding.UTF8.GetBytes("Attached by MiniGame SampleReportHandler"),
+                        "sample-note.txt",
+                        "text/plain");
                 }
             }
             catch (Exception ex)

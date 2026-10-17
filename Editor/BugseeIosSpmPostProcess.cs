@@ -30,6 +30,25 @@ namespace Bugsee.Editor
 
         const string LocalPackageFolderName = "Bugsee";
         const string LocalPackageRelativePath = "Native~/ios/Bugsee";
+        const string PrefNoDsymForce = "Bugsee.Ios.NoDsymForce";
+        const string MenuNoDsymForce = "Bugsee/iOS/Keep Xcode Debug Info Format (skip dSYM force)";
+
+        [MenuItem(MenuNoDsymForce)]
+        static void MenuToggleNoDsymForce()
+        {
+            bool next = !EditorPrefs.GetBool(PrefNoDsymForce, false);
+            EditorPrefs.SetBool(PrefNoDsymForce, next);
+            Debug.Log(
+                "[Bugsee] Skip dSYM force = " + next +
+                ". Applies to the next iOS export; Debug then keeps Unity's plain DWARF and has no dSYM to upload.");
+        }
+
+        [MenuItem(MenuNoDsymForce, true)]
+        static bool MenuToggleNoDsymForceValidate()
+        {
+            Menu.SetChecked(MenuNoDsymForce, EditorPrefs.GetBool(PrefNoDsymForce, false));
+            return true;
+        }
 
         [PostProcessBuild(999)]
         public static void OnPostProcessBuild(BuildTarget target, string pathToBuiltProject)
@@ -47,6 +66,8 @@ namespace Bugsee.Editor
             string frameworkTargetGuid = project.GetUnityFrameworkTargetGuid();
             EnsureMinIosDeploymentTarget(project, mainTargetGuid);
             EnsureMinIosDeploymentTarget(project, frameworkTargetGuid);
+            EnsureDsymGeneration(project, mainTargetGuid);
+            EnsureDsymGeneration(project, frameworkTargetGuid);
 
             if (UseRemoteSpm)
             {
@@ -80,6 +101,39 @@ namespace Bugsee.Editor
             project.WriteToFile(projectPath);
             InjectLocalSwiftPackageReference(projectPath, LocalPackageFolderName, SpmProductName, mainTargetGuid, frameworkTargetGuid);
             Debug.Log($"[Bugsee] Linked local SPM package at {destPackageDir}");
+        }
+
+        /// <summary>
+        /// Debug configurations default to plain DWARF, which leaves no dSYM to upload.
+        /// Symbolication needs one for every configuration, on both the app and UnityFramework.
+        /// </summary>
+        static void EnsureDsymGeneration(PBXProject project, string targetGuid)
+        {
+            if (string.IsNullOrEmpty(targetGuid))
+            {
+                return;
+            }
+
+            // Opt-out for teams that keep Debug on plain DWARF to save build time (dsymutil on a large
+            // UnityFramework is slow). The menu toggle covers a Finder-launched Editor, which never
+            // sees a shell export; the env var covers CI.
+            if (System.Environment.GetEnvironmentVariable("BUGSEE_NO_DSYM_FORCE") != null ||
+                EditorPrefs.GetBool(PrefNoDsymForce, false))
+            {
+                return;
+            }
+
+            foreach (string configName in project.BuildConfigNames())
+            {
+                string configGuid = project.BuildConfigByName(targetGuid, configName);
+                if (string.IsNullOrEmpty(configGuid))
+                {
+                    continue;
+                }
+
+                project.SetBuildPropertyForConfig(configGuid, "DEBUG_INFORMATION_FORMAT", "dwarf-with-dsym");
+                project.SetBuildPropertyForConfig(configGuid, "GCC_GENERATE_DEBUGGING_SYMBOLS", "YES");
+            }
         }
 
         static void EnsureMinIosDeploymentTarget(PBXProject project, string targetGuid)

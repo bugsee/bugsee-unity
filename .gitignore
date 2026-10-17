@@ -37,8 +37,26 @@ Samples~/**/[Bb]uilds/
 # Native binaries produced by Tools~/scripts/update-native-sdks.sh
 Native~/ios/Bugsee/Bugsee.xcframework/
 
+# Local git worktrees for parallel task branches
+.worktrees/
+
+# Native bridge test build output
+Tests~/**/bin/
+Tests~/**/obj/
+Tests~/**/build/
+Tests~/**/.build/
+Tests~/**/bin/
+Tests~/**/obj/
+Tests~/Android/local.properties
+!Tools~/CompileCheck/**/*.csproj
+Tools~/CompileCheck/**/bin/
+Tools~/CompileCheck/**/obj/
+
 # Packaging
 *.unitypackage
 *.apk
 *.aab
 *.app
+
+Tools~/CompileCheck/Runtime/obj-unity-capture/
+Tools~/CompileCheck/Runtime/bin-unity-capture/

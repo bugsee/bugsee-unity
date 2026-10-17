@@ -9,90 +9,159 @@ using UnityEngine;
 namespace Bugsee.Sample.Editor
 {
     /// <summary>
-    /// Batchmode builds for Mode B e2e:
-    /// Unity -batchmode -quit -projectPath … -executeMethod Bugsee.Sample.Editor.E2EBuild.BuildAndroidIl2Cpp
-    /// Unity -batchmode -quit -projectPath … -executeMethod Bugsee.Sample.Editor.E2EBuild.BuildIosIl2Cpp
+    /// Batchmode builds for end-to-end validation:
+    /// Unity -batchmode -quit -projectPath … -executeMethod Bugsee.Sample.Editor.E2EBuild.BuildAndroid
+    /// Unity -batchmode -quit -projectPath … -executeMethod Bugsee.Sample.Editor.E2EBuild.BuildIos
+    ///
+    /// Environment:
+    ///   BUGSEE_APP_TOKEN    required; baked into the build and used for symbol upload
+    ///   BUGSEE_ENDPOINT     API host (no /v2); iOS gets /v2 appended
+    ///   BUGSEE_E2E_BACKEND  il2cpp (default) | mono
+    ///   BUGSEE_E2E_DEV      1 (default, Development build) | 0 (Release)
+    ///   BUGSEE_E2E_MINIFY   0 (default) | 1: R8 minification on Android (produces mapping.txt)
+    ///   BUGSEE_E2E_IOS_SIM  1: build the iOS Simulator SDK (default: the device SDK)
+    ///   BUGSEE_E2E_OUT      output path override
+    ///
+    /// Note: the backend, architectures and minify settings are written to the project's tracked
+    /// ProjectSettings.asset, so a build leaves the working tree modified.
+    ///
+    /// The token never lands in the scene or in git: it is written to a git-ignored
+    /// Resources/BugseeE2E.json for the duration of the build and removed afterwards (also removed at the
+    /// start of the next one if a killed build left it behind). It is still inside the built player's
+    /// resources, as an app token is meant to be.
     /// </summary>
     public static class E2EBuild
     {
-        const string OutApk = "Builds/E2E/BugseeMiniGame-e2e.apk";
-        const string OutIos = "Builds/E2E/ios";
+        const string OverrideAsset = "Assets/Resources/BugseeE2E.json";
 
+        public static void BuildAndroid() => Build(BuildTarget.Android);
+
+        public static void BuildIos() => Build(BuildTarget.iOS);
+
+        // Kept for the existing Mode B scripts.
         public static void BuildAndroidIl2Cpp()
         {
-            Directory.CreateDirectory("Builds/E2E");
-
-            EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Android, BuildTarget.Android);
-            PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android, ScriptingImplementation.IL2CPP);
-            PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
-            // Encourage LineNumberMappings.json generation for Mode B LNM.
-            EditorUserBuildSettings.development = true;
-            EditorUserBuildSettings.allowDebugging = true;
-#if UNITY_2021_2_OR_NEWER
-            EditorUserBuildSettings.androidCreateSymbols = AndroidCreateSymbols.Debugging;
-#endif
-            try
-            {
-                PlayerSettings.SetAdditionalIl2CppArgs("--emit-source-mapping");
-            }
-            catch
-            {
-                /* older editors */
-            }
-
-            var token = Environment.GetEnvironmentVariable("BUGSEE_APP_TOKEN");
-            if (string.IsNullOrWhiteSpace(token))
-                throw new InvalidOperationException("[E2EBuild] Set BUGSEE_APP_TOKEN for Android symbol upload.");
-            Environment.SetEnvironmentVariable("BUGSEE_APP_TOKEN", token);
-
-            var scenes = ResolveScenes();
-            Debug.Log("[E2EBuild] Building Android IL2CPP → " + OutApk + " scenes=" + string.Join(",", scenes));
-
-            var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
-            {
-                scenes = scenes,
-                locationPathName = OutApk,
-                target = BuildTarget.Android,
-                options = BuildOptions.Development | BuildOptions.AllowDebugging,
-            });
-
-            ExitFromReport(report);
+            Environment.SetEnvironmentVariable("BUGSEE_E2E_BACKEND", "il2cpp");
+            Build(BuildTarget.Android);
         }
 
         public static void BuildIosIl2Cpp()
         {
-            Directory.CreateDirectory(OutIos);
+            Environment.SetEnvironmentVariable("BUGSEE_E2E_BACKEND", "il2cpp");
+            Build(BuildTarget.iOS);
+        }
 
-            EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.iOS, BuildTarget.iOS);
-            PlayerSettings.SetScriptingBackend(BuildTargetGroup.iOS, ScriptingImplementation.IL2CPP);
-            EditorUserBuildSettings.development = true;
-            EditorUserBuildSettings.allowDebugging = true;
-            try
-            {
-                PlayerSettings.SetAdditionalIl2CppArgs("--emit-source-mapping");
-            }
-            catch
-            {
-                /* older editors */
-            }
-
+        static void Build(BuildTarget target)
+        {
             var token = Environment.GetEnvironmentVariable("BUGSEE_APP_TOKEN");
             if (string.IsNullOrWhiteSpace(token))
-                throw new InvalidOperationException("[E2EBuild] Set BUGSEE_APP_TOKEN for iOS symbol upload.");
-            Environment.SetEnvironmentVariable("BUGSEE_APP_TOKEN", token);
+                throw new InvalidOperationException("[E2EBuild] Set BUGSEE_APP_TOKEN (baked into the build, used for symbol upload).");
 
-            var scenes = ResolveScenes();
-            Debug.Log("[E2EBuild] Building iOS IL2CPP → " + OutIos + " scenes=" + string.Join(",", scenes));
+            var il2cpp = !string.Equals(Environment.GetEnvironmentVariable("BUGSEE_E2E_BACKEND"), "mono", StringComparison.OrdinalIgnoreCase);
+            var development = Environment.GetEnvironmentVariable("BUGSEE_E2E_DEV") != "0";
+            var ios = target == BuildTarget.iOS;
+            var group = ios ? BuildTargetGroup.iOS : BuildTargetGroup.Android;
 
-            var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+            var minify = Environment.GetEnvironmentVariable("BUGSEE_E2E_MINIFY") == "1";
+            var label = (ios ? "ios" : "android") + "-" + (il2cpp ? "il2cpp" : "mono") + "-" + (development ? "dev" : "release")
+                + (minify && !ios ? "-min" : "");
+            var output = Environment.GetEnvironmentVariable("BUGSEE_E2E_OUT");
+            if (string.IsNullOrEmpty(output))
+                output = ios ? "Builds/E2E/" + label : "Builds/E2E/" + label + ".apk";
+            var outputDir = Path.GetDirectoryName(output.TrimEnd('/'));
+            // GetDirectoryName("x.apk") is "", not null, and CreateDirectory("") throws.
+            Directory.CreateDirectory(string.IsNullOrEmpty(outputDir) ? "." : outputDir);
+
+            if (ios)
             {
-                scenes = scenes,
-                locationPathName = OutIos,
-                target = BuildTarget.iOS,
-                options = BuildOptions.Development | BuildOptions.AllowDebugging,
-            });
+                // The Simulator SDK needs simulator slices of the IL2CPP runtime; the device SDK does not link there.
+                var simulator = Environment.GetEnvironmentVariable("BUGSEE_E2E_IOS_SIM") == "1";
+                PlayerSettings.iOS.sdkVersion = simulator ? iOSSdkVersion.SimulatorSDK : iOSSdkVersion.DeviceSDK;
+            }
 
+            EditorUserBuildSettings.SwitchActiveBuildTarget(group, target);
+            PlayerSettings.SetScriptingBackend(group, il2cpp ? ScriptingImplementation.IL2CPP : ScriptingImplementation.Mono2x);
+            EditorUserBuildSettings.development = development;
+            EditorUserBuildSettings.allowDebugging = development;
+
+            if (!ios)
+            {
+                PlayerSettings.Android.minifyRelease = minify;
+                PlayerSettings.Android.minifyDebug = minify;
+                // Unity 2021.3 builds ARM64 only with IL2CPP; a Mono build is ARMv7 (32-bit) only, so it will not
+                // install on a 64-bit-only device or emulator image (INSTALL_FAILED_NO_MATCHING_ABIS).
+                PlayerSettings.Android.targetArchitectures = il2cpp
+                    ? AndroidArchitecture.ARM64
+                    : AndroidArchitecture.ARMv7;
+#if UNITY_2021_2_OR_NEWER
+                // Native debug symbols (symbols.zip) for ELF upload; Debugging keeps full DWARF.
+                EditorUserBuildSettings.androidCreateSymbols =
+                    development ? AndroidCreateSymbols.Debugging : AndroidCreateSymbols.Public;
+#endif
+            }
+
+            if (il2cpp)
+            {
+                try { PlayerSettings.SetAdditionalIl2CppArgs("--emit-source-mapping"); }
+                catch { /* older editors */ }
+            }
+
+            // A copy left by a build that was killed would otherwise take priority over everything else.
+            RemoveOverride();
+            var endpoint = Environment.GetEnvironmentVariable("BUGSEE_ENDPOINT");
+            WriteOverride(token, endpoint, ios);
+            BuildReport report;
+            try
+            {
+                var scenes = ResolveScenes();
+                Debug.Log("[E2EBuild] Building " + label + " → " + output + " scenes=" + string.Join(",", scenes));
+
+                var options = development ? BuildOptions.Development | BuildOptions.AllowDebugging : BuildOptions.None;
+                report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+                {
+                    scenes = scenes,
+                    locationPathName = output,
+                    target = target,
+                    options = options,
+                });
+            }
+            finally
+            {
+                RemoveOverride();
+            }
+
+            // Exit only after the credentials are gone: EditorApplication.Exit ends the process at once, so
+            // calling it inside the try would skip the finally on a failed build.
             ExitFromReport(report);
+        }
+
+        [Serializable]
+        class E2EOverride
+        {
+            public string token;
+            public string endpoint;
+        }
+
+        static void WriteOverride(string token, string endpoint, bool ios)
+        {
+            if (!string.IsNullOrWhiteSpace(endpoint))
+            {
+                endpoint = endpoint.Trim().TrimEnd('/');
+                // iOS wants the API version in the endpoint; Android appends it itself, so a value that
+                // already ends in /v2 would be requested as .../v2/v2.
+                var versioned = endpoint.EndsWith("/v2", StringComparison.Ordinal);
+                if (ios && !versioned) endpoint += "/v2";
+                else if (!ios && versioned) endpoint = endpoint.Substring(0, endpoint.Length - "/v2".Length);
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(OverrideAsset));
+            File.WriteAllText(OverrideAsset, JsonUtility.ToJson(new E2EOverride { token = token.Trim(), endpoint = endpoint }));
+            AssetDatabase.ImportAsset(OverrideAsset);
+        }
+
+        static void RemoveOverride()
+        {
+            AssetDatabase.DeleteAsset(OverrideAsset);
         }
 
         static string[] ResolveScenes()

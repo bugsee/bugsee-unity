@@ -6,20 +6,22 @@ using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Feedback;
 using Bugsee.Contracts.Lifecycle;
 using Bugsee.Contracts.Options;
+using Bugsee.WrapperPolicy;
 using Bugsee.Contracts.Reporting;
+using Bugsee;
 using Bugsee.Internal;
 using Bugsee.Platform;
 using UnityEngine;
 
 namespace Bugsee.Platform.Android
 {
-    sealed class AndroidBridge : IBugseeNativeBridge
+    sealed class AndroidBridge : IBugseeNativeBridge, ILifecycleResultBridge
     {
         const string BugseeClass = "com.bugsee.library.Bugsee";
         const string FeedbackClass = "com.bugsee.library.contracts.extensions.Feedback";
 
         readonly AndroidJavaClass _bugsee = new AndroidJavaClass(BugseeClass);
-        BugseeWrapperProxy _wrapper;
+        bool _wrapperContextRefined;
         ReportHandlerProxy _reportHandlerProxy;
         LifecycleListenerProxy _lifecycleProxy;
         EventFilterProxy<INetworkEvent> _networkFilterProxy;
@@ -27,6 +29,9 @@ namespace Bugsee.Platform.Android
         EventFilterProxy<IBreadcrumb> _breadcrumbFilterProxy;
         AndroidFeedback _feedback;
         AndroidAppearance _appearance;
+        IBugseeExchangeFactory _exchangeFactory;
+        AndroidManagedReport _openReport;
+        static bool _loggedMissingNetworkFactory;
 
         public bool IsSupported => true;
 
@@ -34,10 +39,23 @@ namespace Bugsee.Platform.Android
 
         public void EnsureWrapperRegistered()
         {
-            if (_wrapper != null) return;
-            BugseeWrapperProxy.CacheHostContext();
-            _wrapper = new BugseeWrapperProxy();
-            _bugsee.CallStatic("setWrapper", _wrapper);
+            if (_wrapperContextRefined) return;
+            _wrapperContextRefined = true;
+#if ENABLE_IL2CPP
+            const string scriptingBackend = "il2cpp";
+#else
+            const string scriptingBackend = "mono";
+#endif
+            using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
+            {
+                wrapper.CallStatic(
+                    "refineContext",
+                    Application.unityVersion ?? "unknown",
+                    Application.platform.ToString(),
+                    scriptingBackend,
+                    Application.productName ?? "unknown",
+                    BugseePackageVersion.Version);
+            }
         }
 
         AndroidJavaObject CurrentActivity()
@@ -48,41 +66,76 @@ namespace Bugsee.Platform.Android
             }
         }
 
-        public void Launch(string appToken, IDictionary<string, object> options)
+        // Launch, Relaunch, Stop and DeleteCollectedDataOnDevice all go through one state machine on the main
+        // thread (AndroidLifecycleMachine: ordering, deferral behind a stop, stale results, deadlines).
+        AndroidLifecycleMachine _lifecycleMachine;
+        static readonly System.Diagnostics.Stopwatch LifecycleClock = System.Diagnostics.Stopwatch.StartNew();
+        readonly HashSet<System.Threading.Timer> _lifecycleTimers = new HashSet<System.Threading.Timer>();
+
+        AndroidLifecycleMachine Lifecycle =>
+            _lifecycleMachine ?? (_lifecycleMachine = new AndroidLifecycleMachine(new LifecycleNative(this), () => LifecycleClock.Elapsed));
+
+        public void Launch(string appToken, IDictionary<string, object> options) => Launch(appToken, options, null);
+
+        // completion: true when the SDK reports a launch (or was already running), false when it refused, the
+        // request was superseded, or no result came within AndroidLifecycleMachine.OperationTimeout.
+        internal void Launch(string appToken, IDictionary<string, object> options, Action<bool> completion)
         {
-            ManagedExceptionPayload.EnsureBuildIdentity();
-            EnsureWrapperRegistered();
-            InstallDefaultListeners();
-            using (var activity = CurrentActivity())
-            using (var map = AndroidOptionsMapper.ToJavaMap(options))
+            // All of it on the main thread: build identity reads Application.buildGUID/version and Resources, which throw
+            // UnityException when Launch is called from another thread.
+            MainThreadDispatcher.Run(() =>
             {
-                _bugsee.CallStatic("launch", activity, appToken, map);
-            }
-            ExceptionPipeline.Install(this, options);
+                ManagedExceptionPayload.EnsureBuildIdentity();
+                EnsureWrapperRegistered();
+                InstallDefaultListeners();
+                Lifecycle.Launch(appToken, options, completion);
+            });
         }
 
-        public void Relaunch(IDictionary<string, object> options)
+        public void Relaunch(IDictionary<string, object> options) => Relaunch(options, null);
+
+        internal void Relaunch(IDictionary<string, object> options, Action<bool> completion) =>
+            MainThreadDispatcher.Run(() => Lifecycle.Relaunch(options, completion));
+
+        void ILifecycleResultBridge.Launch(string appToken, IDictionary<string, object> options, Action<bool> started) =>
+            Launch(appToken, options, started);
+
+        void ILifecycleResultBridge.Relaunch(IDictionary<string, object> options, Action<bool> started) =>
+            Relaunch(options, started);
+
+        // finished (StopAsync): true when the SDK reported the stop, false at the machine's 10 s soft deadline. The
+        // stop is queued to the main thread like every lifecycle call here, so it is never skipped.
+        void ILifecycleResultBridge.Stop(Action<bool> finished) => Stop(null, finished);
+
+        public void Stop(Action completion = null) => Stop(completion, null);
+
+        void Stop(Action completion, Action<bool> finished)
         {
-            using (var map = AndroidOptionsMapper.ToJavaMap(options))
+            MainThreadDispatcher.Run(() =>
             {
-                _bugsee.CallStatic("relaunch", map);
-            }
-            ExceptionPipeline.Install(this, options);
+                AndroidManagedReportUploadFence.Invalidate();
+                _openReport?.ReleaseSnapshotFiles();
+                _openReport = null;
+                Lifecycle.Stop(completion, finished);
+            });
         }
 
-        public void Stop(Action completion = null)
+        public bool GetLaunched()
         {
-            ExceptionPipeline.Uninstall();
-            if (completion == null)
-            {
-                _bugsee.CallStatic("stop");
-                return;
-            }
-
-            _bugsee.CallStatic("stop", new RunnableProxy(completion));
+            // Read before every StartTransaction, which may run on a thread-pool thread (see AndroidJniScope).
+            using (AndroidJniScope.Enter())
+                return _bugsee.CallStatic<bool>("getLaunched");
         }
 
-        public bool GetLaunched() => _bugsee.CallStatic<bool>("getLaunched");
+        public IReadOnlyDictionary<string, object> GetLaunchOptions()
+        {
+            using (var options = _bugsee.CallStatic<AndroidJavaObject>("getLaunchOptions"))
+            {
+                if (options == null) return null;
+                using (var map = options.Call<AndroidJavaObject>("toMap"))
+                    return map == null ? null : AndroidJavaConverters.MapToDictionary(map);
+            }
+        }
 
         public BugseeStatus GetStatus()
         {
@@ -97,6 +150,72 @@ namespace Bugsee.Platform.Android
         public void StartBlackout() => _bugsee.CallStatic("startBlackout");
         public void EndBlackout() => _bugsee.CallStatic("endBlackout");
         public bool IsBlackout() => _bugsee.CallStatic<bool>("isBlackout");
+
+        public void ChannelLog(string message, LogLevel level)
+        {
+            if (string.IsNullOrEmpty(message)) return;
+            int source = WrapperLogSourcePolicy.Resolve(null);
+            using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
+            {
+                wrapper.CallStatic("channelLog", message, (int)level, source);
+            }
+        }
+
+        public IBugseeExchangeFactory GetExchangeFactory()
+        {
+            if (_exchangeFactory != null) return _exchangeFactory;
+            var javaFactory = _bugsee.CallStatic<AndroidJavaObject>("getExchangeFactory");
+            if (javaFactory == null) return null;
+            _exchangeFactory = new AndroidExchangeFactory(javaFactory);
+            return _exchangeFactory;
+        }
+
+        public void AddNetworkEvent(INetworkEvent networkEvent)
+        {
+            if (networkEvent == null) return;
+            var androidEvent = networkEvent as AndroidNetworkEvent;
+            if (androidEvent == null)
+            {
+                var factory = GetExchangeFactory();
+                if (factory == null)
+                {
+                    if (!_loggedMissingNetworkFactory)
+                    {
+                        _loggedMissingNetworkFactory = true;
+                        Debug.LogWarning("[Bugsee] network-factory-missing");
+                    }
+                    return;
+                }
+
+                androidEvent = (AndroidNetworkEvent)factory.CreateNetworkEvent(
+                    DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    networkEvent.Stage,
+                    string.IsNullOrEmpty(networkEvent.Id) ? null : networkEvent.Id,
+                    networkEvent.Mechanism,
+                    networkEvent.Method);
+                if (androidEvent == null) return;
+                CopyNetworkFields(networkEvent, androidEvent);
+            }
+
+            using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
+            {
+                wrapper.CallStatic("channelAddNetwork", androidEvent.Native);
+            }
+        }
+
+        static void CopyNetworkFields(INetworkEvent source, INetworkEvent target)
+        {
+            if (source == null || target == null || ReferenceEquals(source, target)) return;
+            target.Url = source.Url;
+            target.Body = source.Body;
+            target.Size = source.Size;
+            target.ResponseCode = source.ResponseCode;
+            target.StatusText = source.StatusText;
+            target.ErrorShortMessage = source.ErrorShortMessage;
+            target.ErrorDescription = source.ErrorDescription;
+            target.Headers = source.Headers;
+            target.IsOverride = source.IsOverride;
+        }
 
         public void Log(string message, LogLevel level)
         {
@@ -209,7 +328,14 @@ namespace Bugsee.Platform.Android
             }
         }
 
-        public void TestCrash() => _bugsee.CallStatic("testCrash");
+        // Not Bugsee.testCrash() directly: thrown over JNI on Unity's thread it never goes uncaught.
+        public void TestCrash()
+        {
+            using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
+            {
+                wrapper.CallStatic("testCrash");
+            }
+        }
 
         public void ShowReportDialog(string summary, string description, IssueSeverity severity, IList<string> labels)
         {
@@ -229,15 +355,51 @@ namespace Bugsee.Platform.Android
             }
         }
 
-        public void SetUserIdentifier(string userIdentifier) =>
-            _bugsee.CallStatic("setUserIdentifier", userIdentifier);
+        public void Notify(string title, string body, IssueSeverity severity, IDictionary<string, string> fields, bool urgent)
+        {
+            using (var sev = Severity(severity))
+            using (var javaFields = AndroidJavaConverters.StringDictionaryToMap(fields))
+            {
+                // A null cannot select a JNI overload, so no fields is an empty map (and no body an empty string).
+                _bugsee.CallStatic("notify", title, NotifyPolicy.Body(body), sev, javaFields, urgent);
+            }
+        }
 
-        public string GetUserIdentifier() => _bugsee.CallStatic<string>("getUserIdentifier");
+        public ISpanHandle StartTransaction(string name, string operation, IDictionary<string, object> attributes)
+        {
+            // The three-argument overload always takes a map (a null cannot select an overload), empty when there are none.
+            using (AndroidJniScope.Enter())
+            using (var javaAttributes = AndroidJavaConverters.ObjectDictionaryToMap(attributes))
+            {
+                var transaction = _bugsee.CallStatic<AndroidJavaObject>("startTransaction", name, operation, javaAttributes);
+                return transaction == null ? null : new AndroidSpanHandle(transaction);
+            }
+        }
+
+        public void SetUserIdentifier(string userIdentifier)
+        {
+            var normalized = UserIdentifierPolicy.ForSet(userIdentifier);
+            if (normalized == null)
+                ClearUserIdentifier();
+            else
+                _bugsee.CallStatic("setUserIdentifier", normalized);
+        }
+
+        public string GetUserIdentifier() =>
+            UserIdentifierPolicy.ForGet(_bugsee.CallStatic<string>("getUserIdentifier"));
 
         public void ClearUserIdentifier() => _bugsee.CallStatic("clearUserIdentifier");
 
-        public void SetAttribute(string key, object value) =>
-            _bugsee.CallStatic("setAttribute", key, Box(value));
+        public void SetAttribute(string key, object value)
+        {
+            var decision = AttributePolicy.Evaluate(key, value);
+            if (!decision.Accepted)
+                throw new ArgumentException(decision.Error, nameof(value));
+
+            _bugsee.CallStatic("setAttribute", key, Box(AttributeWire.ToBoxable(value)));
+            if (GetAttribute(key) == null)
+                throw new ArgumentException("attribute '" + key + "' was dropped", nameof(value));
+        }
 
         public object GetAttribute(string key)
         {
@@ -249,23 +411,16 @@ namespace Bugsee.Platform.Android
 
         public void ClearAllAttributes() => _bugsee.CallStatic("clearAllAttributes");
 
-        public void AddSecureRectangle(int left, int top, int right, int bottom)
+        public void SetSecureBuffer(int display, int[] packed)
         {
-            using (var rect = new AndroidJavaObject("android.graphics.Rect", left, top, right, bottom))
+            if (packed == null) return;
+            using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
             {
-                _bugsee.CallStatic("addSecureRectangle", rect);
+                wrapper.CallStatic("setSecureBuffer", display, packed);
             }
         }
 
-        public void RemoveSecureRectangle(int left, int top, int right, int bottom)
-        {
-            using (var rect = new AndroidJavaObject("android.graphics.Rect", left, top, right, bottom))
-            {
-                _bugsee.CallStatic("removeSecureRectangle", rect);
-            }
-        }
-
-        public void RemoveAllSecureRectangles() => _bugsee.CallStatic("removeAllSecureRectangles");
+        public float GetSecureRectSnapshotScale() => 1f;
 
         public void CaptureViewHierarchy() => _bugsee.CallStatic("captureViewHierarchy");
 
@@ -352,12 +507,156 @@ namespace Bugsee.Platform.Android
             InstallDefaultListeners();
         }
 
+        public void NotifyLifecycle(string eventType) { }
+
+        public void DeleteCollectedDataOnDevice() => DeleteCollectedDataOnDevice(null);
+
+        // Stops the SDK if needed, then deletes with includingBundles=true: the two-argument overload keeps finished
+        // report bundles, including ones not uploaded yet, so a "delete collected data" request would leave data
+        // behind. Runs in request order with Launch/Relaunch/Stop, so a later Launch never cancels it.
+        internal void DeleteCollectedDataOnDevice(Action<bool> completion)
+        {
+            MainThreadDispatcher.Run(() =>
+            {
+                AndroidManagedReportUploadFence.Invalidate();
+                _openReport?.ReleaseSnapshotFiles();
+                _openReport = null;
+                Lifecycle.DeleteCollectedData(completion);
+            });
+        }
+
+        // The native side of the lifecycle machine. Every SDK callback is moved to the main thread.
+        sealed class LifecycleNative : IAndroidLifecycleNative
+        {
+            readonly AndroidBridge _bridge;
+            public LifecycleNative(AndroidBridge bridge) { _bridge = bridge; }
+
+            static Action<bool> OnMain(Action<bool> done) => ok => MainThreadDispatcher.Run(() => done(ok));
+
+            public BugseeStatus Status() => _bridge.GetStatus();
+
+            public void Launch(string appToken, IDictionary<string, object> options, Action<bool> done)
+            {
+                using (var activity = _bridge.CurrentActivity())
+                using (var map = AndroidOptionsMapper.ToJavaMap(options))
+                    _bridge._bugsee.CallStatic("launch", activity, appToken, map, new BooleanCallback1Proxy(OnMain(done)));
+            }
+
+            public void Relaunch(IDictionary<string, object> options, Action<bool> done)
+            {
+                using (var map = AndroidOptionsMapper.ToJavaMap(options))
+                    _bridge._bugsee.CallStatic("relaunch", map, new BooleanCallback1Proxy(OnMain(done)));
+            }
+
+            public void Stop(Action done) =>
+                _bridge._bugsee.CallStatic("stop", new RunnableProxy(() => MainThreadDispatcher.Run(done)));
+
+            public void DeleteCollectedData(Action<bool> done) =>
+                _bridge._bugsee.CallStatic("deleteCollectedDataOnDevice", true, true, new BooleanCallback1Proxy(OnMain(done)));
+
+            public void InstallHooks(IDictionary<string, object> options)
+            {
+                ExceptionPipeline.Install(_bridge, options);
+                HostLogForwarder.InstallOnce(_bridge);
+            }
+
+            public void UninstallHooks()
+            {
+                HostLogForwarder.Uninstall();
+                ExceptionPipeline.Uninstall();
+            }
+
+            public void ScheduleTick(TimeSpan delay)
+            {
+                var timers = _bridge._lifecycleTimers;
+                System.Threading.Timer timer = null;
+                timer = new System.Threading.Timer(_ => MainThreadDispatcher.Run(() =>
+                {
+                    timers.Remove(timer);
+                    timer.Dispose();
+                    _bridge.Lifecycle.Tick();
+                }), null, delay + TimeSpan.FromMilliseconds(50), System.Threading.Timeout.InfiniteTimeSpan);
+                timers.Add(timer); // keeps it alive until it fires; only touched on the main thread
+            }
+
+            public void Warn(string message) => Debug.LogWarning("[Bugsee] " + message);
+            public void Error(Exception exception) => Debug.LogException(exception);
+        }
+
+        public IReport CreateReport()
+        {
+            if (_openReport != null)
+                throw new InvalidOperationException("a report is already open");
+            _openReport = new AndroidManagedReport();
+            return _openReport;
+        }
+
+        public void DiscardReport(IReport report)
+        {
+            if (report == null)
+                throw new ArgumentNullException(nameof(report));
+            if (!ReferenceEquals(report, _openReport))
+                throw new ArgumentException("Report was not created by CreateReport.", nameof(report));
+            _openReport?.ReleaseSnapshotFiles();
+            _openReport = null;
+        }
+
+        public void UploadReport(IReport report)
+        {
+            if (report == null)
+                throw new ArgumentNullException(nameof(report));
+            if (!ReferenceEquals(report, _openReport))
+                throw new ArgumentException("Report was not created by CreateReport.", nameof(report));
+            if (_openReport == null)
+                throw new InvalidOperationException("CreateReport failed.");
+            var snapshot = _openReport;
+            _openReport = null;
+            var uploadFence = AndroidManagedReportUploadFence.Current;
+            _bugsee.CallStatic(
+                "createReport",
+                new ReportCreationListenerProxy(snapshot, _bugsee, uploadFence));
+        }
+
+        public void AddBreadcrumb(string category, string message, string levelName)
+        {
+            var level = BreadcrumbLevelMap.ParseOrThrow(levelName);
+            if (GetExchangeFactory() == null)
+                return;
+
+            using (var levelClass = new AndroidJavaClass(
+                       "com.bugsee.library.contracts.exchange.Breadcrumb$Level"))
+            using (var javaLevel = levelClass.CallStatic<AndroidJavaObject>(
+                       "fromValue",
+                       (sbyte)BreadcrumbLevelMap.ToAndroid(level)))
+            using (var javaFactory = _bugsee.CallStatic<AndroidJavaObject>("getExchangeFactory"))
+            using (var dataMap = new AndroidJavaObject("java.util.HashMap"))
+            {
+                if (javaFactory == null)
+                    return;
+                var breadcrumb = javaFactory.Call<AndroidJavaObject>(
+                    "createBreadcrumb",
+                    DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    category ?? "",
+                    message ?? "",
+                    javaLevel,
+                    "manual",
+                    dataMap);
+                if (breadcrumb == null)
+                    return;
+                _bugsee.CallStatic("addBreadcrumb", breadcrumb);
+            }
+        }
+
         void InstallDefaultListeners()
         {
-            if (_lifecycleProxy == null)
+            if (_lifecycleProxy != null) return;
+            // Lifecycle events reach C# only through the wrapper: it holds the ones fired before this point
+            // (auto-launch, crash recovery), replays them in order, then forwards every later event. Also
+            // registering with Bugsee.setLifecycleEventsListener would deliver events twice or lose some.
+            _lifecycleProxy = new LifecycleListenerProxy();
+            using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
             {
-                _lifecycleProxy = new LifecycleListenerProxy();
-                _bugsee.CallStatic("setLifecycleEventsListener", _lifecycleProxy);
+                wrapper.CallStatic("attachLifecycleListener", _lifecycleProxy);
             }
         }
 

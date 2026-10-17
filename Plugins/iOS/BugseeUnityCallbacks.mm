@@ -32,12 +32,32 @@ typedef void (*BugseeUnityLifecycleCb)(const char *eventType, const char *dataJs
 static BugseeUnityFilterCb gFilterCb = NULL;
 static BugseeUnityReportCb gReportCb = NULL;
 static BugseeUnityLifecycleCb gLifecycleCb = NULL;
+static BOOL gNetworkFilterCallbackInstalled = NO;
+static BOOL gLogFilterCallbackInstalled = NO;
+static BOOL gBreadcrumbFilterCallbackInstalled = NO;
 
 static NSMutableDictionary<NSNumber *, NSMutableDictionary *> *gPending;
 static int64_t gNextRequestId = 1;
 static NSObject *gLock;
 static NSString *gWrapperVersion = @"0.1.0";
 static NSString *gWrapperBuild = @"dev";
+static NSDictionary<NSString *, NSString *> *gWrapperContext = nil;
+
+@class BugseeUnityWrapper;
+static BugseeUnityWrapper *gWrapper;
+static id<BGSWrapperChannel> gChannel;
+static NSMutableDictionary<NSNumber *, NSData *> *gSecureRectBuffers;
+static NSData *gDefaultSecureRectBuffer;
+
+static void BugseeUnityEnsureSecureRectBuffers(void)
+{
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        gSecureRectBuffers = [NSMutableDictionary dictionary];
+        int32_t baseline[] = { 1, 0 };
+        gDefaultSecureRectBuffer = [NSData dataWithBytes:baseline length:sizeof(baseline)];
+    });
+}
 
 static void BugseeUnityEnsureState(void)
 {
@@ -46,6 +66,19 @@ static void BugseeUnityEnsureState(void)
         gPending = [NSMutableDictionary dictionary];
         gLock = [NSObject new];
     });
+}
+
+static NSData *BugseeUnitySecureBufferForDisplay(int display)
+{
+    BugseeUnityEnsureState();
+    BugseeUnityEnsureSecureRectBuffers();
+    @synchronized (gLock) {
+        NSData *data = gSecureRectBuffers[@(display)] ?: gDefaultSecureRectBuffer;
+        if (!data || data.length == 0) {
+            return gDefaultSecureRectBuffer;
+        }
+        return [NSData dataWithBytes:data.bytes length:data.length];
+    }
 }
 
 static char *BugseeUnityCopyUTF8(NSString *string)
@@ -118,6 +151,12 @@ static void BugseeUnityApplyNetworkDict(BugseeNetworkEvent *event, NSDictionary 
 
     id stage = d[@"stage"];
     if ([stage isKindOfClass:[NSString class]]) event.bugseeNetworkEventType = stage;
+
+    id timestampMs = d[@"timestampMs"];
+    if ([timestampMs respondsToSelector:@selector(doubleValue)] && [timestampMs doubleValue] > 0) {
+        // Unix milliseconds, the SDK's own unit (BugseeGetCurrentTimeStampMs).
+        event.timestamp = [timestampMs doubleValue];
+    }
 
     id body = d[@"body"];
     if ([body isKindOfClass:[NSString class]]) {
@@ -231,7 +270,9 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
     id email = d[@"email"];
     if ([email isKindOfClass:[NSString class]]) report.email = email;
     id sev = d[@"severity"];
-    if ([sev respondsToSelector:@selector(integerValue)]) report.severity = [sev integerValue];
+    if ([sev respondsToSelector:@selector(integerValue)]) {
+        report.severity = (BugseeSeverityLevel)[sev integerValue];
+    }
 
     id labels = d[@"labels"];
     if ([labels isKindOfClass:[NSArray class]]) {
@@ -241,36 +282,76 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
         }
     }
 
+    id removals = d[@"attributeRemovals"];
+    if ([removals isKindOfClass:[NSArray class]]) {
+        for (id name in (NSArray *)removals) {
+            if ([name isKindOfClass:[NSString class]]) {
+                [report removeAttributeForName:(NSString *)name];
+            }
+        }
+    }
+
+    id replaceAll = d[@"attributesReplaceAll"];
+    BOOL shouldReplaceAll = [replaceAll respondsToSelector:@selector(boolValue)] && [replaceAll boolValue];
+
     id attrs = d[@"attributes"];
     if ([attrs isKindOfClass:[NSDictionary class]]) {
-        [report clearAllAttributes];
+        if (shouldReplaceAll) {
+            [report clearAllAttributes];
+        }
         [(NSDictionary *)attrs enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
             if ([key isKindOfClass:[NSString class]]) {
                 [report setAttribute:obj forName:key];
             }
         }];
+    } else if (shouldReplaceAll) {
+        [report clearAllAttributes];
     }
+
+    id replaceAttachments = d[@"attachmentsReplaceAll"];
+    BOOL shouldReplaceAttachments = [replaceAttachments respondsToSelector:@selector(boolValue)] && [replaceAttachments boolValue];
 
     id attachments = d[@"attachments"];
     if ([attachments isKindOfClass:[NSArray class]]) {
+        if (shouldReplaceAttachments) {
+            [report clearAttachments];
+        }
         for (id item in (NSArray *)attachments) {
             if (![item isKindOfClass:[NSDictionary class]]) continue;
             NSDictionary *att = (NSDictionary *)item;
             NSString *name = [att[@"name"] isKindOfClass:[NSString class]] ? att[@"name"] : @"attachment";
-            id<BGSAttachmentContract> created = [report createAndAddAttachmentWithName:name];
-            if (!created) continue;
-            id fileName = att[@"fileName"];
-            if ([fileName isKindOfClass:[NSString class]]) created.fileName = fileName;
-            id mime = att[@"mimeType"];
-            if ([mime isKindOfClass:[NSString class]]) created.mimeType = mime;
-            id text = att[@"text"];
-            if ([text isKindOfClass:[NSString class]]) {
-                created.data = [(NSString *)text dataUsingEncoding:NSUTF8StringEncoding];
+            NSString *mime = [att[@"mimeType"] isKindOfClass:[NSString class]] ? att[@"mimeType"] : @"application/octet-stream";
+            id pathVal = att[@"path"];
+            if ([pathVal isKindOfClass:[NSString class]] && [(NSString *)pathVal length] > 0) {
+                id reportObj = (id)report;
+                id<BGSAttachmentContract> created = nil;
+                if ([reportObj respondsToSelector:@selector(addAttachmentWithFilePath:name:mimeType:move:)]) {
+                    created = [reportObj addAttachmentWithFilePath:(NSString *)pathVal name:name mimeType:mime move:YES];
+                }
+                if (created) {
+                    id fileName = att[@"fileName"];
+                    if ([fileName isKindOfClass:[NSString class]] && [(NSString *)fileName length] > 0) {
+                        created.fileName = fileName;
+                    }
+                }
+                continue;
             }
             id b64 = att[@"dataBase64"];
             if ([b64 isKindOfClass:[NSString class]] && [(NSString *)b64 length] > 0) {
                 NSData *decoded = [[NSData alloc] initWithBase64EncodedString:(NSString *)b64 options:0];
-                if (decoded) created.data = decoded;
+                if (decoded) {
+                    id reportObj = (id)report;
+                    id<BGSAttachmentContract> created = nil;
+                    if ([reportObj respondsToSelector:@selector(addAttachmentWithData:name:mimeType:)]) {
+                        created = [reportObj addAttachmentWithData:decoded name:name mimeType:mime];
+                    }
+                    if (created) {
+                        id fileName = att[@"fileName"];
+                        if ([fileName isKindOfClass:[NSString class]] && [(NSString *)fileName length] > 0) {
+                            created.fileName = fileName;
+                        }
+                    }
+                }
             }
         }
     }
@@ -281,10 +362,23 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
 
 @implementation BugseeUnityWrapper
 
++ (void)load
+{
+    if (!gWrapper) {
+        gWrapper = [BugseeUnityWrapper new];
+    }
+    [Bugsee setWrapper:gWrapper];
+}
+
+- (void)onWrapperChannelAvailable:(id<BGSWrapperChannel>)channel
+{
+    gChannel = channel;
+}
+
 - (NSString *)wrapperType { return @"unity"; }
-- (NSString *)wrapperVersion { return gWrapperVersion ?: @"0.1.0"; }
-- (NSString *)wrapperBuild { return gWrapperBuild ?: @"dev"; }
-- (NSDictionary<NSString *, NSString *> *)context { return @{}; }
+- (NSString *)wrapperVersion { return gWrapperVersion ?: @"unknown"; }
+- (NSString *)wrapperBuild { return gWrapperBuild ?: @"unknown"; }
+- (NSDictionary<NSString *, NSString *> *)context { return gWrapperContext ?: @{}; }
 
 - (void)requestDataWithType:(NSString *)dataType callback:(id<BGSDataRequestResultCallback>)callback
 {
@@ -323,12 +417,21 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
     [self forwardReport:report phase:1 isTerminating:isTerminating completion:completion];
 }
 
+- (NSData *)secureRectanglesForDisplay:(NSInteger)display
+{
+    return BugseeUnitySecureBufferForDisplay((int)display);
+}
+
 - (void)forwardReport:(id<BGSReportContract>)report
                 phase:(int)phase
         isTerminating:(BOOL)isTerminating
            completion:(BGSCallback)completion
 {
     if (!gReportCb) {
+        if (completion) completion();
+        return;
+    }
+    if (isTerminating) {
         if (completion) completion();
         return;
     }
@@ -339,7 +442,11 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
         NSMutableDictionary *entry = [NSMutableDictionary dictionary];
         entry[@"kind"] = @"report";
         if (report) entry[@"report"] = report;
-        entry[@"completion"] = completion ? [completion copy] : ^{};
+        if (completion) {
+            entry[@"completion"] = [completion copy];
+        } else {
+            entry[@"completion"] = ^{};
+        }
         gPending[@(requestId)] = entry;
     }
     NSString *json = BugseeUnityJsonString(BugseeUnityReportToDict(report));
@@ -349,8 +456,6 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
 }
 
 @end
-
-static BugseeUnityWrapper *gWrapper;
 
 static int64_t BugseeUnityEnqueueFilter(NSString *kind, id event, id decisionBlock)
 {
@@ -378,6 +483,87 @@ void _bugsee_register_unity_callbacks(BugseeUnityFilterCb filterCb,
     gLifecycleCb = lifecycleCb;
 }
 
+void _bugsee_set_secure_buffer(int display, int *packed, int packedLength)
+{
+    if (!packed || packedLength < 2) return;
+    BugseeUnityEnsureState();
+    BugseeUnityEnsureSecureRectBuffers();
+    NSData *data = [NSData dataWithBytes:packed length:(NSUInteger)packedLength * sizeof(int32_t)];
+    if (!data) return;
+    @synchronized (gLock) {
+        gSecureRectBuffers[@(display)] = data;
+    }
+}
+
+void _bugsee_channel_log(const char *message, int level, int source)
+{
+    id<BGSWrapperChannel> channel = gChannel;
+    if (!channel || !message) return;
+    if (![channel respondsToSelector:@selector(logWithTag:message:level:source:)]) return;
+    NSString *text = [NSString stringWithUTF8String:message];
+    if (!text) return;
+    [channel logWithTag:nil
+                message:text
+                  level:(BugseeLogLevel)level
+                 source:(BGSLogEventSource)source];
+}
+
+void _bugsee_channel_network(const char *eventJson, int requiresFiltering)
+{
+    id<BGSWrapperChannel> channel = gChannel;
+    if (!channel || !eventJson) {
+        return;
+    }
+    if (![channel respondsToSelector:@selector(addNetworkEvent:requiresFiltering:)]) {
+        return;
+    }
+    NSDictionary *dict = BugseeUnityParseJson(eventJson);
+    if (![dict isKindOfClass:[NSDictionary class]]) {
+        return;
+    }
+    BugseeNetworkEvent *event = [BugseeNetworkEvent new];
+    id eventId = dict[@"id"];
+    if ([eventId isKindOfClass:[NSString class]]) {
+        event.ID = eventId;
+    }
+    BugseeUnityApplyNetworkDict(event, dict);
+    [channel addNetworkEvent:event requiresFiltering:requiresFiltering != 0];
+}
+
+void _bugsee_channel_breadcrumb(const char *category, const char *message, int iosLevel, double timestampUnixSeconds)
+{
+    id<BGSWrapperChannel> channel = gChannel;
+    if (!channel) {
+        return;
+    }
+    if (![channel respondsToSelector:@selector(addBreadcrumb:)]) {
+        return;
+    }
+    NSString *categoryText = category ? [NSString stringWithUTF8String:category] : @"";
+    NSString *messageText = message ? [NSString stringWithUTF8String:message] : @"";
+    if (!categoryText) {
+        categoryText = @"";
+    }
+    if (!messageText) {
+        messageText = @"";
+    }
+    id factory = [Bugsee getExchangeFactory];
+    if (!factory) {
+        return;
+    }
+    NSTimeInterval timestamp = timestampUnixSeconds > 0 ? timestampUnixSeconds : [[NSDate date] timeIntervalSince1970];
+    id<BGSBreadcrumb> breadcrumb = [factory createBreadcrumbWithTimestamp:timestamp
+                                                                 category:categoryText
+                                                                    level:(BugseeLogLevel)iosLevel
+                                                                  message:messageText
+                                                                     type:@"manual"
+                                                                     data:nil];
+    if (!breadcrumb) {
+        return;
+    }
+    [channel addBreadcrumb:breadcrumb];
+}
+
 void _bugsee_ensure_wrapper(const char *version, const char *build)
 {
     if (version) gWrapperVersion = [NSString stringWithUTF8String:version];
@@ -388,15 +574,39 @@ void _bugsee_ensure_wrapper(const char *version, const char *build)
     [Bugsee setWrapper:gWrapper];
 }
 
+void _bugsee_set_wrapper_context(const char *json)
+{
+    if (!json) {
+        gWrapperContext = nil;
+        return;
+    }
+    NSDictionary *parsed = BugseeUnityParseJson(json);
+    if (![parsed isKindOfClass:[NSDictionary class]]) {
+        return;
+    }
+    NSMutableDictionary<NSString *, NSString *> *out = [NSMutableDictionary dictionary];
+    [(NSDictionary *)parsed enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+        if ([key isKindOfClass:[NSString class]] && [obj isKindOfClass:[NSString class]]) {
+            out[(NSString *)key] = (NSString *)obj;
+        }
+    }];
+    gWrapperContext = [out copy];
+}
+
 void _bugsee_set_network_filter_enabled(int enabled)
 {
     if (!enabled) {
-        [Bugsee setNetworkEventFilter:nil];
+        gNetworkFilterCallbackInstalled = NO;
         return;
     }
+    gNetworkFilterCallbackInstalled = YES;
     [Bugsee setNetworkEventFilter:^(BugseeNetworkEvent *event, BugseeNetworkFilterDecisionBlock decisionBlock) {
-        if (!gFilterCb) {
+        if (!gNetworkFilterCallbackInstalled) {
             decisionBlock(event);
+            return;
+        }
+        if (!gFilterCb) {
+            decisionBlock(nil);
             return;
         }
         int64_t requestId = BugseeUnityEnqueueFilter(@"network", event, decisionBlock);
@@ -410,12 +620,17 @@ void _bugsee_set_network_filter_enabled(int enabled)
 void _bugsee_set_log_filter_enabled(int enabled)
 {
     if (!enabled) {
-        [Bugsee setLogEventFilter:nil];
+        gLogFilterCallbackInstalled = NO;
         return;
     }
+    gLogFilterCallbackInstalled = YES;
     [Bugsee setLogEventFilter:^(BugseeLogEvent *event, BugseeLogFilterDecisionBlock decisionBlock) {
-        if (!gFilterCb) {
+        if (!gLogFilterCallbackInstalled) {
             decisionBlock(event);
+            return;
+        }
+        if (!gFilterCb) {
+            decisionBlock(nil);
             return;
         }
         int64_t requestId = BugseeUnityEnqueueFilter(@"log", event, decisionBlock);
@@ -429,12 +644,17 @@ void _bugsee_set_log_filter_enabled(int enabled)
 void _bugsee_set_breadcrumb_filter_enabled(int enabled)
 {
     if (!enabled) {
-        [Bugsee setBreadcrumbFilter:nil];
+        gBreadcrumbFilterCallbackInstalled = NO;
         return;
     }
+    gBreadcrumbFilterCallbackInstalled = YES;
     [Bugsee setBreadcrumbFilter:^(id<BGSBreadcrumb> crumb, BugseeBreadcrumbFilterDecisionBlock decisionBlock) {
-        if (!gFilterCb) {
+        if (!gBreadcrumbFilterCallbackInstalled) {
             decisionBlock(crumb);
+            return;
+        }
+        if (!gFilterCb) {
+            decisionBlock(nil);
             return;
         }
         int64_t requestId = BugseeUnityEnqueueFilter(@"breadcrumb", crumb, decisionBlock);
@@ -498,13 +718,47 @@ void _bugsee_complete_report(int64_t requestId, const char *resultJson)
     if (completion) completion();
 }
 
+#if defined(BUGSEE_UNITY_TESTS)
+const char *_bugsee_test_copy_wrapper_version(void)
+{
+    return gWrapperVersion ? strdup(gWrapperVersion.UTF8String) : NULL;
+}
+
+const char *_bugsee_test_copy_wrapper_build(void)
+{
+    return gWrapperBuild ? strdup(gWrapperBuild.UTF8String) : NULL;
+}
+
+int _bugsee_test_wrapper_installed(void)
+{
+    return gWrapper != nil;
+}
+
+const char *_bugsee_test_copy_context_value(const char *key)
+{
+    if (!gWrapperContext || !key) return NULL;
+    NSString *value = gWrapperContext[[NSString stringWithUTF8String:key]];
+    return value ? strdup(value.UTF8String) : NULL;
+}
+#endif
+
 } // extern "C"
 
 #else
 
 extern "C" {
 void _bugsee_register_unity_callbacks(void *a, void *b, void *c) { (void)a; (void)b; (void)c; }
+void _bugsee_channel_log(const char *message, int level, int source) { (void)message; (void)level; (void)source; }
+void _bugsee_channel_network(const char *eventJson, int requiresFiltering) { (void)eventJson; (void)requiresFiltering; }
+void _bugsee_channel_breadcrumb(const char *category, const char *message, int iosLevel, double timestampUnixSeconds)
+{
+    (void)category;
+    (void)message;
+    (void)iosLevel;
+    (void)timestampUnixSeconds;
+}
 void _bugsee_ensure_wrapper(const char *version, const char *build) { (void)version; (void)build; }
+void _bugsee_set_wrapper_context(const char *json) { (void)json; }
 void _bugsee_set_network_filter_enabled(int enabled) { (void)enabled; }
 void _bugsee_set_log_filter_enabled(int enabled) { (void)enabled; }
 void _bugsee_set_breadcrumb_filter_enabled(int enabled) { (void)enabled; }

@@ -1,0 +1,37 @@
+# Applied to the app's R8 run by Editor/BugseeAndroidProguardRules (appended to unityLibrary/proguard-unity.txt);
+# Unity does not read this file from Plugins/Android itself. UnityWrapper and UnityManagedException are looked up by
+# name from C# over JNI (AndroidJavaClass / AndroidJavaObject), which R8 cannot trace.
+-keep class com.bugsee.unity.UnityWrapper {
+    static void refineContext(java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String);
+    static void channelLog(java.lang.String, int, int);
+    static void channelAddNetwork(com.bugsee.library.contracts.exchange.NetworkEvent);
+    static void clearWrapperChannel();
+    static void setSecureBuffer(int, int[]);
+    static void attachLifecycleListener(com.bugsee.library.contracts.lifecycle.LifecycleEventListener);
+}
+# Every method C# calls is public static; keeping them all means a new one cannot be stripped by forgetting to list it.
+-keep class com.bugsee.unity.UnityWrapper {
+    public static <methods>;
+}
+-keep class com.bugsee.unity.UnityWrapperProvider { *; }
+# C# calls UnityWrapper.testCrash() via JNI. Its anonymous Runnable (UnityWrapper$1) is what appears in the
+# crash's stack frame, so keep its name readable instead of relying on the mapping file.
+-keep class com.bugsee.unity.UnityWrapper {
+    static void testCrash();
+}
+-keepnames class com.bugsee.unity.UnityWrapper$*
+# C# builds this Throwable by name (new AndroidJavaObject("com.bugsee.unity.UnityManagedException", json)); the worker
+# routes managed exceptions on its class name, so it must keep both the constructor and its name.
+-keep class com.bugsee.unity.UnityManagedException {
+    <init>(java.lang.String);
+}
+# Not reached by name (its constants are inlined at compile time); kept so the identity file survives intact.
+-keep class com.bugsee.unity.UnityWrapperIdentity { *; }
+# C# implements these SDK interfaces with AndroidJavaProxy, which dispatches by method name. The SDK's own consumer
+# rules keep them today; stating it here keeps the wrapper working if those rules narrow.
+-keep interface com.bugsee.library.contracts.exchange.EventFilter { *; }
+-keep interface com.bugsee.library.contracts.reporting.ReportHandler { *; }
+-keep interface com.bugsee.library.contracts.reporting.ReportCreationListener { *; }
+-keep interface com.bugsee.library.contracts.lifecycle.LifecycleEventListener { *; }
+-keep interface com.bugsee.library.contracts.common.Callback1 { *; }
+-keep interface com.bugsee.library.contracts.feedback.FeedbackListener { *; }

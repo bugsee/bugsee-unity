@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Mirrors Runtime/Bugsee.Runtime.asmdef. Together with Bugsee.Editor.csproj (a separate assembly,
+    like Editor/Bugsee.Editor.asmdef, so `internal` Runtime members stay invisible to Editor) it
+    type-checks the package against Unity reference assemblies, with no Unity license or install.
+    Driven by ../../scripts/compile-check.sh, which sets the Unity define set per target.
+  -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>Bugsee.Runtime</AssemblyName>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <NoWarn>$(NoWarn);CS1591;CS0618;CS0649;CS0169;CS0414;CS0436;NU1701;NETSDK1138</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <!--
+      Community repackaging of Unity's reference assemblies on nuget.org (not an official Unity
+      feed), pinned by exact version and by obj lock file (restore runs in locked mode).
+    -->
+    <PackageReference Include="UnityEngine.Modules" Version="2021.3.33" PrivateAssets="all" Condition="'$(UnityManagedDir)' == ''" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UnityManagedDir)' != ''">
+    <!--
+      The android-player-unity-capture config of compile-check.sh points this at a local Unity 2022.2+ editor's Managed
+      directory, so the code behind BUGSEE_UNITY_CAPTURE (AndroidJNI.NewDirectByteBuffer) is type-checked. The CI job has
+      no editor and skips that config.
+    -->
+    <Reference Include="$(UnityManagedDir)/UnityEngine/UnityEngine.dll" />
+    <Reference Include="$(UnityManagedDir)/UnityEngine/UnityEngine.*Module.dll" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\..\..\Runtime\**\*.cs" />
+  </ItemGroup>
+</Project>

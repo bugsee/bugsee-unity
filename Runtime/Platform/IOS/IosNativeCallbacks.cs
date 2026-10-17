@@ -1,10 +1,12 @@
 #if UNITY_IOS && !UNITY_EDITOR
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using AOT;
 using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Reporting;
 using Bugsee.Internal;
+using Bugsee.WrapperPolicy;
 using UnityEngine;
 
 namespace Bugsee.Platform.IOS
@@ -24,6 +26,7 @@ namespace Bugsee.Platform.IOS
         static EventFilter<ILogEvent> _logFilter;
         static EventFilter<IBreadcrumb> _breadcrumbFilter;
         static IReportHandler _reportHandler;
+        static bool _hostContextPublished;
 
         public static void EnsureRegistered()
         {
@@ -35,7 +38,54 @@ namespace Bugsee.Platform.IOS
         public static void EnsureWrapper()
         {
             EnsureRegistered();
-            _bugsee_ensure_wrapper(BugseePackageVersion.Version, BugseePackageVersion.Build);
+            MainThreadDispatcher.Ensure();
+            void Work()
+            {
+                PublishHostContext();
+                _bugsee_ensure_wrapper(BugseePackageVersion.Version, BugseePackageVersion.Build);
+            }
+
+            if (MainThreadDispatcher.IsMainThread)
+            {
+                Work();
+            }
+            else
+            {
+                MainThreadDispatcher.RunSync(Work);
+            }
+        }
+
+        static void PublishHostContext()
+        {
+            if (_hostContextPublished)
+            {
+                return;
+            }
+
+            var context = new Dictionary<string, object>
+            {
+                ["unity_version"] = Application.unityVersion ?? "",
+                ["unity_platform"] = Application.platform.ToString(),
+                ["product_name"] = Application.productName ?? "",
+            };
+            _bugsee_set_wrapper_context(WrapperContextJson(context));
+            _hostContextPublished = true;
+        }
+
+        static string WrapperContextJson(Dictionary<string, object> map)
+        {
+            var parts = new List<string>(map.Count);
+            foreach (var kv in map)
+            {
+                if (kv.Key == null || kv.Value == null)
+                {
+                    continue;
+                }
+
+                parts.Add(JsonWire.String(kv.Key) + ":" + JsonWire.String(kv.Value.ToString()));
+            }
+
+            return "{" + string.Join(",", parts.ToArray()) + "}";
         }
 
         public static void SetNetworkFilter(EventFilter<INetworkEvent> filter)
@@ -68,6 +118,11 @@ namespace Bugsee.Platform.IOS
         [MonoPInvokeCallback(typeof(FilterCb))]
         static void OnFilter(long requestId, int kind, string json)
         {
+            // Snapshot before the main-thread hop so in-flight events keep the filter that was active when native captured them.
+            var networkFilter = _networkFilter;
+            var logFilter = _logFilter;
+            var breadcrumbFilter = _breadcrumbFilter;
+
             // Filters may touch Unity APIs — hop to main thread when needed.
             void Work()
             {
@@ -76,23 +131,23 @@ namespace Bugsee.Platform.IOS
                     switch (kind)
                     {
                         case KindNetwork:
-                            CompleteNetwork(requestId, json);
+                            CompleteNetwork(requestId, json, networkFilter);
                             break;
                         case KindLog:
-                            CompleteLog(requestId, json);
+                            CompleteLog(requestId, json, logFilter);
                             break;
                         case KindBreadcrumb:
-                            CompleteBreadcrumb(requestId, json);
+                            CompleteBreadcrumb(requestId, json, breadcrumbFilter);
                             break;
                         default:
-                            _bugsee_complete_filter(requestId, 1, json);
+                            _bugsee_complete_filter(requestId, FilterCompletion.Drop, null);
                             break;
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogException(ex);
-                    _bugsee_complete_filter(requestId, 1, json);
+                    Debug.Log("filter-failed " + ex.GetType().Name);
+                    _bugsee_complete_filter(requestId, FilterCompletion.OnThrow, null);
                 }
             }
 
@@ -100,12 +155,11 @@ namespace Bugsee.Platform.IOS
             else MainThreadDispatcher.Run(Work);
         }
 
-        static void CompleteNetwork(long requestId, string json)
+        static void CompleteNetwork(long requestId, string json, EventFilter<INetworkEvent> filter)
         {
-            var filter = _networkFilter;
             if (filter == null)
             {
-                _bugsee_complete_filter(requestId, 1, json);
+                _bugsee_complete_filter(requestId, FilterCompletion.Keep, json);
                 return;
             }
 
@@ -119,15 +173,30 @@ namespace Bugsee.Platform.IOS
             }
 
             var ios = result as IosNetworkEvent ?? managed;
-            _bugsee_complete_filter(requestId, 1, ToNativeMapJson(ios.ToResultJson(), "headers"));
+            if (ReferenceEquals(ios, managed))
+            {
+                // Stage is read-only, so the SDK's own type string goes back unchanged.
+                _bugsee_complete_filter(requestId, 1, ToNativeMapJson(ios.ToResultJson(), "headers"));
+                return;
+            }
+
+            // A replacement event (e.g. from the exchange factory) stores the managed stage name; the SDK only
+            // recognises its own types, so map it the same way channel submit does.
+            var nativeStage = IosNetworkEvent.ToNativeStage(ios.Stage);
+            if (nativeStage == null)
+            {
+                _bugsee_complete_filter(requestId, FilterCompletion.Drop, null);
+                return;
+            }
+
+            _bugsee_complete_filter(requestId, 1, ToNativeMapJson(ios.ToChannelJson(nativeStage, 0), "headers"));
         }
 
-        static void CompleteLog(long requestId, string json)
+        static void CompleteLog(long requestId, string json, EventFilter<ILogEvent> filter)
         {
-            var filter = _logFilter;
             if (filter == null)
             {
-                _bugsee_complete_filter(requestId, 1, json);
+                _bugsee_complete_filter(requestId, FilterCompletion.Keep, json);
                 return;
             }
 
@@ -144,12 +213,11 @@ namespace Bugsee.Platform.IOS
             _bugsee_complete_filter(requestId, 1, ios.ToResultJson());
         }
 
-        static void CompleteBreadcrumb(long requestId, string json)
+        static void CompleteBreadcrumb(long requestId, string json, EventFilter<IBreadcrumb> filter)
         {
-            var filter = _breadcrumbFilter;
             if (filter == null)
             {
-                _bugsee_complete_filter(requestId, 1, json);
+                _bugsee_complete_filter(requestId, FilterCompletion.Keep, json);
                 return;
             }
 
@@ -170,35 +238,25 @@ namespace Bugsee.Platform.IOS
         [MonoPInvokeCallback(typeof(ReportCb))]
         static void OnReport(long requestId, int phase, int isTerminating, string json)
         {
+            if (isTerminating != 0)
+            {
+                _bugsee_complete_report(requestId, null);
+                return;
+            }
+
             void Work()
             {
+                IosReport report = null;
                 try
                 {
                     var handler = _reportHandler;
                     var dto = JsonUtility.FromJson<IosReportDto>(
                         IosJsonNormalize.NormalizeReport(json ?? "{}"));
-                    var report = new IosReport(dto);
+                    report = new IosReport(dto);
 
                     if (handler == null)
                     {
-                        _bugsee_complete_report(requestId, null);
-                        return;
-                    }
-
-                    // Terminating: sync handler + force complete (Android pattern).
-                    // Process may die; must not wait on async done().
-                    if (isTerminating != 0)
-                    {
-                        try
-                        {
-                            Action noop = () => { };
-                            if (phase == 0)
-                                handler.OnBeforeReportCreated(report, true, noop);
-                            else
-                                handler.OnAfterReportCreated(report, true, noop);
-                        }
-                        catch (Exception ex) { Debug.LogException(ex); }
-                        _bugsee_complete_report(requestId, report.ToResultJson());
+                        CompleteReport(requestId, report, null);
                         return;
                     }
 
@@ -207,7 +265,7 @@ namespace Bugsee.Platform.IOS
                     {
                         if (finished) return;
                         finished = true;
-                        _bugsee_complete_report(requestId, report.ToResultJson());
+                        CompleteReport(requestId, report, report.ToResultJson());
                     };
 
                     if (phase == 0)
@@ -218,18 +276,20 @@ namespace Bugsee.Platform.IOS
                 catch (Exception ex)
                 {
                     Debug.LogException(ex);
-                    _bugsee_complete_report(requestId, null);
+                    CompleteReport(requestId, report, null);
                 }
             }
 
-            if (isTerminating != 0 || MainThreadDispatcher.IsMainThread)
+            static void CompleteReport(long requestId, IosReport report, string resultJson)
             {
+                _bugsee_complete_report(requestId, resultJson);
+                report?.ReleaseSnapshotFiles();
+            }
+
+            if (MainThreadDispatcher.IsMainThread)
                 Work();
-            }
             else
-            {
                 MainThreadDispatcher.Run(Work);
-            }
         }
 
         [MonoPInvokeCallback(typeof(LifecycleCb))]
@@ -267,7 +327,7 @@ namespace Bugsee.Platform.IOS
         /// <summary>
         /// JsonUtility emits kv arrays; native Apply* expects object maps for headers/data.
         /// </summary>
-        static string ToNativeMapJson(string json, string field)
+        internal static string ToNativeMapJson(string json, string field)
         {
             if (string.IsNullOrEmpty(json)) return "{}";
             var key = "\"" + field + "\":";
@@ -325,7 +385,7 @@ namespace Bugsee.Platform.IOS
                 var v = ExtractStringField(obj, "value");
                 if (k != null)
                 {
-                    parts.Add(JsonString(k) + ":" + (v == null ? "null" : JsonString(v)));
+                    parts.Add(JsonWire.String(k) + ":" + (v == null ? "null" : JsonWire.String(v)));
                 }
                 i = objEnd + 1;
             }
@@ -385,11 +445,6 @@ namespace Bugsee.Platform.IOS
                 .Replace("\\r", "\r");
         }
 
-        static string JsonString(string s)
-        {
-            return "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
-        }
-
         [Serializable]
         sealed class StringBox
         {
@@ -405,6 +460,9 @@ namespace Bugsee.Platform.IOS
 
         [DllImport("__Internal")]
         static extern void _bugsee_ensure_wrapper(string version, string build);
+
+        [DllImport("__Internal")]
+        static extern void _bugsee_set_wrapper_context(string json);
 
         [DllImport("__Internal")]
         static extern void _bugsee_set_network_filter_enabled(int enabled);

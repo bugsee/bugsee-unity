@@ -10,14 +10,39 @@ namespace Bugsee.Platform.Android
     /// <summary>
     /// Thin wrappers over Java exchange events. Mutate in place so filter
     /// callbacks write through to the native instance the SDK owns.
+    /// Event objects handed to a filter are valid only inside the filter callback: once it
+    /// returns the proxy releases the native reference, and later access throws
+    /// <see cref="ObjectDisposedException"/>.
     /// </summary>
-    sealed class AndroidNetworkEvent : INetworkEvent
+    interface IReleasableNativeEvent
     {
-        readonly AndroidJavaObject _native;
+        void ReleaseNative();
+    }
+
+    static class NativeEventGuard
+    {
+        internal static AndroidJavaObject Live(AndroidJavaObject native, bool released, string type)
+        {
+            if (released || native == null)
+                throw new ObjectDisposedException(type,
+                    "Bugsee event objects are valid only inside the filter callback; do not store them.");
+            return native;
+        }
+    }
+    sealed class AndroidNetworkEvent : INetworkEvent, IReleasableNativeEvent
+    {
+        readonly AndroidJavaObject _nativeRaw;
+        bool _released;
+
+        AndroidJavaObject _native => NativeEventGuard.Live(_nativeRaw, _released, nameof(AndroidNetworkEvent));
+
+        public void ReleaseNative() => _released = true;
+
+        internal AndroidJavaObject Native => _native;
 
         public AndroidNetworkEvent(AndroidJavaObject native)
         {
-            _native = native;
+            _nativeRaw = native;
         }
 
         public string Id => _native.Call<string>("getId");
@@ -80,6 +105,12 @@ namespace Bugsee.Platform.Android
             }
         }
 
+        public bool IsOverride
+        {
+            get => _native.Call<bool>("isOverride");
+            set => _native.Call("setOverride", value);
+        }
+
         public NetworkEventStage Stage
         {
             get
@@ -95,13 +126,18 @@ namespace Bugsee.Platform.Android
         }
     }
 
-    sealed class AndroidLogEvent : ILogEvent
+    sealed class AndroidLogEvent : ILogEvent, IReleasableNativeEvent
     {
-        readonly AndroidJavaObject _native;
+        readonly AndroidJavaObject _nativeRaw;
+        bool _released;
+
+        AndroidJavaObject _native => NativeEventGuard.Live(_nativeRaw, _released, nameof(AndroidLogEvent));
+
+        public void ReleaseNative() => _released = true;
 
         public AndroidLogEvent(AndroidJavaObject native)
         {
-            _native = native;
+            _nativeRaw = native;
         }
 
         public string Message
@@ -144,13 +180,18 @@ namespace Bugsee.Platform.Android
         }
     }
 
-    sealed class AndroidBreadcrumb : IBreadcrumb
+    sealed class AndroidBreadcrumb : IBreadcrumb, IReleasableNativeEvent
     {
-        readonly AndroidJavaObject _native;
+        readonly AndroidJavaObject _nativeRaw;
+        bool _released;
+
+        AndroidJavaObject _native => NativeEventGuard.Live(_nativeRaw, _released, nameof(AndroidBreadcrumb));
+
+        public void ReleaseNative() => _released = true;
 
         public AndroidBreadcrumb(AndroidJavaObject native)
         {
-            _native = native;
+            _nativeRaw = native;
         }
 
         public long Timestamp

@@ -7,6 +7,7 @@ using Bugsee.Contracts.Lifecycle;
 using Bugsee.Contracts.Options;
 using Bugsee.Contracts.Reporting;
 using Bugsee.Internal;
+using Bugsee.WrapperPolicy;
 
 namespace Bugsee.Platform
 {
@@ -21,11 +22,22 @@ namespace Bugsee.Platform
         bool GetLaunched();
         BugseeStatus GetStatus();
 
+        /// <summary>The effective launch options (SDK defaults merged with the host's), or null when the SDK has none.</summary>
+        IReadOnlyDictionary<string, object> GetLaunchOptions();
+
         void StartBlackout();
         void EndBlackout();
         bool IsBlackout();
 
         void Log(string message, LogLevel level);
+
+        /// <summary>Submit a host log on the wrapper channel. Public <see cref="Log"/> stays on the SDK log API.</summary>
+        void ChannelLog(string message, LogLevel level);
+
+        /// <summary>Submit a network event on the wrapper channel, not the public SDK addNetworkEvent API.</summary>
+        void AddNetworkEvent(INetworkEvent networkEvent);
+
+        IBugseeExchangeFactory GetExchangeFactory();
         void Trace(string name, object value);
         void Event(string name, IDictionary<string, object> parameters);
         void LogException(Exception exception, IDictionary<string, object> options = null);
@@ -37,6 +49,12 @@ namespace Bugsee.Platform
         void ShowReportDialog(string summary, string description, IssueSeverity severity, IList<string> labels);
         void Upload(string summary, string description, IssueSeverity severity, IList<string> labels);
 
+        /// <summary>Relay a lightweight notification to the app's messaging integrations (no report is created).</summary>
+        void Notify(string title, string body, IssueSeverity severity, IDictionary<string, string> fields, bool urgent);
+
+        /// <summary>Starts a native transaction (attributes already cleaned, may be null), or null when there is none.</summary>
+        ISpanHandle StartTransaction(string name, string operation, IDictionary<string, object> attributes);
+
         void SetUserIdentifier(string userIdentifier);
         string GetUserIdentifier();
         void ClearUserIdentifier();
@@ -46,9 +64,11 @@ namespace Bugsee.Platform
         void ClearAttribute(string key);
         void ClearAllAttributes();
 
-        void AddSecureRectangle(int left, int top, int right, int bottom);
-        void RemoveSecureRectangle(int left, int top, int right, int bottom);
-        void RemoveAllSecureRectangles();
+        /// <summary>Push a versioned secure-rect mask for native wrapper pull (not the public SDK API).</summary>
+        void SetSecureBuffer(int display, int[] packed);
+
+        /// <summary>Scale divisor for <see cref="SecureRectRegistry.Snapshot"/> (1 on Android, screen scale on iOS).</summary>
+        float GetSecureRectSnapshotScale();
 
         void CaptureViewHierarchy();
         void ResetVideoCapturePermission();
@@ -61,6 +81,15 @@ namespace Bugsee.Platform
         void SetBreadcrumbFilter(EventFilter<IBreadcrumb> filter);
         void SetReportHandler(IReportHandler handler);
         void SetLifecycleEventListener(ILifecycleEventListener listener);
+
+        void DeleteCollectedDataOnDevice();
+        IReport CreateReport();
+        void DiscardReport(IReport report);
+        void AddBreadcrumb(string category, string message, string levelName);
+        void UploadReport(IReport report);
+
+        /// <summary>Native lifecycle fan-out for bridge-side policy (iOS network buffer).</summary>
+        void NotifyLifecycle(string eventType);
 
         /// <summary>Register the Unity <c>BugseeWrapper</c> implementation with the native SDK.</summary>
         void EnsureWrapperRegistered();

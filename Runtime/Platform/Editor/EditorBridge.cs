@@ -8,6 +8,7 @@ using Bugsee.Contracts.Options;
 using Bugsee.Contracts.Reporting;
 using Bugsee.Internal;
 using Bugsee.Platform;
+using Bugsee.WrapperPolicy;
 using UnityEngine;
 
 namespace Bugsee.Platform.EditorStub
@@ -24,12 +25,18 @@ namespace Bugsee.Platform.EditorStub
         public void Stop(Action completion = null) => completion?.Invoke();
         public bool GetLaunched() => false;
         public BugseeStatus GetStatus() => BugseeStatus.Stopped;
+        public IReadOnlyDictionary<string, object> GetLaunchOptions() => null;
 
         bool _blackout;
         public void StartBlackout() => _blackout = true;
         public void EndBlackout() => _blackout = false;
         public bool IsBlackout() => _blackout;
         public void Log(string message, LogLevel level) { }
+        public void ChannelLog(string message, LogLevel level) { }
+        public void AddNetworkEvent(INetworkEvent networkEvent) { }
+
+        public IBugseeExchangeFactory GetExchangeFactory() => EditorExchangeFactory.Instance;
+
         public void Trace(string name, object value) { }
         public void Event(string name, IDictionary<string, object> parameters) { }
         public void LogException(Exception exception, IDictionary<string, object> options = null) { }
@@ -39,6 +46,8 @@ namespace Bugsee.Platform.EditorStub
         public void TestCrash() { }
         public void ShowReportDialog(string summary, string description, IssueSeverity severity, IList<string> labels) { }
         public void Upload(string summary, string description, IssueSeverity severity, IList<string> labels) { }
+        public void Notify(string title, string body, IssueSeverity severity, IDictionary<string, string> fields, bool urgent) { }
+        public ISpanHandle StartTransaction(string name, string operation, IDictionary<string, object> attributes) => null;
         public void SetUserIdentifier(string userIdentifier) { }
         public string GetUserIdentifier() => null;
         public void ClearUserIdentifier() { }
@@ -46,9 +55,9 @@ namespace Bugsee.Platform.EditorStub
         public object GetAttribute(string key) => null;
         public void ClearAttribute(string key) { }
         public void ClearAllAttributes() { }
-        public void AddSecureRectangle(int left, int top, int right, int bottom) { }
-        public void RemoveSecureRectangle(int left, int top, int right, int bottom) { }
-        public void RemoveAllSecureRectangles() { }
+        public void SetSecureBuffer(int display, int[] packed) { }
+
+        public float GetSecureRectSnapshotScale() => 1f;
         public void CaptureViewHierarchy() { }
         public void ResetVideoCapturePermission() { }
         public IAppearance GetAppearance() => new StubAppearance();
@@ -57,6 +66,27 @@ namespace Bugsee.Platform.EditorStub
         public void SetBreadcrumbFilter(EventFilter<IBreadcrumb> filter) { }
         public void SetReportHandler(IReportHandler handler) { }
         public void SetLifecycleEventListener(ILifecycleEventListener listener) { }
+        public void NotifyLifecycle(string eventType) { }
+
+        public void DeleteCollectedDataOnDevice() { }
+
+        public IReport CreateReport() =>
+            throw new NotSupportedException("CreateReport is not supported in the Unity Editor.");
+
+        public void AddBreadcrumb(string category, string message, string levelName)
+        {
+            BreadcrumbLevelMap.ParseOrThrow(levelName);
+        }
+
+        public void UploadReport(IReport report) =>
+            throw new NotSupportedException("Upload(IReport) is not supported in the Unity Editor.");
+
+        public void DiscardReport(IReport report)
+        {
+            if (report == null)
+                throw new ArgumentNullException(nameof(report));
+        }
+
         public void EnsureWrapperRegistered() { }
 
         sealed class StubAppearance : IAppearance
@@ -73,6 +103,55 @@ namespace Bugsee.Platform.EditorStub
             public void ShowFeedbackUi() { }
             public void SetDefaultGreeting(string greeting) { }
             public void SetListener(IFeedbackListener listener) { }
+        }
+
+        sealed class EditorExchangeFactory : IBugseeExchangeFactory
+        {
+            public static readonly EditorExchangeFactory Instance = new EditorExchangeFactory();
+
+            public INetworkEvent CreateNetworkEvent(
+                long timestamp,
+                NetworkEventStage stage,
+                string id,
+                string mechanism,
+                string method) =>
+                new EditorNetworkEvent(timestamp, stage, id, mechanism, method);
+        }
+
+        sealed class EditorNetworkEvent : INetworkEvent
+        {
+            readonly long _timestamp;
+            readonly NetworkEventStage _stage;
+            readonly string _method;
+            readonly string _mechanism;
+
+            public EditorNetworkEvent(
+                long timestamp,
+                NetworkEventStage stage,
+                string id,
+                string mechanism,
+                string method)
+            {
+                _timestamp = timestamp;
+                _stage = stage;
+                _method = method;
+                _mechanism = mechanism;
+                Id = string.IsNullOrEmpty(id) ? Guid.NewGuid().ToString("N") : id;
+            }
+
+            public string Id { get; }
+            public string Mechanism => _mechanism;
+            public string Url { get; set; }
+            public string Method => _method;
+            public string Body { get; set; }
+            public long Size { get; set; }
+            public int ResponseCode { get; set; }
+            public string StatusText { get; set; }
+            public string ErrorShortMessage { get; set; }
+            public string ErrorDescription { get; set; }
+            public IDictionary<string, string> Headers { get; set; }
+            public bool IsOverride { get; set; }
+            public NetworkEventStage Stage => _stage;
         }
     }
 }
