@@ -93,7 +93,7 @@ Residual races after the hard deadline (the native SDKs cannot cancel an operati
 | Android hang | `DetectAndReportHang` | hang report |
 | Android ANR / OOM | `DetectAndReportExitNotResponding` / `DetectAndReportExitLowMemory` | exit reports |
 
-**iOS simulator:** the SDK's simulator build has no crash reporter (bugsee-cocoa#241), so native crashes (`DetectAndReportCrash`, `Bugsee.TestCrash`), hang detection, `LogError` and managed exceptions, handled (`LogException`, `Debug.LogException`) and unhandled (`LogUnhandledException`, `AppDomain.UnhandledException`), are **not reported** there; they are reported only from a device. Manual bug reports and uploads, logs, events and video still work. The package warns once at the first launch (`[Bugsee] Running on the iOS simulator` in the Unity log, and in the native log). Validate crash and exception reporting on a physical device.
+**iOS and tvOS simulator:** the SDK's simulator build has no crash reporter (bugsee-cocoa#241), so native crashes (`DetectAndReportCrash`, `Bugsee.TestCrash`), hang detection, `LogError` and managed exceptions, handled (`LogException`, `Debug.LogException`) and unhandled (`LogUnhandledException`, `AppDomain.UnhandledException`), are **not reported** there; they are reported only from a device. Manual bug reports and uploads, logs, events and video still work. The package warns once at the first launch (`[Bugsee] Running on the simulator` in the Unity log, and in the native log). Validate crash and exception reporting on a physical device.
 
 Managed exceptions use the **UnityManagedException** JSON-in-reason contract (`name`, `reason`, `frames[{trace,address?}]`, `signature`, `buildID`, `moduleUUID`, optional nested `cause`).
 

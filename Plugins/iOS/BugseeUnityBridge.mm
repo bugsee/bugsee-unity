@@ -215,7 +215,7 @@ static void BugseeWarnIfExceptionsNotFiled(void)
 #if BUGSEE_UNITY_TESTS
         gSimulatorWarningCount++;
 #endif
-        NSLog(@"[Bugsee] Running on the iOS simulator: crashes, hangs and exceptions from C# are not reported here, "
+        NSLog(@"[Bugsee] Running on the simulator: crashes, hangs and exceptions from C# are not reported here, "
               @"only from a device. Test them on a physical device.");
     });
 #endif

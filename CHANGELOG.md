@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The iOS bridge now warns once at the first launch on the iOS simulator (in the Unity log and the native log) that native crashes, hangs and managed exceptions (handled and unhandled) are not reported there, only from a device: the SDK's simulator build has no crash reporter. The docs say so, and what still works (bug reports, logs, events, video).
+- The iOS bridge now warns once at the first launch on the iOS or tvOS simulator (in the Unity log and the native log) that native crashes, hangs and managed exceptions (handled and unhandled) are not reported there, only from a device: the SDK's simulator build has no crash reporter. The docs say so, and what still works (bug reports, logs, events, video).
 
 - Documented the secure-rectangle origin: `AddSecureRectangle`/`RemoveSecureRectangle` take a top-left-origin pixel rectangle on both platforms and pass it to native unchanged (no flip from Unity's bottom-left screen space). Behaviour is unchanged; the docs now include a conversion helper.
 

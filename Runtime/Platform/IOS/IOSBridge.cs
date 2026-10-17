@@ -121,7 +121,7 @@ namespace Bugsee.Platform.IOS
             if (_exceptionsFiledWarned) return;
             _exceptionsFiledWarned = true;
             if (_bugsee_exceptions_filed() != 0) return;
-            Debug.LogWarning("[Bugsee] Running on the iOS simulator: native crashes, hangs and exceptions from C# "
+            Debug.LogWarning("[Bugsee] Running on the simulator: native crashes, hangs and exceptions from C# "
                 + "(handled and unhandled) are not reported here, only from a device. Bug reports, logs, events and video "
                 + "still work. Test crash and exception reporting on a physical device.");
         }
