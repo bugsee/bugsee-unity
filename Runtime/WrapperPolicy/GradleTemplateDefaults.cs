@@ -12,12 +12,18 @@ namespace Bugsee.WrapperPolicy
     public static class GradleTemplateDefaults
     {
         static readonly Regex ApplicationPluginVersion = new Regex(
-            @"id\s+['""]com\.android\.application['""]\s+version\s+['""](?<v>[^'""]+)['""]",
+            @"id\s*\(?\s*['""]com\.android\.application['""]\s*\)?\s*\.?\s*version\s*\(?\s*['""](?<v>[^'""]+)['""]",
             RegexOptions.CultureInvariant);
 
         static readonly Regex ClasspathVersion = new Regex(
             @"com\.android\.tools\.build:gradle:(?<v>[0-9][^'""\s]*)",
             RegexOptions.CultureInvariant);
+
+        /// <summary>The text with comments removed (string contents kept), by the lexer every Gradle scanner of the package uses.</summary>
+        static string CodeOnly(string text)
+        {
+            return string.Join("\n", GradleMavenInjection.CodeLines(MarkedGradleBlock.SplitLines(text, out _)));
+        }
 
         /// <summary>The Android Gradle plugin major a base project template pins, or -1 when it pins none (or not literally).</summary>
         public static int PinnedAgpMajor(string baseProjectTemplate)
@@ -27,10 +33,11 @@ namespace Bugsee.WrapperPolicy
                 return -1;
             }
 
-            Match m = ApplicationPluginVersion.Match(baseProjectTemplate);
+            string code = CodeOnly(baseProjectTemplate);
+            Match m = ApplicationPluginVersion.Match(code);
             if (!m.Success)
             {
-                m = ClasspathVersion.Match(baseProjectTemplate);
+                m = ClasspathVersion.Match(code);
             }
 
             if (!m.Success)
@@ -57,49 +64,71 @@ namespace Bugsee.WrapperPolicy
         /// <summary>The (major, minor) of the AGP a base/root build file pins, or false when it pins none literally.</summary>
         public static bool TryGetAgpVersion(string text, out int major, out int minor)
         {
+            return TryGetAgpVersion(text, null, out major, out minor);
+        }
+
+        /// <summary>
+        /// As above, also following a Gradle version catalog (<c>libs.versions.toml</c>, passed as <paramref name="catalog"/>):
+        /// <c>alias(libs.plugins.x)</c>, <c>version libs.versions.agp.get()</c> and <c>classpath(libs.x)</c> are resolved
+        /// through it. False when the version is computed or the catalog does not say.
+        /// </summary>
+        public static bool TryGetAgpVersion(string text, string catalog, out int major, out int minor)
+        {
             major = minor = -1;
             if (text == null)
             {
                 return false;
             }
 
-            Match m = ApplicationPluginVersion.Match(text);
+            // Comments are not the version: a commented-out `version '9.0.0'` above the real pin must not win.
+            string code = CodeOnly(text);
+            Match m = ApplicationPluginVersion.Match(code);
             if (!m.Success)
             {
-                m = ClasspathVersion.Match(text);
+                m = ClasspathVersion.Match(code);
             }
 
-            if (!m.Success)
+            string version = m.Success ? m.Groups["v"].Value : GradleVersionCatalog.ResolveAgpVersion(code, catalog);
+            if (version == null)
             {
                 return false;
             }
 
-            string[] parts = m.Groups["v"].Value.Split('.');
+            string[] parts = version.Split('.');
             if (!int.TryParse(parts[0], out major))
             {
                 return false;
             }
 
-            minor = parts.Length > 1 && int.TryParse(parts[1], out int mi) ? mi : 0;
+            minor = 0;
+            if (parts.Length > 1 && !int.TryParse(parts[1], out minor))
+            {
+                // `8.+` or `8.x`: a range, not a version.
+                major = minor = -1;
+                return false;
+            }
+
             return true;
         }
 
         /// <summary>Bugsee Gradle plugin 4.x needs AGP 8.6 or newer (Gradle 8.7+). False when the AGP version is unknown.</summary>
-        public static bool AgpMeetsBugseePlugin(string rootBuildFile)
+        public static bool AgpMeetsBugseePlugin(string rootBuildFile, string catalog = null)
         {
-            return TryGetAgpVersion(rootBuildFile, out int major, out int minor) &&
+            return TryGetAgpVersion(rootBuildFile, catalog, out int major, out int minor) &&
                    (major > 8 || (major == 8 && minor >= 6));
         }
 
         /// <summary>
-        /// <see cref="GradleBuildIdBlock"/> is for AGP 7.4.x, the only line it was run on (7.4.2, Unity 2021.3 and 2022.3).
-        /// Other AGPs below the plugin's 8.6 minimum are left to the SDK's own build id rather than trusted with an
-        /// unverified build script. False for older AGPs (Unity 2021.3's first patch releases ship AGP 4.0.1, which has
-        /// no <c>androidComponents</c>) and when the version is unknown.
+        /// <see cref="GradleBuildIdBlock"/> replaces the Bugsee Gradle plugin's build id on the AGPs below the plugin's 8.6
+        /// minimum that it was run on with real builds: 7.4.x (7.4.2, Unity 2021.3 and 2022.3) and 8.0 to 8.5 (standalone Gradle
+        /// on AGP 8.0.2, 8.3.0 and 8.5.0, the lines in between share the API it uses). False for older AGPs (Unity 2021.3's
+        /// first patch releases ship AGP 4.0.1, which has no <c>androidComponents</c>; 7.0 to 7.3 were not run), which are left to
+        /// the SDK's own build id rather than trusted with an unverified build script, and when the version is unknown.
         /// </summary>
-        public static bool AgpSupportsBuildIdBlock(string rootBuildFile)
+        public static bool AgpSupportsBuildIdBlock(string rootBuildFile, string catalog = null)
         {
-            return TryGetAgpVersion(rootBuildFile, out int major, out int minor) && major == 7 && minor == 4;
+            return TryGetAgpVersion(rootBuildFile, catalog, out int major, out int minor) &&
+                   ((major == 7 && minor == 4) || (major == 8 && minor <= 5));
         }
 
         static readonly Regex GradleVersionCode = new Regex(@"^\s*versionCode\s*=?\s*(?<v>\d+)\s*$", RegexOptions.Multiline);
@@ -303,6 +332,15 @@ namespace Bugsee.WrapperPolicy
         /// </summary>
         public static string EnsureReleaseDebugSymbols(string launcherTemplate)
         {
+            return EnsureReleaseDebugSymbols(launcherTemplate, GradleMavenInjection.GradleDsl.Groovy);
+        }
+
+        static readonly Regex ReleaseBuildType = new Regex(
+            @"^([ \t]*)(?:release|(?:getByName|named)\(\s*""release""\s*\))[ \t]*\{[ \t]*\r?$", RegexOptions.Multiline);
+
+        /// <summary>As above, writing the property in the syntax of <paramref name="dsl"/> (Kotlin: <c>debugSymbolLevel = "FULL"</c>).</summary>
+        public static string EnsureReleaseDebugSymbols(string launcherTemplate, GradleMavenInjection.GradleDsl dsl)
+        {
             if (launcherTemplate == null)
             {
                 throw new ArgumentNullException(nameof(launcherTemplate));
@@ -313,7 +351,7 @@ namespace Bugsee.WrapperPolicy
                 return launcherTemplate;
             }
 
-            MatchCollection releases = Regex.Matches(launcherTemplate, @"^([ \t]*)release[ \t]*\{[ \t]*\r?$", RegexOptions.Multiline);
+            MatchCollection releases = ReleaseBuildType.Matches(launcherTemplate);
             if (releases.Count != 1)
             {
                 return launcherTemplate;
@@ -322,7 +360,8 @@ namespace Bugsee.WrapperPolicy
             Match release = releases[0];
             string indent = release.Groups[1].Value + "    ";
             string nl = launcherTemplate.IndexOf("\r\n", StringComparison.Ordinal) >= 0 ? "\r\n" : "\n";
-            string block = nl + indent + "ndk {" + nl + indent + "    debugSymbolLevel 'FULL'" + nl + indent + "}";
+            string level = dsl == GradleMavenInjection.GradleDsl.Kotlin ? "debugSymbolLevel = \"FULL\"" : "debugSymbolLevel 'FULL'";
+            string block = nl + indent + "ndk {" + nl + indent + "    " + level + nl + indent + "}";
             int insertAt = release.Index + release.Length - (release.Value.EndsWith("\r") ? 1 : 0);
             return launcherTemplate.Insert(insertAt, block);
         }
