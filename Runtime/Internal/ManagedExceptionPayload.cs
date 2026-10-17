@@ -22,9 +22,10 @@ namespace Bugsee.Internal
         {
             public string trace;
             /// <summary>
-            /// Return address of this frame as hex, MODULE-RELATIVE to the image named by the payload's
-            /// <c>moduleUUID</c> (IL2CPP only); absent when it cannot be paired with certainty.
-            /// See <see cref="ManagedAddressPairing"/>.
+            /// For a thrown exception: return address of this frame as hex, MODULE-RELATIVE to the image named by
+            /// the payload's <c>moduleUUID</c> (IL2CPP only); absent when it cannot be paired with certainty
+            /// (see <see cref="ManagedAddressPairing"/>). On the Unity log path (<c>FromUnityLog</c>) a hex found
+            /// in the log text is forwarded as written.
             /// </summary>
             public string address;
         }
@@ -146,9 +147,11 @@ namespace Bugsee.Internal
             }
 
             // Prefer a concrete inner over Aggregate wrapper when possible.
-            if (exception is AggregateException ae && ae.InnerExceptions != null && ae.InnerExceptions.Count == 1)
+            // Each unwrap counts as a level, so a deep chain of single-inner aggregates cannot overflow the stack
+            // (past the limit the aggregate itself becomes the node).
+            if (exception is AggregateException ae && ae.InnerExceptions != null && ae.InnerExceptions.Count == 1 && depth < 8)
             {
-                return FromException(ae.InnerExceptions[0], depth, budget);
+                return FromException(ae.InnerExceptions[0], depth + 1, budget);
             }
 
             if (!budget.TryTake())

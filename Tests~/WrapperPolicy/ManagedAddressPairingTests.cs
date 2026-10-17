@@ -271,5 +271,23 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(b.TryTake(), Is.False);
             Assert.That(new ManagedNodeBudget(0).TryTake(), Is.False);
         }
+
+        [Test]
+        public void Chain_keeps_the_first_level_whole_and_drops_causes_past_the_size_cap()
+        {
+            var big = new string('x', 100 * 1024);
+            var levels = new List<string> { Level("A", big), Level("B", big), Level("C", big), Level("D", "small") };
+            var json = ManagedPayloadJson.Chain(levels);
+            Assert.That(json.Length, Is.LessThanOrEqualTo(ManagedPayloadJson.MaxChars));
+            var doc = JsonDocument.Parse(json).RootElement;
+            Assert.That(doc.GetProperty("reason").GetString(), Is.EqualTo(big));
+            Assert.That(doc.GetProperty("cause").GetProperty("name").GetString(), Is.EqualTo("B"));
+            Assert.That(doc.GetProperty("cause").TryGetProperty("cause", out _), Is.False);
+
+            var huge = new string('y', 400 * 1024);
+            var alone = JsonDocument.Parse(ManagedPayloadJson.Chain(new[] { Level("A", huge), Level("B", "b") })).RootElement;
+            Assert.That(alone.GetProperty("reason").GetString(), Is.EqualTo(huge));
+            Assert.That(alone.TryGetProperty("cause", out _), Is.False);
+        }
     }
 }

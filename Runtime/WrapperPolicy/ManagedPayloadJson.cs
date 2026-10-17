@@ -17,11 +17,18 @@ namespace Bugsee.WrapperPolicy
     public static class ManagedPayloadJson
     {
         /// <summary>
+        /// Most characters of serialized levels one payload carries beyond its first (outermost) level. Staging
+        /// accepted a 1 MB payload from an Android device, so this is not a server limit: it keeps a chain of
+        /// exceptions with huge messages from multiplying a report's size by the node count.
+        /// </summary>
+        public const int MaxChars = 256 * 1024;
+
+        /// <summary>
         /// The serialized objects <paramref name="levels"/> (outermost first) joined into one, each nested as the
         /// <c>cause</c> of the one before it. A <c>cause</c> member a level already has is removed first, so the key
-        /// is never duplicated. A level that is not an object is skipped.
+        /// is never duplicated. A level that is not an object is skipped. Levels after the first are dropped once the total would pass <paramref name="maxChars"/>.
         /// </summary>
-        public static string Chain(IList<string> levels)
+        public static string Chain(IList<string> levels, int maxChars = MaxChars)
         {
             if (levels == null || levels.Count == 0) return "{}";
             var sb = new StringBuilder();
@@ -33,6 +40,8 @@ namespace Bugsee.WrapperPolicy
                 var end = level == null ? -1 : level.LastIndexOf('}');
                 if (end < 0 || level[0] != '{') continue;
                 var body = level.Substring(0, end).TrimEnd();
+                // The outermost level is always kept whole; a cause that would pass the cap, and the rest, are dropped.
+                if (opened > 0 && sb.Length + body.Length > maxChars) break;
                 if (opened > 0) sb.Append(needsComma ? ",\"cause\":" : "\"cause\":");
                 sb.Append(body);
                 needsComma = body.Length > 1;

@@ -26,7 +26,7 @@ namespace Bugsee.WrapperPolicy
     /// A wrong address makes the worker map a plausible but wrong C# line, so nothing is sent where the alignment
     /// cannot be shown.
     ///
-    /// Address contract: every address sent is a RETURN address, hex, MODULE-RELATIVE (the instruction pointer
+    /// Address contract: every address this policy pairs (thrown exceptions) is a RETURN address, hex, MODULE-RELATIVE (the instruction pointer
     /// minus the load address of the image that holds IL2CPP code: UnityFramework on iOS, libil2cpp.so on Android;
     /// <c>vm/StackTrace.cpp</c> subtracts <c>os::Image::GetImageBase()</c>), 32-bit values zero-extended. It is
     /// resolved against the <c>moduleUUID</c> sent with the exception (the UUID of that same image).
