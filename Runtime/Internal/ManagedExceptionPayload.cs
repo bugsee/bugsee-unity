@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
+using Bugsee.WrapperPolicy;
 using UnityEngine;
 
 namespace Bugsee.Internal
@@ -17,20 +17,16 @@ namespace Bugsee.Internal
         static string _buildGuid;
         static string _moduleUuid;
 
-        // Prefer native-looking PCs (8+ hex digits). Avoid Mono/IL "[0x00023]" IL offsets.
-        static readonly Regex NativePcRegex = new Regex(
-            @"(?:(?:^|[^\w./])(?:pc\s+)?(0x[0-9a-fA-F]{8,16})(?![0-9a-fA-F]))|(?:#\d+\s+pc\s+([0-9a-fA-F]{8,16})\b)",
-            RegexOptions.Compiled);
-
-        static readonly Regex IlOffsetBracketRegex = new Regex(
-            @"\[0x[0-9a-fA-F]{1,6}\]",
-            RegexOptions.Compiled);
-
         [Serializable]
         public class Frame
         {
             public string trace;
-            /// <summary>Native instruction address / module offset when known (IL2CPP).</summary>
+            /// <summary>
+            /// For a thrown exception: return address of this frame as hex, MODULE-RELATIVE to the image named by
+            /// the payload's <c>moduleUUID</c> (IL2CPP only); absent when it cannot be paired with certainty
+            /// (see <see cref="ManagedAddressPairing"/>). On the Unity log path (<c>FromUnityLog</c>) a hex found
+            /// in the log text is forwarded as written.
+            /// </summary>
             public string address;
         }
 
@@ -104,74 +100,20 @@ namespace Bugsee.Internal
         /// <summary>Comma-separated IL2CPP module UUID(s) for all ABIs when known.</summary>
         public static string ModuleUuidsCsv => ModuleUuid;
 
+        /// <summary>Frame lines of a stack text (separators dropped); see <see cref="ManagedFrameAssembly"/>.</summary>
         public static string[] GetRawFrames(string stackTrace)
         {
-            if (string.IsNullOrEmpty(stackTrace))
-            {
-                return Array.Empty<string>();
-            }
-            var lines = stackTrace.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-            var list = new List<string>(lines.Length);
-            foreach (var line in lines)
-            {
-                var t = line.Trim();
-                if (t.Length == 0)
-                {
-                    continue;
-                }
-                if (t.StartsWith("---", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-                // Skip AggregateException / inner separators that are not frames.
-                if (t.StartsWith("--->", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-                list.Add(t);
-            }
-            return list.ToArray();
+            return ManagedFrameAssembly.FrameLines(ManagedFrameAssembly.StackLines(stackTrace));
         }
 
-        public static Frame[] ToFrames(string[] rawFrames)
+        static Frame[] ToFrames(ManagedFrameSet set)
         {
-            if (rawFrames == null || rawFrames.Length == 0)
+            var frames = new Frame[set.Traces.Length];
+            for (var i = 0; i < frames.Length; i++)
             {
-                return Array.Empty<Frame>();
-            }
-            var frames = new Frame[rawFrames.Length];
-            for (var i = 0; i < rawFrames.Length; i++)
-            {
-                var trace = rawFrames[i] ?? "";
-                frames[i] = new Frame { trace = trace, address = ExtractInstructionAddress(trace) };
+                frames[i] = new Frame { trace = set.Traces[i] ?? "", address = set.Addresses[i] };
             }
             return frames;
-        }
-
-        /// <summary>
-        /// Pull a native instruction address from a stack line when present.
-        /// Skips short bracketed IL offsets like <c>[0x00023]</c> which are not LNM PCs.
-        /// </summary>
-        public static string ExtractInstructionAddress(string stackLine)
-        {
-            if (string.IsNullOrEmpty(stackLine))
-            {
-                return null;
-            }
-
-            var scrubbed = IlOffsetBracketRegex.Replace(stackLine, " ");
-            var m = NativePcRegex.Match(scrubbed);
-            if (!m.Success)
-            {
-                return null;
-            }
-
-            var hex = m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value;
-            if (string.IsNullOrEmpty(hex))
-            {
-                return null;
-            }
-            return hex.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? hex : ("0x" + hex);
         }
 
         public static string CalculateSignature(string name, string[] rawFrames)
@@ -190,12 +132,14 @@ namespace Bugsee.Internal
             return Sha256Hex(sb.ToString());
         }
 
+        public const int MaxPayloadNodes = ManagedNodeBudget.DefaultMax;
+
         public static Payload FromException(Exception exception)
         {
-            return FromException(exception, depth: 0);
+            return FromException(exception, 0, new ManagedNodeBudget());
         }
 
-        static Payload FromException(Exception exception, int depth)
+        static Payload FromException(Exception exception, int depth, ManagedNodeBudget budget)
         {
             if (exception == null || depth > 8)
             {
@@ -203,32 +147,49 @@ namespace Bugsee.Internal
             }
 
             // Prefer a concrete inner over Aggregate wrapper when possible.
-            if (exception is AggregateException ae && ae.InnerExceptions != null && ae.InnerExceptions.Count == 1)
+            // Each unwrap counts as a level, so a deep chain of single-inner aggregates cannot overflow the stack
+            // (past the limit the aggregate itself becomes the node).
+            if (exception is AggregateException ae && ae.InnerExceptions != null && ae.InnerExceptions.Count == 1 && depth < 8)
             {
-                return FromException(ae.InnerExceptions[0], depth);
+                return FromException(ae.InnerExceptions[0], depth + 1, budget);
             }
 
-            var raw = GetRawFrames(exception.StackTrace);
-            if (raw.Length == 0)
+            if (!budget.TryTake())
             {
-                raw = GetRawFramesFromExceptionToString(exception.ToString());
+                return null;
             }
-            EnrichAddressesFromDiagnostics(exception, raw);
 
-            var frames = ToFrames(raw);
+            // Exception.StackTrace is formatted anew on every read: read it once.
+            var stackTrace = exception.StackTrace;
             string moduleUuid = string.IsNullOrEmpty(ModuleUuid) ? null : ModuleUuid;
 
-            // Attach IL2CPP native IPs when the exception was thrown.
+            // IL2CPP native IPs, only for an exception that was thrown.
             var native = Il2CppNativeStack.TryCapture(exception);
+            ulong[] ips = null;
             if (native != null && native.Frames != null && native.Frames.Length > 0)
             {
-                MergeNativeAddresses(frames, native.Frames);
+                ips = new ulong[native.Frames.Length];
+                for (var i = 0; i < ips.Length; i++)
+                {
+                    // Module-relative offsets, never negative: zero-extend 32-bit values.
+                    ips[i] = IntPtr.Size == 8
+                        ? unchecked((ulong)native.Frames[i].ToInt64())
+                        : unchecked((uint)native.Frames[i].ToInt32());
+                }
                 if (!string.IsNullOrEmpty(native.ImageUuid))
                 {
                     // Prefer the runtime image UUID (matches uploaded symbols) over CSV.
                     moduleUuid = native.ImageUuid;
                 }
             }
+
+            var set = ManagedFrameAssembly.FromStackTrace(stackTrace, ips);
+            if (set.Traces.Length == 0)
+            {
+                set = ManagedFrameAssembly.FromToString(exception.ToString());
+            }
+            var raw = set.Traces;
+            var frames = ToFrames(set);
 
             Payload cause = null;
             if (exception is AggregateException agg && agg.InnerExceptions != null && agg.InnerExceptions.Count > 1)
@@ -239,7 +200,8 @@ namespace Bugsee.Internal
                 Payload tail = null;
                 for (var i = 0; i < agg.InnerExceptions.Count; i++)
                 {
-                    var nested = FromException(agg.InnerExceptions[i], depth + 1);
+                    if (budget.IsExhausted) break;
+                    var nested = FromException(agg.InnerExceptions[i], depth + 1, budget);
                     if (nested == null) continue;
                     if (head == null)
                     {
@@ -258,7 +220,7 @@ namespace Bugsee.Internal
             }
             else if (exception.InnerException != null)
             {
-                cause = FromException(exception.InnerException, depth + 1);
+                cause = FromException(exception.InnerException, depth + 1, budget);
             }
 
             return new Payload
@@ -273,112 +235,6 @@ namespace Bugsee.Internal
             };
         }
 
-        /// <summary>
-        /// Merge IL2CPP native IPs onto managed frames. Both
-        /// <c>Exception.StackTrace</c> and <c>il2cpp_native_stack_trace</c> are
-        /// throw-site-first (callee → caller). Pair index-for-index — do <b>not</b>
-        /// reverse (Sentry reverses because its managed frames are oldest-first).
-        /// </summary>
-        static void MergeNativeAddresses(Frame[] frames, IntPtr[] nativeFrames)
-        {
-            if (frames == null || nativeFrames == null || frames.Length == 0 || nativeFrames.Length == 0)
-            {
-                return;
-            }
-
-            var len = Math.Min(frames.Length, nativeFrames.Length);
-            for (var i = 0; i < len; i++)
-            {
-                var native = nativeFrames[i];
-                if (native == IntPtr.Zero) continue;
-                var hex = "0x" + native.ToInt64().ToString("x");
-                if (frames[i] == null)
-                {
-                    frames[i] = new Frame { trace = "", address = hex };
-                }
-                else if (string.IsNullOrEmpty(frames[i].address))
-                {
-                    frames[i].address = hex;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Frames from <see cref="Exception.ToString"/> — skip the
-        /// <c>Type: message</c> header and inner-exception banners.
-        /// </summary>
-        static string[] GetRawFramesFromExceptionToString(string toString)
-        {
-            if (string.IsNullOrEmpty(toString))
-            {
-                return Array.Empty<string>();
-            }
-            var lines = toString.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-            var list = new List<string>(lines.Length);
-            var skippedHeader = false;
-            foreach (var line in lines)
-            {
-                var t = line.Trim();
-                if (t.Length == 0) continue;
-                if (t.StartsWith("---", StringComparison.Ordinal)) continue;
-                if (t.StartsWith("--->", StringComparison.Ordinal)) continue;
-                // First non-empty line is usually "Type: message".
-                if (!skippedHeader)
-                {
-                    skippedHeader = true;
-                    if (t.IndexOf(':') > 0 && !t.StartsWith("at ", StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
-                }
-                list.Add(t);
-            }
-            return list.ToArray();
-        }
-
-        /// <summary>
-        /// When Unity embeds a native IP in StackFrame.ToString(), fold it into the
-        /// matching raw line so <see cref="ExtractInstructionAddress"/> can pick it up.
-        /// </summary>
-        static void EnrichAddressesFromDiagnostics(Exception exception, string[] rawFrames)
-        {
-            if (exception == null || rawFrames == null || rawFrames.Length == 0)
-            {
-                return;
-            }
-            try
-            {
-                var st = new System.Diagnostics.StackTrace(exception, true);
-                var count = Math.Min(st.FrameCount, rawFrames.Length);
-                for (var i = 0; i < count; i++)
-                {
-                    if (!string.IsNullOrEmpty(ExtractInstructionAddress(rawFrames[i])))
-                    {
-                        continue;
-                    }
-                    var frame = st.GetFrame(i);
-                    if (frame == null)
-                    {
-                        continue;
-                    }
-                    var text = frame.ToString();
-                    var addr = ExtractInstructionAddress(text);
-                    if (string.IsNullOrEmpty(addr))
-                    {
-                        continue;
-                    }
-                    if (rawFrames[i].IndexOf(addr, StringComparison.OrdinalIgnoreCase) < 0)
-                    {
-                        rawFrames[i] = rawFrames[i] + " " + addr;
-                    }
-                }
-            }
-            catch
-            {
-                // Diagnostics stack walk is best-effort on IL2CPP.
-            }
-        }
-
         public static Payload FromUnityLog(string message, string stackTrace)
         {
             var name = message ?? "";
@@ -387,12 +243,13 @@ namespace Bugsee.Internal
             {
                 name = name.Substring(0, colon);
             }
-            var raw = GetRawFrames(stackTrace);
+            var set = ManagedFrameAssembly.FromLogText(stackTrace);
+            var raw = set.Traces;
             return new Payload
             {
                 name = name,
                 reason = message ?? "",
-                frames = ToFrames(raw),
+                frames = ToFrames(set),
                 signature = CalculateSignature(name, raw),
                 buildID = BuildGuid,
                 moduleUUID = string.IsNullOrEmpty(ModuleUuid) ? null : ModuleUuid,
@@ -405,8 +262,22 @@ namespace Bugsee.Internal
             {
                 return "{}";
             }
-            // JsonUtility serializes nested [Serializable] cause.
-            return JsonUtility.ToJson(payload);
+            // JsonUtility drops the self-typed `cause` field, so each level is serialized without it and the
+            // levels are joined once (see ManagedPayloadJson).
+            var levels = new List<string>();
+            for (var p = payload; p != null && levels.Count < MaxPayloadNodes; p = p.cause)
+            {
+                levels.Add(JsonUtility.ToJson(new Payload
+                {
+                    name = p.name,
+                    reason = p.reason,
+                    frames = p.frames,
+                    signature = p.signature,
+                    buildID = p.buildID,
+                    moduleUUID = p.moduleUUID,
+                }));
+            }
+            return ManagedPayloadJson.Chain(levels);
         }
 
         static string Sha256Hex(string input)
