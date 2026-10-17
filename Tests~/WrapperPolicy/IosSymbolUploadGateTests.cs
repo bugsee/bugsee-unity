@@ -161,7 +161,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
                 var calls = Path.Combine(root, "calls.txt");
                 var cli = Path.Combine(root, "fake-cli.sh");
-                File.WriteAllText(cli, "#!/bin/sh\necho \"$*\" >> \"" + calls + "\"\nexit " + cliExitCode + "\n");
+                File.WriteAllText(cli, "#!/bin/sh\n[ \"$1\" = --version ] && { echo 'bugsee-cli 0.8.1'; exit 0; }\necho \"$*\" >> \"" + calls + "\"\nexit " + cliExitCode + "\n");
                 File.SetUnixFileMode(cli, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
                 var script = Path.Combine(projectDir, "upload-symbols.sh");
                 File.WriteAllText(script, IosArchiveUploadScript.Build());
