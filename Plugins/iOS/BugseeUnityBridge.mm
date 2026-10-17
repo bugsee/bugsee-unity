@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#include <TargetConditionals.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -199,7 +200,38 @@ static void BugseeBridgeApplyExtendedReportDict(BugseeExtendedReport *report, NS
     }
 }
 
+// The simulator slice of the SDK ships without the crash reporter, so native crashes, hang detection, logError and
+// managed exceptions produce nothing there (bugsee-cocoa#241; from 7.0.0-beta7 the SDK also logs a line of its own, this
+// one stays because the managed side shows it in the Unity log). Said once per process, at the first launch.
+#if BUGSEE_UNITY_TESTS
+static int gSimulatorWarningCount = 0;
+#endif
+
+static void BugseeWarnIfExceptionsNotFiled(void)
+{
+#if TARGET_OS_SIMULATOR || TARGET_OS_MACCATALYST
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+#if BUGSEE_UNITY_TESTS
+        gSimulatorWarningCount++;
+#endif
+        NSLog(@"[Bugsee] Running on the simulator: crashes, hangs and exceptions from C# are not reported here, "
+              @"only from a device. Test them on a physical device.");
+    });
+#endif
+}
+
 extern "C" {
+
+// 0 where the SDK files no crash or exception report (simulator, Mac Catalyst), 1 otherwise.
+int _bugsee_exceptions_filed(void)
+{
+#if TARGET_OS_SIMULATOR || TARGET_OS_MACCATALYST
+    return 0;
+#else
+    return 1;
+#endif
+}
 
 typedef void (*BugseeLaunchStartedFn)(int token, int success);
 
@@ -214,6 +246,7 @@ static BugseeStartedBlock BugseeStartedBlockFor(int token, BugseeLaunchStartedFn
 // dictionary goes through +[BugseeOptions optionsFrom:] because only the BugseeOptions variant takes a block.
 void _bugsee_launch(const char *appToken, const char *optionsJson, int startedToken, BugseeLaunchStartedFn started)
 {
+    BugseeWarnIfExceptionsNotFiled();
     NSDictionary *dict = nil;
     if (optionsJson) {
         id parsed = BugseeDeserializeJson(optionsJson);
@@ -232,6 +265,7 @@ void _bugsee_launch(const char *appToken, const char *optionsJson, int startedTo
 
 void _bugsee_relaunch(const char *optionsJson, int startedToken, BugseeLaunchStartedFn started)
 {
+    BugseeWarnIfExceptionsNotFiled();
     NSDictionary *dict = nil;
     if (optionsJson) {
         id parsed = BugseeDeserializeJson(optionsJson);
@@ -356,6 +390,7 @@ void _bugsee_logException(const char *name, const char *reason, bool handled, co
 }
 
 #if BUGSEE_UNITY_TESTS
+int _bugsee_test_simulator_warning_count(void) { return gSimulatorWarningCount; }
 const char *_bugsee_test_exception_options(const char *optionsJson)
 {
     BugseeExceptionLoggingOptions *o = BugseeExceptionOptionsFrom(optionsJson);
@@ -970,6 +1005,8 @@ typedef void (*BugseeManagedReportCreateCallback)(int succeeded, uint64_t upload
 
 extern "C" {
 
+// Without the SDK nothing launches, so the simulator warning would only mislead.
+int _bugsee_exceptions_filed(void) { return 1; }
 typedef void (*BugseeLaunchStartedFn)(int token, int success);
 void _bugsee_launch(const char *appToken, const char *optionsJson, int startedToken, BugseeLaunchStartedFn started)
 {
