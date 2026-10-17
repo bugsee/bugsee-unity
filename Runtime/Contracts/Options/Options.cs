@@ -46,6 +46,8 @@ namespace Bugsee.Contracts.Options
         public const string CaptureRespectFlagSecure = "com.bugsee.option.capture.respect-flag-secure";
         public const string CaptureBreadcrumbs = "com.bugsee.option.capture.breadcrumbs";
         public const string CaptureBreadcrumbsExtras = "com.bugsee.option.capture.breadcrumbs.extras";
+        /// <summary>iOS only: a <see cref="CrashHandlerType"/>, sent as its int value.</summary>
+        public const string CaptureCrashHandlerType = "com.bugsee.option.capture.crash-handler-type";
         public const string AdvancedWebViewCapture = "com.bugsee.option.capture.webview.advanced";
         public const string WebViewDomainAllowlist = "com.bugsee.option.capture.webview.domain-allowlist";
         public const string WebViewReportTrigger = "com.bugsee.option.capture.webview.report-trigger";

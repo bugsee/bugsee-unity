@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Bugsee.LogUnhandledException` on Android and iOS.
 - Editor IL2CPP linemap upload (`BugseeIl2CppLinemapUpload`) and symbol orchestrator (`BugseeSymbolUpload`: ELF / ProGuard / archive dSYM).
 - Hang / ANR / OOM launch-option docs and sample defaults.
+- `IOSLaunchOptions.CrashHandlerType` (`com.bugsee.option.capture.crash-handler-type`, iOS SDK 7.0.0-beta7+): BSD signal handlers, a Mach exception handler, or both (the default). The 6.x wrapper's `BugseeEnableMachExceptions` key is not supported: the iOS SDK removed it and ignores it.
 - iOS bridge depth: identity get/set, attribute get, appearance, report/upload labels.
 - iOS MonoPInvokeCallback channel (`BugseeUnityCallbacks.mm` + `IosNativeCallbacks`): network/log/breadcrumb filters, report handler via `BugseeWrapper`, lifecycle events.
 - `Tools~/scripts/validate-field-symbols.sh` for S1/S2 prerequisite checks.
