@@ -41,6 +41,7 @@ typedef void (*BugseeDeleteCompletionFn)(int token, int wiped);
 void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completion);
 const char *_bugsee_test_exception_options(const char *optionsJson);
 int _bugsee_test_simulator_warning_count(void);
+int _bugsee_exceptions_filed(void);
 }
 
 static int gStartedToken;
@@ -331,6 +332,7 @@ int main(void)
     _bugsee_launch("00000000-0000-0000-0000-000000000000", NULL, 0, NULL);
     // The tests run on a simulator: the warning that exceptions are not filed there shows once, however many launches.
     expect(_bugsee_test_simulator_warning_count() == 1, "the simulator warning is logged once across launches");
+    expect(_bugsee_exceptions_filed() == 0, "the simulator reports that exceptions are not filed");
     expect(gStartedCount == 2, "a launch without a started callback calls nothing back");
 
     printf("ios bridge tests passed\n");

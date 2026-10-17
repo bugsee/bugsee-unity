@@ -113,9 +113,23 @@ namespace Bugsee.Platform.IOS
             launchNow();
         }
 
+        static bool _exceptionsFiledWarned;
+
+        // The simulator's SDK slice has no crash reporter: nothing from a crash, a hang or a C# exception is filed there.
+        static void WarnOnceIfExceptionsNotFiled()
+        {
+            if (_exceptionsFiledWarned) return;
+            _exceptionsFiledWarned = true;
+            if (_bugsee_exceptions_filed() != 0) return;
+            Debug.LogWarning("[Bugsee] Running on the iOS simulator: native crashes, hangs and exceptions from C# "
+                + "(handled and unhandled) are not reported here, only from a device. Bug reports, logs, events and video "
+                + "still work. Test crash and exception reporting on a physical device.");
+        }
+
         void LaunchNow(string appToken, IDictionary<string, object> options, Action<bool> started)
         {
             EnsureWrapperRegistered();
+            WarnOnceIfExceptionsNotFiled();
             DeleteCollectedDataLaunchGeneration.BumpForLaunch();
             _networkLaunchBuffer.BeginNewLaunchCycle();
             _breadcrumbLaunchBuffer.BeginNewLaunchCycle();
@@ -854,6 +868,7 @@ namespace Bugsee.Platform.IOS
             string optionsJson, int startedToken, LaunchStartedNativeCallback started);
         [DllImport("__Internal")] static extern void _bugsee_stop(int token, StopNativeCallback completion);
         [DllImport("__Internal")] static extern int _bugsee_get_status();
+        [DllImport("__Internal")] static extern int _bugsee_exceptions_filed();
         [DllImport("__Internal")] static extern void _bugsee_start_blackout();
         [DllImport("__Internal")] static extern void _bugsee_end_blackout();
         [DllImport("__Internal")] static extern void _bugsee_log(string message, int level);

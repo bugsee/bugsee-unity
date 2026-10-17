@@ -200,24 +200,38 @@ static void BugseeBridgeApplyExtendedReportDict(BugseeExtendedReport *report, NS
     }
 }
 
-// bugsee-cocoa files nothing for logException, logUnhandledException and logError on the simulator and Mac Catalyst
-// (its simulator slices ship without the crash reporter), so a managed exception there silently goes nowhere. Said once
-// per process, at the first launch.
+// The simulator slice of the SDK ships without the crash reporter, so native crashes, hang detection, logError and
+// managed exceptions produce nothing there (bugsee-cocoa#241; from 7.0.0-beta7 the SDK also logs a line of its own, this
+// one stays because the managed side shows it in the Unity log). Said once per process, at the first launch.
+#if BUGSEE_UNITY_TESTS
 static int gSimulatorWarningCount = 0;
+#endif
 
 static void BugseeWarnIfExceptionsNotFiled(void)
 {
 #if TARGET_OS_SIMULATOR || TARGET_OS_MACCATALYST
     static dispatch_once_t once;
     dispatch_once(&once, ^{
+#if BUGSEE_UNITY_TESTS
         gSimulatorWarningCount++;
-        NSLog(@"[Bugsee] Running on the iOS simulator or Mac Catalyst: managed exceptions (logged, handled and unhandled) "
-              @"are not filed here, only from a device. Test exception reporting on a physical device.");
+#endif
+        NSLog(@"[Bugsee] Running on the iOS simulator: crashes, hangs and exceptions from C# are not reported here, "
+              @"only from a device. Test them on a physical device.");
     });
 #endif
 }
 
 extern "C" {
+
+// 0 where the SDK files no crash or exception report (simulator, Mac Catalyst), 1 otherwise.
+int _bugsee_exceptions_filed(void)
+{
+#if TARGET_OS_SIMULATOR || TARGET_OS_MACCATALYST
+    return 0;
+#else
+    return 1;
+#endif
+}
 
 typedef void (*BugseeLaunchStartedFn)(int token, int success);
 
@@ -991,6 +1005,8 @@ typedef void (*BugseeManagedReportCreateCallback)(int succeeded, uint64_t upload
 
 extern "C" {
 
+// Without the SDK nothing launches, so the simulator warning would only mislead.
+int _bugsee_exceptions_filed(void) { return 1; }
 typedef void (*BugseeLaunchStartedFn)(int token, int success);
 void _bugsee_launch(const char *appToken, const char *optionsJson, int startedToken, BugseeLaunchStartedFn started)
 {
