@@ -55,34 +55,64 @@ if [ -z ""${BUGSEE_APP_TOKEN}"" ]; then
 fi
 
 # --- resolve bugsee-cli: Xcode runs build phases with a minimal PATH, so a bare lookup often misses an installed CLI.
-# Same order as the Editor: BUGSEE_CLI_PATH, the CLI the Editor found at export time, PATH, the installer and package
-# manager directories, the package's download cache. A candidate must run and be 0.8.0 or newer, as in the Editor.
-# (BUGSEE_CLI_SYSTEM_DIRS replaces the two system directories; tests.) Never downloads.
+# Same order as the Editor's lookup: BUGSEE_CLI_PATH, then (in the script only) the CLI the Editor found at export time,
+# PATH, /opt/homebrew/bin, /usr/local/bin, ~/.local/bin, ~/.cargo/bin, ~/.bugsee/bin, then the package's download cache.
+# BUGSEE_CLI_PATH and the baked path are used as given. A discovered candidate must run, print a version and be 0.8.0 or
+# newer, as in the Editor. Never downloads. (BUGSEE_CLI_SYSTEM_DIRS replaces the two system directories and
+# BUGSEE_CLI_PROBE_TIMEOUT the 15 s limit of a --version probe; tests.)
 BAKED_CLI=''
 PINNED_VERSION=''
 CLI=""""
 TRIED=""""
+note() {
+  TRIED=""${TRIED}
+    $1""
+  return 0
+}
+# Prints what ""$1 --version"" writes to stdout; fails when it fails or runs longer than the limit (a probe that reads
+# stdin or hangs must not hold the build).
+probe_version() {
+  PROBE_OUT=""${TMPDIR:-/tmp}/bugsee-cli-version.$$""
+  ""$1"" --version </dev/null >""${PROBE_OUT}"" 2>/dev/null &
+  PROBE_PID=$!
+  ( sleep ""${BUGSEE_CLI_PROBE_TIMEOUT:-15}""; kill ""${PROBE_PID}"" 2>/dev/null ) >/dev/null 2>&1 &
+  PROBE_WATCHDOG=$!
+  PROBE_RC=0
+  wait ""${PROBE_PID}"" 2>/dev/null || PROBE_RC=$?
+  kill ""${PROBE_WATCHDOG}"" 2>/dev/null || true
+  wait ""${PROBE_WATCHDOG}"" 2>/dev/null || true
+  [ ""${PROBE_RC}"" -eq 0 ] && cat ""${PROBE_OUT}""
+  PROBE_RC=$?
+  rm -f ""${PROBE_OUT}""
+  return ""${PROBE_RC}""
+}
+# $1 = candidate, $2 = ""given"" to accept it without running it (BUGSEE_CLI_PATH, the baked path).
 try_cli() {
   [ -n ""$1"" ] || return 0
   [ -z ""${CLI}"" ] || return 0
   if [ ! -f ""$1"" ] || [ ! -x ""$1"" ]; then
-    TRIED=""${TRIED}
-    $1 (not found)""
+    note ""$1 (not found)""
     return 0
   fi
-  CANDIDATE_OUT=$(""$1"" --version 2>/dev/null) || {
-    TRIED=""${TRIED}
-    $1 (does not run)""
+  if [ ""$2"" = given ]; then
+    CLI=""$1""
+    return 0
+  fi
+  CANDIDATE_OUT=$(probe_version ""$1"") || {
+    note ""$1 (does not run)""
     return 0
   }
-  CANDIDATE_VER=$(printf '%s\n' ""${CANDIDATE_OUT}"" | sed -n 's/.*\([0-9][0-9]*\)\.\([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1 \2 \3/p' | head -n1)
-  if [ -n ""${CANDIDATE_VER}"" ]; then
-    set -- ""$1"" ${CANDIDATE_VER}
-    if [ ""$2"" -eq 0 ] && [ ""$3"" -lt 8 ]; then
-      TRIED=""${TRIED}
-    $1 (version $2.$3.$4, older than 0.8.0)""
-      return 0
-    fi
+  # The first token that starts with a digit, its numeric prefix (0.8.0-beta.1 is 0.8.0), leading zeros dropped.
+  CANDIDATE_TOKEN=$(printf '%s\n' ""${CANDIDATE_OUT}"" | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]/) { print $i; exit } }')
+  CANDIDATE_VER=$(printf '%s\n' ""${CANDIDATE_TOKEN}"" | sed -n 's/^\([0-9][0-9]*\)\.\{0,1\}\([0-9]*\).*/\1 \2/p' | sed 's/ 0*\([0-9]\)/ \1/; s/^0*\([0-9]\)/\1/')
+  if [ -z ""${CANDIDATE_VER}"" ]; then
+    note ""$1 (no version in --version output)""
+    return 0
+  fi
+  set -- ""$1"" ${CANDIDATE_VER}
+  if [ ""$2"" -eq 0 ] && [ ""${3:-0}"" -lt 8 ]; then
+    note ""$1 (version ${CANDIDATE_TOKEN}, older than 0.8.0)""
+    return 0
   fi
   CLI=""$1""
   return 0
@@ -90,32 +120,41 @@ try_cli() {
 try_command() {
   [ -z ""${CLI}"" ] || return 0
   case ""$1"" in
-    */*) try_cli ""$1"" ;;
+    */*) try_cli ""$1"" given ;;
     *)
       FOUND=$(command -v ""$1"" 2>/dev/null || true)
       case ""${FOUND}"" in
-        /*) try_cli ""${FOUND}"" ;;
-        *) TRIED=""${TRIED}
-    $1 (not on PATH=${PATH})"" ;;
+        /*) try_cli ""${FOUND}"" given ;;
+        *) note ""$1 (not on PATH=${PATH})"" ;;
       esac ;;
   esac
   return 0
 }
 [ -z ""${BUGSEE_CLI_PATH}"" ] || try_command ""${BUGSEE_CLI_PATH}""
-try_cli ""${BAKED_CLI}""
-try_command bugsee-cli
+try_cli ""${BAKED_CLI}"" given
+FOUND=$(command -v bugsee-cli 2>/dev/null || true)
+case ""${FOUND}"" in
+  /*) try_cli ""${FOUND}"" ;;
+  *) [ -n ""${CLI}"" ] || note ""bugsee-cli (not on PATH=${PATH})"" ;;
+esac
 for DIR in ${BUGSEE_CLI_SYSTEM_DIRS-/opt/homebrew/bin /usr/local/bin}; do
   try_cli ""${DIR}/bugsee-cli""
 done
 if [ -n ""${HOME}"" ]; then
-  try_cli ""${HOME}/.bugsee/bin/bugsee-cli""
   try_cli ""${HOME}/.local/bin/bugsee-cli""
   try_cli ""${HOME}/.cargo/bin/bugsee-cli""
+  try_cli ""${HOME}/.bugsee/bin/bugsee-cli""
   # The release the package pins (or BUGSEE_CLI_VERSION) first: a lexical glob would rank 0.10.0 below 0.8.1.
+  WANT=""${BUGSEE_CLI_VERSION:-${PINNED_VERSION}}""
+  WANT=""${WANT#v}""
   for CACHE in ""${HOME}/Library/Caches/Bugsee/cli"" ""${XDG_CACHE_HOME:-${HOME}/.cache}/bugsee/cli""; do
-    for CACHED in ""${CACHE}/${BUGSEE_CLI_VERSION:-${PINNED_VERSION}}""/*/bugsee-cli ""${CACHE}""/*/*/bugsee-cli; do
+    SEEN=""""
+    for CACHED in ""${CACHE}/${WANT}""/*/bugsee-cli ""${CACHE}""/*/*/bugsee-cli; do
+      [ -e ""${CACHED}"" ] || continue
+      SEEN=1
       try_cli ""${CACHED}""
     done
+    [ -n ""${CLI}"" ] || [ -n ""${SEEN}"" ] || note ""${CACHE} (no cached CLI)""
   done
 fi
 if [ -z ""${CLI}"" ]; then

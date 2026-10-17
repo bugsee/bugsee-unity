@@ -81,15 +81,22 @@ namespace Bugsee.Editor
         /// </summary>
         public static string FindInstalled()
         {
+            if (_resolved != null && _resolved.Found && File.Exists(_resolved.Path))
+            {
+                return _resolved.Path;
+            }
+
             try
             {
-                CliSettings settings = ReadSettings();
-                settings.DownloadAllowed = false;
-                var resolution = BugseeCliPolicy.Resolve(settings, new CliProbe
-                {
-                    FileExists = File.Exists,
-                    QueryVersion = QueryVersion,
-                });
+                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                var resolution = BugseeCliPolicy.Resolve(
+                    new CliSettings
+                    {
+                        PathEnv = Environment.GetEnvironmentVariable("PATH"),
+                        Home = home,
+                        DownloadAllowed = false,
+                    },
+                    new CliProbe { FileExists = File.Exists, QueryVersion = QueryVersion });
                 return resolution.Found ? resolution.Path : null;
             }
             catch (Exception)
