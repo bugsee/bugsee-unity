@@ -270,6 +270,47 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>
+        /// Makes sure the plugin repositories of a settings file can serve the Bugsee Gradle plugin: when the top-level
+        /// <c>pluginManagement</c> block declares a <c>repositories</c> block with neither <c>gradlePluginPortal()</c>
+        /// nor Maven Central, <c>mavenCentral()</c> is added. <see cref="RepositoryStatus.BlockNotFound"/> means the
+        /// settings declare no plugin repositories, so Gradle's default (the plugin portal) applies.
+        /// </summary>
+        public static RepositoryStatus EnsurePluginRepositories(string settings, out string updated)
+        {
+            if (settings == null)
+            {
+                throw new ArgumentNullException(nameof(settings));
+            }
+
+            updated = settings;
+            var lines = SplitLines(settings, out _);
+            int outerOpen = FindTopLevelBlockOpen(lines, "pluginManagement");
+            if (outerOpen < 0)
+            {
+                return RepositoryStatus.BlockNotFound;
+            }
+
+            int outerClose = FindBlockClose(lines, outerOpen);
+            int reposOpen = FindChildBlockOpen(lines, outerOpen, outerClose, "repositories");
+            if (reposOpen < 0)
+            {
+                return RepositoryStatus.BlockNotFound;
+            }
+
+            int reposClose = FindBlockClose(lines, reposOpen);
+            var code = CodeLines(lines);
+            for (int i = reposOpen; i <= reposClose; i++)
+            {
+                if (code[i].IndexOf("gradlePluginPortal()", StringComparison.Ordinal) >= 0)
+                {
+                    return RepositoryStatus.AlreadyPresent;
+                }
+            }
+
+            return EnsureMavenCentral(settings, "pluginManagement", out updated);
+        }
+
+        /// <summary>
         /// The <c>repositoriesMode</c> set in the top-level <c>dependencyResolutionManagement</c> block of a
         /// settings file (Groovy and Kotlin spell it alike: <c>repositoriesMode.set(...)</c> or
         /// <c>repositoriesMode = ...</c>), or <see cref="RepositoriesMode.Unspecified"/> when the block or the
@@ -369,7 +410,7 @@ namespace Bugsee.WrapperPolicy
             return result;
         }
 
-        static bool TryAddRepositoriesBlock(string gradle, string outerBlock, out string updated)
+        internal static bool TryAddRepositoriesBlock(string gradle, string outerBlock, out string updated)
         {
             updated = gradle;
             var lines = SplitLines(gradle, out string newline);
@@ -1364,8 +1405,21 @@ namespace Bugsee.WrapperPolicy
             }
         }
 
+        /// <summary>Each line reduced to its code (comments removed, string contents kept, their braces blanked), for structure scans.</summary>
+        internal static List<string> CodeLines(List<string> lines)
+        {
+            var state = new LexState();
+            var code = new List<string>(lines.Count);
+            foreach (string line in lines)
+            {
+                code.Add(StripComments(line, ref state));
+            }
+
+            return code;
+        }
+
         /// <summary>Index of the line opening a depth-0 <c>name {</c> block, or -1.</summary>
-        static int FindTopLevelBlockOpen(List<string> lines, string name)
+        internal static int FindTopLevelBlockOpen(List<string> lines, string name)
         {
             int depth = 0;
             var inBlockComment = new LexState();
@@ -1385,7 +1439,7 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>Index of the line opening <c>name {</c> directly inside the block opened at <paramref name="open"/>.</summary>
-        static int FindChildBlockOpen(List<string> lines, int open, int close, string name)
+        internal static int FindChildBlockOpen(List<string> lines, int open, int close, string name)
         {
             var inBlockComment = new LexState();
             int depth = BraceDelta(StripComments(lines[open], ref inBlockComment));
@@ -1405,7 +1459,7 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>Index of the line where the block opened at <paramref name="open"/> closes.</summary>
-        static int FindBlockClose(List<string> lines, int open)
+        internal static int FindBlockClose(List<string> lines, int open)
         {
             int depth = 0;
             var inBlockComment = new LexState();
@@ -1433,7 +1487,7 @@ namespace Bugsee.WrapperPolicy
             return rest.StartsWith("{", StringComparison.Ordinal);
         }
 
-        static bool IsSingleLineBlock(string line)
+        internal static bool IsSingleLineBlock(string line)
         {
             var inBlockComment = new LexState();
             string code = StripComments(line, ref inBlockComment);
@@ -1441,7 +1495,7 @@ namespace Bugsee.WrapperPolicy
             return open >= 0 && code.IndexOf('}', open) >= 0;
         }
 
-        static int BraceDelta(string code)
+        internal static int BraceDelta(string code)
         {
             int delta = 0;
             foreach (char c in code)
@@ -1563,7 +1617,7 @@ namespace Bugsee.WrapperPolicy
             return char.IsLetterOrDigit(c) || c == '.' || c == '-' || c == '_' || c == '+';
         }
 
-        static string LeadingWhitespace(string line)
+        internal static string LeadingWhitespace(string line)
         {
             int i = 0;
             while (i < line.Length && (line[i] == ' ' || line[i] == '\t'))

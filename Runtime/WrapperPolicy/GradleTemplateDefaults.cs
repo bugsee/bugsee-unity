@@ -12,7 +12,7 @@ namespace Bugsee.WrapperPolicy
     public static class GradleTemplateDefaults
     {
         static readonly Regex ApplicationPluginVersion = new Regex(
-            @"id\s+['""]com\.android\.application['""]\s+version\s+['""](?<v>[^'""]+)['""]",
+            @"id\s*\(?\s*['""]com\.android\.application['""]\s*\)?\s*version\s*\(?\s*['""](?<v>[^'""]+)['""]",
             RegexOptions.CultureInvariant);
 
         static readonly Regex ClasspathVersion = new Regex(
@@ -57,6 +57,16 @@ namespace Bugsee.WrapperPolicy
         /// <summary>The (major, minor) of the AGP a base/root build file pins, or false when it pins none literally.</summary>
         public static bool TryGetAgpVersion(string text, out int major, out int minor)
         {
+            return TryGetAgpVersion(text, null, out major, out minor);
+        }
+
+        /// <summary>
+        /// As above, also following a Gradle version catalog (<c>libs.versions.toml</c>, passed as <paramref name="catalog"/>):
+        /// <c>alias(libs.plugins.x)</c>, <c>version libs.versions.agp.get()</c> and <c>classpath(libs.x)</c> are resolved
+        /// through it. False when the version is computed or the catalog does not say.
+        /// </summary>
+        public static bool TryGetAgpVersion(string text, string catalog, out int major, out int minor)
+        {
             major = minor = -1;
             if (text == null)
             {
@@ -69,12 +79,13 @@ namespace Bugsee.WrapperPolicy
                 m = ClasspathVersion.Match(text);
             }
 
-            if (!m.Success)
+            string version = m.Success ? m.Groups["v"].Value : GradleVersionCatalog.ResolveAgpVersion(text, catalog);
+            if (version == null)
             {
                 return false;
             }
 
-            string[] parts = m.Groups["v"].Value.Split('.');
+            string[] parts = version.Split('.');
             if (!int.TryParse(parts[0], out major))
             {
                 return false;
@@ -85,21 +96,22 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>Bugsee Gradle plugin 4.x needs AGP 8.6 or newer (Gradle 8.7+). False when the AGP version is unknown.</summary>
-        public static bool AgpMeetsBugseePlugin(string rootBuildFile)
+        public static bool AgpMeetsBugseePlugin(string rootBuildFile, string catalog = null)
         {
-            return TryGetAgpVersion(rootBuildFile, out int major, out int minor) &&
+            return TryGetAgpVersion(rootBuildFile, catalog, out int major, out int minor) &&
                    (major > 8 || (major == 8 && minor >= 6));
         }
 
         /// <summary>
-        /// <see cref="GradleBuildIdBlock"/> is for AGP 7.4.x, the only line it was run on (7.4.2, Unity 2021.3 and 2022.3).
+        /// <see cref="GradleBuildIdBlock"/> is for AGP 7.4.x, the only line it was run on by the package's own checks (7.4.2, Unity 2021.3 and 2022.3).
         /// Other AGPs below the plugin's 8.6 minimum are left to the SDK's own build id rather than trusted with an
         /// unverified build script. False for older AGPs (Unity 2021.3's first patch releases ship AGP 4.0.1, which has
-        /// no <c>androidComponents</c>) and when the version is unknown.
+        /// no <c>androidComponents</c>) and when the version is unknown. A separate real-build check of the block on AGP 8.0.2,
+        /// 8.3.0 and 8.5.0 passed (see GradleAgpGateTests); widening this gate is a product decision.
         /// </summary>
-        public static bool AgpSupportsBuildIdBlock(string rootBuildFile)
+        public static bool AgpSupportsBuildIdBlock(string rootBuildFile, string catalog = null)
         {
-            return TryGetAgpVersion(rootBuildFile, out int major, out int minor) && major == 7 && minor == 4;
+            return TryGetAgpVersion(rootBuildFile, catalog, out int major, out int minor) && major == 7 && minor == 4;
         }
 
         static readonly Regex GradleVersionCode = new Regex(@"^\s*versionCode\s*=?\s*(?<v>\d+)\s*$", RegexOptions.Multiline);
@@ -303,6 +315,15 @@ namespace Bugsee.WrapperPolicy
         /// </summary>
         public static string EnsureReleaseDebugSymbols(string launcherTemplate)
         {
+            return EnsureReleaseDebugSymbols(launcherTemplate, GradleMavenInjection.GradleDsl.Groovy);
+        }
+
+        static readonly Regex ReleaseBuildType = new Regex(
+            @"^([ \t]*)(?:release|(?:getByName|named)\(\s*""release""\s*\))[ \t]*\{[ \t]*\r?$", RegexOptions.Multiline);
+
+        /// <summary>As above, writing the property in the syntax of <paramref name="dsl"/> (Kotlin: <c>debugSymbolLevel = "FULL"</c>).</summary>
+        public static string EnsureReleaseDebugSymbols(string launcherTemplate, GradleMavenInjection.GradleDsl dsl)
+        {
             if (launcherTemplate == null)
             {
                 throw new ArgumentNullException(nameof(launcherTemplate));
@@ -313,7 +334,7 @@ namespace Bugsee.WrapperPolicy
                 return launcherTemplate;
             }
 
-            MatchCollection releases = Regex.Matches(launcherTemplate, @"^([ \t]*)release[ \t]*\{[ \t]*\r?$", RegexOptions.Multiline);
+            MatchCollection releases = ReleaseBuildType.Matches(launcherTemplate);
             if (releases.Count != 1)
             {
                 return launcherTemplate;
@@ -322,7 +343,8 @@ namespace Bugsee.WrapperPolicy
             Match release = releases[0];
             string indent = release.Groups[1].Value + "    ";
             string nl = launcherTemplate.IndexOf("\r\n", StringComparison.Ordinal) >= 0 ? "\r\n" : "\n";
-            string block = nl + indent + "ndk {" + nl + indent + "    debugSymbolLevel 'FULL'" + nl + indent + "}";
+            string level = dsl == GradleMavenInjection.GradleDsl.Kotlin ? "debugSymbolLevel = \"FULL\"" : "debugSymbolLevel 'FULL'";
+            string block = nl + indent + "ndk {" + nl + indent + "    " + level + nl + indent + "}";
             int insertAt = release.Index + release.Length - (release.Value.EndsWith("\r") ? 1 : 0);
             return launcherTemplate.Insert(insertAt, block);
         }
