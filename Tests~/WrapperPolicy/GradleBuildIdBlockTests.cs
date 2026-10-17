@@ -122,12 +122,15 @@ namespace Bugsee.WrapperPolicy.Tests
         [TestCase("id 'com.android.application' version '7.3.1' apply false", false)]
         [TestCase("id 'com.android.application' version '7.1.2' apply false", false)]
         [TestCase("id 'com.android.application' version '7.5.0' apply false", false)]
-        [TestCase("id 'com.android.application' version '8.3.0' apply false", false)]
+        [TestCase("id 'com.android.application' version '8.0.2' apply false", true)]
+        [TestCase("id 'com.android.application' version '8.3.0' apply false", true)]
+        [TestCase("id 'com.android.application' version '8.5.0' apply false", true)]
+        [TestCase("id 'com.android.application' version '7.0.4' apply false", false)]
         [TestCase("id 'com.android.application' version '8.6.0' apply false", false)]
         [TestCase("id 'com.android.application' version '9.0.0' apply false", false)]
         [TestCase("classpath 'com.android.tools.build:gradle:4.0.1'", false)]
         [TestCase("no agp here", false)]
-        public void The_block_is_only_for_agp_7_4_the_one_line_it_was_run_on(string root, bool expected)
+        public void The_block_is_for_agp_7_4_and_8_0_to_8_5_the_lines_it_was_run_on(string root, bool expected)
         {
             Assert.That(GradleTemplateDefaults.AgpSupportsBuildIdBlock(root), Is.EqualTo(expected));
         }

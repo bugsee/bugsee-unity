@@ -15,17 +15,17 @@ namespace Bugsee.WrapperPolicy
 
     /// <summary>
     /// The part of the Bugsee Gradle plugin that gives the app its build id, for Android Gradle plugins too old to run
-    /// the plugin (Unity 2021.3 / 2022.3 pin AGP 7.4.2; the plugin needs 8.6+). After R8 it writes
+    /// the plugin (Unity 2021.3 / 2022.3 pin AGP 7.4.2, Unity 6000.0.1-44 AGP 8.3.0; the plugin needs 8.6+). After R8 it writes
     /// <c>assets/bugsee_build_id.properties</c> holding the UUID of the R8 mapping (MD5 name-based, what the plugin
     /// and <c>bugsee-cli --type proguard</c> compute), which is what the SDK reports at runtime. The upload
     /// reads the id back from the built APK and passes it as <c>--uuid</c> (it equals the id the CLI derives from the
     /// mapping file). With no mapping (R8 off) no asset is
     /// written and the SDK derives its own id (<see cref="AndroidBuildUuid"/>).
     ///
-    /// Uses only API present in AGP 7.4 (<c>artifacts.get(OBFUSCATION_MAPPING_FILE)</c> and a generated assets source
+    /// Uses only API present in AGP 7.4 and 8.0 to 8.5 (<c>artifacts.get(OBFUSCATION_MAPPING_FILE)</c> and a generated assets source
     /// directory), not <c>toListenTo</c> (missing in AGP 7.4) and not a transform of the ASSETS artifact (in AGP 7.4.2
     /// that replaced the merged assets and dropped every library asset, Unity's game data among them; checked on
-    /// AGP 7.4.2 / Gradle 7.5.1).
+    /// AGP 7.4.2 / Gradle 7.5.1; the block itself ran on AGP 8.0.2, 8.3.0 and 8.5.0 too).
     /// </summary>
     public static class GradleBuildIdBlock
     {

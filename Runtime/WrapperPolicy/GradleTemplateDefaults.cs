@@ -103,15 +103,16 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>
-        /// <see cref="GradleBuildIdBlock"/> is for AGP 7.4.x, the only line it was run on by the package's own checks (7.4.2, Unity 2021.3 and 2022.3).
-        /// Other AGPs below the plugin's 8.6 minimum are left to the SDK's own build id rather than trusted with an
-        /// unverified build script. False for older AGPs (Unity 2021.3's first patch releases ship AGP 4.0.1, which has
-        /// no <c>androidComponents</c>) and when the version is unknown. A separate real-build check of the block on AGP 8.0.2,
-        /// 8.3.0 and 8.5.0 passed (see GradleAgpGateTests); widening this gate is a product decision.
+        /// <see cref="GradleBuildIdBlock"/> replaces the Bugsee Gradle plugin's build id on the AGPs below the plugin's 8.6
+        /// minimum that it was run on with real builds: 7.4.x (7.4.2, Unity 2021.3 and 2022.3) and 8.0 to 8.5 (standalone Gradle
+        /// on AGP 8.0.2, 8.3.0 and 8.5.0, the lines in between share the API it uses). False for older AGPs (Unity 2021.3's
+        /// first patch releases ship AGP 4.0.1, which has no <c>androidComponents</c>; 7.0 to 7.3 were not run), which are left to
+        /// the SDK's own build id rather than trusted with an unverified build script, and when the version is unknown.
         /// </summary>
         public static bool AgpSupportsBuildIdBlock(string rootBuildFile, string catalog = null)
         {
-            return TryGetAgpVersion(rootBuildFile, catalog, out int major, out int minor) && major == 7 && minor == 4;
+            return TryGetAgpVersion(rootBuildFile, catalog, out int major, out int minor) &&
+                   ((major == 7 && minor == 4) || (major == 8 && minor <= 5));
         }
 
         static readonly Regex GradleVersionCode = new Regex(@"^\s*versionCode\s*=?\s*(?<v>\d+)\s*$", RegexOptions.Multiline);

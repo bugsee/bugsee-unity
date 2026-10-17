@@ -161,7 +161,7 @@ namespace Bugsee.Editor
             else
             {
                 // Not applying it (plugin, another AGP, opt-out): the Unity version regenerates only what changed, so a
-                // block an earlier build added (AGP 7.4, then a switch to 8.x) must not stay behind.
+                // block an earlier build added (AGP below 8.6, then a switch to 8.6+) must not stay behind.
                 patchedLauncher = GradleBuildIdBlock.Remove(patchedLauncher);
             }
 
