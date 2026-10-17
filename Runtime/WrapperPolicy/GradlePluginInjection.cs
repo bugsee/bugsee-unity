@@ -65,6 +65,7 @@ namespace Bugsee.WrapperPolicy
         {
             var patch = new PluginPatch { Root = root, Launcher = launcher };
             RootShape rootShape = ShapeOfRoot(root);
+            bool repositoryChangeForbidden = false;
 
             if (HasUnmarkedDeclaration(launcher))
             {
@@ -90,8 +91,9 @@ namespace Bugsee.WrapperPolicy
                 }
                 else
                 {
-                    declared = TryClasspath(root, rootDsl, pluginVersion, allowRepositoryInjection, out bool addedRepository);
+                    declared = TryClasspath(root, rootDsl, pluginVersion, allowRepositoryInjection, out bool addedRepository, out bool forbidden);
                     patch.AddedBuildscriptRepository = declared != null && addedRepository;
+                    repositoryChangeForbidden = declared == null && forbidden;
                 }
 
                 if (declared != null)
@@ -123,6 +125,11 @@ namespace Bugsee.WrapperPolicy
                 patch.Root = root;
                 patch.NeedsPluginRepository = false;
                 patch.AddedBuildscriptRepository = false;
+                if (repositoryChangeForbidden)
+                {
+                    failure = "the root buildscript repositories do not serve the plugin and changing repositories is disabled (BUGSEE_NO_GRADLE_REPO_INJECTION).";
+                }
+
                 patch.Message = "The Bugsee Gradle plugin was not applied: " + failure + " " + ManualInstructions(launcherDsl, pluginVersion, rootShape, rootDsl);
                 patch.IsWarning = true;
                 return patch;
@@ -309,9 +316,10 @@ namespace Bugsee.WrapperPolicy
         /// its repositories, which a classpath entry resolves from); null when the root has no such block or the
         /// repositories cannot be given Maven Central.
         /// </summary>
-        static string TryClasspath(string root, GradleMavenInjection.GradleDsl dsl, string version, bool allowRepositoryChange, out bool addedRepository)
+        static string TryClasspath(string root, GradleMavenInjection.GradleDsl dsl, string version, bool allowRepositoryChange, out bool addedRepository, out bool forbidden)
         {
             addedRepository = false;
+            forbidden = false;
             var lines = MarkedGradleBlock.SplitLines(root, out string newline);
             int open = GradleMavenInjection.FindTopLevelBlockOpen(lines, "buildscript");
             if (open < 0 || GradleMavenInjection.IsSingleLineBlock(lines[open]))
@@ -343,13 +351,20 @@ namespace Bugsee.WrapperPolicy
             var status = GradleMavenInjection.EnsureRepository(text, "buildscript", GradleMavenInjection.RepoKind.Classpath, out string withRepository);
             if (status == GradleMavenInjection.RepositoryStatus.BlockNotFound)
             {
-                if (!allowRepositoryChange || !GradleMavenInjection.TryAddRepositoriesBlock(text, "buildscript", out withRepository))
+                if (!allowRepositoryChange)
+                {
+                    forbidden = true;
+                    return null;
+                }
+
+                if (!GradleMavenInjection.TryAddRepositoriesBlock(text, "buildscript", out withRepository))
                 {
                     return null;
                 }
             }
             else if (status == GradleMavenInjection.RepositoryStatus.Inserted && !allowRepositoryChange)
             {
+                forbidden = true;
                 return null;
             }
 

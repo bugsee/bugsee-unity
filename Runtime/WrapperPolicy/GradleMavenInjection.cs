@@ -65,6 +65,13 @@ namespace Bugsee.WrapperPolicy
 
             /// <summary><c>mavenCentral()</c> was inserted.</summary>
             Inserted,
+
+            /// <summary>
+            /// The outer block declares repositories in a shape that could not be read (everything on one line, or
+            /// <c>repositories {</c> on the line of the outer brace). Only reported for plugin repositories, where a wrong guess
+            /// fails the build.
+            /// </summary>
+            Unparsable,
         }
 
         public sealed class DependencyResult
@@ -280,6 +287,11 @@ namespace Bugsee.WrapperPolicy
             int reposOpen = FindChildBlockOpen(lines, outerOpen, outerClose, "repositories");
             if (reposOpen < 0)
             {
+                if (kind == RepoKind.Plugins && MentionsRepositories(lines, outerOpen, outerClose))
+                {
+                    return RepositoryStatus.Unparsable;
+                }
+
                 return RepositoryStatus.BlockNotFound;
             }
 
@@ -355,6 +367,20 @@ namespace Bugsee.WrapperPolicy
             return RepositoryStatus.Inserted;
         }
 
+        static bool MentionsRepositories(List<string> lines, int open, int close)
+        {
+            var code = CodeLines(lines);
+            for (int i = open; i <= close && i < code.Count; i++)
+            {
+                if (System.Text.RegularExpressions.Regex.IsMatch(code[i], @"\brepositories\s*\{"))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         /// <summary>
         /// Index in <paramref name="line"/> of the <c>}</c> that brings the brace depth, starting at <paramref name="depthAtStart"/>,
         /// to zero (strings and comments skipped; a first line starts at zero and its opening brace raises the depth); -1 when none.
@@ -420,7 +446,8 @@ namespace Bugsee.WrapperPolicy
         /// (<c>gradlePluginPortal()</c> or its <c>plugins.gradle.org/m2</c> URL), Maven Central, nor a repository whose
         /// content filter explicitly includes the Bugsee groups, <c>mavenCentral()</c> is appended after the existing entries.
         /// <see cref="RepositoryStatus.BlockNotFound"/> means the settings declare no plugin repositories, so Gradle's
-        /// default (the plugin portal) applies.
+        /// default (the plugin portal) applies; <see cref="RepositoryStatus.Unparsable"/> means they declare some in a shape
+        /// that could not be read, so nothing can be said about whether the plugin resolves.
         /// </summary>
         public static RepositoryStatus EnsurePluginRepositories(string settings, out string updated)
         {

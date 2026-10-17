@@ -164,6 +164,42 @@ namespace Bugsee.WrapperPolicy.Tests
 
         // ---- repositories ------------------------------------------------------------------------------------
 
+        [TestCase("pluginManagement { repositories { google() } }\n")]
+        [TestCase("pluginManagement { repositories {\n    google()\n} }\n")]
+        public void Plugin_repositories_written_in_a_shape_that_cannot_be_read_are_reported_not_taken_for_the_default(string settings)
+        {
+            Assert.That(Plugins(settings, out string updated), Is.EqualTo(GradleMavenInjection.RepositoryStatus.Unparsable));
+            Assert.That(updated, Is.EqualTo(settings));
+        }
+
+        [Test]
+        public void A_closing_brace_shared_with_the_outer_block_is_still_edited()
+        {
+            Assert.That(Plugins("pluginManagement {\n    repositories {\n        google()\n    } }\n", out string updated),
+                Is.EqualTo(GradleMavenInjection.RepositoryStatus.Inserted));
+            Assert.That(updated, Does.Contain("        google()\n        mavenCentral() // bugsee:maven-repository\n    } }"));
+        }
+
+        [Test]
+        public void A_pluginManagement_block_without_repositories_still_means_the_default_portal()
+        {
+            Assert.That(Plugins("pluginManagement {\n    resolutionStrategy {\n    }\n}\n", out _), Is.EqualTo(GradleMavenInjection.RepositoryStatus.BlockNotFound));
+            Assert.That(Plugins("include ':launcher'\n", out _), Is.EqualTo(GradleMavenInjection.RepositoryStatus.BlockNotFound));
+        }
+
+        [Test]
+        public void The_reason_is_the_forbidden_repository_change_not_a_missing_plugins_block()
+        {
+            string root = "buildscript {\n    repositories {\n        google()\n    }\n    dependencies {\n        classpath 'com.android.tools.build:gradle:8.7.2'\n    }\n}\n";
+
+            var patch = GradlePluginInjection.Apply(
+                root, Groovy, Read("Unity6000.0.84f1-default", "launcher.build.gradle"), Groovy, Version, allowRepositoryInjection: false);
+
+            Assert.That(patch.Applied, Is.False);
+            Assert.That(patch.Message, Does.Contain("changing repositories is disabled (BUGSEE_NO_GRADLE_REPO_INJECTION)"));
+            Assert.That(patch.Message, Does.Not.Contain("without a plugins { } block"));
+        }
+
         [Test]
         public void A_one_line_repositories_block_with_a_trailing_comment_is_edited_once_and_the_comment_kept()
         {

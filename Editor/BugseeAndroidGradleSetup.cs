@@ -136,17 +136,16 @@ namespace Bugsee.Editor
                         "(a classpath entry there) resolves. Set " + EnvNoRepoInjection + " to stop the package from changing project repositories.");
                 }
 
-                if (applied && patch.NeedsPluginRepository && !EnsurePluginRepositories(projectRoot, noRepoChange))
+                if (applied && patch.NeedsPluginRepository && !EnsurePluginRepositories(projectRoot, noRepoChange, out string repositoryProblem))
                 {
-                    // The plugin cannot resolve from these settings and the repositories must not be changed: apply nothing.
+                    // The plugin cannot be shown to resolve from these settings: apply nothing.
                     applied = false;
                     patchedRoot = root;
                     patchedLauncher = launcherBefore;
                     Debug.LogWarning(
-                        "[Bugsee] The pluginManagement repositories of " + projectRoot + " serve neither the plugin portal, Maven Central nor a " +
-                        "repository that includes com.bugsee, and " + EnvNoRepoInjection + " is set, so the Bugsee Gradle plugin was not applied. " +
-                        "Make the plugin resolvable (mavenCentral() or a mirror that serves com.bugsee and com.bugsee.android.gradle in those " +
-                        "repositories). " + GradlePluginInjection.ManualInstructions(launcherDsl, GradlePluginVersion));
+                        "[Bugsee] " + repositoryProblem + " so the Bugsee Gradle plugin was not applied. Make the plugin resolvable (mavenCentral() or a " +
+                        "mirror that serves com.bugsee and com.bugsee.android.gradle in the pluginManagement repositories). " +
+                        GradlePluginInjection.ManualInstructions(launcherDsl, GradlePluginVersion));
                 }
             }
 
@@ -226,8 +225,9 @@ namespace Bugsee.Editor
         /// neither gets <c>mavenCentral()</c> appended (last, so repositories listed ahead of it keep their priority). False when
         /// that is needed but <paramref name="readOnly"/> forbids it.
         /// </summary>
-        static bool EnsurePluginRepositories(string projectRoot, bool readOnly)
+        static bool EnsurePluginRepositories(string projectRoot, bool readOnly, out string problem)
         {
+            problem = null;
             string settingsPath = BugseeAndroidMavenDependencies.FindGradleFile(projectRoot, "settings");
             if (settingsPath == null)
             {
@@ -236,6 +236,13 @@ namespace Bugsee.Editor
 
             string settings = File.ReadAllText(settingsPath);
             var status = GradleMavenInjection.EnsurePluginRepositories(settings, out string updated);
+            if (status == GradleMavenInjection.RepositoryStatus.Unparsable)
+            {
+                problem = "The pluginManagement block of " + settingsPath + " declares repositories in a shape the package cannot read " +
+                          "(everything on one line, or `repositories {` on the line of the outer brace), so it cannot tell whether they serve the plugin,";
+                return false;
+            }
+
             if (status != GradleMavenInjection.RepositoryStatus.Inserted)
             {
                 return true;
@@ -243,6 +250,8 @@ namespace Bugsee.Editor
 
             if (readOnly)
             {
+                problem = "The pluginManagement repositories of " + settingsPath + " serve neither the plugin portal, Maven Central nor a repository " +
+                          "that includes com.bugsee, and " + EnvNoRepoInjection + " is set,";
                 return false;
             }
 
