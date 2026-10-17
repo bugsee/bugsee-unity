@@ -88,15 +88,9 @@ namespace Bugsee.Editor
 
             try
             {
-                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                var resolution = BugseeCliPolicy.Resolve(
-                    new CliSettings
-                    {
-                        PathEnv = Environment.GetEnvironmentVariable("PATH"),
-                        Home = home,
-                        DownloadAllowed = false,
-                    },
-                    new CliProbe { FileExists = File.Exists, QueryVersion = QueryVersion });
+                CliSettings settings = ReadSettings(quiet: true);
+                settings.DownloadAllowed = false;
+                var resolution = BugseeCliPolicy.Resolve(settings, new CliProbe { FileExists = File.Exists, QueryVersion = QueryVersion });
                 return resolution.Found ? resolution.Path : null;
             }
             catch (Exception)
@@ -149,7 +143,7 @@ namespace Bugsee.Editor
             : RuntimeInformation.IsOSPlatform(OSPlatform.Linux) ? "linux"
             : IsWindows ? "windows" : "";
 
-        static CliSettings ReadSettings()
+        static CliSettings ReadSettings(bool quiet = false)
         {
             string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             string localAppData = IsWindows ? Environment.GetEnvironmentVariable("LOCALAPPDATA") : null;
@@ -157,12 +151,12 @@ namespace Bugsee.Editor
             version = string.IsNullOrWhiteSpace(version) ? null : version.Trim().TrimStart('v');
             if (version != null && !BugseeCliPolicy.IsValidVersion(version))
             {
-                Debug.LogWarning("[Bugsee] Ignoring BUGSEE_CLI_VERSION=" + version + ": not a release version like 0.8.1. Using " + BugseeCliPolicy.DefaultVersion + ".");
+                if (!quiet) Debug.LogWarning("[Bugsee] Ignoring BUGSEE_CLI_VERSION=" + version + ": not a release version like 0.8.1. Using " + BugseeCliPolicy.DefaultVersion + ".");
                 version = null;
             }
             else if (version != null && !BugseeCliPolicy.VersionAtLeast(version, BugseeCliPolicy.MinVersion))
             {
-                Debug.LogWarning("[Bugsee] Ignoring BUGSEE_CLI_VERSION=" + version + ": older than " + BugseeCliPolicy.MinVersion + ", which the uploads need. Using " + BugseeCliPolicy.DefaultVersion + ".");
+                if (!quiet) Debug.LogWarning("[Bugsee] Ignoring BUGSEE_CLI_VERSION=" + version + ": older than " + BugseeCliPolicy.MinVersion + ", which the uploads need. Using " + BugseeCliPolicy.DefaultVersion + ".");
                 version = null;
             }
 

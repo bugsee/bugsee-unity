@@ -21,7 +21,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string text = IosArchiveUploadScript.Build();
             foreach (var place in new[]
             {
-                "${BUGSEE_CLI_PATH}", "${BAKED_CLI}", "command -v bugsee-cli", "/opt/homebrew/bin /usr/local/bin",
+                "${BUGSEE_CLI_PATH}", "${BAKED_CLI}", "for DIR in ${PATH}", "/opt/homebrew/bin /usr/local/bin",
                 "${HOME}/.bugsee/bin/bugsee-cli", "${HOME}/.local/bin/bugsee-cli", "${HOME}/.cargo/bin/bugsee-cli",
                 "${HOME}/Library/Caches/Bugsee/cli", "${XDG_CACHE_HOME:-${HOME}/.cache}/bugsee/cli", "\"${CACHE}\"/*/*/bugsee-cli",
             })
@@ -122,7 +122,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 Assert.That(run.Output, Does.Contain(box.Path("home/.bugsee/bin/bugsee-cli")));
                 Assert.That(run.Output, Does.Contain(box.Path("home/Library/Caches/Bugsee/cli")));
                 Assert.That(run.Output, Does.Contain("/nonexistent/bugsee-cli (not found)"));
-                Assert.That(run.Output, Does.Contain("bugsee-cli (not on PATH=/usr/bin:/bin)"));
+                Assert.That(run.Output, Does.Contain("bugsee-cli (not found in PATH=/usr/bin:/bin)"));
             }
         }
 
@@ -310,7 +310,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
                 string hang = box.Path("home/.cargo/bin/bugsee-cli");
                 Directory.CreateDirectory(Path.GetDirectoryName(hang));
-                File.WriteAllText(hang, "#!/bin/sh\nsleep 30\n");
+                File.WriteAllText(hang, "#!/bin/sh\nexec sleep 30\n");
                 File.SetUnixFileMode(hang, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
                 string good = box.Stub("home/.bugsee/bin/bugsee-cli");
                 var watch = System.Diagnostics.Stopwatch.StartNew();
@@ -319,6 +319,96 @@ namespace Bugsee.WrapperPolicy.Tests
                 Assert.That(run.Output, Does.Contain(hang + " (does not run)"));
                 Assert.That(run.Output, Does.Contain("using " + good));
             }
+        }
+
+        // A probe that ignores SIGTERM is killed after the watchdog's grace period instead of holding the build.
+        [Test]
+        public void A_probe_that_ignores_sigterm_is_killed()
+        {
+            using (var box = new Sandbox(_shell))
+            {
+                string stubborn = box.Path("home/.local/bin/bugsee-cli");
+                Directory.CreateDirectory(Path.GetDirectoryName(stubborn));
+                File.WriteAllText(stubborn, "#!/bin/sh\ntrap '' TERM\nwhile :; do sleep 1; done\n");
+                File.SetUnixFileMode(stubborn, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                string good = box.Stub("home/.bugsee/bin/bugsee-cli");
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                var run = box.Run(env => env["BUGSEE_CLI_PROBE_TIMEOUT"] = "1");
+                Assert.That(watch.Elapsed.TotalSeconds, Is.LessThan(20), run.Output);
+                Assert.That(run.Output, Does.Contain(stubborn + " (does not run)"));
+                Assert.That(run.Output, Does.Contain("using " + good));
+                Assert.That(run.ExitCode, Is.EqualTo(0));
+            }
+        }
+
+        // The Editor tries every PATH entry: an old CLI in the first must not hide a good one in the second.
+        [Test]
+        public void Tries_every_PATH_entry_and_probes_a_path_only_once()
+        {
+            using (var box = new Sandbox(_shell))
+            {
+                box.Stub("d1/bugsee-cli", "0.7.9");
+                string good = box.Stub("d2/bugsee-cli");
+                var run = box.Run(env => env["PATH"] = box.Path("d1") + "::" + box.Path("d2") + ":" + box.Path("d1") + ":/usr/bin:/bin");
+                Assert.That(run.Output, Does.Contain("using " + good), run.Output);
+                Assert.That(System.Text.RegularExpressions.Regex.Matches(run.Output, System.Text.RegularExpressions.Regex.Escape(box.Path("d1/bugsee-cli") + " (")).Count, Is.EqualTo(1));
+
+                // A directory that is on PATH and also a system directory: one probe, one line.
+                string both = box.Stub("system/bugsee-cli", "0.7.9");
+                run = box.Run(env => env["PATH"] = box.Path("system") + ":/usr/bin:/bin");
+                Assert.That(System.Text.RegularExpressions.Regex.Matches(run.Output, System.Text.RegularExpressions.Regex.Escape(both + " (")).Count, Is.EqualTo(1), run.Output);
+            }
+        }
+
+        [Test]
+        public void An_unwritable_or_missing_TMPDIR_still_lets_a_candidate_run()
+        {
+            using (var box = new Sandbox(_shell))
+            {
+                string cli = box.Stub("home/.bugsee/bin/bugsee-cli");
+                var run = box.Run(env => env["TMPDIR"] = box.Path("no/such/dir"));
+                Assert.That(run.Output, Does.Contain("using " + cli), run.Output);
+                Assert.That(run.Output, Does.Not.Contain("No such file"));
+            }
+        }
+
+        // BUGSEE_CLI_VERSION picks the cache directory; one that is not a release version cannot leave the cache.
+        [TestCase("../..")]
+        [TestCase("../../..")]
+        [TestCase("1/../..")]
+        public void A_BUGSEE_CLI_VERSION_that_is_not_a_release_does_not_escape_the_cache(string version)
+        {
+            using (var box = new Sandbox(_shell))
+            {
+                box.Stub("home/Library/Caches/escaped/bugsee-cli");
+                var run = box.Run(env => env["BUGSEE_CLI_VERSION"] = version);
+                Assert.That(run.Output, Does.Contain("bugsee-cli was not found"), run.Output);
+            }
+        }
+
+        [Test]
+        public void A_BUGSEE_CLI_VERSION_with_a_leading_v_selects_that_release_in_the_cache()
+        {
+            using (var box = new Sandbox(_shell))
+            {
+                box.Stub("home/Library/Caches/Bugsee/cli/0.10.0/aarch64-apple-darwin/bugsee-cli", "0.10.0");
+                string wanted = box.Stub("home/Library/Caches/Bugsee/cli/0.9.5/aarch64-apple-darwin/bugsee-cli", "0.9.5");
+                var run = box.Run(env => env["BUGSEE_CLI_VERSION"] = "v0.9.5");
+                Assert.That(run.Output, Does.Contain("using " + wanted), run.Output);
+            }
+        }
+
+        // The Editor half of the bake: the Editor's own lookup (explicit path, PATH, install dirs, cache), never downloading.
+        [Test]
+        public void The_baked_lookup_is_the_editors_without_the_download()
+        {
+            string text = File.ReadAllText(Path.Combine(
+                TestContext.CurrentContext.TestDirectory, "..", "..", "..", "..", "..", "Editor", "BugseeCliLocator.cs"));
+            int start = text.IndexOf("public static string FindInstalled()");
+            Assert.That(start, Is.GreaterThan(0));
+            string body = text.Substring(start, text.IndexOf("\n        }\n", start) - start);
+            Assert.That(body, Does.Contain("ReadSettings(quiet: true)"));
+            Assert.That(body, Does.Contain("DownloadAllowed = false"));
         }
 
         // An explicit BUGSEE_CLI_PATH (and the path the Editor baked in) is the user's choice: used without a --version gate.

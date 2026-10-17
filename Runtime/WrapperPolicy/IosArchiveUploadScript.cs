@@ -58,7 +58,7 @@ fi
 # Same order as the Editor's lookup: BUGSEE_CLI_PATH, then (in the script only) the CLI the Editor found at export time,
 # PATH, /opt/homebrew/bin, /usr/local/bin, ~/.local/bin, ~/.cargo/bin, ~/.bugsee/bin, then the package's download cache.
 # BUGSEE_CLI_PATH and the baked path are used as given. A discovered candidate must run, print a version and be 0.8.0 or
-# newer, as in the Editor. Never downloads. (BUGSEE_CLI_SYSTEM_DIRS replaces the two system directories and
+# newer (a pre-release such as 0.8.0-beta.1 counts, as in the Editor). Never downloads. (BUGSEE_CLI_SYSTEM_DIRS replaces the two system directories and
 # BUGSEE_CLI_PROBE_TIMEOUT the 15 s limit of a --version probe; tests.)
 BAKED_CLI=''
 PINNED_VERSION=''
@@ -69,29 +69,41 @@ note() {
     $1""
   return 0
 }
-# Prints what ""$1 --version"" writes to stdout; fails when it fails or runs longer than the limit (a probe that reads
-# stdin or hangs must not hold the build).
+# Prints what ""$1 --version"" writes to stdout; fails when it fails or runs longer than the limit: a probe that reads
+# stdin, hangs or ignores SIGTERM must not hold the build (the watchdog sends TERM, then KILL two seconds later).
 probe_version() {
-  PROBE_OUT=""${TMPDIR:-/tmp}/bugsee-cli-version.$$""
+  PROBE_DIR=""${TMPDIR:-/tmp}""
+  [ -d ""${PROBE_DIR}"" ] && [ -w ""${PROBE_DIR}"" ] || PROBE_DIR=/tmp
+  PROBE_OUT=""${PROBE_DIR}/bugsee-cli-version.$$""
   ""$1"" --version </dev/null >""${PROBE_OUT}"" 2>/dev/null &
   PROBE_PID=$!
-  ( sleep ""${BUGSEE_CLI_PROBE_TIMEOUT:-15}""; kill ""${PROBE_PID}"" 2>/dev/null ) >/dev/null 2>&1 &
+  ( sleep ""${BUGSEE_CLI_PROBE_TIMEOUT:-15}"" || :; kill ""${PROBE_PID}"" 2>/dev/null || :; sleep 2 || :; kill -9 ""${PROBE_PID}"" 2>/dev/null || : ) >/dev/null 2>&1 &
   PROBE_WATCHDOG=$!
   PROBE_RC=0
   wait ""${PROBE_PID}"" 2>/dev/null || PROBE_RC=$?
   kill ""${PROBE_WATCHDOG}"" 2>/dev/null || true
   wait ""${PROBE_WATCHDOG}"" 2>/dev/null || true
-  [ ""${PROBE_RC}"" -eq 0 ] && cat ""${PROBE_OUT}""
+  [ ""${PROBE_RC}"" -eq 0 ] && cat ""${PROBE_OUT}"" 2>/dev/null
   PROBE_RC=$?
   rm -f ""${PROBE_OUT}""
   return ""${PROBE_RC}""
 }
-# $1 = candidate, $2 = ""given"" to accept it without running it (BUGSEE_CLI_PATH, the baked path).
+# $1 = candidate, $2 = ""given"" to accept it without running it (BUGSEE_CLI_PATH, the baked path), ""quiet"" to say
+# nothing when it does not exist (a PATH entry). Each path is tried once.
+SEEN=""""
 try_cli() {
   [ -n ""$1"" ] || return 0
   [ -z ""${CLI}"" ] || return 0
+  case ""${SEEN}"" in
+    *""
+$1
+""*) return 0 ;;
+  esac
+  SEEN=""${SEEN}
+$1
+""
   if [ ! -f ""$1"" ] || [ ! -x ""$1"" ]; then
-    note ""$1 (not found)""
+    [ ""$2"" = quiet ] || note ""$1 (not found)""
     return 0
   fi
   if [ ""$2"" = given ]; then
@@ -132,11 +144,15 @@ try_command() {
 }
 [ -z ""${BUGSEE_CLI_PATH}"" ] || try_command ""${BUGSEE_CLI_PATH}""
 try_cli ""${BAKED_CLI}"" given
-FOUND=$(command -v bugsee-cli 2>/dev/null || true)
-case ""${FOUND}"" in
-  /*) try_cli ""${FOUND}"" ;;
-  *) [ -n ""${CLI}"" ] || note ""bugsee-cli (not on PATH=${PATH})"" ;;
-esac
+# Every PATH entry, not only the first hit (empty entries skipped, as in the Editor).
+OLD_IFS=""${IFS}""
+IFS=:
+for DIR in ${PATH}; do
+  IFS=""${OLD_IFS}""
+  [ -z ""${DIR}"" ] || try_cli ""${DIR%/}/bugsee-cli"" quiet
+done
+IFS=""${OLD_IFS}""
+[ -n ""${CLI}"" ] || note ""bugsee-cli (not found in PATH=${PATH})""
 for DIR in ${BUGSEE_CLI_SYSTEM_DIRS-/opt/homebrew/bin /usr/local/bin}; do
   try_cli ""${DIR}/bugsee-cli""
 done
@@ -147,6 +163,10 @@ if [ -n ""${HOME}"" ]; then
   # The release the package pins (or BUGSEE_CLI_VERSION) first: a lexical glob would rank 0.10.0 below 0.8.1.
   WANT=""${BUGSEE_CLI_VERSION:-${PINNED_VERSION}}""
   WANT=""${WANT#v}""
+  case ""${WANT}"" in
+    [0-9]*) case ""${WANT}"" in *[!0-9A-Za-z.+-]*) WANT=""${PINNED_VERSION}"" ;; esac ;;
+    *) WANT=""${PINNED_VERSION}"" ;;
+  esac
   for CACHE in ""${HOME}/Library/Caches/Bugsee/cli"" ""${XDG_CACHE_HOME:-${HOME}/.cache}/bugsee/cli""; do
     SEEN=""""
     for CACHED in ""${CACHE}/${WANT}""/*/bugsee-cli ""${CACHE}""/*/*/bugsee-cli; do
