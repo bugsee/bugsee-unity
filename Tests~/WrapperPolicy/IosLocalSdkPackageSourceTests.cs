@@ -264,8 +264,13 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             string editor = Read("Editor", "BugseeIosSpmPostProcess.cs");
             Assert.That(editor, Does.Contain("is not a copy of the Bugsee package made by an earlier export"));
-            Assert.That(editor.IndexOf("is not a copy of the Bugsee package", System.StringComparison.Ordinal),
-                Is.LessThan(editor.IndexOf("Directory.Delete(destPackageDir, true)", System.StringComparison.Ordinal)));
+            Assert.That(editor, Does.Contain("is the export's own '{LocalPackageFolderName}' folder"));
+            int refusal = editor.IndexOf("is not a copy of the Bugsee package", System.StringComparison.Ordinal);
+            Assert.That(refusal, Is.LessThan(editor.IndexOf("Directory.Delete(destPackageDir, true)", System.StringComparison.Ordinal)));
+            // The folder's contents never prove it is ours, and both copy modes stamp the marker.
+            Assert.That(editor, Does.Not.Contain("Directory.Exists(Path.Combine(destPackageDir, \"Bugsee.xcframework\"))"));
+            Assert.That(editor.IndexOf("CopyDirectory(localPackageSource, destPackageDir);", System.StringComparison.Ordinal),
+                Is.LessThan(editor.IndexOf("File.WriteAllText(Path.Combine(destPackageDir, LocalPackageMarker)", System.StringComparison.Ordinal)));
             string sample = Read("Samples~", "BugseeMiniGame", "Assets", "Scripts", "BugseeHarness", "BugseeSampleBootstrap.cs");
             Assert.That(sample, Does.Contain("_skipE2EArming = false;"));
         }

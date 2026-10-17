@@ -153,31 +153,36 @@ namespace Bugsee.Editor
             }
 
             string destPackageDir = packageFolder;
+            // The export must not delete its own source, nor a folder of the user's own named Bugsee: only a copy that carries
+            // the export's marker (every copy it makes does) is replaced, whatever the folder holds.
+            if (Path.GetFullPath(localPackageSource).TrimEnd(Path.DirectorySeparatorChar) ==
+                Path.GetFullPath(destPackageDir).TrimEnd(Path.DirectorySeparatorChar))
+            {
+                throw new BuildFailedException($"[Bugsee] The local iOS SDK package {localPackageSource} is the export's own '{LocalPackageFolderName}' folder; point {LocalPackageEnvVar} at the assembled package instead.");
+            }
+
+            if (Directory.Exists(destPackageDir) && !File.Exists(Path.Combine(destPackageDir, LocalPackageMarker)))
+            {
+                throw new BuildFailedException(
+                    $"[Bugsee] {destPackageDir} exists and is not a copy of the Bugsee package made by an earlier export; " +
+                    $"move it away, or export into a project without a '{LocalPackageFolderName}' folder at its root.");
+            }
+
+            if (Directory.Exists(destPackageDir))
+            {
+                Directory.Delete(destPackageDir, true);
+            }
+
             if (overridePackage != null)
             {
-                // Replace only a copy this export (or the offline mode) made; a folder of the user's own named Bugsee stays.
-                if (Directory.Exists(destPackageDir))
-                {
-                    bool ours = File.Exists(Path.Combine(destPackageDir, LocalPackageMarker)) ||
-                        (File.Exists(Path.Combine(destPackageDir, "Package.swift")) &&
-                         Directory.Exists(Path.Combine(destPackageDir, "Bugsee.xcframework")));
-                    if (!ours)
-                    {
-                        throw new BuildFailedException(
-                            $"[Bugsee] {destPackageDir} exists and is not a copy of the Bugsee package made by an earlier export; " +
-                            $"move it away, or export into a project without a '{LocalPackageFolderName}' folder at its root ({LocalPackageEnvVar}).");
-                    }
-
-                    Directory.Delete(destPackageDir, true);
-                }
-
                 CopyPackagePreservingLinks(localPackageSource, destPackageDir);
-                File.WriteAllText(Path.Combine(destPackageDir, LocalPackageMarker), "Copied by the Bugsee iOS export; removed when the export links the published package again.\n");
             }
             else
             {
                 CopyDirectory(localPackageSource, destPackageDir);
             }
+
+            File.WriteAllText(Path.Combine(destPackageDir, LocalPackageMarker), "Copied by the Bugsee iOS export; removed when the export links the published package again.\n");
 
             string converted = XcodeLocalPackage.FromRemote(File.ReadAllText(projectPath), RemoteSpmUrl, LocalPackageFolderName);
             if (converted == null)
