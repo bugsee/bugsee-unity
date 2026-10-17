@@ -100,7 +100,7 @@ Managed exceptions use the **UnityManagedException** JSON-in-reason contract (`n
 | Mode | Build / capture | Backend | File:line? |
 |---|---|---|---|
 | **A. Rich managed stacks** | Mono, or IL2CPP **Method Name, File Name, and Line Number** (or Script Debugging) | Parse `frames[].trace` | **Yes** (from string) |
-| **B. Release Method-only + LNM** | IL2CPP; thrown exception; SDK emits native IPs via `il2cpp_native_stack_trace` | PC → dSYM/ELF → LineNumberMappings | **In progress** (needs symbols + `il2cpp-linemap`; absolute IPs need module load address) |
+| **B. Release Method-only + LNM** | IL2CPP; thrown exception; SDK emits native IPs via `il2cpp_native_stack_trace` | PC → dSYM/ELF → LineNumberMappings | **In progress** (needs symbols + `il2cpp-linemap`; addresses are module-relative) |
 | **C. MethodMap only** | IL2CPP mangled names; map uploaded | MethodMap.tsv demangle | **Names only** (no invented `.cs:line`) |
 
 Mode **B** follows the same capture idea as Sentry (`il2cpp_native_stack_trace` on a thrown exception). Prefer:
@@ -210,8 +210,10 @@ Releases built without R8 (Minify off, the Unity default) have no mapping and no
 ### Managed stacks: MethodMap vs LNM file/line
 
 - ExceptionPipeline / `LogException` send **UnityManagedException** JSON (`frames[].trace`, optional `frames[].address`, `moduleUUID`, nested `cause`, `signature`, `buildID`).
-- On IL2CPP, `frames[].address` is filled from **`il2cpp_native_stack_trace`** when the exception was thrown (paired index-for-index with managed frames; UUID matches Bugsee ELF/dSYM upload identity), or from native-looking hex in the stack string. Short Mono/IL offsets like `[0x00023]` are ignored.
-- Worker: MethodMap demangles mangled names; when addresses + symbols + linemap match, **primary LNM** remaps to C# file:line. Absolute IPs require a matching crash module load address; relative offsets use base `0`.
+- On IL2CPP, `frames[].address` comes from **`il2cpp_native_stack_trace`**, which IL2CPP fills in the same loop as the managed trace (newest frame first, one IP per frame), and only when that pairing is provable: the stack text has exactly as many frames as native IPs and no `--- End of stack trace from previous location ---` separator. After a rethrow through `ExceptionDispatchInfo`, async/await, hidden frames or any count mismatch the frames carry **no address** (names still go through MethodMap) rather than a guessed one. A frame whose text already has a real C# `file:line` (IL2CPP with a usym file) gets none either. Mono builds send none: Mono's `<0xSTART + 0xOFFSET>` is a method start, never a return address, and is ignored; short IL offsets like `[0x00023]` are ignored too.
+- **Address contract:** every `frames[].address` is a hex **return address, module-relative** (instruction pointer minus the load address of the image that holds the IL2CPP code, subtracted by IL2CPP itself: UnityFramework on iOS, libil2cpp.so on Android; 32-bit values are zero-extended), resolved against the `moduleUUID` sent with the exception (that same image's Mach-O UUID / GNU build-id). The SDK never sends absolute addresses. The worker subtracts 1 to land in the calling instruction.
+- Release IL2CPP walks the native stack, so a method the C++ compiler inlined into its caller has no frame of its own: the managed trace (and Android/iOS payloads alike) can lack the throw-site method even though the C# line is recoverable from the caller's address via the dSYM inline chain (done by the worker, not the SDK).
+- Worker: MethodMap demangles mangled names; when addresses + symbols + linemap match, **primary LNM** remaps to C# file:line. The SDK sends module-relative offsets (see the address contract above), which the worker uses as is.
 - Multi-ABI Android: `moduleUUID` may be a CSV; worker tries each UUID (dashed/undashed).
 
 ## Field validation (S1 / S2)
