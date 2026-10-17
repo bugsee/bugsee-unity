@@ -139,26 +139,25 @@ namespace Bugsee.Editor
                 return;
             }
 
-            // Asked for explicitly, so a package that cannot be used fails the build instead of exporting a project with no SDK.
+            // A package that cannot be used fails the build instead of exporting a project with no SDK (the offline stub
+            // Native~/ios/Bugsee has no xcframework until Tools~/scripts/update-native-sdks.sh has run).
             string problem = LocalPackageProblem(localPackageSource);
             if (problem != null)
             {
-                string message = $"[Bugsee] Local iOS SDK package {localPackageSource}: {problem}";
-                if (overridePackage != null)
-                {
-                    throw new BuildFailedException($"{message} ({LocalPackageEnvVar})");
-                }
-
-                Debug.LogWarning(message + " iOS linking will fail until you run Tools~/scripts/update-native-sdks.sh.");
+                string how = overridePackage != null ? $" ({LocalPackageEnvVar})" : " Run Tools~/scripts/update-native-sdks.sh first.";
+                throw new BuildFailedException($"[Bugsee] Local iOS SDK package {localPackageSource}: {problem}{how}");
             }
 
             string destPackageDir = packageFolder;
             // The export must not delete its own source, nor a folder of the user's own named Bugsee: only a copy that carries
             // the export's marker (every copy it makes does) is replaced, whatever the folder holds.
-            if (Path.GetFullPath(localPackageSource).TrimEnd(Path.DirectorySeparatorChar) ==
-                Path.GetFullPath(destPackageDir).TrimEnd(Path.DirectorySeparatorChar))
+            string sourceFull = Path.GetFullPath(localPackageSource).TrimEnd(Path.DirectorySeparatorChar);
+            string destFull = Path.GetFullPath(destPackageDir).TrimEnd(Path.DirectorySeparatorChar);
+            // The source may not be the copy, nor inside it: replacing the copy would delete the source first.
+            if (sourceFull.Equals(destFull, System.StringComparison.OrdinalIgnoreCase) ||
+                (sourceFull + Path.DirectorySeparatorChar).StartsWith(destFull + Path.DirectorySeparatorChar, System.StringComparison.OrdinalIgnoreCase))
             {
-                throw new BuildFailedException($"[Bugsee] The local iOS SDK package {localPackageSource} is the export's own '{LocalPackageFolderName}' folder; point {LocalPackageEnvVar} at the assembled package instead.");
+                throw new BuildFailedException($"[Bugsee] The local iOS SDK package {localPackageSource} is in the export's own '{LocalPackageFolderName}' folder; point {LocalPackageEnvVar} at the assembled package instead.");
             }
 
             if (Directory.Exists(destPackageDir) && !File.Exists(Path.Combine(destPackageDir, LocalPackageMarker)))
@@ -178,7 +177,7 @@ namespace Bugsee.Editor
                 File.Delete(Path.Combine(destPackageDir, probe));
                 if (sameDirectory)
                 {
-                    throw new BuildFailedException($"[Bugsee] The local iOS SDK package {localPackageSource} is the export's own '{LocalPackageFolderName}' folder; point {LocalPackageEnvVar} at the assembled package instead.");
+                    throw new BuildFailedException($"[Bugsee] The local iOS SDK package {localPackageSource} is the export's own '{LocalPackageFolderName}' folder (another spelling of its path); point {LocalPackageEnvVar} at the assembled package instead.");
                 }
 
                 Directory.Delete(destPackageDir, true);

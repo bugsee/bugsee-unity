@@ -264,7 +264,8 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             string editor = Read("Editor", "BugseeIosSpmPostProcess.cs");
             Assert.That(editor, Does.Contain("is not a copy of the Bugsee package made by an earlier export"));
-            Assert.That(editor, Does.Contain("is the export's own '{LocalPackageFolderName}' folder"));
+            Assert.That(editor, Does.Contain("is in the export's own '{LocalPackageFolderName}' folder"));
+            Assert.That(editor, Does.Contain("(sourceFull + Path.DirectorySeparatorChar).StartsWith(destFull + Path.DirectorySeparatorChar"));
             int refusal = editor.IndexOf("is not a copy of the Bugsee package", System.StringComparison.Ordinal);
             Assert.That(refusal, Is.LessThan(editor.IndexOf("Directory.Delete(destPackageDir, true)", System.StringComparison.Ordinal)));
             // The folder's contents never prove it is ours: the marker goes in before any copy, so a failed copy stays ours.
@@ -300,7 +301,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(text, Does.Contain("XcodeLocalPackage.RemoveBugseePackage(existing, RemoteSpmUrl, LocalPackageFolderName, out var removedPackageIds)"));
             Assert.That(text, Does.Contain("LocalPackageAllowReleaseEnvVar = \"BUGSEE_IOS_SDK_LOCAL_PACKAGE_ALLOW_RELEASE\""));
             Assert.That(text, Does.Contain("if (!development &&"));
-            Assert.That(text, Does.Contain("throw new BuildFailedException($\"{message} ({LocalPackageEnvVar})\");"));
+            Assert.That(text, Does.Contain("Local iOS SDK package {localPackageSource}: {problem}{how}"));
         }
 
         [Test]
