@@ -46,7 +46,14 @@ namespace Bugsee.WrapperPolicy
         /// </summary>
         public static string RemoveBugseePackage(string pbxproj, string repositoryUrl, string relativePath)
         {
+            return RemoveBugseePackage(pbxproj, repositoryUrl, relativePath, out _);
+        }
+
+        /// <param name="removedPackageIds">The ids of the package references that were removed, for <see cref="RepointProducts"/>.</param>
+        public static string RemoveBugseePackage(string pbxproj, string repositoryUrl, string relativePath, out ISet<string> removedPackageIds)
+        {
             var references = new HashSet<string>();
+            removedPackageIds = references;
             var localReferences = new HashSet<string>();
             string text = RemoveBlocks(pbxproj, RemoteBlock(repositoryUrl), references, null);
             text = RemoveBlocks(text, LocalBlock(relativePath), references, localReferences);
@@ -105,15 +112,15 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>
-        /// Points the product dependencies whose package no longer exists in the project (the user's other products of a
-        /// package <see cref="RemoveBugseePackage"/> removed) at <paramref name="packageId"/>, the reference just added.
+        /// Points the product dependencies of a package <see cref="RemoveBugseePackage"/> removed (the user's other products
+        /// of it, listed by <paramref name="removedPackageIds"/>; any other product is left alone) at <paramref name="packageId"/>, the reference just added.
         /// </summary>
-        public static string RepointProducts(string pbxproj, string packageId)
+        public static string RepointProducts(string pbxproj, string packageId, ISet<string> removedPackageIds)
         {
             return new Regex(ProductBlock, Options).Replace(pbxproj, match =>
             {
                 string package = match.Groups["package"].Value;
-                if (package.Length == 0 || package == packageId || IsDefinedReference(pbxproj, package))
+                if (package.Length == 0 || package == packageId || !removedPackageIds.Contains(package))
                 {
                     return match.Value;
                 }
@@ -121,11 +128,6 @@ namespace Bugsee.WrapperPolicy
                 Group group = match.Groups["package"];
                 return match.Value.Substring(0, group.Index - match.Index) + packageId + match.Value.Substring(group.Index - match.Index + group.Length);
             });
-        }
-
-        static bool IsDefinedReference(string pbxproj, string guid)
-        {
-            return Regex.IsMatch(pbxproj, guid + Comment + @" = \{\s*isa = XC(?:Remote|Local)SwiftPackageReference;", Options);
         }
 
         static string First(HashSet<string> set)

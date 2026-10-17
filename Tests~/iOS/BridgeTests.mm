@@ -277,6 +277,9 @@ int main(void)
     value = _bugsee_test_exception_options("{\"skipFrames\":\"two\"}");
     expect(value != NULL && strcmp(value, "skipFrames=0") == 0, "a wrong-typed skipFrames is dropped");
     free((void *)value);
+    value = _bugsee_test_exception_options("{\"skipFrames\":true}");
+    expect(value != NULL && strcmp(value, "skipFrames=0") == 0, "a boolean skipFrames is not a frame count");
+    free((void *)value);
 #endif
     // The wire's digits must not follow the user's locale: C# parses them as invariant.
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];

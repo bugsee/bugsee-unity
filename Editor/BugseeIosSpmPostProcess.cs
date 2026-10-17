@@ -84,7 +84,7 @@ namespace Bugsee.Editor
             // An export into an existing project (Append) keeps the links an earlier export added; drop them so the
             // package is linked once, whichever way (published tag or local package) the earlier export linked it.
             string existing = File.ReadAllText(projectPath);
-            string cleaned = XcodeLocalPackage.RemoveBugseePackage(existing, RemoteSpmUrl, LocalPackageFolderName);
+            string cleaned = XcodeLocalPackage.RemoveBugseePackage(existing, RemoteSpmUrl, LocalPackageFolderName, out var removedPackageIds);
             if (cleaned != existing)
             {
                 File.WriteAllText(projectPath, cleaned);
@@ -123,7 +123,7 @@ namespace Bugsee.Editor
             project.AddRemotePackageFrameworkToProject(frameworkTargetGuid, SpmProductName, packageGuid, false);
             project.WriteToFile(projectPath);
             // The user's other products of the package an earlier export linked (BugseeSwiftUI) follow the new reference.
-            string linked = XcodeLocalPackage.RepointProducts(File.ReadAllText(projectPath), packageGuid);
+            string linked = XcodeLocalPackage.RepointProducts(File.ReadAllText(projectPath), packageGuid, removedPackageIds);
             File.WriteAllText(projectPath, linked);
 
             string packageFolder = Path.Combine(pathToBuiltProject, LocalPackageFolderName);
@@ -155,8 +155,19 @@ namespace Bugsee.Editor
             string destPackageDir = packageFolder;
             if (overridePackage != null)
             {
+                // Replace only a copy this export (or the offline mode) made; a folder of the user's own named Bugsee stays.
                 if (Directory.Exists(destPackageDir))
                 {
+                    bool ours = File.Exists(Path.Combine(destPackageDir, LocalPackageMarker)) ||
+                        (File.Exists(Path.Combine(destPackageDir, "Package.swift")) &&
+                         Directory.Exists(Path.Combine(destPackageDir, "Bugsee.xcframework")));
+                    if (!ours)
+                    {
+                        throw new BuildFailedException(
+                            $"[Bugsee] {destPackageDir} exists and is not a copy of the Bugsee package made by an earlier export; " +
+                            $"move it away, or export into a project without a '{LocalPackageFolderName}' folder at its root ({LocalPackageEnvVar}).");
+                    }
+
                     Directory.Delete(destPackageDir, true);
                 }
 

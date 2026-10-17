@@ -214,7 +214,10 @@ namespace Bugsee.Sample
                 // Scenarios via Android intent extra "bugsee_e2e" (default: sig).
                 //   handled | unhandled | crash | sig | pipeline | native | abort | fatal | java | hang | upload | none
                 // Armed when an endpoint override is set or the extra is given explicitly.
-                var requestedScenario = _skipE2EArming ? "none" : ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO");
+                // Only the launch a running scenario makes itself arms nothing; the next one reads the environment again.
+                var skipArming = _skipE2EArming;
+                _skipE2EArming = false;
+                var requestedScenario = skipArming ? "none" : ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO");
                 var launchRun = ReadE2EValue("bugsee_e2e_run", "BUGSEE_E2E_RUN");
                 if (requestedScenario != null && !ConsumeE2ERun(launchRun))
                 {
@@ -223,7 +226,7 @@ namespace Bugsee.Sample
                     Debug.Log("[BugseeSample] E2E run " + launchRun + " already ran (restart after a crash): arming nothing");
                     requestedScenario = "none";
                 }
-                if (_skipE2EArming)
+                if (skipArming)
                 {
                     // A relaunch from a scenario that is already running arms nothing.
                 }

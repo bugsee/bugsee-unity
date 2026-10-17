@@ -10,8 +10,10 @@
 # Usage:
 #   Tools~/scripts/assemble-local-ios-sdk.sh <bugsee-cocoa checkout> <output dir> [version]
 #
-#   version defaults to the checkout's version.txt. It is stamped into the SDK (BGSSdkVersion.h, tools.bundle)
-#   without editing version.txt, so a checkout that has not bumped it yet can still be built as the next beta.
+#   version defaults to the checkout's version.txt. It is stamped into the SDK (BGSSdkVersion.h, tools.bundle/version.txt,
+#   both git-ignored build files that the script puts back, or removes, when it exits) without editing the tracked
+#   version.txt, so a checkout that has not bumped it yet can still be built as the next beta. The checkout's build/
+#   directory is deleted and rebuilt.
 #
 # Needs the checkout's plcrashreporter submodule (git submodule update --init) and the iOS, tvOS, visionOS and
 # Mac Catalyst SDKs, as the release build does.
@@ -66,6 +68,25 @@ fi
 SHA="$(git -C "${COCOA}" rev-parse HEAD)"
 SHORT="$(git -C "${COCOA}" rev-parse --short HEAD)"
 
+# The two files the stamp writes, put back as they were (or removed when they did not exist) however the script ends.
+STAGE="$(mktemp -d)"
+STAMPED_HEADER="${COCOA}/BugseeDev/BugseeLib/BugseeLib/BGSSdkVersion.h"
+STAMPED_VERSION="${COCOA}/BugseeDev/BugseeLib/BugseeResources/tools.bundle/version.txt"
+restore_stamped() {
+  local file saved index=0
+  for file in "${STAMPED_HEADER}" "${STAMPED_VERSION}"; do
+    saved="${STAGE}/saved.${index}"
+    index=$((index + 1))
+    if [[ -f "${saved}" ]]; then cp "${saved}" "${file}"; elif [[ -f "${saved}.absent" ]]; then rm -f "${file}"; fi
+  done
+}
+index=0
+for file in "${STAMPED_HEADER}" "${STAMPED_VERSION}"; do
+  if [[ -f "${file}" ]]; then cp "${file}" "${STAGE}/saved.${index}"; else : > "${STAGE}/saved.${index}.absent"; fi
+  index=$((index + 1))
+done
+trap 'restore_stamped; rm -rf "${STAGE}"' EXIT
+
 # What build.sh stamps before build_new.sh runs (build_new.sh has its own injectCode disabled).
 cat > "${COCOA}/BugseeDev/BugseeLib/BugseeLib/BGSSdkVersion.h" <<INJ
 #define BUGSEE_SDK_VERSION  @"${VERSION}"
@@ -82,8 +103,6 @@ ZIP="${COCOA}/build/bugsee-spm-xcframework.zip"
 rm -rf "${OUT:?}"/*
 cp "${ZIP}" "${OUT}/bugsee-spm-xcframework.zip"
 # Same tree the published zip carries; unzipped with ditto so symlinks inside the frameworks survive.
-STAGE="$(mktemp -d)"
-trap 'rm -rf "${STAGE}"' EXIT
 ditto -x -k "${ZIP}" "${STAGE}"
 ditto "${STAGE}/Bugsee.xcframework" "${OUT}/Bugsee.xcframework"
 

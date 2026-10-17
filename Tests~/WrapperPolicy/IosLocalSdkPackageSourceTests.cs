@@ -152,15 +152,15 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void The_users_other_products_follow_the_new_reference_in_both_modes()
         {
-            string stripped = XcodeLocalPackage.RemoveBugseePackage(RoundTripped, SpmUrl, "Bugsee");
-            string added = XcodeLocalPackage.RepointProducts(stripped + UnityRemote, "69C04F549EE201CC179B0684");
+            string stripped = XcodeLocalPackage.RemoveBugseePackage(RoundTripped, SpmUrl, "Bugsee", out var removed);
+            string added = XcodeLocalPackage.RepointProducts(stripped + UnityRemote, "69C04F549EE201CC179B0684", removed);
             Assert.That(added, Does.Contain("package = 69C04F549EE201CC179B0684;\n\t\t\tproductName = BugseeSwiftUI;"));
             Assert.That(added, Does.Not.Contain("493B4ABD96E30E264332E7A8"));
             // Remote mode keeps the link to the new reference; local mode drops the package key as Xcode writes it.
             string local = XcodeLocalPackage.FromRemote(added, SpmUrl, "Bugsee");
             Assert.That(local, Does.Contain("productName = BugseeSwiftUI;"));
             Assert.That(local, Does.Not.Contain("package = "));
-            Assert.That(XcodeLocalPackage.RepointProducts(UnityRemote, "69C04F549EE201CC179B0684"), Is.EqualTo(UnityRemote));
+            Assert.That(XcodeLocalPackage.RepointProducts(UnityRemote, "69C04F549EE201CC179B0684", removed), Is.EqualTo(UnityRemote));
         }
 
         [Test]
@@ -187,8 +187,8 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void A_package_less_swiftui_product_of_a_local_package_follows_a_switch_to_remote()
         {
-            string local = XcodeLocalPackage.RemoveBugseePackage(RoundTripped.Replace("\t\t\tpackage = 493B4ABD96E30E264332E7A8;\n", ""), SpmUrl, "Bugsee");
-            string added = XcodeLocalPackage.RepointProducts(local + UnityRemote, "69C04F549EE201CC179B0684");
+            string local = XcodeLocalPackage.RemoveBugseePackage(RoundTripped.Replace("\t\t\tpackage = 493B4ABD96E30E264332E7A8;\n", ""), SpmUrl, "Bugsee", out var removed);
+            string added = XcodeLocalPackage.RepointProducts(local + UnityRemote, "69C04F549EE201CC179B0684", removed);
             Assert.That(added, Does.Contain("package = 69C04F549EE201CC179B0684;\n\t\t\tproductName = BugseeSwiftUI;"));
         }
 
@@ -197,8 +197,8 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             // What the export does to a project an earlier export left with a comment-less local reference:
             // strip it, let Unity add the remote one, convert that.
-            string stripped = XcodeLocalPackage.RemoveBugseePackage(RoundTripped, SpmUrl, "Bugsee");
-            string added = XcodeLocalPackage.RepointProducts(stripped + UnityRemote, "69C04F549EE201CC179B0684");
+            string stripped = XcodeLocalPackage.RemoveBugseePackage(RoundTripped, SpmUrl, "Bugsee", out var removed);
+            string added = XcodeLocalPackage.RepointProducts(stripped + UnityRemote, "69C04F549EE201CC179B0684", removed);
             string converted = XcodeLocalPackage.FromRemote(added, SpmUrl, "Bugsee");
             Assert.That(System.Text.RegularExpressions.Regex.Matches(converted, "isa = XCLocalSwiftPackageReference;").Count, Is.EqualTo(1));
             Assert.That(converted, Does.Not.Contain("XCRemoteSwiftPackageReference"));
@@ -247,6 +247,39 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void An_unrelated_product_with_a_foreign_package_id_is_not_adopted()
+        {
+            string foreign =
+                "/* Begin XCSwiftPackageProductDependency section */\n" +
+                "\t\t9999999999999999999999AA /* Other */ = {\n\t\t\tisa = XCSwiftPackageProductDependency;\n\t\t\tpackage = 8888888888888888888888BB;\n\t\t\tproductName = Other;\n\t\t};\n" +
+                "/* End XCSwiftPackageProductDependency section */\n";
+            string stripped = XcodeLocalPackage.RemoveBugseePackage(RoundTripped + foreign, SpmUrl, "Bugsee", out var removed);
+            string added = XcodeLocalPackage.RepointProducts(stripped + UnityRemote, "69C04F549EE201CC179B0684", removed);
+            Assert.That(added, Does.Contain("package = 8888888888888888888888BB;\n\t\t\tproductName = Other;"));
+            Assert.That(added, Does.Contain("package = 69C04F549EE201CC179B0684;\n\t\t\tproductName = BugseeSwiftUI;"));
+        }
+
+        [Test]
+        public void Export_replaces_only_a_package_folder_it_made_and_keeps_the_arming_flag_to_one_launch()
+        {
+            string editor = Read("Editor", "BugseeIosSpmPostProcess.cs");
+            Assert.That(editor, Does.Contain("is not a copy of the Bugsee package made by an earlier export"));
+            Assert.That(editor.IndexOf("is not a copy of the Bugsee package", System.StringComparison.Ordinal),
+                Is.LessThan(editor.IndexOf("Directory.Delete(destPackageDir, true)", System.StringComparison.Ordinal)));
+            string sample = Read("Samples~", "BugseeMiniGame", "Assets", "Scripts", "BugseeHarness", "BugseeSampleBootstrap.cs");
+            Assert.That(sample, Does.Contain("_skipE2EArming = false;"));
+        }
+
+        [Test]
+        public void Assemble_script_puts_the_stamped_files_back_on_exit()
+        {
+            string script = Read("Tools~", "scripts", "assemble-local-ios-sdk.sh");
+            Assert.That(script, Does.Contain("trap 'restore_stamped; rm -rf \"${STAGE}\"' EXIT"));
+            Assert.That(script.IndexOf("trap 'restore_stamped", System.StringComparison.Ordinal),
+                Is.LessThan(script.IndexOf("> \"${COCOA}/BugseeDev/BugseeLib/BugseeLib/BGSSdkVersion.h\"", System.StringComparison.Ordinal)));
+        }
+
+        [Test]
         public void Local_package_env_var_replaces_the_remote_reference_only_when_set()
         {
             string text = Read("Editor", "BugseeIosSpmPostProcess.cs");
@@ -254,7 +287,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(text, Does.Contain("if (localPackageSource == null && !UseRemoteSpm)"));
             Assert.That(text, Does.Contain("AddRemotePackageReferenceAtVersion(RemoteSpmUrl, RemoteSpmVersion)"));
             Assert.That(text, Does.Contain("XcodeLocalPackage.FromRemote(File.ReadAllText(projectPath), RemoteSpmUrl, LocalPackageFolderName)"));
-            Assert.That(text, Does.Contain("XcodeLocalPackage.RemoveBugseePackage(existing, RemoteSpmUrl, LocalPackageFolderName)"));
+            Assert.That(text, Does.Contain("XcodeLocalPackage.RemoveBugseePackage(existing, RemoteSpmUrl, LocalPackageFolderName, out var removedPackageIds)"));
             Assert.That(text, Does.Contain("LocalPackageAllowReleaseEnvVar = \"BUGSEE_IOS_SDK_LOCAL_PACKAGE_ALLOW_RELEASE\""));
             Assert.That(text, Does.Contain("if (!development &&"));
             Assert.That(text, Does.Contain("throw new BuildFailedException($\"{message} ({LocalPackageEnvVar})\");"));

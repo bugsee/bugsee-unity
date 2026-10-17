@@ -417,7 +417,11 @@ static NSDictionary *BugseeExceptionOptionsDict(const char *optionsJson)
 static NSInteger BugseeExceptionSkipFrames(NSDictionary *options)
 {
     id skipFrames = options[@"skipFrames"];
-    return [skipFrames isKindOfClass:[NSNumber class]] ? [skipFrames integerValue] : 0;
+    // A JSON true or false parses to an NSNumber too, but is not a frame count.
+    if (![skipFrames isKindOfClass:[NSNumber class]] || CFGetTypeID((__bridge CFTypeRef)skipFrames) == CFBooleanGetTypeID()) {
+        return 0;
+    }
+    return [skipFrames integerValue];
 }
 
 #endif
