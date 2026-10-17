@@ -1559,7 +1559,7 @@ namespace Bugsee.WrapperPolicy
             return Array.TrueForAll(covered, c => c);
         }
 
-        /// <summary>True when a content-filter call (kind, first and optional second string) matches the Bugsee group and <paramref name="artifact"/>; an unparsable regex matches.</summary>
+        /// <summary>True when a content-filter call (kind, first and optional second string) matches the Bugsee group and <paramref name="artifact"/>; a regex that cannot be read or does not finish in time reads as not serving Bugsee (no match for an include filter, a match for an exclude filter, <paramref name="matchOnTimeout"/>).</summary>
         internal static bool FilterMatches(
             string kind, string first, string second, string bugseeGroup, string artifact, bool matchOnTimeout, TimeSpan? timeout = null)
         {
@@ -1580,7 +1580,7 @@ namespace Bugsee.WrapperPolicy
             }
         }
 
-        /// <summary>How long one project-written filter regex may run (a runaway one is read as matching).</summary>
+        /// <summary>How long one project-written filter regex may run (one that cannot be read or does not finish in time reads as not serving Bugsee: no match for an include filter, a match for an exclude filter).</summary>
         internal static readonly TimeSpan FilterRegexTimeout = TimeSpan.FromMilliseconds(500);
 
         /// <summary>
