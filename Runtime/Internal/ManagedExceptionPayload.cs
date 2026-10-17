@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
 using Bugsee.WrapperPolicy;
 using UnityEngine;
 
@@ -17,15 +16,6 @@ namespace Bugsee.Internal
     {
         static string _buildGuid;
         static string _moduleUuid;
-
-        // Prefer native-looking PCs (8+ hex digits). Avoid Mono/IL "[0x00023]" IL offsets.
-        static readonly Regex NativePcRegex = new Regex(
-            @"(?:(?:^|[^\w./])(?:pc\s+)?(0x[0-9a-fA-F]{8,16})(?![0-9a-fA-F]))|(?:#\d+\s+pc\s+([0-9a-fA-F]{8,16})\b)",
-            RegexOptions.Compiled);
-
-        static readonly Regex IlOffsetBracketRegex = new Regex(
-            @"\[0x[0-9a-fA-F]{1,6}\]",
-            RegexOptions.Compiled);
 
         [Serializable]
         public class Frame
@@ -109,82 +99,20 @@ namespace Bugsee.Internal
         /// <summary>Comma-separated IL2CPP module UUID(s) for all ABIs when known.</summary>
         public static string ModuleUuidsCsv => ModuleUuid;
 
+        /// <summary>Frame lines of a stack text (separators dropped); see <see cref="ManagedFrameAssembly"/>.</summary>
         public static string[] GetRawFrames(string stackTrace)
         {
-            var lines = GetStackLines(stackTrace);
-            var list = new List<string>(lines.Length);
-            foreach (var t in lines)
-            {
-                // Segment separators ("--- End of stack trace ...", "--->") are not frames.
-                if (ManagedAddressPairing.IsSeparator(t))
-                {
-                    continue;
-                }
-                list.Add(t);
-            }
-            return list.ToArray();
+            return ManagedFrameAssembly.FrameLines(ManagedFrameAssembly.StackLines(stackTrace));
         }
 
-        /// <summary>Trimmed non-empty lines of a stack trace text, separators included.</summary>
-        static string[] GetStackLines(string stackTrace)
+        static Frame[] ToFrames(ManagedFrameSet set)
         {
-            if (string.IsNullOrEmpty(stackTrace))
+            var frames = new Frame[set.Traces.Length];
+            for (var i = 0; i < frames.Length; i++)
             {
-                return Array.Empty<string>();
-            }
-            var lines = stackTrace.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-            var list = new List<string>(lines.Length);
-            foreach (var line in lines)
-            {
-                var t = line.Trim();
-                if (t.Length > 0)
-                {
-                    list.Add(t);
-                }
-            }
-            return list.ToArray();
-        }
-
-        public static Frame[] ToFrames(string[] rawFrames)
-        {
-            if (rawFrames == null || rawFrames.Length == 0)
-            {
-                return Array.Empty<Frame>();
-            }
-            var frames = new Frame[rawFrames.Length];
-            for (var i = 0; i < rawFrames.Length; i++)
-            {
-                var trace = rawFrames[i] ?? "";
-                frames[i] = new Frame { trace = trace, address = ExtractInstructionAddress(trace) };
+                frames[i] = new Frame { trace = set.Traces[i] ?? "", address = set.Addresses[i] };
             }
             return frames;
-        }
-
-        /// <summary>
-        /// Pull a native instruction address from a stack line when present.
-        /// Skips short bracketed IL offsets like <c>[0x00023]</c> and Mono <c>&lt;0xSTART + 0xOFFSET&gt;</c>.
-        /// </summary>
-        public static string ExtractInstructionAddress(string stackLine)
-        {
-            if (string.IsNullOrEmpty(stackLine))
-            {
-                return null;
-            }
-
-            // Mono's <0xSTART + 0xOFFSET> is a method start, not a return address.
-            var scrubbed = IlOffsetBracketRegex.Replace(ManagedAddressPairing.StripMonoMethodStarts(stackLine), " ");
-            var m = NativePcRegex.Match(scrubbed);
-            if (!m.Success)
-            {
-                return null;
-            }
-
-            var hex = m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value;
-            if (string.IsNullOrEmpty(hex))
-            {
-                return null;
-            }
-            return hex.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? hex : ("0x" + hex);
         }
 
         public static string CalculateSignature(string name, string[] rawFrames)
@@ -221,25 +149,22 @@ namespace Bugsee.Internal
                 return FromException(ae.InnerExceptions[0], depth);
             }
 
-            var stackLines = GetStackLines(exception.StackTrace);
-            var raw = GetRawFrames(exception.StackTrace);
-            // ToString() frames may include inner exceptions' frames: never paired with native IPs.
-            var fromStackTrace = raw.Length > 0;
-            if (!fromStackTrace)
-            {
-                raw = GetRawFramesFromExceptionToString(exception.ToString());
-            }
-
-            var frames = ToFrames(raw);
+            // Exception.StackTrace is formatted anew on every read: read it once.
+            var stackTrace = exception.StackTrace;
             string moduleUuid = string.IsNullOrEmpty(ModuleUuid) ? null : ModuleUuid;
 
-            // Attach IL2CPP native IPs when the exception was thrown.
+            // IL2CPP native IPs, only for an exception that was thrown.
             var native = Il2CppNativeStack.TryCapture(exception);
+            ulong[] ips = null;
             if (native != null && native.Frames != null && native.Frames.Length > 0)
             {
-                if (fromStackTrace)
+                ips = new ulong[native.Frames.Length];
+                for (var i = 0; i < ips.Length; i++)
                 {
-                    MergeNativeAddresses(frames, stackLines, native.Frames);
+                    // Module-relative offsets, never negative: zero-extend 32-bit values.
+                    ips[i] = IntPtr.Size == 8
+                        ? unchecked((ulong)native.Frames[i].ToInt64())
+                        : unchecked((uint)native.Frames[i].ToInt32());
                 }
                 if (!string.IsNullOrEmpty(native.ImageUuid))
                 {
@@ -247,6 +172,14 @@ namespace Bugsee.Internal
                     moduleUuid = native.ImageUuid;
                 }
             }
+
+            var set = ManagedFrameAssembly.FromStackTrace(stackTrace, ips);
+            if (set.Traces.Length == 0)
+            {
+                set = ManagedFrameAssembly.FromToString(exception.ToString());
+            }
+            var raw = set.Traces;
+            var frames = ToFrames(set);
 
             Payload cause = null;
             if (exception is AggregateException agg && agg.InnerExceptions != null && agg.InnerExceptions.Count > 1)
@@ -291,73 +224,6 @@ namespace Bugsee.Internal
             };
         }
 
-        /// <summary>
-        /// Attach IL2CPP native IPs to the managed frames they belong to, only where
-        /// <see cref="ManagedAddressPairing"/> can prove the pairing (same count, no segment separators);
-        /// otherwise the frames keep no address. Both lists are throw-site-first: do <b>not</b> reverse
-        /// (Sentry reverses because its managed frames are oldest-first).
-        /// </summary>
-        static void MergeNativeAddresses(Frame[] frames, string[] stackLines, IntPtr[] nativeFrames)
-        {
-            if (frames == null || nativeFrames == null || frames.Length == 0 || nativeFrames.Length == 0)
-            {
-                return;
-            }
-
-            var ips = new ulong[nativeFrames.Length];
-            for (var i = 0; i < ips.Length; i++)
-            {
-                // Module-relative offsets, never negative: zero-extend 32-bit values.
-                ips[i] = IntPtr.Size == 8 ? unchecked((ulong)nativeFrames[i].ToInt64()) : unchecked((uint)nativeFrames[i].ToInt32());
-            }
-
-            var addresses = ManagedAddressPairing.Pair(stackLines, ips);
-            if (addresses.Length != frames.Length)
-            {
-                return;
-            }
-            for (var i = 0; i < addresses.Length; i++)
-            {
-                if (addresses[i] != null && frames[i] != null && string.IsNullOrEmpty(frames[i].address))
-                {
-                    frames[i].address = addresses[i];
-                }
-            }
-        }
-
-        /// <summary>
-        /// Frames from <see cref="Exception.ToString"/> — skip the
-        /// <c>Type: message</c> header and inner-exception banners.
-        /// </summary>
-        static string[] GetRawFramesFromExceptionToString(string toString)
-        {
-            if (string.IsNullOrEmpty(toString))
-            {
-                return Array.Empty<string>();
-            }
-            var lines = toString.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-            var list = new List<string>(lines.Length);
-            var skippedHeader = false;
-            foreach (var line in lines)
-            {
-                var t = line.Trim();
-                if (t.Length == 0) continue;
-                if (t.StartsWith("---", StringComparison.Ordinal)) continue;
-                if (t.StartsWith("--->", StringComparison.Ordinal)) continue;
-                // First non-empty line is usually "Type: message".
-                if (!skippedHeader)
-                {
-                    skippedHeader = true;
-                    if (t.IndexOf(':') > 0 && !t.StartsWith("at ", StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
-                }
-                list.Add(t);
-            }
-            return list.ToArray();
-        }
-
         public static Payload FromUnityLog(string message, string stackTrace)
         {
             var name = message ?? "";
@@ -366,12 +232,13 @@ namespace Bugsee.Internal
             {
                 name = name.Substring(0, colon);
             }
-            var raw = GetRawFrames(stackTrace);
+            var set = ManagedFrameAssembly.FromLogText(stackTrace);
+            var raw = set.Traces;
             return new Payload
             {
                 name = name,
                 reason = message ?? "",
-                frames = ToFrames(raw),
+                frames = ToFrames(set),
                 signature = CalculateSignature(name, raw),
                 buildID = BuildGuid,
                 moduleUUID = string.IsNullOrEmpty(ModuleUuid) ? null : ModuleUuid,

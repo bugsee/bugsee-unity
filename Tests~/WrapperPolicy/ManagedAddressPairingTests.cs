@@ -1,4 +1,3 @@
-using System.IO;
 using NUnit.Framework;
 
 namespace Bugsee.WrapperPolicy.Tests
@@ -30,31 +29,68 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(a, Is.EqualTo(new string[3]));
         }
 
+        const string Sep = "--- End of stack trace from previous location where exception was thrown ---";
+
         [Test]
-        public void Native_more_than_managed_sends_nothing()
+        public void Only_the_live_segment_after_a_separator_is_paired_bottom_anchored()
         {
-            var a = ManagedAddressPairing.Pair(Lines("A ()"), new ulong[] { 0x1000, 0x2000 });
-            Assert.That(a, Is.EqualTo(new string[1]));
+            // text: old segment, separator, live segment; 2 native IPs belong to the live segment.
+            var lines = new[] { Line("A.Inner ()"), Sep, Line("B.Outer ()") };
+            var a = ManagedAddressPairing.Pair(lines, new ulong[] { 0x1000, 0x2000 });
+            Assert.That(a, Is.EqualTo(new[] { null, "0x2000" }));
         }
 
         [Test]
-        public void Rethrow_or_async_segment_separator_sends_nothing_even_when_counts_match()
+        public void Await_shape_hidden_frames_at_the_top_of_the_live_segment_do_not_shift_the_rest()
         {
+            // live trace: 3 hidden throw helpers (no text) + Caller + Root; the old segment has 2 lines.
+            var lines = new[] { Line("X.Fail ()"), Line("X.Run ()"), Sep, Line("C.Caller ()"), Line("C.Root ()") };
+            var ips = new ulong[] { 0x10, 0x20, 0x30, 0x40, 0x50 };
+            var a = ManagedAddressPairing.Pair(lines, ips);
+            Assert.That(a, Is.EqualTo(new[] { null, null, "0x40", "0x50" }));
+        }
+
+        [Test]
+        public void Hidden_throw_helper_without_any_segment_still_pairs_bottom_anchored()
+        {
+            var a = ManagedAddressPairing.Pair(Lines("A.Caller ()", "B.Root ()"), new ulong[] { 0x1, 0x2000, 0x3000 });
+            Assert.That(a, Is.EqualTo(new[] { "0x2000", "0x3000" }));
+        }
+
+        [Test]
+        public void Live_segment_longer_than_the_ips_sends_nothing()
+        {
+            var lines = new[] { Line("A ()"), Sep, Line("B ()"), Line("C ()"), Line("D ()") };
+            Assert.That(ManagedAddressPairing.Pair(lines, new ulong[] { 0x1000, 0x2000 }), Is.EqualTo(new string[4]));
+        }
+
+        [Test]
+        public void Segments_joined_without_a_separator_are_cut_after_the_state_machine_line()
+        {
+            // old segment ended in <Run>d__1.MoveNext so StackTrace printed no separator; old_visible (2) equals
+            // the live segment's hidden frames (2), the accidental case: counts match, yet the old lines must not
+            // get the live IPs.
             var lines = new[]
             {
-                Line("A.Inner ()"),
-                "--- End of stack trace from previous location where exception was thrown ---",
-                Line("B.Outer ()"),
+                Line("Old.Throw ()"), Line("Ns.Old.<Run>d__1.MoveNext ()"),
+                Line("New.Caller ()"), Line("New.Root ()"),
             };
-            var a = ManagedAddressPairing.Pair(lines, new ulong[] { 0x1000, 0x2000 });
-            Assert.That(a, Is.EqualTo(new string[2]));
+            var a = ManagedAddressPairing.Pair(lines, new ulong[] { 0x1, 0x2, 0x3000, 0x4000 });
+            Assert.That(a, Is.EqualTo(new[] { null, null, "0x3000", "0x4000" }));
+        }
+
+        [Test]
+        public void A_state_machine_line_at_the_bottom_does_not_cut_the_segment()
+        {
+            var lines = new[] { Line("A.Throw ()"), Line("Ns.C.<Go>d__2.MoveNext ()") };
+            Assert.That(ManagedAddressPairing.Pair(lines, new ulong[] { 0x1000, 0x2000 }), Is.EqualTo(new[] { "0x1000", "0x2000" }));
         }
 
         [Test]
         public void Inner_exception_banner_counts_as_a_separator()
         {
             var lines = new[] { Line("A ()"), "--->", Line("B ()") };
-            Assert.That(ManagedAddressPairing.Pair(lines, new ulong[] { 0x1000, 0x2000 }), Is.EqualTo(new string[2]));
+            Assert.That(ManagedAddressPairing.Pair(lines, new ulong[] { 0x1000, 0x2000 }), Is.EqualTo(new[] { null, "0x2000" }));
         }
 
         [Test]
@@ -90,10 +126,12 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Source_location_detection_ignores_assembly_hash_and_line_zero()
+        public void Source_location_means_a_line_above_zero()
         {
             Assert.That(ManagedAddressPairing.HasSourceLocation(Line("A ()")), Is.False);
             Assert.That(ManagedAddressPairing.HasSourceLocation("at A () [0x00000] in /p/A.cs:0"), Is.False);
+            // usym entry without a file name: a line but only the assembly hash
+            Assert.That(ManagedAddressPairing.HasSourceLocation("at A () [0x00000] in " + Hash + ":42"), Is.True);
             Assert.That(ManagedAddressPairing.HasSourceLocation("at A () [0x00000] in /p/A.cs:12"), Is.True);
             Assert.That(ManagedAddressPairing.HasSourceLocation("at A ()"), Is.False);
         }
@@ -107,22 +145,40 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Payload_pairs_only_through_the_policy_and_the_contract_is_documented()
+        public void Thrown_exception_frames_take_addresses_only_from_the_pairing_never_from_text()
         {
-            var root = FindRoot();
-            var payload = File.ReadAllText(Path.Combine(root, "Runtime", "Internal", "ManagedExceptionPayload.cs"));
-            Assert.That(payload, Does.Contain("ManagedAddressPairing.Pair(stackLines, ips)"));
-            Assert.That(payload, Does.Not.Contain("Math.Min(frames.Length, nativeFrames.Length)"));
-            Assert.That(payload, Does.Not.Contain("EnrichAddressesFromDiagnostics"));
-            Assert.That(payload, Does.Contain("if (fromStackTrace)"));
-            Assert.That(payload, Does.Contain("StripMonoMethodStarts"));
+            var text = Line("A.Throw () 0x0000000104a125e0") + "\n" + Line("B.Caller () <0x104a125e0 + 0x34>") + "\n";
+            var set = ManagedFrameAssembly.FromStackTrace(text, null);
+            Assert.That(set.Traces.Length, Is.EqualTo(2));
+            Assert.That(set.Addresses, Is.EqualTo(new string[2]));
+
+            var paired = ManagedFrameAssembly.FromStackTrace(text, new ulong[] { 0x10, 0x20 });
+            Assert.That(paired.Addresses, Is.EqualTo(new[] { "0x10", "0x20" }));
         }
 
-        static string FindRoot()
+        [Test]
+        public void Stack_text_assembly_drops_separators_and_pairs_the_live_segment()
         {
-            var dir = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
-            while (dir != null && !File.Exists(Path.Combine(dir.FullName, "package.json"))) dir = dir.Parent;
-            return dir.FullName;
+            var text = Line("A ()") + "\r\n" + Sep + "\r\n\r\n" + Line("B ()") + "\n";
+            var set = ManagedFrameAssembly.FromStackTrace(text, new ulong[] { 0x1111, 0x2222 });
+            Assert.That(set.Traces, Is.EqualTo(new[] { Line("A ()"), Line("B ()") }));
+            Assert.That(set.Addresses, Is.EqualTo(new[] { null, "0x2222" }));
+        }
+
+        [Test]
+        public void ToString_fallback_skips_the_header_and_never_gets_addresses()
+        {
+            var set = ManagedFrameAssembly.FromToString("System.Exception: boom\n" + Line("A ()") + "\n --- inner ---\n" + Line("B ()"));
+            Assert.That(set.Traces, Is.EqualTo(new[] { Line("A ()"), Line("B ()") }));
+            Assert.That(set.Addresses, Is.EqualTo(new string[2]));
+        }
+
+        [Test]
+        public void Unity_log_text_keeps_native_pcs_but_not_il_offsets_or_mono_method_starts()
+        {
+            var set = ManagedFrameAssembly.FromLogText(
+                "at A.B () [0x00023] in <hash>:0\n#00 pc 000000000012abcd /lib/libil2cpp.so\nat C.D () <0x104a125e0 + 0x34> in <h>:0\n");
+            Assert.That(set.Addresses, Is.EqualTo(new[] { null, "0x000000000012abcd", null }));
         }
     }
 }
