@@ -268,15 +268,17 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(editor, Does.Contain("(sourceFull + Path.DirectorySeparatorChar).StartsWith(destFull + Path.DirectorySeparatorChar"));
             int refusal = editor.IndexOf("is not a copy of the Bugsee package", System.StringComparison.Ordinal);
             Assert.That(refusal, Is.LessThan(editor.IndexOf("Directory.Delete(destPackageDir, true)", System.StringComparison.Ordinal)));
-            // The folder's contents never prove it is ours: the marker goes in before any copy, so a failed copy stays ours.
+            // The folder's contents never prove it is ours: the marker goes into the staged copy before it is copied into.
             Assert.That(editor, Does.Not.Contain("Directory.Exists(Path.Combine(destPackageDir, \"Bugsee.xcframework\"))"));
-            int marker = editor.IndexOf("File.WriteAllText(Path.Combine(destPackageDir, LocalPackageMarker)", System.StringComparison.Ordinal);
+            int marker = editor.IndexOf("File.WriteAllText(Path.Combine(staging, LocalPackageMarker)", System.StringComparison.Ordinal);
             Assert.That(marker, Is.GreaterThan(0));
-            Assert.That(marker, Is.LessThan(editor.IndexOf("CopyPackagePreservingLinks(localPackageSource, destPackageDir);", System.StringComparison.Ordinal)));
-            Assert.That(marker, Is.LessThan(editor.IndexOf("CopyDirectory(localPackageSource, destPackageDir);", System.StringComparison.Ordinal)));
-            // Same directory under another spelling is found by probing, and a copy that leaves no package fails loudly.
-            Assert.That(editor, Does.Contain(".bugsee-same-dir-probe-"));
-            Assert.That(editor, Does.Contain("left no usable package"));
+            Assert.That(marker, Is.LessThan(editor.IndexOf("CopyPackagePreservingLinks(localPackageSource, staging);", System.StringComparison.Ordinal)));
+            Assert.That(marker, Is.LessThan(editor.IndexOf("CopyDirectory(localPackageSource, staging);", System.StringComparison.Ordinal)));
+            // The old copy is deleted only after the new one is staged and checked, so a source that is an alias of it survives the read.
+            int staged = editor.IndexOf("left no usable package", System.StringComparison.Ordinal);
+            Assert.That(staged, Is.GreaterThan(0));
+            Assert.That(staged, Is.LessThan(editor.IndexOf("Directory.Delete(destPackageDir, true)", System.StringComparison.Ordinal)));
+            Assert.That(editor, Does.Contain("Directory.Move(staging, destPackageDir)"));
             string sample = Read("Samples~", "BugseeMiniGame", "Assets", "Scripts", "BugseeHarness", "BugseeSampleBootstrap.cs");
             Assert.That(sample, Does.Contain("_skipE2EArming = false;"));
         }

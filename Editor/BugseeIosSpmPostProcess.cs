@@ -167,38 +167,42 @@ namespace Bugsee.Editor
                     $"move it away, or export into a project without a '{LocalPackageFolderName}' folder at its root.");
             }
 
-            if (Directory.Exists(destPackageDir))
+            // Copy into a staging folder and swap it in: the source is read before anything is deleted, so an alias of the export's
+            // own folder (a symlink, another case) cannot lose the package, and a copy that fails half way never lands as the
+            // package. The marker goes into the staged copy, so every copy that lands is recognised as the export's own.
+            string staging = destPackageDir + ".staging-" + System.Guid.NewGuid().ToString("N");
+            try
             {
-                // The same directory under another spelling (symlinks such as /tmp, a case-insensitive volume): a file written
-                // into the copy shows up in the source.
-                string probe = ".bugsee-same-dir-probe-" + System.Guid.NewGuid().ToString("N");
-                File.WriteAllText(Path.Combine(destPackageDir, probe), "");
-                bool sameDirectory = File.Exists(Path.Combine(localPackageSource, probe));
-                File.Delete(Path.Combine(destPackageDir, probe));
-                if (sameDirectory)
+                Directory.CreateDirectory(staging);
+                File.WriteAllText(Path.Combine(staging, LocalPackageMarker), "Copied by the Bugsee iOS export; removed when the export links the published package again.\n");
+                if (overridePackage != null)
                 {
-                    throw new BuildFailedException($"[Bugsee] The local iOS SDK package {localPackageSource} is the export's own '{LocalPackageFolderName}' folder (another spelling of its path); point {LocalPackageEnvVar} at the assembled package instead.");
+                    CopyPackagePreservingLinks(localPackageSource, staging);
+                }
+                else
+                {
+                    CopyDirectory(localPackageSource, staging);
                 }
 
-                Directory.Delete(destPackageDir, true);
-            }
+                string copied = LocalPackageProblem(staging);
+                if (copied != null)
+                {
+                    throw new BuildFailedException($"[Bugsee] Copying the local iOS SDK package {localPackageSource} left no usable package: {copied}");
+                }
 
-            // The marker goes in first, so a copy that fails half way is still recognised as the export's own next time.
-            Directory.CreateDirectory(destPackageDir);
-            File.WriteAllText(Path.Combine(destPackageDir, LocalPackageMarker), "Copied by the Bugsee iOS export; removed when the export links the published package again.\n");
-            if (overridePackage != null)
-            {
-                CopyPackagePreservingLinks(localPackageSource, destPackageDir);
-            }
-            else
-            {
-                CopyDirectory(localPackageSource, destPackageDir);
-            }
+                if (Directory.Exists(destPackageDir))
+                {
+                    Directory.Delete(destPackageDir, true);
+                }
 
-            string copied = LocalPackageProblem(destPackageDir);
-            if (copied != null)
+                Directory.Move(staging, destPackageDir);
+            }
+            finally
             {
-                throw new BuildFailedException($"[Bugsee] Copying the local iOS SDK package {localPackageSource} to {destPackageDir} left no usable package: {copied}");
+                if (Directory.Exists(staging))
+                {
+                    Directory.Delete(staging, true);
+                }
             }
 
             string converted = XcodeLocalPackage.FromRemote(File.ReadAllText(projectPath), RemoteSpmUrl, LocalPackageFolderName);
