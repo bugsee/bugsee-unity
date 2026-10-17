@@ -97,9 +97,13 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(csBody, Does.Contain("_exceptionsFiledWarned = true;"));
             Assert.That(csBody, Does.Contain("_bugsee_exceptions_filed() != 0"));
             Assert.That(csBody, Does.Contain("Debug.LogWarning(\"[Bugsee]"));
-            int launchNow = cs.IndexOf("void LaunchNow(");
-            Assert.That(cs.IndexOf("WarnOnceIfExceptionsNotFiled();", launchNow),
-                Is.LessThan(cs.IndexOf("_bugsee_launch(", launchNow)).And.GreaterThan(launchNow));
+            foreach (var pair in new[] { ("void LaunchNow(", "_bugsee_launch("), ("void RelaunchNow(", "_bugsee_relaunch(") })
+            {
+                int method = cs.IndexOf(pair.Item1);
+                Assert.That(method, Is.GreaterThan(0), pair.Item1);
+                Assert.That(cs.IndexOf("WarnOnceIfExceptionsNotFiled();", method),
+                    Is.LessThan(cs.IndexOf(pair.Item2, method)).And.GreaterThan(method), pair.Item1);
+            }
         }
     }
 }

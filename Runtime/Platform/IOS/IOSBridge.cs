@@ -144,6 +144,7 @@ namespace Bugsee.Platform.IOS
 
         void RelaunchNow(IDictionary<string, object> options, Action<bool> started)
         {
+            WarnOnceIfExceptionsNotFiled();
             DeleteCollectedDataLaunchGeneration.BumpForLaunch();
             _networkLaunchBuffer.BeginNewLaunchCycle();
             _breadcrumbLaunchBuffer.BeginNewLaunchCycle();
