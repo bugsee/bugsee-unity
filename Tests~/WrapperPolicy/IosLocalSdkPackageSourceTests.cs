@@ -279,6 +279,11 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(staged, Is.GreaterThan(0));
             Assert.That(staged, Is.LessThan(editor.IndexOf("Directory.Delete(destPackageDir, true)", System.StringComparison.Ordinal)));
             Assert.That(editor, Does.Contain("Directory.Move(staging, destPackageDir)"));
+            // Every refusal comes before the Xcode project is read, so a refused export leaves it as it was.
+            int readProject = editor.IndexOf("File.ReadAllText(projectPath)", System.StringComparison.Ordinal);
+            Assert.That(editor.IndexOf("is not a copy of the Bugsee package", System.StringComparison.Ordinal), Is.LessThan(readProject));
+            Assert.That(editor.IndexOf("Local iOS SDK package {localPackageSource}: {problem}", System.StringComparison.Ordinal), Is.LessThan(readProject));
+            Assert.That(editor.IndexOf("is in the export's own", System.StringComparison.Ordinal), Is.LessThan(readProject));
             string sample = Read("Samples~", "BugseeMiniGame", "Assets", "Scripts", "BugseeHarness", "BugseeSampleBootstrap.cs");
             Assert.That(sample, Does.Contain("_skipE2EArming = false;"));
         }

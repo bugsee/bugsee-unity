@@ -80,6 +80,55 @@ namespace Bugsee.Editor
                 return;
             }
 
+            string packageFolder = Path.Combine(pathToBuiltProject, LocalPackageFolderName);
+            string destPackageDir = packageFolder;
+
+            // Everything that can refuse the export is checked before the Xcode project is touched, so a refused export
+            // leaves the project as it was. An explicit local package (env var) beats everything; UseRemoteSpm = false
+            // falls back to the in-package stub.
+            string overridePackage = LocalPackageOverride(development);
+            string localPackageSource = overridePackage;
+            if (localPackageSource == null && !UseRemoteSpm)
+            {
+                localPackageSource = ResolveLocalPackagePath();
+                if (string.IsNullOrEmpty(localPackageSource))
+                {
+                    throw new BuildFailedException(
+                        "[Bugsee] Local SPM package not found. Expected Package.swift under " +
+                        $"{LocalPackageRelativePath}. Run Tools~/scripts/update-native-sdks.sh first.");
+                }
+            }
+
+            if (localPackageSource != null)
+            {
+                // A package that cannot be used fails the build instead of exporting a project with no SDK (the offline stub
+                // Native~/ios/Bugsee has no xcframework until Tools~/scripts/update-native-sdks.sh has run).
+                string problem = LocalPackageProblem(localPackageSource);
+                if (problem != null)
+                {
+                    string how = overridePackage != null ? $" ({LocalPackageEnvVar})" : " Run Tools~/scripts/update-native-sdks.sh first.";
+                    throw new BuildFailedException($"[Bugsee] Local iOS SDK package {localPackageSource}: {problem}{how}");
+                }
+
+                // The export must not delete its own source, nor a folder of the user's own named Bugsee: only a copy that carries
+                // the export's marker (every copy it makes does) is replaced, whatever the folder holds.
+                string sourceFull = Path.GetFullPath(localPackageSource).TrimEnd(Path.DirectorySeparatorChar);
+                string destFull = Path.GetFullPath(destPackageDir).TrimEnd(Path.DirectorySeparatorChar);
+                // The source may not be the copy, nor inside it: replacing the copy would delete the source first.
+                if (sourceFull.Equals(destFull, System.StringComparison.OrdinalIgnoreCase) ||
+                    (sourceFull + Path.DirectorySeparatorChar).StartsWith(destFull + Path.DirectorySeparatorChar, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new BuildFailedException($"[Bugsee] The local iOS SDK package {localPackageSource} is in the export's own '{LocalPackageFolderName}' folder; point {LocalPackageEnvVar} at the assembled package instead.");
+                }
+
+                if (Directory.Exists(destPackageDir) && !File.Exists(Path.Combine(destPackageDir, LocalPackageMarker)))
+                {
+                    throw new BuildFailedException(
+                        $"[Bugsee] {destPackageDir} exists and is not a copy of the Bugsee package made by an earlier export; " +
+                        $"move it away, or export into a project without a '{LocalPackageFolderName}' folder at its root.");
+                }
+            }
+
             string projectPath = PBXProject.GetPBXProjectPath(pathToBuiltProject);
             // An export into an existing project (Append) keeps the links an earlier export added; drop them so the
             // package is linked once, whichever way (published tag or local package) the earlier export linked it.
@@ -100,21 +149,6 @@ namespace Bugsee.Editor
             EnsureDsymGeneration(project, mainTargetGuid);
             EnsureDsymGeneration(project, frameworkTargetGuid);
 
-            // An explicit local package (env var) beats everything; UseRemoteSpm = false falls back to the in-package stub.
-            string overridePackage = LocalPackageOverride(development);
-            string localPackageSource = overridePackage;
-            if (localPackageSource == null && !UseRemoteSpm)
-            {
-                localPackageSource = ResolveLocalPackagePath();
-                if (string.IsNullOrEmpty(localPackageSource) || !File.Exists(Path.Combine(localPackageSource, "Package.swift")))
-                {
-                    Debug.LogError(
-                        "[Bugsee] Local SPM package not found. Expected Package.swift under " +
-                        $"{LocalPackageRelativePath}. Run Tools~/scripts/update-native-sdks.sh first.");
-                    return;
-                }
-            }
-
             // Unity's PBXProject API only knows remote packages. It writes everything a link needs (the project's
             // package list, both targets' product dependencies and Frameworks entries), so the local case lets it
             // add the remote reference and then turns that one reference into a path reference.
@@ -126,7 +160,6 @@ namespace Bugsee.Editor
             string linked = XcodeLocalPackage.RepointProducts(File.ReadAllText(projectPath), packageGuid, removedPackageIds);
             File.WriteAllText(projectPath, linked);
 
-            string packageFolder = Path.Combine(pathToBuiltProject, LocalPackageFolderName);
             if (localPackageSource == null)
             {
                 // An earlier export that linked a local package left a copy next to the project; drop it (only ours).
@@ -137,34 +170,6 @@ namespace Bugsee.Editor
 
                 Debug.Log($"[Bugsee] Linked remote SPM {RemoteSpmUrl}@{RemoteSpmVersion} (iOS {MinIosVersion}+)");
                 return;
-            }
-
-            // A package that cannot be used fails the build instead of exporting a project with no SDK (the offline stub
-            // Native~/ios/Bugsee has no xcframework until Tools~/scripts/update-native-sdks.sh has run).
-            string problem = LocalPackageProblem(localPackageSource);
-            if (problem != null)
-            {
-                string how = overridePackage != null ? $" ({LocalPackageEnvVar})" : " Run Tools~/scripts/update-native-sdks.sh first.";
-                throw new BuildFailedException($"[Bugsee] Local iOS SDK package {localPackageSource}: {problem}{how}");
-            }
-
-            string destPackageDir = packageFolder;
-            // The export must not delete its own source, nor a folder of the user's own named Bugsee: only a copy that carries
-            // the export's marker (every copy it makes does) is replaced, whatever the folder holds.
-            string sourceFull = Path.GetFullPath(localPackageSource).TrimEnd(Path.DirectorySeparatorChar);
-            string destFull = Path.GetFullPath(destPackageDir).TrimEnd(Path.DirectorySeparatorChar);
-            // The source may not be the copy, nor inside it: replacing the copy would delete the source first.
-            if (sourceFull.Equals(destFull, System.StringComparison.OrdinalIgnoreCase) ||
-                (sourceFull + Path.DirectorySeparatorChar).StartsWith(destFull + Path.DirectorySeparatorChar, System.StringComparison.OrdinalIgnoreCase))
-            {
-                throw new BuildFailedException($"[Bugsee] The local iOS SDK package {localPackageSource} is in the export's own '{LocalPackageFolderName}' folder; point {LocalPackageEnvVar} at the assembled package instead.");
-            }
-
-            if (Directory.Exists(destPackageDir) && !File.Exists(Path.Combine(destPackageDir, LocalPackageMarker)))
-            {
-                throw new BuildFailedException(
-                    $"[Bugsee] {destPackageDir} exists and is not a copy of the Bugsee package made by an earlier export; " +
-                    $"move it away, or export into a project without a '{LocalPackageFolderName}' folder at its root.");
             }
 
             // Copy into a staging folder and swap it in: the source is read before anything is deleted, so an alias of the export's
