@@ -281,7 +281,7 @@ Wired: Launch/Stop, blackout, log/trace/event, exceptions (JSON-in-reason), Test
 
 ### iOS managed exceptions by SDK version
 
-The bridge builds against both native APIs. From iOS SDK 7.0.0-beta7 a logged exception takes only `domain` (the wrapper passes `UnityManagedException`, as on Android) and `skipFrames`, so `Bugsee.LogException(exception, options)` honours these `options` keys on iOS: `skipFrames` as is, and `labels`, which the bridge queues and adds to the error report the SDK files for that call (the report's before-created hook). `includeVideo` and `mergingRules` have no counterpart in the SDK any more: a logged exception always carries the live capture. On the iOS simulator and Mac Catalyst the SDK files no logged exception; the bridge logs that once. Exceptions are only validated end to end on a device. With the SDK pinned at beta6 the bridge still passes labels, `includeVideo`, `mergingRules` and `skipFrames` as native options.
+The bridge builds against both native APIs. From iOS SDK 7.0.0-beta7 a logged exception takes only `domain` (the wrapper passes `UnityManagedException`, as on Android) and `skipFrames`, so `Bugsee.LogException(exception, options)` honours only the `skipFrames` key on iOS. `labels`, `includeVideo` and `mergingRules` are dropped: a logged exception takes no labels and always carries the live capture. (Labels are not attached through a report handler either: nothing on the report identifies it as the exception's, and a wrong label is worse than none.) On the iOS simulator and Mac Catalyst the SDK files no logged exception; the bridge logs that once. Exceptions are only validated end to end on a device. With the SDK pinned at beta6 the bridge still passes labels, `includeVideo`, `mergingRules` and `skipFrames` as native options.
 
 `DeleteCollectedDataOnDevice` uses the SDK's delete-everything form from beta7 on (it also deletes report bundles not uploaded yet and unsent crashes); the beta6 flag form is kept for the pinned version.
 
@@ -295,7 +295,7 @@ export BUGSEE_IOS_SDK_LOCAL_PACKAGE=<package dir>   # read by the iOS export pos
 sh Tests~/iOS/run-tests.sh <package dir>            # bridge tests against the same build
 ```
 
-The script builds the xcframework as the beta release does (`scripts/build_new.sh`), then lays out the package `bugsee/spm` carries with a path `binaryTarget`. Nothing is published. With the variable set, the post-process copies that package next to the Xcode project instead of adding the pinned `bugsee/spm` tag and logs a warning; a directory without `Package.swift` and `Bugsee.xcframework` fails the build. Unset, the pinned tag is used.
+The script builds the xcframework as the beta release does (`scripts/build_new.sh`), then lays out the package `bugsee/spm` carries with a path `binaryTarget`. Nothing is published. With the variable set, the post-process copies that package next to the Xcode project instead of adding the pinned `bugsee/spm` tag and logs a warning; a directory without `Package.swift` and `Bugsee.xcframework` fails the build, and a release (non-development) export ignores the variable unless `BUGSEE_IOS_SDK_LOCAL_PACKAGE_ALLOW_RELEASE=1`. Unset, the pinned tag is used. CI only builds the default pinned path.
 
 ### Attributes
 

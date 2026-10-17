@@ -40,8 +40,6 @@ void _bugsee_stop(int token, BugseeStopCompletionFn completion);
 typedef void (*BugseeDeleteCompletionFn)(int token, int wiped);
 void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completion);
 const char *_bugsee_test_exception_options(const char *optionsJson);
-const char *_bugsee_test_take_exception_labels(double secondsLater);
-void BugseeUnityQueueExceptionLabels(NSArray<NSString *> *labels);
 }
 
 // Same switch as BugseeUnityBridge.mm: bugsee-cocoa up to 7.0.0-beta6 still has the exception logging options.
@@ -254,44 +252,13 @@ int main(void)
     free((void *)value);
 #else
     value = _bugsee_test_exception_options(
-        "{\"labels\":[\"a\",3,\"b\"],\"includeVideo\":false,\"mergingRules\":{\"k\":1},\"skipFrames\":2,\"domain\":\"x\"}");
-    expect(value != NULL && strcmp(value, "labels=a,b;skipFrames=2") == 0,
-           "exception options carry labels and skipFrames, and nothing the SDK no longer has");
+        "{\"labels\":[\"a\"],\"includeVideo\":false,\"mergingRules\":{\"k\":1},\"skipFrames\":2,\"domain\":\"x\"}");
+    expect(value != NULL && strcmp(value, "skipFrames=2") == 0,
+           "exception options carry skipFrames and nothing the SDK no longer has");
     free((void *)value);
-    value = _bugsee_test_exception_options("{\"labels\":\"nope\",\"skipFrames\":\"two\"}");
-    expect(value != NULL && strcmp(value, "labels=(null);skipFrames=0") == 0, "wrong-typed exception options are dropped");
+    value = _bugsee_test_exception_options("{\"skipFrames\":\"two\"}");
+    expect(value != NULL && strcmp(value, "skipFrames=0") == 0, "a wrong-typed skipFrames is dropped");
     free((void *)value);
-    // The labels of a logged exception wait for its error report, oldest first, and expire if no report comes.
-    expect(_bugsee_test_take_exception_labels(0) == NULL, "no labels are queued to start with");
-    // A call without labels still holds its place, or the next call's labels would land on its report.
-    BugseeUnityQueueExceptionLabels(nil);
-    BugseeUnityQueueExceptionLabels(@[@"later"]);
-    value = _bugsee_test_take_exception_labels(0);
-    expect(value != NULL && strcmp(value, "") == 0, "a call without labels takes its report's turn");
-    free((void *)value);
-    value = _bugsee_test_take_exception_labels(0);
-    expect(value != NULL && strcmp(value, "later") == 0, "the labels of the next call wait for the next report");
-    free((void *)value);
-    BugseeUnityQueueExceptionLabels(@[@"first", @"x"]);
-    BugseeUnityQueueExceptionLabels(@[@"second"]);
-    value = _bugsee_test_take_exception_labels(0);
-    expect(value != NULL && strcmp(value, "first,x") == 0, "the first error report takes the oldest labels");
-    free((void *)value);
-    value = _bugsee_test_take_exception_labels(0);
-    expect(value != NULL && strcmp(value, "second") == 0, "the next error report takes the next labels");
-    free((void *)value);
-    expect(_bugsee_test_take_exception_labels(0) == NULL, "labels are taken once");
-    BugseeUnityQueueExceptionLabels(@[@"stale"]);
-    expect(_bugsee_test_take_exception_labels(3600) == NULL, "labels of a call that never became a report expire");
-    for (int i = 0; i < 40; i++) {
-        BugseeUnityQueueExceptionLabels(@[[NSString stringWithFormat:@"l%d", i]]);
-    }
-    value = _bugsee_test_take_exception_labels(0);
-    expect(value != NULL && strcmp(value, "l8") == 0, "the queue keeps the newest 32 entries");
-    free((void *)value);
-    while ((value = _bugsee_test_take_exception_labels(0)) != NULL) {
-        free((void *)value);
-    }
 #endif
     // The wire's digits must not follow the user's locale: C# parses them as invariant.
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];

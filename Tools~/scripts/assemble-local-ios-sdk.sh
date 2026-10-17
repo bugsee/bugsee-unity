@@ -32,6 +32,12 @@ mkdir -p "$2"
 OUT="$(cd "$2" && pwd -P)"
 VERSION="${3:-$(head -n 1 "${COCOA}/version.txt" | tr -d '[:space:]')}"
 
+# The output is wiped on every run, so only an empty directory or an earlier output of this script may be used.
+if [[ -n "$(ls -A "${OUT}")" && ! -f "${OUT}/BUILD-INFO.txt" ]]; then
+  echo "Refusing to use ${OUT}: it is not empty and holds no BUILD-INFO.txt from an earlier run." >&2
+  exit 1
+fi
+
 if ! printf '%s' "${VERSION}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-beta[0-9]+$'; then
   echo "Expected an N.N.N-betaN version, got '${VERSION}'" >&2
   exit 1

@@ -39,6 +39,9 @@ namespace Bugsee.Editor
         /// </summary>
         public const string LocalPackageEnvVar = "BUGSEE_IOS_SDK_LOCAL_PACKAGE";
 
+        /// <summary>Set to 1 to let <see cref="LocalPackageEnvVar"/> apply to a non-development (release) build too.</summary>
+        public const string LocalPackageAllowReleaseEnvVar = "BUGSEE_IOS_SDK_LOCAL_PACKAGE_ALLOW_RELEASE";
+
         /// <summary>Bugsee 7.x / github.com/bugsee/spm requires iOS 15.</summary>
         public const string MinIosVersion = "15.0";
 
@@ -73,6 +76,15 @@ namespace Bugsee.Editor
             }
 
             string projectPath = PBXProject.GetPBXProjectPath(pathToBuiltProject);
+            // An export into an existing project (Append) keeps the links an earlier export added; drop them so the
+            // package is linked once, whichever way (published tag or local package) the earlier export linked it.
+            string existing = File.ReadAllText(projectPath);
+            string cleaned = XcodeLocalPackage.RemoveBugseePackage(existing, RemoteSpmUrl, LocalPackageFolderName);
+            if (cleaned != existing)
+            {
+                File.WriteAllText(projectPath, cleaned);
+            }
+
             var project = new PBXProject();
             project.ReadFromFile(projectPath);
 
@@ -269,6 +281,15 @@ namespace Bugsee.Editor
                 return null;
             }
 
+            if (!EditorUserBuildSettings.development &&
+                System.Environment.GetEnvironmentVariable(LocalPackageAllowReleaseEnvVar) != "1")
+            {
+                Debug.LogWarning(
+                    $"[Bugsee] {LocalPackageEnvVar} is set but this is not a development build, so the published " +
+                    $"iOS SDK is used. Set {LocalPackageAllowReleaseEnvVar}=1 to link the local package anyway.");
+                return null;
+            }
+
             value = value.Trim();
             if (value == "~" || value.StartsWith("~/"))
             {
@@ -297,24 +318,37 @@ namespace Bugsee.Editor
         }
 
         /// <summary>
+        /// Copies what the package needs to resolve (not the zip, Tools/ or build notes the assembled package also holds).
         /// ditto keeps the symlinks inside the xcframework's frameworks, which a file-by-file copy would turn into duplicate trees.
         /// </summary>
         static void CopyPackagePreservingLinks(string sourceDir, string destDir)
         {
-            var info = new ProcessStartInfo("/usr/bin/ditto")
+            Directory.CreateDirectory(destDir);
+            foreach (string item in new[] { "Package.swift", "Bugsee.xcframework", Path.Combine("Sources", "BugseeSwiftUI") })
             {
-                UseShellExecute = false,
-                RedirectStandardError = true,
-            };
-            info.ArgumentList.Add(sourceDir);
-            info.ArgumentList.Add(destDir);
-            using (var process = Process.Start(info))
-            {
-                string error = process.StandardError.ReadToEnd();
-                process.WaitForExit();
-                if (process.ExitCode != 0)
+                string source = Path.Combine(sourceDir, item);
+                if (!File.Exists(source) && !Directory.Exists(source))
                 {
-                    throw new BuildFailedException($"[Bugsee] Copying {sourceDir} failed: {error}");
+                    continue;
+                }
+
+                string dest = Path.Combine(destDir, item);
+                Directory.CreateDirectory(Path.GetDirectoryName(dest));
+                var info = new ProcessStartInfo("/usr/bin/ditto")
+                {
+                    UseShellExecute = false,
+                    RedirectStandardError = true,
+                };
+                info.ArgumentList.Add(source);
+                info.ArgumentList.Add(dest);
+                using (var process = Process.Start(info))
+                {
+                    string error = process.StandardError.ReadToEnd();
+                    process.WaitForExit();
+                    if (process.ExitCode != 0)
+                    {
+                        throw new BuildFailedException($"[Bugsee] Copying {source} failed: {error}");
+                    }
                 }
             }
         }

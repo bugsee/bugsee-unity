@@ -16,8 +16,8 @@
 #endif
 
 // bugsee-cocoa up to 7.0.0-beta6 has BugseeExceptionLoggingOptions and +logException:reason:options:completion:.
-// 7.0.0-beta7 removed both: domain and skipFrames are arguments, the labels go on the report (see
-// BugseeUnityQueueExceptionLabels), and the video, merging rules and the flag form of the delete changed with them.
+// 7.0.0-beta7 removed both: domain and skipFrames are arguments; labels, the video and the merging rules have no
+// replacement on a logged exception, and the flag form of the delete changed with them.
 // Remove this switch and its #if branches when the pin moves past beta6.
 #if __has_include(<Bugsee/BugseeExceptionLoggingOptions.h>) || __has_include("Bugsee/BugseeExceptionLoggingOptions.h")
 #define BUGSEE_IOS_LEGACY_EXCEPTION_API 1
@@ -313,6 +313,8 @@ void _bugsee_event(const char *name, const char *paramsJson)
     [Bugsee event:BugseeNSString(name)];
 }
 
+#if BUGSEE_IOS_LEGACY_EXCEPTION_API
+
 static NSArray<NSString *> *BugseeStringsIn(id value)
 {
     if (![value isKindOfClass:[NSArray class]]) {
@@ -326,8 +328,6 @@ static NSArray<NSString *> *BugseeStringsIn(id value)
     }
     return clean;
 }
-
-#if BUGSEE_IOS_LEGACY_EXCEPTION_API
 
 // Honoured keys: labels (strings), includeVideo (bool, default true), mergingRules (map, the SDK's own keys) and
 // skipFrames (number, as on Android). The domain is owned by the wrapper (the exception name), so a caller-supplied one is ignored, as on Android.
@@ -365,11 +365,9 @@ static BugseeExceptionLoggingOptions *BugseeExceptionOptionsFrom(const char *opt
 
 #else
 
-// Queues a handled exception's labels for the error report the SDK files for it (BugseeUnityCallbacks.mm).
-void BugseeUnityQueueExceptionLabels(NSArray<NSString *> *labels);
-
-// Honoured keys: labels (strings) and skipFrames (number, as on Android). includeVideo and mergingRules have no
-// counterpart in the SDK any more: a logged exception always carries the live capture and has no merging rules
+// Honoured key: skipFrames (number, as on Android). labels, includeVideo and mergingRules have no counterpart in the
+// SDK any more: a logged exception takes no labels (a report handler cannot tell which report is the exception's,
+// so none are attached rather than risk a wrong report), always carries the live capture and has no merging rules
 // besides skipFrames. The domain is owned by the wrapper (the exception name), so a caller-supplied one is ignored, as on Android.
 static NSDictionary *BugseeExceptionOptionsDict(const char *optionsJson)
 {
@@ -395,17 +393,11 @@ void _bugsee_logException(const char *name, const char *reason, bool handled, co
 #else
         NSDictionary *options = BugseeExceptionOptionsDict(optionsJson);
 #if TARGET_OS_SIMULATOR || TARGET_OS_MACCATALYST
-        // The SDK files nothing here and only logs it on every call; say it once, where a Unity developer looks.
+        // The SDK files nothing here and logs that on every call; this line says it once, in the wrapper's words.
         static dispatch_once_t simulatorOnce;
         dispatch_once(&simulatorOnce, ^{
             NSLog(@"[Bugsee] Logged managed exceptions are not filed on the iOS simulator or Mac Catalyst; run on a device to see them.");
         });
-#else
-        // Only a call the SDK accepts files a report; a labels entry queued for a refused one would mislabel a later report.
-        BugseeStatus status = [Bugsee sharedInstance].status;
-        if (status == BugseeStatusLaunching || status == BugseeStatusLaunched) {
-            BugseeUnityQueueExceptionLabels(BugseeStringsIn(options[@"labels"]));
-        }
 #endif
         [Bugsee logException:finalName
                       reason:finalReason
@@ -430,8 +422,7 @@ const char *_bugsee_test_exception_options(const char *optionsJson)
 #else
     NSDictionary *d = BugseeExceptionOptionsDict(optionsJson);
     if (!d) return NULL;
-    NSString *summary = [NSString stringWithFormat:@"labels=%@;skipFrames=%ld",
-                         [BugseeStringsIn(d[@"labels"]) componentsJoinedByString:@","], (long)BugseeExceptionSkipFrames(d)];
+    NSString *summary = [NSString stringWithFormat:@"skipFrames=%ld", (long)BugseeExceptionSkipFrames(d)];
 #endif
     return strdup(summary.UTF8String);
 }
