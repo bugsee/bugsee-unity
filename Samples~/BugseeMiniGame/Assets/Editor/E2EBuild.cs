@@ -100,12 +100,6 @@ namespace Bugsee.Sample.Editor
 #endif
             }
 
-            if (il2cpp)
-            {
-                try { PlayerSettings.SetAdditionalIl2CppArgs("--emit-source-mapping"); }
-                catch { /* older editors */ }
-            }
-
             // A copy left by a build that was killed would otherwise take priority over everything else.
             RemoveOverride();
             var endpoint = Environment.GetEnvironmentVariable("BUGSEE_ENDPOINT");

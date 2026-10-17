@@ -27,6 +27,8 @@ namespace UnityEditor
     {
         public static string bundleVersion;
         public static ScriptingImplementation GetScriptingBackend(UnityEditor.Build.NamedBuildTarget buildTarget) => default;
+        public static string GetAdditionalIl2CppArgs() => null;
+        public static void SetAdditionalIl2CppArgs(string args) { }
 
         public static class Android
         {
