@@ -204,16 +204,50 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(Plugins(Settings("        maven(\"https://nexus.corp/x\")\n"), out _), Is.EqualTo(GradleMavenInjection.RepositoryStatus.Inserted));
         }
 
+        // The review's pattern: nested alternations and quantifiers over the group name; the engine backtracks for seconds.
+        const string CatastrophicFilter = "includeGroupByRegex('(com|c|co|com\\\\.|.*)*bugsee(x|y|.*)*z')";
+
+        static string ProxyWithFilter(string filter) =>
+            Settings("        maven {\n            url 'https://nexus.corp/proxy'\n            content { " + filter + " }\n        }\n");
+
         [Test]
-        public void A_catastrophic_filter_regex_does_not_stall_the_build_step()
+        public void A_catastrophic_filter_regex_is_cut_off_and_read_as_matching_for_that_input()
         {
-            string settings = Settings(
-                "        maven {\n            url 'https://nexus.corp/proxy'\n            content { includeGroupByRegex('(a|aa|aaa|[a-z.]+)*(.*)*(.*)*(.*)*#') }\n        }\n");
+            string settings = ProxyWithFilter(CatastrophicFilter);
             var watch = System.Diagnostics.Stopwatch.StartNew();
 
-            Plugins(settings, out _);
+            var status = Plugins(settings, out string updated);
 
-            Assert.That(watch.ElapsedMilliseconds, Is.LessThan(5000));
+            watch.Stop();
+            // Documented fallback: a regex that cannot be evaluated in time counts as matching for that input (here the long
+            // marker group, which is the slow one). The other group is evaluated normally and does not match (the pattern needs a
+            // trailing z), so the proxy is not taken to include both Bugsee groups and Central is appended. Without the 500 ms limit
+            // the same call spends seconds in the engine first (see Without_the_timeout_the_same_pattern_takes_several_seconds).
+            Assert.That(status, Is.EqualTo(GradleMavenInjection.RepositoryStatus.Inserted));
+            Assert.That(updated, Does.Contain("mavenCentral() // bugsee:maven-repository"));
+            Assert.That(watch.ElapsedMilliseconds, Is.GreaterThan(400), "the unevaluable input is cut off by the limit, not skipped");
+            Assert.That(watch.ElapsedMilliseconds, Is.LessThan(UnboundedMilliseconds() / 2), "bounded evaluation must be far quicker than the unbounded one");
+        }
+
+        // The cost of the same pattern evaluated without a limit, on the strings the filter code feeds it.
+        static long UnboundedMilliseconds()
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            foreach (string input in new[] { "com.bugsee.android.gradle", "com.bugsee" })
+            {
+                System.Text.RegularExpressions.Regex.IsMatch(
+                    input, "^(?:(com|c|co|com\\.|.*)*bugsee(x|y|.*)*z)$",
+                    System.Text.RegularExpressions.RegexOptions.None, System.Text.RegularExpressions.Regex.InfiniteMatchTimeout);
+            }
+
+            return watch.ElapsedMilliseconds;
+        }
+
+        [Test]
+        public void Without_the_timeout_the_same_pattern_takes_several_seconds()
+        {
+            // Guards the test above against becoming vacuous: if the engine ever evaluates this pattern quickly, the timeout test proves nothing.
+            Assert.That(UnboundedMilliseconds(), Is.GreaterThan(2000));
         }
 
         [Test]
