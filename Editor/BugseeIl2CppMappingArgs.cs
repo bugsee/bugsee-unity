@@ -173,7 +173,7 @@ namespace Bugsee.Editor
             {
                 pending = JsonUtility.FromJson<PendingRestore>(File.ReadAllText(PendingPath));
             }
-            catch (IOException ex)
+            catch (Exception ex) when (Il2CppArgsRestorePolicy.IsTransientReadError(ex))
             {
                 // Unreadable right now, not unparseable: keep the record for the next attempt.
                 Debug.LogWarning("[Bugsee] Could not read the IL2CPP arguments restore record: " + ex.Message);

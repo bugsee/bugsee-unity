@@ -56,5 +56,13 @@ namespace Bugsee.WrapperPolicy.Tests
             // Nothing to restore from.
             Assert.That(Il2CppArgsRestorePolicy.DeleteRecord(recordParsed: false, restoreThrew: false), Is.True);
         }
+
+        [Test]
+        public void An_unreadable_record_is_kept_but_a_parse_failure_is_not()
+        {
+            Assert.That(Il2CppArgsRestorePolicy.IsTransientReadError(new System.IO.IOException()), Is.True);
+            Assert.That(Il2CppArgsRestorePolicy.IsTransientReadError(new System.UnauthorizedAccessException()), Is.True);
+            Assert.That(Il2CppArgsRestorePolicy.IsTransientReadError(new System.ArgumentException("bad json")), Is.False);
+        }
     }
 }

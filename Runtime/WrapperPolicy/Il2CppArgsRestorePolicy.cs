@@ -1,3 +1,6 @@
+using System;
+using System.IO;
+
 namespace Bugsee.WrapperPolicy
 {
     /// <summary>
@@ -26,6 +29,15 @@ namespace Bugsee.WrapperPolicy
         public static bool DeleteRecord(bool recordParsed, bool restoreThrew)
         {
             return !recordParsed || !restoreThrew;
+        }
+
+        /// <summary>
+        /// A failure to read the record that says nothing about its content (locked, unreadable, no permission): the record is
+        /// kept for the next attempt. Anything else (a parse failure) means it holds nothing to restore from.
+        /// </summary>
+        public static bool IsTransientReadError(Exception ex)
+        {
+            return ex is IOException || ex is UnauthorizedAccessException;
         }
     }
 }
