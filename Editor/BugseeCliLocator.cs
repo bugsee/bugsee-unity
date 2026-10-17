@@ -75,6 +75,29 @@ namespace Bugsee.Editor
             return _resolved;
         }
 
+        /// <summary>
+        /// The CLI already installed, for baking into the iOS Run Script: no download, no session state, no log. Null
+        /// when none is found. (The Run Script never downloads, so a download here would only be wasted.)
+        /// </summary>
+        public static string FindInstalled()
+        {
+            try
+            {
+                CliSettings settings = ReadSettings();
+                settings.DownloadAllowed = false;
+                var resolution = BugseeCliPolicy.Resolve(settings, new CliProbe
+                {
+                    FileExists = File.Exists,
+                    QueryVersion = QueryVersion,
+                });
+                return resolution.Found ? resolution.Path : null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         /// <summary>Warns once per build that no CLI was found; false when one was.</summary>
         public static bool ReportIfMissing()
         {

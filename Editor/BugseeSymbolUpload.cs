@@ -413,9 +413,17 @@ namespace Bugsee.Editor
             var scriptsDir = Path.Combine(pathToBuiltProject, "BugseeScripts");
             Directory.CreateDirectory(scriptsDir);
             var scriptPath = Path.Combine(scriptsDir, "upload-symbols.sh");
-            // The CLI the Editor resolves now is a candidate for the script: the Xcode build phase's PATH is minimal.
-            var cli = BugseeCliLocator.Resolve();
-            File.WriteAllText(scriptPath, IosArchiveUploadScript.Build(cli.Found ? cli.Path : null), new UTF8Encoding(false));
+            // The CLI installed on this machine is a candidate for the script: the Xcode build phase's PATH is minimal.
+            // Only for an upload that is on (token set, not opted out), and only on macOS, whose paths Xcode can use.
+            string cli = null;
+            if (Application.platform == RuntimePlatform.OSXEditor && BugseeCliRunner.HasAppToken
+                && Environment.GetEnvironmentVariable("BUGSEE_NO_SYMBOL_UPLOAD") == null)
+            {
+                cli = BugseeCliLocator.FindInstalled();
+                if (cli != null) cli = Path.GetFullPath(cli);
+            }
+
+            File.WriteAllText(scriptPath, IosArchiveUploadScript.Build(cli), new UTF8Encoding(false));
 
             // Run it through sh: a file written from C# has no executable bit, so invoking the path directly
             // fails the whole build with "Permission denied" (Debug and Release alike, before the script's own

@@ -17,7 +17,10 @@ namespace Bugsee.WrapperPolicy
         public static string Build(string resolvedCliPath)
         {
             string text = Script.Replace("\r\n", "\n");
-            if (string.IsNullOrEmpty(resolvedCliPath) || resolvedCliPath.IndexOfAny(new[] { '\n', '\r', '\0' }) >= 0)
+            text = text.Replace("PINNED_VERSION=''\n", "PINNED_VERSION='" + BugseeCliPolicy.DefaultVersion + "'\n");
+            // Only an absolute POSIX path: a Windows or Linux host exporting an iOS project has nothing usable to bake.
+            if (string.IsNullOrEmpty(resolvedCliPath) || resolvedCliPath[0] != '/'
+                || resolvedCliPath.IndexOfAny(new[] { '\n', '\r', '\0' }) >= 0)
             {
                 return text;
             }
@@ -53,21 +56,47 @@ fi
 
 # --- resolve bugsee-cli: Xcode runs build phases with a minimal PATH, so a bare lookup often misses an installed CLI.
 # Same order as the Editor: BUGSEE_CLI_PATH, the CLI the Editor found at export time, PATH, the installer and package
-# manager directories, the package's download cache. (BUGSEE_CLI_SYSTEM_DIRS replaces the two system directories; tests.)
+# manager directories, the package's download cache. A candidate must run and be 0.8.0 or newer, as in the Editor.
+# (BUGSEE_CLI_SYSTEM_DIRS replaces the two system directories; tests.) Never downloads.
 BAKED_CLI=''
+PINNED_VERSION=''
 CLI=""""
 TRIED=""""
 try_cli() {
   [ -n ""$1"" ] || return 0
-  TRIED=""${TRIED}
-    $1""
-  if [ -z ""${CLI}"" ] && [ -f ""$1"" ] && [ -x ""$1"" ]; then CLI=""$1""; fi
+  [ -z ""${CLI}"" ] || return 0
+  if [ ! -f ""$1"" ] || [ ! -x ""$1"" ]; then
+    TRIED=""${TRIED}
+    $1 (not found)""
+    return 0
+  fi
+  CANDIDATE_OUT=$(""$1"" --version 2>/dev/null) || {
+    TRIED=""${TRIED}
+    $1 (does not run)""
+    return 0
+  }
+  CANDIDATE_VER=$(printf '%s\n' ""${CANDIDATE_OUT}"" | sed -n 's/.*\([0-9][0-9]*\)\.\([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1 \2 \3/p' | head -n1)
+  if [ -n ""${CANDIDATE_VER}"" ]; then
+    set -- ""$1"" ${CANDIDATE_VER}
+    if [ ""$2"" -eq 0 ] && [ ""$3"" -lt 8 ]; then
+      TRIED=""${TRIED}
+    $1 (version $2.$3.$4, older than 0.8.0)""
+      return 0
+    fi
+  fi
+  CLI=""$1""
   return 0
 }
 try_command() {
   case ""$1"" in
     */*) try_cli ""$1"" ;;
-    *) try_cli ""$(command -v ""$1"" 2>/dev/null || true)"" ;;
+    *)
+      FOUND=$(command -v ""$1"" 2>/dev/null || true)
+      case ""${FOUND}"" in
+        /*) try_cli ""${FOUND}"" ;;
+        *) TRIED=""${TRIED}
+    $1 (not on PATH=${PATH})"" ;;
+      esac ;;
   esac
   return 0
 }
@@ -81,16 +110,20 @@ if [ -n ""${HOME}"" ]; then
   try_cli ""${HOME}/.bugsee/bin/bugsee-cli""
   try_cli ""${HOME}/.local/bin/bugsee-cli""
   try_cli ""${HOME}/.cargo/bin/bugsee-cli""
-  for CACHED in ""${HOME}/Library/Caches/Bugsee/cli""/*/*/bugsee-cli ""${XDG_CACHE_HOME:-${HOME}/.cache}/bugsee/cli""/*/*/bugsee-cli; do
-    try_cli ""${CACHED}""
+  # The release the package pins (or BUGSEE_CLI_VERSION) first: a lexical glob would rank 0.10.0 below 0.8.1.
+  for CACHE in ""${HOME}/Library/Caches/Bugsee/cli"" ""${XDG_CACHE_HOME:-${HOME}/.cache}/bugsee/cli""; do
+    for CACHED in ""${CACHE}/${BUGSEE_CLI_VERSION:-${PINNED_VERSION}}""/*/bugsee-cli ""${CACHE}""/*/*/bugsee-cli; do
+      try_cli ""${CACHED}""
+    done
   done
 fi
 if [ -z ""${CLI}"" ]; then
-  echo ""warning: Bugsee: bugsee-cli was not found, so symbols are NOT uploaded (the build continues). Looked at:${TRIED}""
+  printf '%s\n' ""warning: Bugsee: bugsee-cli was not found, so symbols are NOT uploaded (the build continues). Looked at:${TRIED}""
   echo ""Bugsee: install it (curl --proto '=https' --tlsv1.2 -sSfL https://download.bugsee.com/cli/install.sh | sh) or set BUGSEE_CLI_PATH.""
   exit 0
 fi
-echo ""Bugsee: using ${CLI}""
+[ -z ""${TRIED}"" ] || printf '%s\n' ""Bugsee: passed over:${TRIED}""
+printf '%s\n' ""Bugsee: using ${CLI}""
 VERSION=""${BUGSEE_VERSION:-${MARKETING_VERSION}}""
 BUILD=""${BUGSEE_BUILD:-${CURRENT_PROJECT_VERSION}}""
 upload() {
