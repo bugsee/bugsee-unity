@@ -17,9 +17,11 @@ namespace Bugsee.WrapperPolicy
     public static class ManagedPayloadJson
     {
         /// <summary>
-        /// Most characters of serialized levels one payload carries beyond its first (outermost) level. Staging
-        /// accepted a 1 MB payload from an Android device, so this is not a server limit: it keeps a chain of
-        /// exceptions with huge messages from multiplying a report's size by the node count.
+        /// Most characters of serialized level JSON one payload carries in total; the first (outermost) level counts
+        /// toward it but is always kept whole. The joining text (the <c>"cause":</c> prefixes and closing braces)
+        /// is not counted, so the output can run a few dozen characters over. Staging accepted a 1 MB payload
+        /// from an Android device, so this is not a server limit: it keeps a chain of exceptions with huge messages
+        /// from multiplying a report's size by the node count.
         /// </summary>
         public const int MaxChars = 256 * 1024;
 
