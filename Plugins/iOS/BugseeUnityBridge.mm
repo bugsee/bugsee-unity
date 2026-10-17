@@ -15,6 +15,16 @@
 #define BUGSEE_IOS_SDK 0
 #endif
 
+// bugsee-cocoa up to 7.0.0-beta6 has BugseeExceptionLoggingOptions and +logException:reason:options:completion:.
+// 7.0.0-beta7 removed both: domain and skipFrames are arguments, the labels go on the report (see
+// BugseeUnityQueueExceptionLabels), and the video, merging rules and the flag form of the delete changed with them.
+// Remove this switch and its #if branches when the pin moves past beta6.
+#if __has_include(<Bugsee/BugseeExceptionLoggingOptions.h>) || __has_include("Bugsee/BugseeExceptionLoggingOptions.h")
+#define BUGSEE_IOS_LEGACY_EXCEPTION_API 1
+#else
+#define BUGSEE_IOS_LEGACY_EXCEPTION_API 0
+#endif
+
 #if BUGSEE_IOS_SDK
 
 static id BugseeDeserializeJson(const char *string)
@@ -303,6 +313,22 @@ void _bugsee_event(const char *name, const char *paramsJson)
     [Bugsee event:BugseeNSString(name)];
 }
 
+static NSArray<NSString *> *BugseeStringsIn(id value)
+{
+    if (![value isKindOfClass:[NSArray class]]) {
+        return nil;
+    }
+    NSMutableArray<NSString *> *clean = [NSMutableArray array];
+    for (id item in (NSArray *)value) {
+        if ([item isKindOfClass:[NSString class]]) {
+            [clean addObject:item];
+        }
+    }
+    return clean;
+}
+
+#if BUGSEE_IOS_LEGACY_EXCEPTION_API
+
 // Honoured keys: labels (strings), includeVideo (bool, default true), mergingRules (map, the SDK's own keys) and
 // skipFrames (number, as on Android). The domain is owned by the wrapper (the exception name), so a caller-supplied one is ignored, as on Android.
 static BugseeExceptionLoggingOptions *BugseeExceptionOptionsFrom(const char *optionsJson)
@@ -315,15 +341,9 @@ static BugseeExceptionLoggingOptions *BugseeExceptionOptionsFrom(const char *opt
     BugseeExceptionLoggingOptions *options = [BugseeExceptionLoggingOptions new];
     // A fresh options object has includeVideo off; nil options keep the video, so only an explicit false drops it.
     options.includeVideo = YES;
-    id labels = d[@"labels"];
-    if ([labels isKindOfClass:[NSArray class]]) {
-        NSMutableArray<NSString *> *clean = [NSMutableArray array];
-        for (id label in (NSArray *)labels) {
-            if ([label isKindOfClass:[NSString class]]) {
-                [clean addObject:label];
-            }
-        }
-        options.labels = clean;
+    NSArray<NSString *> *labels = BugseeStringsIn(d[@"labels"]);
+    if (labels) {
+        options.labels = labels;
     }
     id includeVideo = d[@"includeVideo"];
     if ([includeVideo isKindOfClass:[NSNumber class]]) {
@@ -343,12 +363,56 @@ static BugseeExceptionLoggingOptions *BugseeExceptionOptionsFrom(const char *opt
     return options;
 }
 
+#else
+
+// Queues a handled exception's labels for the error report the SDK files for it (BugseeUnityCallbacks.mm).
+void BugseeUnityQueueExceptionLabels(NSArray<NSString *> *labels);
+
+// Honoured keys: labels (strings) and skipFrames (number, as on Android). includeVideo and mergingRules have no
+// counterpart in the SDK any more: a logged exception always carries the live capture and has no merging rules
+// besides skipFrames. The domain is owned by the wrapper (the exception name), so a caller-supplied one is ignored, as on Android.
+static NSDictionary *BugseeExceptionOptionsDict(const char *optionsJson)
+{
+    id parsed = BugseeDeserializeJson(optionsJson);
+    return [parsed isKindOfClass:[NSDictionary class]] ? parsed : nil;
+}
+
+static NSInteger BugseeExceptionSkipFrames(NSDictionary *options)
+{
+    id skipFrames = options[@"skipFrames"];
+    return [skipFrames isKindOfClass:[NSNumber class]] ? [skipFrames integerValue] : 0;
+}
+
+#endif
+
 void _bugsee_logException(const char *name, const char *reason, bool handled, const char *optionsJson)
 {
     NSString *finalName = BugseeNSString(name) ?: @"UnityManagedException";
     NSString *finalReason = BugseeNSString(reason) ?: @"";
     if (handled) {
+#if BUGSEE_IOS_LEGACY_EXCEPTION_API
         [Bugsee logException:finalName reason:finalReason options:BugseeExceptionOptionsFrom(optionsJson) completion:nil];
+#else
+        NSDictionary *options = BugseeExceptionOptionsDict(optionsJson);
+#if TARGET_OS_SIMULATOR || TARGET_OS_MACCATALYST
+        // The SDK files nothing here and only logs it on every call; say it once, where a Unity developer looks.
+        static dispatch_once_t simulatorOnce;
+        dispatch_once(&simulatorOnce, ^{
+            NSLog(@"[Bugsee] Logged managed exceptions are not filed on the iOS simulator or Mac Catalyst; run on a device to see them.");
+        });
+#else
+        // Only a call the SDK accepts files a report; a labels entry queued for a refused one would mislabel a later report.
+        BugseeStatus status = [Bugsee sharedInstance].status;
+        if (status == BugseeStatusLaunching || status == BugseeStatusLaunched) {
+            BugseeUnityQueueExceptionLabels(BugseeStringsIn(options[@"labels"]));
+        }
+#endif
+        [Bugsee logException:finalName
+                      reason:finalReason
+                      domain:finalName
+                  skipFrames:BugseeExceptionSkipFrames(options)
+                  completion:nil];
+#endif
     } else {
         // The SDK has no options on the unhandled path.
         [Bugsee logUnhandledException:finalName reason:finalReason completion:nil];
@@ -358,10 +422,17 @@ void _bugsee_logException(const char *name, const char *reason, bool handled, co
 #if BUGSEE_UNITY_TESTS
 const char *_bugsee_test_exception_options(const char *optionsJson)
 {
+#if BUGSEE_IOS_LEGACY_EXCEPTION_API
     BugseeExceptionLoggingOptions *o = BugseeExceptionOptionsFrom(optionsJson);
     if (!o) return NULL;
     NSString *summary = [NSString stringWithFormat:@"labels=%@;video=%d;rules=%@",
                          [o.labels componentsJoinedByString:@","], o.includeVideo ? 1 : 0, o.mergingRules];
+#else
+    NSDictionary *d = BugseeExceptionOptionsDict(optionsJson);
+    if (!d) return NULL;
+    NSString *summary = [NSString stringWithFormat:@"labels=%@;skipFrames=%ld",
+                         [BugseeStringsIn(d[@"labels"]) componentsJoinedByString:@","], (long)BugseeExceptionSkipFrames(d)];
+#endif
     return strdup(summary.UTF8String);
 }
 #endif
@@ -857,11 +928,17 @@ void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completio
 {
     BugseeRunOnMain(^{
         void (^runDelete)(void) = ^{
-            [Bugsee deleteCollectedDataOnDevice:YES completion:^(BOOL success) {
+            BugseeDeleteCollectedDataCompletionBlock done = ^(BOOL success) {
                 if (completion) {
                     completion(token, success ? 1 : 0);
                 }
-            }];
+            };
+#if BUGSEE_IOS_LEGACY_EXCEPTION_API
+            [Bugsee deleteCollectedDataOnDevice:YES completion:done];
+#else
+            // The flag form keeps the report bundles waiting for upload; this one deletes everything Bugsee collected.
+            [Bugsee deleteCollectedDataOnDevice:done];
+#endif
         };
         // Only a running SDK is stopped: on a stopped one the stop's block may land after a launch that follows
         // this call on the main thread, and the wipe would then be skipped.

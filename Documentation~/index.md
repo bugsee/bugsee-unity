@@ -279,6 +279,24 @@ A `RectTransform` corner from `GetWorldCorners` in a screen-space overlay canvas
 
 Wired: Launch/Stop, blackout, log/trace/event, exceptions (JSON-in-reason), TestCrash, report/upload (+ labels), identity (email API), attributes, secure rects, appearance colors/strings, feedback UI, network/log/breadcrumb filters, report handler (via `BugseeWrapper`), lifecycle listener (via wrapper `onLifecycleEvent` → `Bugsee.LifecycleEvent` / `ILifecycleEventListener`).
 
+### iOS managed exceptions by SDK version
+
+The bridge builds against both native APIs. From iOS SDK 7.0.0-beta7 a logged exception takes only `domain` (the wrapper passes `UnityManagedException`, as on Android) and `skipFrames`, so `Bugsee.LogException(exception, options)` honours these `options` keys on iOS: `skipFrames` as is, and `labels`, which the bridge queues and adds to the error report the SDK files for that call (the report's before-created hook). `includeVideo` and `mergingRules` have no counterpart in the SDK any more: a logged exception always carries the live capture. On the iOS simulator and Mac Catalyst the SDK files no logged exception; the bridge logs that once. Exceptions are only validated end to end on a device. With the SDK pinned at beta6 the bridge still passes labels, `includeVideo`, `mergingRules` and `skipFrames` as native options.
+
+`DeleteCollectedDataOnDevice` uses the SDK's delete-everything form from beta7 on (it also deletes report bundles not uploaded yet and unsent crashes); the beta6 flag form is kept for the pinned version.
+
+### Developing against an unreleased iOS SDK
+
+To build the Unity project against a bugsee-cocoa checkout whose tag does not exist yet, assemble a local package and point the export at it:
+
+```sh
+Tools~/scripts/assemble-local-ios-sdk.sh <bugsee-cocoa checkout> <package dir> [7.0.0-betaN]
+export BUGSEE_IOS_SDK_LOCAL_PACKAGE=<package dir>   # read by the iOS export post-process
+sh Tests~/iOS/run-tests.sh <package dir>            # bridge tests against the same build
+```
+
+The script builds the xcframework as the beta release does (`scripts/build_new.sh`), then lays out the package `bugsee/spm` carries with a path `binaryTarget`. Nothing is published. With the variable set, the post-process copies that package next to the Xcode project instead of adding the pinned `bugsee/spm` tag and logs a warning; a directory without `Package.swift` and `Bugsee.xcframework` fails the build. Unset, the pinned tag is used.
+
 ### Attributes
 
 `SetAttribute` accepts a string (up to 1024 UTF-16 units), a bool or a number within the signed 64-bit range; anything else throws `ArgumentException`. `GetAttribute` returns the kind that was set: `string`, `bool`, an integer or a `double`. The numeric width is not promised (Android returns the boxed type that was set, with `sbyte`/`ushort` stored as `int`, `uint`/`ulong` as `long` and `decimal` as `double`; iOS returns `long` or `double`), and a 1.0 set as floating point stays floating. A container set natively reads as a `Dictionary` on Android and as JSON text on iOS. On iOS the bridge returns the value as a type tag and payload (`s:`, `b:`, `i:`, `d:`, `j:`; see `AttributeWire`); the SDK stores the plain value, so reports show it unwrapped.

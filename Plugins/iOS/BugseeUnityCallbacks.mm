@@ -357,6 +357,49 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
     }
 }
 
+// Labels of the handled managed exceptions the bridge logged, oldest first, one entry per call (empty when the call
+// has none, so the entries stay in step with the reports). From bugsee-cocoa 7.0.0-beta7 a logged exception takes no
+// labels: the SDK files it as an error report that reaches onBeforeReportCreated, which gives the report the oldest
+// entry. Reports are matched by order, not identity, so an entry the SDK never turned into a report (it dropped the
+// call) expires instead of shifting every later report's labels.
+static const NSTimeInterval kExceptionLabelsLifetime = 60;
+static const NSUInteger kExceptionLabelsCapacity = 32;
+static NSObject *gExceptionLabelsLock = [NSObject new];
+static NSMutableArray<NSDictionary *> *gExceptionLabels = [NSMutableArray new];
+
+extern "C" void BugseeUnityQueueExceptionLabels(NSArray<NSString *> *labels)
+{
+    @synchronized (gExceptionLabelsLock) {
+        [gExceptionLabels addObject:@{ @"labels": labels ? [labels copy] : @[], @"at": [NSDate date] }];
+        if (gExceptionLabels.count > kExceptionLabelsCapacity) {
+            [gExceptionLabels removeObjectAtIndex:0];
+        }
+    }
+}
+
+static NSArray<NSString *> *BugseeUnityTakeExceptionLabels(NSDate *now)
+{
+    @synchronized (gExceptionLabelsLock) {
+        while (gExceptionLabels.count > 0) {
+            NSDictionary *entry = gExceptionLabels.firstObject;
+            [gExceptionLabels removeObjectAtIndex:0];
+            if ([now timeIntervalSinceDate:entry[@"at"]] <= kExceptionLabelsLifetime) {
+                return entry[@"labels"];
+            }
+        }
+    }
+    return nil;
+}
+
+#if BUGSEE_UNITY_TESTS
+// Takes the oldest live entry as the error report's hook would, `secondsLater` after now; "a,b" or NULL.
+extern "C" const char *_bugsee_test_take_exception_labels(double secondsLater)
+{
+    NSArray<NSString *> *labels = BugseeUnityTakeExceptionLabels([NSDate dateWithTimeIntervalSinceNow:secondsLater]);
+    return labels ? strdup([labels componentsJoinedByString:@","].UTF8String) : NULL;
+}
+#endif
+
 @interface BugseeUnityWrapper : NSObject <BugseeWrapper>
 @end
 
@@ -407,6 +450,12 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
                 isTerminating:(BOOL)isTerminating
                    completion:(BGSCallback)completion
 {
+    if (!isTerminating && [report.type isEqualToString:BugseeReportTypeError]) {
+        NSArray<NSString *> *labels = BugseeUnityTakeExceptionLabels([NSDate date]);
+        if (labels.count > 0) {
+            [report addLabels:labels];
+        }
+    }
     [self forwardReport:report phase:0 isTerminating:isTerminating completion:completion];
 }
 

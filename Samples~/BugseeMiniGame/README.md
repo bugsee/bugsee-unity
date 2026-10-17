@@ -61,6 +61,10 @@ SetSecureRect / SetAttribute / SetUserIdentifier / Appearance open IMGUI forms f
 | **Android** | Full path: Launch with `DirectBuffers`, reporting, blackout, filters, etc. |
 | **iOS** | Launch + managed/native crash path via `BugseeUnityBridge` + remote SPM (`github.com/bugsee/spm` `7.0.0-beta6`). Requires **iOS 15+** (sample Player Settings and the export post-process both set `IPHONEOS_DEPLOYMENT_TARGET` to 15.0). |
 
+### iOS Simulator
+
+`BUGSEE_E2E_IOS_SIM=1` with `E2EBuild.BuildIos` exports a Simulator player (`BUGSEE_E2E_IOS_SIM_ARCH`, default arm64 on an Apple silicon Mac). Unity 2021.3 only ships an x86_64 Simulator player, which Apple silicon iOS 26+ simulator runtimes cannot install; use 2022.3 or newer. Built with the iOS 27 SDK, Unity 2022.3's player aborts at launch on an iOS 27 runtime (`UIScene life cycle is required for apps built with this SDK`): run it on an iOS 26 runtime, or stamp an older SDK into the built executable (`vtool -set-build-version iossim 15.0 26.0 -replace -output <exe> <exe>`, then `codesign --force --sign - --deep <app>`). On the Simulator the iOS SDK files no logged exception and no native crash, so those need a device.
+
 ## Build Android
 
 1. Switch platform to Android.
