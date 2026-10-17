@@ -62,5 +62,48 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(text, Does.Contain("ManagedExceptionPayload.ToJson(payload), false,\r\n").Or.Contain("ManagedExceptionPayload.ToJson(payload), false,\n"));
             Assert.That(System.Text.RegularExpressions.Regex.Matches(text, @"ToJsonObject\(options\)\);").Count, Is.EqualTo(2));
         }
+
+        // The simulator SDK files no crash or exception report: the bridge says so once, natively and in the Unity log.
+        [Test]
+        public void Simulator_warning_is_guarded_once_only_and_reaches_the_unity_log()
+        {
+            string root = FindRepoRoot();
+            string mm = File.ReadAllText(Path.Combine(root, "Plugins", "iOS", "BugseeUnityBridge.mm"));
+            int warn = mm.IndexOf("static void BugseeWarnIfExceptionsNotFiled(void)");
+            Assert.That(warn, Is.GreaterThan(0));
+            string body = mm.Substring(warn, mm.IndexOf("\n}\n", warn) - warn);
+            Assert.That(body, Does.Contain("#if TARGET_OS_SIMULATOR || TARGET_OS_MACCATALYST"));
+            Assert.That(body, Does.Contain("dispatch_once"));
+            Assert.That(body, Does.Contain("NSLog("));
+            // The counter exists only for the tests: a device build must not define an unused variable.
+            int counter = mm.IndexOf("static int gSimulatorWarningCount");
+            Assert.That(mm.Substring(mm.LastIndexOf("#if", counter), counter - mm.LastIndexOf("#if", counter)),
+                Does.StartWith("#if BUGSEE_UNITY_TESTS"));
+            foreach (var entry in new[] { "void _bugsee_launch(", "void _bugsee_relaunch(" })
+            {
+                int start = mm.IndexOf(entry);
+                Assert.That(start, Is.GreaterThan(0), entry);
+                int open = mm.IndexOf("{\n", start);
+                Assert.That(mm.Substring(open, mm.IndexOf("\n", open + 3) - open + 40),
+                    Does.Contain("BugseeWarnIfExceptionsNotFiled();"), entry);
+            }
+            Assert.That(mm, Does.Match(@"int _bugsee_exceptions_filed\(void\)\s*\{\s*#if TARGET_OS_SIMULATOR \|\| TARGET_OS_MACCATALYST\s*return 0;"));
+
+            string cs = File.ReadAllText(Path.Combine(root, "Runtime", "Platform", "IOS", "IOSBridge.cs"));
+            Assert.That(cs, Does.Contain("static extern int _bugsee_exceptions_filed();"));
+            int helper = cs.IndexOf("static void WarnOnceIfExceptionsNotFiled()");
+            Assert.That(helper, Is.GreaterThan(0));
+            string csBody = cs.Substring(helper, cs.IndexOf("\n        }\n", helper) - helper);
+            Assert.That(csBody, Does.Contain("_exceptionsFiledWarned = true;"));
+            Assert.That(csBody, Does.Contain("_bugsee_exceptions_filed() != 0"));
+            Assert.That(csBody, Does.Contain("Debug.LogWarning(\"[Bugsee]"));
+            foreach (var pair in new[] { ("void LaunchNow(", "_bugsee_launch("), ("void RelaunchNow(", "_bugsee_relaunch(") })
+            {
+                int method = cs.IndexOf(pair.Item1);
+                Assert.That(method, Is.GreaterThan(0), pair.Item1);
+                Assert.That(cs.IndexOf("WarnOnceIfExceptionsNotFiled();", method),
+                    Is.LessThan(cs.IndexOf(pair.Item2, method)).And.GreaterThan(method), pair.Item1);
+            }
+        }
     }
 }
