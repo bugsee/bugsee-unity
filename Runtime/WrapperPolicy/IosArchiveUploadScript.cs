@@ -69,12 +69,14 @@ note() {
     $1""
   return 0
 }
+PROBE_OUT=""""
+trap 'rm -f ""${PROBE_OUT}""' EXIT
 # Prints what ""$1 --version"" writes to stdout; fails when it fails or runs longer than the limit: a probe that reads
 # stdin, hangs or ignores SIGTERM must not hold the build (the watchdog sends TERM, then KILL two seconds later).
 probe_version() {
   PROBE_DIR=""${TMPDIR:-/tmp}""
   [ -d ""${PROBE_DIR}"" ] && [ -w ""${PROBE_DIR}"" ] || PROBE_DIR=/tmp
-  PROBE_OUT=""${PROBE_DIR}/bugsee-cli-version.$$""
+  PROBE_OUT=$(mktemp ""${PROBE_DIR}/bugsee-cli-version.XXXXXX"" 2>/dev/null) || return 1
   ""$1"" --version </dev/null >""${PROBE_OUT}"" 2>/dev/null &
   PROBE_PID=$!
   ( sleep ""${BUGSEE_CLI_PROBE_TIMEOUT:-15}"" || :; kill ""${PROBE_PID}"" 2>/dev/null || :; sleep 2 || :; kill -9 ""${PROBE_PID}"" 2>/dev/null || : ) >/dev/null 2>&1 &
@@ -168,13 +170,13 @@ if [ -n ""${HOME}"" ]; then
     *) WANT=""${PINNED_VERSION}"" ;;
   esac
   for CACHE in ""${HOME}/Library/Caches/Bugsee/cli"" ""${XDG_CACHE_HOME:-${HOME}/.cache}/bugsee/cli""; do
-    SEEN=""""
+    CACHE_HIT=""""
     for CACHED in ""${CACHE}/${WANT}""/*/bugsee-cli ""${CACHE}""/*/*/bugsee-cli; do
       [ -e ""${CACHED}"" ] || continue
-      SEEN=1
+      CACHE_HIT=1
       try_cli ""${CACHED}""
     done
-    [ -n ""${CLI}"" ] || [ -n ""${SEEN}"" ] || note ""${CACHE} (no cached CLI)""
+    [ -n ""${CLI}"" ] || [ -n ""${CACHE_HIT}"" ] || note ""${CACHE} (no cached CLI)""
   done
 fi
 if [ -z ""${CLI}"" ]; then

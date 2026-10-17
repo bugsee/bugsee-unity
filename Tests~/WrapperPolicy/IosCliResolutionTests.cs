@@ -360,6 +360,43 @@ namespace Bugsee.WrapperPolicy.Tests
             }
         }
 
+        // The pinned release matches both cache globs: it is probed once, so a hanging one costs one timeout, not two.
+        [Test]
+        public void A_pinned_cache_binary_matching_both_globs_is_probed_once()
+        {
+            using (var box = new Sandbox(_shell))
+            {
+                string hang = box.Path("home/Library/Caches/Bugsee/cli/" + BugseeCliPolicy.DefaultVersion + "/aarch64-apple-darwin/bugsee-cli");
+                Directory.CreateDirectory(Path.GetDirectoryName(hang));
+                File.WriteAllText(hang, "#!/bin/sh\necho probe >> \"" + box.Path("probes.txt") + "\"\nexec sleep 30\n");
+                File.SetUnixFileMode(hang, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                var run = box.Run(env => env["BUGSEE_CLI_PROBE_TIMEOUT"] = "1");
+                Assert.That(File.ReadAllLines(box.Path("probes.txt")), Has.Length.EqualTo(1), run.Output);
+                Assert.That(System.Text.RegularExpressions.Regex.Matches(run.Output, System.Text.RegularExpressions.Regex.Escape(hang + " (does not run)")).Count, Is.EqualTo(1));
+                Assert.That(run.ExitCode, Is.EqualTo(0));
+            }
+        }
+
+        // The probe's output goes to an unpredictable temp file that is removed, also after a probe was stopped.
+        [Test]
+        public void The_probe_output_file_is_unpredictable_and_removed()
+        {
+            Assert.That(IosArchiveUploadScript.Build(), Does.Contain("mktemp \"${PROBE_DIR}/bugsee-cli-version.XXXXXX\""));
+            using (var box = new Sandbox(_shell))
+            {
+                string tmp = box.Path("tmp");
+                Directory.CreateDirectory(tmp);
+                string hang = box.Path("home/.local/bin/bugsee-cli");
+                Directory.CreateDirectory(Path.GetDirectoryName(hang));
+                File.WriteAllText(hang, "#!/bin/sh\nexec sleep 30\n");
+                File.SetUnixFileMode(hang, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                box.Stub("home/.bugsee/bin/bugsee-cli");
+                var run = box.Run(env => { env["TMPDIR"] = tmp; env["BUGSEE_CLI_PROBE_TIMEOUT"] = "1"; });
+                Assert.That(run.Output, Does.Contain("using " + box.Path("home/.bugsee/bin/bugsee-cli")), run.Output);
+                Assert.That(Directory.GetFileSystemEntries(tmp), Is.Empty);
+            }
+        }
+
         [Test]
         public void An_unwritable_or_missing_TMPDIR_still_lets_a_candidate_run()
         {
