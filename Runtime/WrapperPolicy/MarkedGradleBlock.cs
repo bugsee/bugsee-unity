@@ -36,6 +36,12 @@ namespace Bugsee.WrapperPolicy
             }
 
             var lines = SplitLines(existing, out string newline);
+            if (HasMarkedLineOfOtherShape(lines, pluginLines))
+            {
+                // A marked `id` line inside a plugins { } block (or a classpath entry) is not an `apply plugin:` line to upgrade in place.
+                throw Refuse(anchorLine);
+            }
+
             bool changed = false;
 
             if (TryUpsertPluginRegion(lines, pluginLines, ndkLines))
@@ -60,27 +66,23 @@ namespace Bugsee.WrapperPolicy
                 return JoinLines(lines, newline);
             }
 
+            // The same lexer as the other scanners: comments, strings and triple-quoted strings (both quote kinds) are not structure.
+            var code = GradleMavenInjection.CodeLines(lines);
             int depth = 0;
-            bool inBlockComment = false;
             int anchorIndex = -1;
             int matchCount = 0;
 
             for (int i = 0; i < lines.Count; i++)
             {
                 string line = lines[i];
-                if (!inBlockComment && depth == 0 &&
-                    string.Equals(line, anchorLine, StringComparison.Ordinal))
+                if (depth == 0 && string.Equals(line, anchorLine, StringComparison.Ordinal) &&
+                    string.Equals(code[i], line, StringComparison.Ordinal))
                 {
-                    if (HasUnclosedBlockCommentOnLine(line))
-                    {
-                        throw Refuse(anchorLine);
-                    }
-
                     matchCount++;
                     anchorIndex = i;
                 }
 
-                ScanLine(line, ref depth, ref inBlockComment);
+                depth += GradleMavenInjection.BraceDelta(code[i]);
             }
 
             if (matchCount != 1)
@@ -89,6 +91,47 @@ namespace Bugsee.WrapperPolicy
             }
 
             return InsertAfterLine(existing, lines, newline, anchorIndex, markedLine);
+        }
+
+        static string LineShape(string line)
+        {
+            string trimmed = line.TrimStart();
+            while (trimmed.StartsWith("//", StringComparison.Ordinal))
+            {
+                trimmed = trimmed.Substring(2).TrimStart();
+            }
+
+            int end = 0;
+            while (end < trimmed.Length && char.IsLetter(trimmed[end]))
+            {
+                end++;
+            }
+
+            return trimmed.Substring(0, end);
+        }
+
+        static bool HasMarkedLineOfOtherShape(List<string> lines, List<string> pluginLines)
+        {
+            string payload = null;
+            foreach (string line in pluginLines)
+            {
+                if (!IsBlank(line))
+                {
+                    payload = LineShape(line);
+                    break;
+                }
+            }
+
+            foreach (string line in lines)
+            {
+                if (line.IndexOf(MarkerComment, StringComparison.Ordinal) >= 0 && payload != null &&
+                    !string.Equals(LineShape(line), payload, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         static string NormalizeNewlines(string text)
@@ -332,11 +375,12 @@ namespace Bugsee.WrapperPolicy
 
         static int FindBugseeBlockEnd(List<string> lines, int bugseeStart)
         {
+            var code = GradleMavenInjection.CodeLines(lines);
             int depth = 0;
             for (int j = bugseeStart; j < lines.Count; j++)
             {
-                depth += CountBraceDelta(lines[j]);
-                if (depth <= 0 && lines[j].IndexOf('}') >= 0)
+                depth += GradleMavenInjection.BraceDelta(code[j]);
+                if (depth <= 0 && code[j].IndexOf('}') >= 0)
                 {
                     return j;
                 }
@@ -399,49 +443,6 @@ namespace Bugsee.WrapperPolicy
             }
 
             return false;
-        }
-
-        static int CountBraceDelta(string line)
-        {
-            int delta = 0;
-            bool inSingle = false;
-            bool inDouble = false;
-            for (int i = 0; i < line.Length; i++)
-            {
-                char c = line[i];
-                if (!inSingle && !inDouble && c == '/' && i + 1 < line.Length && line[i + 1] == '/')
-                {
-                    break;
-                }
-
-                if (c == '\'' && !inDouble)
-                {
-                    inSingle = !inSingle;
-                    continue;
-                }
-
-                if (c == '"' && !inSingle)
-                {
-                    inDouble = !inDouble;
-                    continue;
-                }
-
-                if (inSingle || inDouble)
-                {
-                    continue;
-                }
-
-                if (c == '{')
-                {
-                    delta++;
-                }
-                else if (c == '}')
-                {
-                    delta--;
-                }
-            }
-
-            return delta;
         }
 
         static bool LinesEqual(List<string> lines, int start, int end, List<string> replacement)
@@ -667,71 +668,6 @@ namespace Bugsee.WrapperPolicy
             }
 
             return lines;
-        }
-
-        internal static void ScanLine(string line, ref int depth, ref bool inBlockComment)
-        {
-            for (int i = 0; i < line.Length; i++)
-            {
-                char c = line[i];
-                if (inBlockComment)
-                {
-                    if (c == '*' && i + 1 < line.Length && line[i + 1] == '/')
-                    {
-                        inBlockComment = false;
-                        i++;
-                    }
-
-                    continue;
-                }
-
-                if (c == '/' && i + 1 < line.Length)
-                {
-                    if (line[i + 1] == '/')
-                    {
-                        return;
-                    }
-
-                    if (line[i + 1] == '*')
-                    {
-                        inBlockComment = true;
-                        i++;
-                        continue;
-                    }
-                }
-
-                if (c == '\'' || c == '"')
-                {
-                    char quote = c;
-                    i++;
-                    while (i < line.Length)
-                    {
-                        if (line[i] == '\\' && i + 1 < line.Length)
-                        {
-                            i += 2;
-                            continue;
-                        }
-
-                        if (line[i] == quote)
-                        {
-                            break;
-                        }
-
-                        i++;
-                    }
-
-                    continue;
-                }
-
-                if (c == '{')
-                {
-                    depth++;
-                }
-                else if (c == '}')
-                {
-                    depth--;
-                }
-            }
         }
     }
 }

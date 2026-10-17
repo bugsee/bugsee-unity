@@ -31,10 +31,12 @@ namespace Bugsee.Editor
         public int callbackOrder => 10;
 
         public const string GradlePluginVersion = "4.0.8";
-        const string GradlePluginMarker = "// bugsee:gradle-plugin";
         public const string SdkVersion = BugseePackageVersion.AndroidSdkVersion;
 
         const string PrefForcePlugin = "Bugsee.Android.ForceGradlePlugin";
+
+        // Set (any value) to stop the package from adding Maven Central to the project's plugin or buildscript repositories.
+        const string EnvNoRepoInjection = "BUGSEE_NO_GRADLE_REPO_INJECTION";
 
         /// <summary>The generated Gradle project of the current Android build (the folder with settings.gradle), or null.</summary>
         internal static string GeneratedProjectRoot { get; private set; }
@@ -109,7 +111,9 @@ namespace Bugsee.Editor
             GradlePluginInjection.PluginPatch patch = null;
             if (wanted)
             {
-                patch = GradlePluginInjection.Apply(root, rootDsl, patchedLauncher, launcherDsl, GradlePluginVersion);
+                bool noRepoChange = Environment.GetEnvironmentVariable(EnvNoRepoInjection) != null;
+                string launcherBefore = patchedLauncher;
+                patch = GradlePluginInjection.Apply(root, rootDsl, patchedLauncher, launcherDsl, GradlePluginVersion, !noRepoChange);
                 patchedRoot = patch.Root;
                 patchedLauncher = patch.Launcher;
                 applied = patch.Applied;
@@ -125,9 +129,24 @@ namespace Bugsee.Editor
                     }
                 }
 
-                if (applied && patch.NeedsPluginRepository)
+                if (applied && patch.AddedBuildscriptRepository)
                 {
-                    EnsurePluginRepositories(projectRoot);
+                    Debug.LogWarning(
+                        "[Bugsee] Added mavenCentral() to the buildscript repositories of " + rootPath + " so the Bugsee Gradle plugin " +
+                        "(a classpath entry there) resolves. Set " + EnvNoRepoInjection + " to stop the package from changing project repositories.");
+                }
+
+                if (applied && patch.NeedsPluginRepository && !EnsurePluginRepositories(projectRoot, noRepoChange))
+                {
+                    // The plugin cannot resolve from these settings and the repositories must not be changed: apply nothing.
+                    applied = false;
+                    patchedRoot = root;
+                    patchedLauncher = launcherBefore;
+                    Debug.LogWarning(
+                        "[Bugsee] The pluginManagement repositories of " + projectRoot + " serve neither the plugin portal, Maven Central nor a " +
+                        "repository that includes com.bugsee, and " + EnvNoRepoInjection + " is set, so the Bugsee Gradle plugin was not applied. " +
+                        "Make the plugin resolvable (mavenCentral() or a mirror that serves com.bugsee and com.bugsee.android.gradle in those " +
+                        "repositories). " + GradlePluginInjection.ManualInstructions(launcherDsl, GradlePluginVersion));
                 }
             }
 
@@ -202,22 +221,37 @@ namespace Bugsee.Editor
             }
         }
 
-        /// <summary>The plugin resolves from Maven Central; a settings file that lists plugin repositories without it gets it added.</summary>
-        static void EnsurePluginRepositories(string projectRoot)
+        /// <summary>
+        /// The plugin resolves from Maven Central (or the plugin portal); a settings file that lists plugin repositories serving
+        /// neither gets <c>mavenCentral()</c> appended (last, so repositories listed ahead of it keep their priority). False when
+        /// that is needed but <paramref name="readOnly"/> forbids it.
+        /// </summary>
+        static bool EnsurePluginRepositories(string projectRoot, bool readOnly)
         {
             string settingsPath = BugseeAndroidMavenDependencies.FindGradleFile(projectRoot, "settings");
             if (settingsPath == null)
             {
-                return;
+                return true;
             }
 
             string settings = File.ReadAllText(settingsPath);
             var status = GradleMavenInjection.EnsurePluginRepositories(settings, out string updated);
-            if (status == GradleMavenInjection.RepositoryStatus.Inserted)
+            if (status != GradleMavenInjection.RepositoryStatus.Inserted)
             {
-                File.WriteAllText(settingsPath, updated);
-                Debug.Log("[Bugsee] Added mavenCentral() to the pluginManagement repositories in " + settingsPath + " so the Bugsee Gradle plugin resolves.");
+                return true;
             }
+
+            if (readOnly)
+            {
+                return false;
+            }
+
+            File.WriteAllText(settingsPath, updated);
+            Debug.LogWarning(
+                "[Bugsee] Added mavenCentral() after the existing pluginManagement repositories in " + settingsPath + ": they served neither the " +
+                "plugin portal, Maven Central nor a repository that includes com.bugsee, and the Bugsee Gradle plugin (and its marker artifact) are " +
+                "published to Maven Central. Set " + EnvNoRepoInjection + " to stop the package from changing project repositories.");
+            return true;
         }
 
         static string UnityTemplatePath(string name)

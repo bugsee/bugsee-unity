@@ -25,8 +25,11 @@ namespace Bugsee.WrapperPolicy
         static readonly Regex ClasspathUse = new Regex(
             @"classpath\s*\(?\s*(?<cat>[A-Za-z_]\w*)\.(?<k>[A-Za-z][A-Za-z0-9_.]*)", RegexOptions.CultureInvariant);
 
-        /// <summary>The AGP version <paramref name="build"/> resolves to through <paramref name="catalog"/>, or null.</summary>
-        public static string ResolveAgpVersion(string build, string catalog)
+        /// <summary>
+        /// The AGP version <paramref name="build"/> resolves to through <paramref name="catalog"/>, or null. Only references to the
+        /// catalog called <paramref name="catalogName"/> count (<c>libs</c>, the one <c>gradle/libs.versions.toml</c> defines).
+        /// </summary>
+        public static string ResolveAgpVersion(string build, string catalog, string catalogName = "libs")
         {
             if (build == null || string.IsNullOrEmpty(catalog))
             {
@@ -40,6 +43,11 @@ namespace Bugsee.WrapperPolicy
 
             foreach (Match m in VersionUse.Matches(build))
             {
+                if (m.Groups["cat"].Value != catalogName)
+                {
+                    continue;
+                }
+
                 string key = TrimAccessorSuffix(m.Groups["k"].Value);
                 string value = Lookup(versions, key);
                 string version = value == null ? null : FirstString(value);
@@ -51,6 +59,11 @@ namespace Bugsee.WrapperPolicy
 
             foreach (Match m in AliasUse.Matches(build))
             {
+                if (m.Groups["cat"].Value != catalogName)
+                {
+                    continue;
+                }
+
                 string entry = Lookup(plugins, TrimAccessorSuffix(m.Groups["k"].Value));
                 string id = entry == null ? null : Field(entry, "id");
                 if (id == ApplicationId || id == LibraryId)
@@ -65,6 +78,11 @@ namespace Bugsee.WrapperPolicy
 
             foreach (Match m in ClasspathUse.Matches(build))
             {
+                if (m.Groups["cat"].Value != catalogName)
+                {
+                    continue;
+                }
+
                 string entry = Lookup(libraries, TrimAccessorSuffix(m.Groups["k"].Value));
                 if (entry == null)
                 {
@@ -157,9 +175,11 @@ namespace Bugsee.WrapperPolicy
         {
             var sections = new Dictionary<string, Dictionary<string, string>>();
             Dictionary<string, string> current = null;
+            string tableKey = null;
             foreach (string raw in toml.Replace("\r\n", "\n").Split('\n'))
             {
-                string line = StripComment(raw).Trim();
+                // A TOML literal string ('x') reads like a basic one ("x") for what is looked up here.
+                string line = Regex.Replace(StripComment(raw).Trim(), "'([^']*)'", "\"$1\"");
                 if (line.Length == 0)
                 {
                     continue;
@@ -168,13 +188,42 @@ namespace Bugsee.WrapperPolicy
                 if (line.StartsWith("[", StringComparison.Ordinal) && line.EndsWith("]", StringComparison.Ordinal))
                 {
                     string name = line.Substring(1, line.Length - 2).Trim();
-                    current = new Dictionary<string, string>();
-                    sections[name] = current;
+                    int dot = name.IndexOf('.');
+                    string head = dot > 0 ? name.Substring(0, dot) : null;
+                    if (head == "versions" || head == "plugins" || head == "libraries")
+                    {
+                        // [plugins.android-application]: one entry written as a table of its own.
+                        if (!sections.TryGetValue(head, out current))
+                        {
+                            current = sections[head] = new Dictionary<string, string>();
+                        }
+
+                        tableKey = name.Substring(dot + 1).Trim().Trim('"');
+                        current[tableKey] = string.Empty;
+                    }
+                    else
+                    {
+                        tableKey = null;
+                        current = new Dictionary<string, string>();
+                        sections[name] = current;
+                    }
+
+                    continue;
+                }
+
+                if (current == null)
+                {
+                    continue;
+                }
+
+                if (tableKey != null)
+                {
+                    current[tableKey] += line + ", ";
                     continue;
                 }
 
                 int eq = line.IndexOf('=');
-                if (current == null || eq <= 0)
+                if (eq <= 0)
                 {
                     continue;
                 }

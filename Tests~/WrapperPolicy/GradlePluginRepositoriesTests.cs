@@ -39,7 +39,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string settings = "pluginManagement {\n    repositories {\n        google()\n    }\n}\n\ninclude ':launcher'\n";
 
             Assert.That(Ensure(settings, out string once), Is.EqualTo(GradleMavenInjection.RepositoryStatus.Inserted));
-            Assert.That(once, Does.Contain("    repositories {\n        mavenCentral() // bugsee:maven-repository\n        google()\n"));
+            Assert.That(once, Does.Contain("    repositories {\n        google()\n        mavenCentral() // bugsee:maven-repository\n    }"), "appended last");
             Assert.That(Ensure(once, out string twice), Is.EqualTo(GradleMavenInjection.RepositoryStatus.AlreadyPresent));
             Assert.That(twice, Is.EqualTo(once));
         }

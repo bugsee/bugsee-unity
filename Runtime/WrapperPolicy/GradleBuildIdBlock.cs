@@ -121,18 +121,18 @@ namespace Bugsee.WrapperPolicy
                 return MarkedGradleBlock.JoinLines(lines, newline);
             }
 
+            var code = GradleMavenInjection.CodeLines(lines);
             int depth = 0;
-            bool inBlockComment = false;
             int anchor = -1;
             for (int i = 0; i < lines.Count; i++)
             {
-                if (!inBlockComment && depth == 0 && lines[i].TrimStart().StartsWith("android {", StringComparison.Ordinal))
+                if (depth == 0 && code[i].TrimStart().StartsWith("android {", StringComparison.Ordinal))
                 {
                     anchor = i;
                     break;
                 }
 
-                MarkedGradleBlock.ScanLine(lines[i], ref depth, ref inBlockComment);
+                depth += GradleMavenInjection.BraceDelta(code[i]);
             }
 
             if (anchor < 0)

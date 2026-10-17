@@ -43,6 +43,9 @@ namespace Bugsee.WrapperPolicy
             /// <summary>True when the patch relies on the settings plugin repositories (the <c>plugins { id }</c> DSL), as opposed to a buildscript classpath.</summary>
             public bool NeedsPluginRepository;
 
+            /// <summary>True when <c>mavenCentral()</c> was appended to the root buildscript repositories so the classpath entry resolves.</summary>
+            public bool AddedBuildscriptRepository;
+
             /// <summary>Why the plugin is not applied, or a note about the project's own declarations; null when nothing needs saying.</summary>
             public string Message;
 
@@ -57,9 +60,11 @@ namespace Bugsee.WrapperPolicy
         public static PluginPatch Apply(
             string root, GradleMavenInjection.GradleDsl rootDsl,
             string launcher, GradleMavenInjection.GradleDsl launcherDsl,
-            string pluginVersion)
+            string pluginVersion,
+            bool allowRepositoryInjection = true)
         {
             var patch = new PluginPatch { Root = root, Launcher = launcher };
+            RootShape rootShape = ShapeOfRoot(root);
 
             if (HasUnmarkedDeclaration(launcher))
             {
@@ -85,7 +90,8 @@ namespace Bugsee.WrapperPolicy
                 }
                 else
                 {
-                    declared = TryClasspath(root, rootDsl, pluginVersion);
+                    declared = TryClasspath(root, rootDsl, pluginVersion, allowRepositoryInjection, out bool addedRepository);
+                    patch.AddedBuildscriptRepository = declared != null && addedRepository;
                 }
 
                 if (declared != null)
@@ -96,7 +102,9 @@ namespace Bugsee.WrapperPolicy
             }
 
             // 2. Applied after AGP.
-            if (launcherDsl == GradleMavenInjection.GradleDsl.Groovy && rootDeclares)
+            // Only a launcher that is written in Unity's apply-plugin style: MarkedGradleBlock would otherwise take any
+            // marked line of ours (an `id` entry in a plugins { } block) for an apply line and rewrite it.
+            if (launcherDsl == GradleMavenInjection.GradleDsl.Groovy && rootDeclares && UsesApplyStyle(launcher))
             {
                 string applied = TryMarked(launcher, LauncherAnchor, LauncherGroovyPatch());
                 if (applied != null)
@@ -114,7 +122,8 @@ namespace Bugsee.WrapperPolicy
                 // Leave the root as it was too: a declaration nothing applies is noise.
                 patch.Root = root;
                 patch.NeedsPluginRepository = false;
-                patch.Message = "The Bugsee Gradle plugin was not applied: " + failure + " " + ManualInstructions(launcherDsl, pluginVersion);
+                patch.AddedBuildscriptRepository = false;
+                patch.Message = "The Bugsee Gradle plugin was not applied: " + failure + " " + ManualInstructions(launcherDsl, pluginVersion, rootShape);
                 patch.IsWarning = true;
                 return patch;
             }
@@ -143,8 +152,27 @@ namespace Bugsee.WrapperPolicy
                    $"}} {NdkMarker}";
         }
 
+        /// <summary>How the root build file makes plugins available, which decides the manual instructions.</summary>
+        public enum RootShape
+        {
+            Unknown,
+            PluginsBlock,
+            Buildscript,
+        }
+
+        static RootShape ShapeOfRoot(string root)
+        {
+            var lines = MarkedGradleBlock.SplitLines(root, out _);
+            if (GradleMavenInjection.FindTopLevelBlockOpen(lines, "plugins") >= 0)
+            {
+                return RootShape.PluginsBlock;
+            }
+
+            return GradleMavenInjection.FindTopLevelBlockOpen(lines, "buildscript") >= 0 ? RootShape.Buildscript : RootShape.Unknown;
+        }
+
         /// <summary>What to add by hand, in the DSL of the launcher file, when the package cannot edit it.</summary>
-        public static string ManualInstructions(GradleMavenInjection.GradleDsl dsl, string version)
+        public static string ManualInstructions(GradleMavenInjection.GradleDsl dsl, string version, RootShape root = RootShape.Unknown)
         {
             bool kotlin = dsl == GradleMavenInjection.GradleDsl.Kotlin;
             string id = kotlin ? $"id(\"{PluginId}\") version \"{version}\"" : $"id '{PluginId}' version '{version}'";
@@ -154,10 +182,30 @@ namespace Bugsee.WrapperPolicy
                 ? $"classpath(\"com.bugsee:{PluginArtifact}:{version}\")"
                 : $"classpath 'com.bugsee:{PluginArtifact}:{version}'";
             string apply = kotlin ? $"apply(plugin = \"{PluginId}\")" : $"apply plugin: '{PluginId}'";
-            return $"To use it, add {id} to the plugins {{ }} block of {file}, after the com.android.application plugin, " +
-                   $"and \"bugsee {{ ndk {{ {enabled} }} }}\" below that block (mavenCentral() has to be in the pluginManagement repositories of settings). " +
-                   $"If {file} applies com.android.application with apply instead, put {classpath} in the root buildscript dependencies " +
-                   $"(mavenCentral() in its repositories) and {apply} after that line.";
+            string configure = kotlin
+                ? $"configure<com.bugsee.android.gradle.BugseePluginExtension> {{ ndk {{ {enabled} }} }}"
+                : $"bugsee {{ ndk {{ {enabled} }} }}";
+
+            string block = $"If {file} has a plugins {{ }} block that applies com.android.application, add {id} to it after that entry " +
+                           $"and \"bugsee {{ ndk {{ {enabled} }} }}\" below the block (mavenCentral() has to be in the pluginManagement repositories of settings).";
+            string viaApply;
+            switch (root)
+            {
+                case RootShape.PluginsBlock:
+                    viaApply = $"If {file} applies com.android.application with apply instead, two edits are needed: {id} apply false in the root plugins {{ }} block " +
+                               $"(mavenCentral() in the pluginManagement repositories of settings), and {apply} after the AGP line in {file} (then \"{configure}\" enables NDK support).";
+                    break;
+                case RootShape.Buildscript:
+                    viaApply = $"If {file} applies com.android.application with apply instead, put {classpath} in the root buildscript dependencies " +
+                               $"(mavenCentral() in its repositories) and {apply} after the AGP line in {file} (then \"{configure}\" enables NDK support).";
+                    break;
+                default:
+                    viaApply = $"If {file} applies com.android.application with apply instead, make the plugin available to the root build ({id} apply false in a root plugins {{ }} block, " +
+                               $"or {classpath} in the root buildscript dependencies) and put {apply} after the AGP line in {file} (then \"{configure}\" enables NDK support).";
+                    break;
+            }
+
+            return "To use it: " + block + " " + viaApply;
         }
 
         static string TryMarked(string text, string anchor, string payload)
@@ -172,9 +220,39 @@ namespace Bugsee.WrapperPolicy
             }
         }
 
+        /// <summary>True when the launcher has Unity's apply-plugin line or the apply line this package already wrote.</summary>
+        static bool UsesApplyStyle(string launcher)
+        {
+            var lines = MarkedGradleBlock.SplitLines(launcher, out _);
+            var code = GradleMavenInjection.CodeLines(lines);
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (lines[i] == LauncherAnchor && code[i] == LauncherAnchor)
+                {
+                    return true;
+                }
+
+                if (lines[i].IndexOf(PluginMarker, StringComparison.Ordinal) >= 0 &&
+                    code[i].TrimStart().StartsWith("apply plugin: '" + PluginId + "'", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // How a build file declares the plugin: id('..'), apply plugin: '..', apply(plugin = ".."), classpath '..:bugsee-android-gradle-plugin:..'.
+        // A string that merely names it (plugins.withId('..') { }, a println) is not a declaration.
+        static readonly System.Text.RegularExpressions.Regex DeclarationShape = new System.Text.RegularExpressions.Regex(
+            @"\bid\s*\(?\s*['""]" + System.Text.RegularExpressions.Regex.Escape(PluginId) + @"['""]" +
+            @"|\bapply\s*(?:\(\s*)?plugin\s*[:=]\s*['""]" + System.Text.RegularExpressions.Regex.Escape(PluginId) + @"['""]" +
+            @"|\bclasspath\s*\(?\s*['""][^'""]*:" + PluginArtifact + @":",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
         /// <summary>
-        /// True when a code line (not a comment) names the plugin without the package's marker: the project (or its
-        /// own template) declares it, and that declaration wins.
+        /// True when a code line (not a comment, not a string that only names the plugin) declares the plugin without the
+        /// package's marker: the project (or its own template) declares it, and that declaration wins.
         /// </summary>
         public static bool HasUnmarkedDeclaration(string text)
         {
@@ -195,8 +273,7 @@ namespace Bugsee.WrapperPolicy
                     continue;
                 }
 
-                if (code[i].IndexOf(PluginId, StringComparison.Ordinal) >= 0 ||
-                    code[i].IndexOf(PluginArtifact, StringComparison.Ordinal) >= 0)
+                if (DeclarationShape.IsMatch(code[i]))
                 {
                     return true;
                 }
@@ -210,8 +287,9 @@ namespace Bugsee.WrapperPolicy
         /// its repositories, which a classpath entry resolves from); null when the root has no such block or the
         /// repositories cannot be given Maven Central.
         /// </summary>
-        static string TryClasspath(string root, GradleMavenInjection.GradleDsl dsl, string version)
+        static string TryClasspath(string root, GradleMavenInjection.GradleDsl dsl, string version, bool allowRepositoryChange, out bool addedRepository)
         {
+            addedRepository = false;
             var lines = MarkedGradleBlock.SplitLines(root, out string newline);
             int open = GradleMavenInjection.FindTopLevelBlockOpen(lines, "buildscript");
             if (open < 0 || GradleMavenInjection.IsSingleLineBlock(lines[open]))
@@ -240,15 +318,20 @@ namespace Bugsee.WrapperPolicy
             }
 
             string text = MarkedGradleBlock.JoinLines(lines, newline);
-            var status = GradleMavenInjection.EnsureMavenCentral(text, "buildscript", out string withRepository);
+            var status = GradleMavenInjection.EnsureRepository(text, "buildscript", GradleMavenInjection.RepoKind.Classpath, out string withRepository);
             if (status == GradleMavenInjection.RepositoryStatus.BlockNotFound)
             {
-                if (!GradleMavenInjection.TryAddRepositoriesBlock(text, "buildscript", out withRepository))
+                if (!allowRepositoryChange || !GradleMavenInjection.TryAddRepositoriesBlock(text, "buildscript", out withRepository))
                 {
                     return null;
                 }
             }
+            else if (status == GradleMavenInjection.RepositoryStatus.Inserted && !allowRepositoryChange)
+            {
+                return null;
+            }
 
+            addedRepository = status != GradleMavenInjection.RepositoryStatus.AlreadyPresent;
             return withRepository;
         }
 
@@ -289,7 +372,7 @@ namespace Bugsee.WrapperPolicy
             for (int i = open + 1; i < close; i++)
             {
                 if (code[i].IndexOf("com.android.application", StringComparison.Ordinal) >= 0 ||
-                    System.Text.RegularExpressions.Regex.IsMatch(code[i], @"alias\s*\([^)]*\.application\b"))
+                    System.Text.RegularExpressions.Regex.IsMatch(code[i], @"alias\s*\([^)]*application\s*\)", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                 {
                     agp = i;
                 }

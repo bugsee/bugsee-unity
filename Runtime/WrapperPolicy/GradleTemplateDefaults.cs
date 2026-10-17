@@ -19,6 +19,12 @@ namespace Bugsee.WrapperPolicy
             @"com\.android\.tools\.build:gradle:(?<v>[0-9][^'""\s]*)",
             RegexOptions.CultureInvariant);
 
+        /// <summary>The text with comments removed (string contents kept), by the lexer every Gradle scanner of the package uses.</summary>
+        static string CodeOnly(string text)
+        {
+            return string.Join("\n", GradleMavenInjection.CodeLines(MarkedGradleBlock.SplitLines(text, out _)));
+        }
+
         /// <summary>The Android Gradle plugin major a base project template pins, or -1 when it pins none (or not literally).</summary>
         public static int PinnedAgpMajor(string baseProjectTemplate)
         {
@@ -27,10 +33,11 @@ namespace Bugsee.WrapperPolicy
                 return -1;
             }
 
-            Match m = ApplicationPluginVersion.Match(baseProjectTemplate);
+            string code = CodeOnly(baseProjectTemplate);
+            Match m = ApplicationPluginVersion.Match(code);
             if (!m.Success)
             {
-                m = ClasspathVersion.Match(baseProjectTemplate);
+                m = ClasspathVersion.Match(code);
             }
 
             if (!m.Success)
@@ -73,13 +80,15 @@ namespace Bugsee.WrapperPolicy
                 return false;
             }
 
-            Match m = ApplicationPluginVersion.Match(text);
+            // Comments are not the version: a commented-out `version '9.0.0'` above the real pin must not win.
+            string code = CodeOnly(text);
+            Match m = ApplicationPluginVersion.Match(code);
             if (!m.Success)
             {
-                m = ClasspathVersion.Match(text);
+                m = ClasspathVersion.Match(code);
             }
 
-            string version = m.Success ? m.Groups["v"].Value : GradleVersionCatalog.ResolveAgpVersion(text, catalog);
+            string version = m.Success ? m.Groups["v"].Value : GradleVersionCatalog.ResolveAgpVersion(code, catalog);
             if (version == null)
             {
                 return false;
