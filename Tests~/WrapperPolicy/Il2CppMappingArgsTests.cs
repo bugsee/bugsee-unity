@@ -45,5 +45,16 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             Assert.That(Il2CppArgsRestorePolicy.Decide(buildInProgress: false, currentEqualsApplied: false), Is.EqualTo(SymbolRestoreAction.Discard));
         }
+
+        [Test]
+        public void The_record_is_kept_when_the_restore_threw_and_deleted_in_every_other_case()
+        {
+            // Parsed record, restore threw (caught exception path): the flags are still in Player Settings, keep the way back.
+            Assert.That(Il2CppArgsRestorePolicy.DeleteRecord(recordParsed: true, restoreThrew: true), Is.False);
+            // Restore or a deliberate discard completed.
+            Assert.That(Il2CppArgsRestorePolicy.DeleteRecord(recordParsed: true, restoreThrew: false), Is.True);
+            // Nothing to restore from.
+            Assert.That(Il2CppArgsRestorePolicy.DeleteRecord(recordParsed: false, restoreThrew: false), Is.True);
+        }
     }
 }

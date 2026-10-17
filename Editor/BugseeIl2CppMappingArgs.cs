@@ -103,10 +103,33 @@ namespace Bugsee.Editor
                 return;
             }
 
-            Directory.CreateDirectory(Path.GetDirectoryName(PendingPath));
-            File.WriteAllText(PendingPath, JsonUtility.ToJson(new PendingRestore { previous = previous, applied = applied }));
+            // The record is the only way back to the user's arguments: without it nothing is applied, and an
+            // unwritable Library/Bugsee must not fail the build over this optional feature.
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(PendingPath));
+                File.WriteAllText(PendingPath, JsonUtility.ToJson(new PendingRestore { previous = previous, applied = applied }));
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[Bugsee] Could not save the IL2CPP arguments restore record (" + ex.Message +
+                                 "); not adding the mapping arguments, so the line-number map and MethodMap are not written for this build.");
+                return;
+            }
+
             SessionState.SetBool(InProgressKey, true);
-            PlayerSettings.SetAdditionalIl2CppArgs(applied);
+            try
+            {
+                PlayerSettings.SetAdditionalIl2CppArgs(applied);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[Bugsee] Could not set the additional IL2CPP arguments: " + ex.Message);
+                SessionState.EraseBool(InProgressKey);
+                try { File.Delete(PendingPath); } catch (Exception) { }
+                return;
+            }
+
             EditorApplication.update -= RestoreWhenBuildEnds;
             EditorApplication.update += RestoreWhenBuildEnds;
             Debug.Log("[Bugsee] Building with IL2CPP arguments \"" + applied + "\" so the line-number map and MethodMap are written (restored afterwards).");
@@ -126,10 +149,26 @@ namespace Bugsee.Editor
                 return;
             }
 
+            PendingRestore pending = null;
             try
             {
-                PendingRestore pending = JsonUtility.FromJson<PendingRestore>(File.ReadAllText(PendingPath));
-                if (pending != null)
+                pending = JsonUtility.FromJson<PendingRestore>(File.ReadAllText(PendingPath));
+            }
+            catch (IOException ex)
+            {
+                // Unreadable right now, not unparseable: keep the record for the next attempt.
+                Debug.LogWarning("[Bugsee] Could not read the IL2CPP arguments restore record: " + ex.Message);
+                return;
+            }
+            catch (Exception)
+            {
+                // Unparseable: nothing to restore from.
+            }
+
+            bool restoreThrew = false;
+            if (pending != null)
+            {
+                try
                 {
                     bool unchanged = string.Equals(PlayerSettings.GetAdditionalIl2CppArgs(), pending.applied, StringComparison.Ordinal);
                     switch (Il2CppArgsRestorePolicy.Decide(!force && BuildPipeline.isBuildingPlayer, unchanged))
@@ -145,13 +184,18 @@ namespace Bugsee.Editor
                             break;
                     }
                 }
+                catch (Exception ex)
+                {
+                    restoreThrew = true;
+                    Debug.LogWarning("[Bugsee] Could not restore the additional IL2CPP arguments (the record is kept for the next editor session): " + ex.Message);
+                }
             }
-            catch (Exception ex)
+
+            if (Il2CppArgsRestorePolicy.DeleteRecord(pending != null, restoreThrew))
             {
-                Debug.LogWarning("[Bugsee] Could not restore the additional IL2CPP arguments: " + ex.Message);
+                SessionState.EraseBool(InProgressKey);
+                try { File.Delete(PendingPath); } catch (Exception) { }
             }
-            SessionState.EraseBool(InProgressKey);
-            try { File.Delete(PendingPath); } catch (Exception) { }
         }
     }
 }
