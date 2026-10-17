@@ -53,6 +53,8 @@ namespace Bugsee.WrapperPolicy.Tests
                 string cli = box.Stub("exported dir/bugsee-cli");
                 var run = box.Run(null, IosArchiveUploadScript.Build(cli));
                 Assert.That(run.Output, Does.Contain("using " + cli));
+                // Found first: places after it are not reported as passed over.
+                Assert.That(run.Output, Does.Not.Contain("not on PATH"));
                 Assert.That(run.Calls, Has.Count.GreaterThan(0), run.Output);
                 Assert.That(run.ExitCode, Is.EqualTo(0));
             }

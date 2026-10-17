@@ -88,6 +88,7 @@ try_cli() {
   return 0
 }
 try_command() {
+  [ -z ""${CLI}"" ] || return 0
   case ""$1"" in
     */*) try_cli ""$1"" ;;
     *)
