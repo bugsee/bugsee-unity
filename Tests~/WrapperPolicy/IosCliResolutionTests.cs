@@ -381,7 +381,15 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void The_probe_output_file_is_unpredictable_and_removed()
         {
-            Assert.That(IosArchiveUploadScript.Build(), Does.Contain("mktemp \"${PROBE_DIR}/bugsee-cli-version.XXXXXX\""));
+            string text = IosArchiveUploadScript.Build();
+            Assert.That(text, Does.Contain("mktemp \"${PROBE_DIR}/bugsee-cli-version.XXXXXX\""));
+            // The probe runs in a command substitution: the cleanup trap has to be set inside it, after the file exists.
+            int probe = text.IndexOf("probe_version() {");
+            int create = text.IndexOf("mktemp", probe);
+            int trap = text.IndexOf("trap 'rm -f \"${PROBE_OUT}\"' EXIT", probe);
+            Assert.That(trap, Is.GreaterThan(create));
+            Assert.That(trap, Is.LessThan(text.IndexOf("try_cli() {", probe)));
+            Assert.That(text.IndexOf("trap 'rm -f"), Is.EqualTo(trap), "no other (dead) trap");
             using (var box = new Sandbox(_shell))
             {
                 string tmp = box.Path("tmp");

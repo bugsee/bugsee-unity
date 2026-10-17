@@ -69,14 +69,15 @@ note() {
     $1""
   return 0
 }
-PROBE_OUT=""""
-trap 'rm -f ""${PROBE_OUT}""' EXIT
 # Prints what ""$1 --version"" writes to stdout; fails when it fails or runs longer than the limit: a probe that reads
 # stdin, hangs or ignores SIGTERM must not hold the build (the watchdog sends TERM, then KILL two seconds later).
 probe_version() {
   PROBE_DIR=""${TMPDIR:-/tmp}""
   [ -d ""${PROBE_DIR}"" ] && [ -w ""${PROBE_DIR}"" ] || PROBE_DIR=/tmp
   PROBE_OUT=$(mktemp ""${PROBE_DIR}/bugsee-cli-version.XXXXXX"" 2>/dev/null) || return 1
+  # This runs in a command substitution, so the cleanup is set here: on exit and when the build is cancelled.
+  trap 'rm -f ""${PROBE_OUT}""' EXIT
+  trap 'exit 1' HUP INT TERM
   ""$1"" --version </dev/null >""${PROBE_OUT}"" 2>/dev/null &
   PROBE_PID=$!
   ( sleep ""${BUGSEE_CLI_PROBE_TIMEOUT:-15}"" || :; kill ""${PROBE_PID}"" 2>/dev/null || :; sleep 2 || :; kill -9 ""${PROBE_PID}"" 2>/dev/null || : ) >/dev/null 2>&1 &
