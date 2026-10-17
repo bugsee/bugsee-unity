@@ -7,7 +7,23 @@ namespace Bugsee.WrapperPolicy
     public static class IosArchiveUploadScript
     {
         /// <summary>The script text, written to BugseeScripts/upload-symbols.sh in the exported Xcode project.</summary>
-        public static string Build() => Script.Replace("\r\n", "\n");
+        public static string Build() => Build(null);
+
+        /// <summary>
+        /// The script text with <paramref name="resolvedCliPath"/> (the CLI the Editor found at export time, if any)
+        /// baked in as a candidate: Xcode build phases run with a minimal PATH, so the script cannot rely on finding
+        /// the CLI the way the Editor did.
+        /// </summary>
+        public static string Build(string resolvedCliPath)
+        {
+            string text = Script.Replace("\r\n", "\n");
+            if (string.IsNullOrEmpty(resolvedCliPath) || resolvedCliPath.IndexOfAny(new[] { '\n', '\r', '\0' }) >= 0)
+            {
+                return text;
+            }
+
+            return text.Replace("BAKED_CLI=''\n", "BAKED_CLI='" + resolvedCliPath.Replace("'", "'\\''") + "'\n");
+        }
 
         // Debug builds are the ones tested on devices (Unity's Development Build), and a crash from one is
         // unsymbolicated without its dSYM, so every configuration uploads. Opt out per build environment.
@@ -34,7 +50,47 @@ if [ -z ""${BUGSEE_APP_TOKEN}"" ]; then
   echo ""Bugsee: BUGSEE_APP_TOKEN unset — skip archive symbol upload.""
   exit 0
 fi
-CLI=""${BUGSEE_CLI_PATH:-bugsee-cli}""
+
+# --- resolve bugsee-cli: Xcode runs build phases with a minimal PATH, so a bare lookup often misses an installed CLI.
+# Same order as the Editor: BUGSEE_CLI_PATH, the CLI the Editor found at export time, PATH, the installer and package
+# manager directories, the package's download cache. (BUGSEE_CLI_SYSTEM_DIRS replaces the two system directories; tests.)
+BAKED_CLI=''
+CLI=""""
+TRIED=""""
+try_cli() {
+  [ -n ""$1"" ] || return 0
+  TRIED=""${TRIED}
+    $1""
+  if [ -z ""${CLI}"" ] && [ -f ""$1"" ] && [ -x ""$1"" ]; then CLI=""$1""; fi
+  return 0
+}
+try_command() {
+  case ""$1"" in
+    */*) try_cli ""$1"" ;;
+    *) try_cli ""$(command -v ""$1"" 2>/dev/null || true)"" ;;
+  esac
+  return 0
+}
+[ -z ""${BUGSEE_CLI_PATH}"" ] || try_command ""${BUGSEE_CLI_PATH}""
+try_cli ""${BAKED_CLI}""
+try_command bugsee-cli
+for DIR in ${BUGSEE_CLI_SYSTEM_DIRS-/opt/homebrew/bin /usr/local/bin}; do
+  try_cli ""${DIR}/bugsee-cli""
+done
+if [ -n ""${HOME}"" ]; then
+  try_cli ""${HOME}/.bugsee/bin/bugsee-cli""
+  try_cli ""${HOME}/.local/bin/bugsee-cli""
+  try_cli ""${HOME}/.cargo/bin/bugsee-cli""
+  for CACHED in ""${HOME}/Library/Caches/Bugsee/cli""/*/*/bugsee-cli ""${XDG_CACHE_HOME:-${HOME}/.cache}/bugsee/cli""/*/*/bugsee-cli; do
+    try_cli ""${CACHED}""
+  done
+fi
+if [ -z ""${CLI}"" ]; then
+  echo ""warning: Bugsee: bugsee-cli was not found, so symbols are NOT uploaded (the build continues). Looked at:${TRIED}""
+  echo ""Bugsee: install it (curl --proto '=https' --tlsv1.2 -sSfL https://download.bugsee.com/cli/install.sh | sh) or set BUGSEE_CLI_PATH.""
+  exit 0
+fi
+echo ""Bugsee: using ${CLI}""
 VERSION=""${BUGSEE_VERSION:-${MARKETING_VERSION}}""
 BUILD=""${BUGSEE_BUILD:-${CURRENT_PROJECT_VERSION}}""
 upload() {
