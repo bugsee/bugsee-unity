@@ -75,6 +75,30 @@ namespace Bugsee.Editor
             return _resolved;
         }
 
+        /// <summary>
+        /// The CLI already installed, for baking into the iOS Run Script: no download, no session state, no log. Null
+        /// when none is found. (The Run Script never downloads, so a download here would only be wasted.)
+        /// </summary>
+        public static string FindInstalled()
+        {
+            if (_resolved != null && _resolved.Found && File.Exists(_resolved.Path))
+            {
+                return _resolved.Path;
+            }
+
+            try
+            {
+                CliSettings settings = ReadSettings(quiet: true);
+                settings.DownloadAllowed = false;
+                var resolution = BugseeCliPolicy.Resolve(settings, new CliProbe { FileExists = File.Exists, QueryVersion = QueryVersion });
+                return resolution.Found ? resolution.Path : null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         /// <summary>Warns once per build that no CLI was found; false when one was.</summary>
         public static bool ReportIfMissing()
         {
@@ -119,7 +143,7 @@ namespace Bugsee.Editor
             : RuntimeInformation.IsOSPlatform(OSPlatform.Linux) ? "linux"
             : IsWindows ? "windows" : "";
 
-        static CliSettings ReadSettings()
+        static CliSettings ReadSettings(bool quiet = false)
         {
             string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             string localAppData = IsWindows ? Environment.GetEnvironmentVariable("LOCALAPPDATA") : null;
@@ -127,12 +151,12 @@ namespace Bugsee.Editor
             version = string.IsNullOrWhiteSpace(version) ? null : version.Trim().TrimStart('v');
             if (version != null && !BugseeCliPolicy.IsValidVersion(version))
             {
-                Debug.LogWarning("[Bugsee] Ignoring BUGSEE_CLI_VERSION=" + version + ": not a release version like 0.8.1. Using " + BugseeCliPolicy.DefaultVersion + ".");
+                if (!quiet) Debug.LogWarning("[Bugsee] Ignoring BUGSEE_CLI_VERSION=" + version + ": not a release version like 0.8.1. Using " + BugseeCliPolicy.DefaultVersion + ".");
                 version = null;
             }
             else if (version != null && !BugseeCliPolicy.VersionAtLeast(version, BugseeCliPolicy.MinVersion))
             {
-                Debug.LogWarning("[Bugsee] Ignoring BUGSEE_CLI_VERSION=" + version + ": older than " + BugseeCliPolicy.MinVersion + ", which the uploads need. Using " + BugseeCliPolicy.DefaultVersion + ".");
+                if (!quiet) Debug.LogWarning("[Bugsee] Ignoring BUGSEE_CLI_VERSION=" + version + ": older than " + BugseeCliPolicy.MinVersion + ", which the uploads need. Using " + BugseeCliPolicy.DefaultVersion + ".");
                 version = null;
             }
 
