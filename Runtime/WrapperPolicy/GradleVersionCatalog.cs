@@ -19,7 +19,7 @@ namespace Bugsee.WrapperPolicy
             @"alias\s*\(\s*(?<cat>[A-Za-z_]\w*)\.plugins\.(?<k>[A-Za-z0-9_.]+?)\s*\)", RegexOptions.CultureInvariant);
 
         static readonly Regex VersionUse = new Regex(
-            @"id\s*\(?\s*['""](?:com\.android\.application|com\.android\.library)['""]\s*\)?\s*version\s*\(?\s*(?<cat>[A-Za-z_]\w*)\.versions\.(?<k>[A-Za-z0-9_.]+)",
+            @"id\s*\(?\s*['""](?:com\.android\.application|com\.android\.library)['""]\s*\)?\s*\.?\s*version\s*\(?\s*(?<cat>[A-Za-z_]\w*)\.versions\.(?<k>[A-Za-z0-9_.]+)",
             RegexOptions.CultureInvariant);
 
         static readonly Regex ClasspathUse = new Regex(

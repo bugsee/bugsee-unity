@@ -12,7 +12,7 @@ namespace Bugsee.WrapperPolicy
     public static class GradleTemplateDefaults
     {
         static readonly Regex ApplicationPluginVersion = new Regex(
-            @"id\s*\(?\s*['""]com\.android\.application['""]\s*\)?\s*version\s*\(?\s*['""](?<v>[^'""]+)['""]",
+            @"id\s*\(?\s*['""]com\.android\.application['""]\s*\)?\s*\.?\s*version\s*\(?\s*['""](?<v>[^'""]+)['""]",
             RegexOptions.CultureInvariant);
 
         static readonly Regex ClasspathVersion = new Regex(
@@ -100,7 +100,14 @@ namespace Bugsee.WrapperPolicy
                 return false;
             }
 
-            minor = parts.Length > 1 && int.TryParse(parts[1], out int mi) ? mi : 0;
+            minor = 0;
+            if (parts.Length > 1 && !int.TryParse(parts[1], out minor))
+            {
+                // `8.+` or `8.x`: a range, not a version.
+                major = minor = -1;
+                return false;
+            }
+
             return true;
         }
 

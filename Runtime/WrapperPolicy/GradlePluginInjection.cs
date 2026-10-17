@@ -107,7 +107,7 @@ namespace Bugsee.WrapperPolicy
             if (launcherDsl == GradleMavenInjection.GradleDsl.Groovy && rootDeclares && UsesApplyStyle(launcher))
             {
                 string applied = TryMarked(launcher, LauncherAnchor, LauncherGroovyPatch());
-                if (applied != null)
+                if (applied != null && UsesApplyStyle(applied) && HasMarkedApplyLine(applied))
                 {
                     patch.Launcher = applied;
                     patch.Applied = true;
@@ -123,7 +123,7 @@ namespace Bugsee.WrapperPolicy
                 patch.Root = root;
                 patch.NeedsPluginRepository = false;
                 patch.AddedBuildscriptRepository = false;
-                patch.Message = "The Bugsee Gradle plugin was not applied: " + failure + " " + ManualInstructions(launcherDsl, pluginVersion, rootShape);
+                patch.Message = "The Bugsee Gradle plugin was not applied: " + failure + " " + ManualInstructions(launcherDsl, pluginVersion, rootShape, rootDsl);
                 patch.IsWarning = true;
                 return patch;
             }
@@ -172,9 +172,16 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>What to add by hand, in the DSL of the launcher file, when the package cannot edit it.</summary>
-        public static string ManualInstructions(GradleMavenInjection.GradleDsl dsl, string version, RootShape root = RootShape.Unknown)
+        public static string ManualInstructions(
+            GradleMavenInjection.GradleDsl dsl, string version, RootShape root = RootShape.Unknown, GradleMavenInjection.GradleDsl? rootDsl = null)
         {
             bool kotlin = dsl == GradleMavenInjection.GradleDsl.Kotlin;
+            // The root edit is written in the root file's DSL, which can differ from the launcher's.
+            bool rootKotlin = (rootDsl ?? dsl) == GradleMavenInjection.GradleDsl.Kotlin;
+            string rootId = rootKotlin ? $"id(\"{PluginId}\") version \"{version}\"" : $"id '{PluginId}' version '{version}'";
+            string rootClasspath = rootKotlin
+                ? $"classpath(\"com.bugsee:{PluginArtifact}:{version}\")"
+                : $"classpath 'com.bugsee:{PluginArtifact}:{version}'";
             string id = kotlin ? $"id(\"{PluginId}\") version \"{version}\"" : $"id '{PluginId}' version '{version}'";
             string enabled = kotlin ? "enabled.set(true)" : "enabled = true";
             string file = kotlin ? "launcher/build.gradle.kts" : "launcher/build.gradle";
@@ -192,16 +199,16 @@ namespace Bugsee.WrapperPolicy
             switch (root)
             {
                 case RootShape.PluginsBlock:
-                    viaApply = $"If {file} applies com.android.application with apply instead, two edits are needed: {id} apply false in the root plugins {{ }} block " +
+                    viaApply = $"If {file} applies com.android.application with apply instead, two edits are needed: {rootId} apply false in the root plugins {{ }} block " +
                                $"(mavenCentral() in the pluginManagement repositories of settings), and {apply} after the AGP line in {file} (then \"{configure}\" enables NDK support).";
                     break;
                 case RootShape.Buildscript:
-                    viaApply = $"If {file} applies com.android.application with apply instead, put {classpath} in the root buildscript dependencies " +
+                    viaApply = $"If {file} applies com.android.application with apply instead, put {rootClasspath} in the root buildscript dependencies " +
                                $"(mavenCentral() in its repositories) and {apply} after the AGP line in {file} (then \"{configure}\" enables NDK support).";
                     break;
                 default:
-                    viaApply = $"If {file} applies com.android.application with apply instead, make the plugin available to the root build ({id} apply false in a root plugins {{ }} block, " +
-                               $"or {classpath} in the root buildscript dependencies) and put {apply} after the AGP line in {file} (then \"{configure}\" enables NDK support).";
+                    viaApply = $"If {file} applies com.android.application with apply instead, make the plugin available to the root build ({rootId} apply false in a root plugins {{ }} block, " +
+                               $"or {rootClasspath} in the root buildscript dependencies) and put {apply} after the AGP line in {file} (then \"{configure}\" enables NDK support).";
                     break;
             }
 
@@ -242,11 +249,26 @@ namespace Bugsee.WrapperPolicy
             return false;
         }
 
+        static bool HasMarkedApplyLine(string launcher)
+        {
+            foreach (string line in MarkedGradleBlock.SplitLines(launcher, out _))
+            {
+                if (line.IndexOf(PluginMarker, StringComparison.Ordinal) >= 0 &&
+                    line.TrimStart().StartsWith("apply plugin: '" + PluginId + "'", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         // How a build file declares the plugin: id('..'), apply plugin: '..', apply(plugin = ".."), classpath '..:bugsee-android-gradle-plugin:..'.
         // A string that merely names it (plugins.withId('..') { }, a println) is not a declaration.
         static readonly System.Text.RegularExpressions.Regex DeclarationShape = new System.Text.RegularExpressions.Regex(
             @"\bid\s*\(?\s*['""]" + System.Text.RegularExpressions.Regex.Escape(PluginId) + @"['""]" +
             @"|\bapply\s*(?:\(\s*)?plugin\s*[:=]\s*['""]" + System.Text.RegularExpressions.Regex.Escape(PluginId) + @"['""]" +
+            @"|\b(?:pluginManager|plugins)\s*\.\s*apply\s*\(\s*(?:['""]|plugin\s*=\s*['""])" + System.Text.RegularExpressions.Regex.Escape(PluginId) + @"['""]" +
             @"|\bclasspath\s*\(?\s*['""][^'""]*:" + PluginArtifact + @":",
             System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
@@ -369,13 +391,32 @@ namespace Bugsee.WrapperPolicy
 
             int close = GradleMavenInjection.FindBlockClose(lines, open);
             int agp = -1;
-            for (int i = open + 1; i < close; i++)
+            for (int i = open; i <= close; i++)
             {
-                if (code[i].IndexOf("com.android.application", StringComparison.Ordinal) >= 0 ||
-                    System.Text.RegularExpressions.Regex.IsMatch(code[i], @"alias\s*\([^)]*application\s*\)", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                // `plugins { id '...'` and `id '...' }` put entries on the brace lines: only the text inside the braces counts.
+                string inside = code[i];
+                if (i == open)
+                {
+                    inside = inside.Substring(inside.IndexOf('{') + 1);
+                }
+
+                if (i == close)
+                {
+                    int closeBrace = inside.LastIndexOf('}');
+                    inside = closeBrace < 0 ? inside : inside.Substring(0, closeBrace);
+                }
+
+                if (inside.IndexOf("com.android.application", StringComparison.Ordinal) >= 0 ||
+                    System.Text.RegularExpressions.Regex.IsMatch(inside, @"alias\s*\([^)]*application\s*\)", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                 {
                     agp = i;
                 }
+            }
+
+            if (agp == close)
+            {
+                failure = "the launcher's plugins { } block ends on the line of its last entry, and the plugin must be applied after it.";
+                return null;
             }
 
             int marked = lines.FindIndex(open, close - open + 1, l => l.IndexOf(PluginMarker, StringComparison.Ordinal) >= 0);
@@ -398,7 +439,7 @@ namespace Bugsee.WrapperPolicy
             else
             {
                 // After the last entry: anything between the AGP entry and the end of the block applies later still.
-                string indent = GradleMavenInjection.LeadingWhitespace(lines[agp]);
+                string indent = GradleMavenInjection.LeadingWhitespace(lines[agp]) + (agp == open ? "    " : string.Empty);
                 lines.Insert(close, indent + entry + " " + PluginMarker);
                 close++;
             }

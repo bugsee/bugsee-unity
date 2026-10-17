@@ -90,7 +90,22 @@ namespace Bugsee.WrapperPolicy
                 throw Refuse(anchorLine);
             }
 
-            return InsertAfterLine(existing, lines, newline, anchorIndex, markedLine);
+            // A bugsee { } block that is already there (the project's own, or ours without its plugin line) is not duplicated.
+            string payload = ndkLines != null && HasAnyBugseeBlock(lines) ? string.Join("\n", pluginLines) : markedLine;
+            return InsertAfterLine(existing, lines, newline, anchorIndex, payload);
+        }
+
+        static bool HasAnyBugseeBlock(List<string> lines)
+        {
+            foreach (string line in lines)
+            {
+                if (line.TrimStart().StartsWith("bugsee {", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         static string LineShape(string line)
@@ -180,7 +195,8 @@ namespace Bugsee.WrapperPolicy
             var lines = SplitLines(existing, out _);
             if (!TryFindNdkRegion(lines, out int start, out int end))
             {
-                return false;
+                // A bugsee { } block the project wrote itself stays as it is: nothing of ours to bring up to date.
+                return HasAnyBugseeBlock(lines);
             }
 
             return LinesEqual(lines, start, end, ndkLines);
@@ -354,10 +370,11 @@ namespace Bugsee.WrapperPolicy
 
         static int FindContiguousPluginEnd(List<string> lines, int start)
         {
-            return ExtendThroughContiguousBugsee(lines, start);
+            // Only a block that carries our own end marker belongs to the plugin line; one the project wrote stays out of the region.
+            return ExtendThroughContiguousBugsee(lines, start, ownedOnly: true);
         }
 
-        static int ExtendThroughContiguousBugsee(List<string> lines, int end)
+        static int ExtendThroughContiguousBugsee(List<string> lines, int end, bool ownedOnly = false)
         {
             int i = end + 1;
             while (i < lines.Count && IsBlank(lines[i]))
@@ -370,7 +387,13 @@ namespace Bugsee.WrapperPolicy
                 return end;
             }
 
-            return FindBugseeBlockEnd(lines, i);
+            int blockEnd = FindBugseeBlockEnd(lines, i);
+            if (ownedOnly && lines[blockEnd].IndexOf(NdkMarkerComment, StringComparison.Ordinal) < 0)
+            {
+                return end;
+            }
+
+            return blockEnd;
         }
 
         static int FindBugseeBlockEnd(List<string> lines, int bugseeStart)
@@ -414,9 +437,10 @@ namespace Bugsee.WrapperPolicy
                 return true;
             }
 
+            // An unmarked block counts as ours only under the legacy marker comment an earlier package version wrote; ours carry the ndk marker.
             for (int i = 0; i < lines.Count; i++)
             {
-                if (!lines[i].TrimStart().StartsWith("bugsee {", StringComparison.Ordinal))
+                if (!lines[i].TrimStart().StartsWith("bugsee {", StringComparison.Ordinal) || !FollowsPluginLine(lines, i))
                 {
                     continue;
                 }
@@ -427,6 +451,19 @@ namespace Bugsee.WrapperPolicy
             }
 
             return false;
+        }
+
+        static bool FollowsPluginLine(List<string> lines, int blockStart)
+        {
+            int p = blockStart - 1;
+            while (p >= 0 && IsBlank(lines[p]))
+            {
+                p--;
+            }
+
+            return p >= 0 &&
+                   (string.Equals(lines[p].Trim(), LegacyMarkerComment, StringComparison.Ordinal) ||
+                    (p > 0 && string.Equals(lines[p - 1].Trim(), LegacyMarkerComment, StringComparison.Ordinal)));
         }
 
         static bool TryFindPluginLineIndex(List<string> lines, out int pluginIndex)
@@ -547,80 +584,6 @@ namespace Bugsee.WrapperPolicy
         {
             return new InvalidOperationException(
                 "Gradle edit refused; expected a single anchor line: " + anchorLine);
-        }
-
-        static bool HasUnclosedBlockCommentOnLine(string line)
-        {
-            int search = 0;
-            while (search < line.Length)
-            {
-                int open = IndexOfOutsideStrings(line, "/*", search);
-                if (open < 0)
-                {
-                    return false;
-                }
-
-                int close = IndexOfOutsideStrings(line, "*/", open + 2);
-                if (close < 0)
-                {
-                    return true;
-                }
-
-                search = close + 2;
-            }
-
-            return false;
-        }
-
-        static int IndexOfOutsideStrings(string line, string token, int start)
-        {
-            bool inSingle = false;
-            bool inDouble = false;
-            for (int i = start; i <= line.Length - token.Length; i++)
-            {
-                char c = line[i];
-                if (!inSingle && !inDouble && c == '/' && i + 1 < line.Length && line[i + 1] == '/')
-                {
-                    break;
-                }
-
-                if (!inSingle && !inDouble && c == '/' && i + 1 < line.Length && line[i + 1] == '*')
-                {
-                    if (StartsWithAt(line, i, token))
-                    {
-                        return i;
-                    }
-                }
-
-                if (c == '\'' && !inDouble)
-                {
-                    inSingle = !inSingle;
-                    continue;
-                }
-
-                if (c == '"' && !inSingle)
-                {
-                    inDouble = !inDouble;
-                    continue;
-                }
-
-                if (!inSingle && !inDouble && StartsWithAt(line, i, token))
-                {
-                    return i;
-                }
-            }
-
-            return -1;
-        }
-
-        static bool StartsWithAt(string line, int index, string token)
-        {
-            if (index + token.Length > line.Length)
-            {
-                return false;
-            }
-
-            return string.Compare(line, index, token, 0, token.Length, StringComparison.Ordinal) == 0;
         }
 
         static bool IsActiveBugseePluginLine(string line)

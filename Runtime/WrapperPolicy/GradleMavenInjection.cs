@@ -289,6 +289,50 @@ namespace Bugsee.WrapperPolicy
                 return RepositoryStatus.AlreadyPresent;
             }
 
+            if (last)
+            {
+                // Appended after the last entry. The closing brace is found by lexing (a comment after it may hold braces), and an
+                // entry that shares the closing line (`google() }`) is split off it so the new line really comes last.
+                var code = CodeLines(lines);
+                int depthAtStart = 0;
+                for (int i = reposOpen; i < reposClose; i++)
+                {
+                    depthAtStart += BraceDelta(code[i]);
+                }
+
+                int closeAt = CloseBraceIndex(lines[reposClose], reposOpen == reposClose ? 0 : depthAtStart);
+                if (closeAt < 0)
+                {
+                    return RepositoryStatus.BlockNotFound;
+                }
+
+                string before = lines[reposClose].Substring(0, closeAt);
+                string rest = lines[reposClose].Substring(closeAt);
+                if (reposOpen == reposClose)
+                {
+                    lines[reposClose] = before.TrimEnd() + "; mavenCentral() " + rest;
+                }
+                else
+                {
+                    string entryIndent = LeadingWhitespace(lines[reposOpen]) + "    ";
+                    var tail = new List<string>();
+                    if (before.Trim().Length > 0)
+                    {
+                        lines[reposClose] = before.TrimEnd();
+                        tail.Add(entryIndent + "mavenCentral() " + RepositoryMarker);
+                        tail.Add(LeadingWhitespace(lines[reposOpen]) + rest);
+                        lines.InsertRange(reposClose + 1, tail);
+                    }
+                    else
+                    {
+                        lines.Insert(reposClose, entryIndent + "mavenCentral() " + RepositoryMarker);
+                    }
+                }
+
+                updated = JoinLines(lines, newline, gradle.EndsWith("\n", StringComparison.Ordinal));
+                return RepositoryStatus.Inserted;
+            }
+
             if (reposOpen == reposClose)
             {
                 // `repositories { google() }` on one line: a new line would be a sibling statement, and a
@@ -300,29 +344,74 @@ namespace Bugsee.WrapperPolicy
                     return RepositoryStatus.BlockNotFound;
                 }
 
-                if (last)
-                {
-                    int closeBrace = lines[reposOpen].LastIndexOf('}');
-                    if (closeBrace <= brace)
-                    {
-                        return RepositoryStatus.BlockNotFound;
-                    }
-
-                    lines[reposOpen] = lines[reposOpen].Substring(0, closeBrace).TrimEnd() + "; mavenCentral() " + lines[reposOpen].Substring(closeBrace);
-                }
-                else
-                {
-                    lines[reposOpen] = lines[reposOpen].Insert(brace + 1, " mavenCentral();");
-                }
-
+                lines[reposOpen] = lines[reposOpen].Insert(brace + 1, " mavenCentral();");
                 updated = JoinLines(lines, newline, gradle.EndsWith("\n", StringComparison.Ordinal));
                 return RepositoryStatus.Inserted;
             }
 
             string indent = LeadingWhitespace(lines[reposOpen]) + "    ";
-            lines.Insert(last ? reposClose : reposOpen + 1, indent + "mavenCentral() " + RepositoryMarker);
+            lines.Insert(reposOpen + 1, indent + "mavenCentral() " + RepositoryMarker);
             updated = JoinLines(lines, newline, gradle.EndsWith("\n", StringComparison.Ordinal));
             return RepositoryStatus.Inserted;
+        }
+
+        /// <summary>
+        /// Index in <paramref name="line"/> of the <c>}</c> that brings the brace depth, starting at <paramref name="depthAtStart"/>,
+        /// to zero (strings and comments skipped; a first line starts at zero and its opening brace raises the depth); -1 when none.
+        /// </summary>
+        static int CloseBraceIndex(string line, int depthAtStart)
+        {
+            int depth = depthAtStart;
+            char quote = '\0';
+            for (int i = 0; i < line.Length; i++)
+            {
+                char c = line[i];
+                if (quote != '\0')
+                {
+                    if (c == '\\')
+                    {
+                        i++;
+                    }
+                    else if (c == quote)
+                    {
+                        quote = '\0';
+                    }
+
+                    continue;
+                }
+
+                if (c == '/' && i + 1 < line.Length && line[i + 1] == '/')
+                {
+                    return -1;
+                }
+
+                if (c == '/' && i + 1 < line.Length && line[i + 1] == '*')
+                {
+                    int end = line.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                    if (end < 0)
+                    {
+                        return -1;
+                    }
+
+                    i = end + 1;
+                    continue;
+                }
+
+                if (c == '\'' || c == '"')
+                {
+                    quote = c;
+                }
+                else if (c == '{')
+                {
+                    depth++;
+                }
+                else if (c == '}' && --depth == 0)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
         }
 
         /// <summary>
@@ -1259,6 +1348,37 @@ namespace Bugsee.WrapperPolicy
                 }
             }
 
+            // Kotlin shorthands: maven("https://...") and maven(url = "...") [{ content { } }].
+            foreach (System.Text.RegularExpressions.Match m in
+                     System.Text.RegularExpressions.Regex.Matches(masked, @"\bmaven\s*\("))
+            {
+                int openParen = m.Index + m.Length - 1;
+                int closeParen = MatchingClose(block, openParen);
+                if (closeParen < 0)
+                {
+                    continue;
+                }
+
+                string args = block.Substring(openParen + 1, closeParen - openParen - 1);
+                string body = args;
+                int after = SkipWhitespace(block, closeParen + 1);
+                if (after < block.Length && block[after] == '{')
+                {
+                    int closeBrace = MatchingClose(masked, after);
+                    body += " " + (closeBrace < 0 ? block.Substring(after + 1) : block.Substring(after + 1, closeBrace - after - 1));
+                }
+
+                bool central = args.IndexOf("repo.maven.apache.org/maven2", StringComparison.Ordinal) >= 0 ||
+                               args.IndexOf("repo1.maven.org/maven2", StringComparison.Ordinal) >= 0 ||
+                               (plugins && args.IndexOf("plugins.gradle.org/m2", StringComparison.Ordinal) >= 0);
+                bool claimed = plugins && !central && ContentFilterServesBugsee(body, "content", targets, requireInclude: true);
+                if ((central || claimed) && ContentFilterServesBugsee(body, "content", targets) &&
+                    ExclusiveFiltersServe(block, exclusive, m.Index, targets))
+                {
+                    return true;
+                }
+            }
+
             foreach (System.Text.RegularExpressions.Match m in
                      System.Text.RegularExpressions.Regex.Matches(masked, plugins ? @"\b(?:mavenCentral|gradlePluginPortal)\b" : @"\bmavenCentral\b"))
             {
@@ -1436,22 +1556,28 @@ namespace Bugsee.WrapperPolicy
         {
             try
             {
-                return System.Text.RegularExpressions.Regex.IsMatch(input, "^(?:" + pattern + ")$");
+                // A project's own filter regex runs inside the Editor build step: bound it.
+                return System.Text.RegularExpressions.Regex.IsMatch(
+                    input, "^(?:" + pattern + ")$", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(500));
             }
             catch (ArgumentException)
+            {
+                return true;
+            }
+            catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
             {
                 return true;
             }
         }
 
         /// <summary>Each line reduced to its code (comments removed, string contents kept, their braces blanked), for structure scans.</summary>
-        internal static List<string> CodeLines(List<string> lines, bool blankStrings = false)
+        internal static List<string> CodeLines(List<string> lines)
         {
             var state = new LexState();
             var code = new List<string>(lines.Count);
             foreach (string line in lines)
             {
-                code.Add(StripComments(line, ref state, blankStrings));
+                code.Add(StripComments(line, ref state));
             }
 
             return code;
@@ -1556,7 +1682,7 @@ namespace Bugsee.WrapperPolicy
         /// The code part of a line: comments removed, string literal contents kept (they hold the
         /// coordinates) but their braces blanked so they do not count as structure.
         /// </summary>
-        static string StripComments(string line, ref LexState inBlockComment, bool blankStrings = false)
+        static string StripComments(string line, ref LexState inBlockComment)
         {
             var sb = new StringBuilder(line.Length);
             char quote = '\0';
@@ -1589,7 +1715,7 @@ namespace Bugsee.WrapperPolicy
                 {
                     if (c == '\\' && i + 1 < line.Length)
                     {
-                        sb.Append(blankStrings ? "  " : c.ToString() + line[i + 1]);
+                        sb.Append(c).Append(line[i + 1]);
                         i++;
                         continue;
                     }
@@ -1599,7 +1725,7 @@ namespace Bugsee.WrapperPolicy
                         quote = '\0';
                     }
 
-                    sb.Append(c == '{' || c == '}' || (blankStrings && c != quote) ? ' ' : c);
+                    sb.Append(c == '{' || c == '}' ? ' ' : c);
                     continue;
                 }
 

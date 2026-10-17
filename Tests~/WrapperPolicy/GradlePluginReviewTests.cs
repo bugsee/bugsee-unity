@@ -41,6 +41,12 @@ namespace Bugsee.WrapperPolicy.Tests
             yield return new TestCaseData("kotlin", KotlinRoot, Kotlin, KotlinPluginsLauncher, Kotlin);
             yield return new TestCaseData("catalog alias", CatalogRoot, Kotlin, CatalogLauncher, Kotlin);
             yield return new TestCaseData("groovy root, kotlin launcher", UnityRoot, Groovy, KotlinPluginsLauncher, Kotlin);
+            yield return new TestCaseData("foreign bugsee block, unity launcher", unityRoot, Groovy, unityLauncher + "\nbugsee {\n    debug = true\n}\n", Groovy);
+            yield return new TestCaseData("foreign bugsee block right after the anchor", unityRoot, Groovy,
+                unityLauncher.Replace("apply plugin: 'com.android.application'\n", "apply plugin: 'com.android.application'\n\nbugsee {\n    debug = true\n}\n"), Groovy);
+            yield return new TestCaseData("foreign bugsee block, kotlin launcher", KotlinRoot, Kotlin, KotlinPluginsLauncher + "\nbugsee {\n    debug.set(true)\n}\n", Kotlin);
+            yield return new TestCaseData("odd anchor spacing is left to the block path", UnityRoot, Groovy, "plugins {\n    id 'com.android.application' version '9.0.0'\n}\n", Groovy);
+            yield return new TestCaseData("brace on the first line", UnityRoot, Groovy, "plugins { id 'com.android.application'\n}\n\nandroid {\n}\n", Groovy);
         }
 
         [TestCaseSource(nameof(Shapes))]
@@ -66,8 +72,12 @@ namespace Bugsee.WrapperPolicy.Tests
             var once = GradlePluginInjection.Apply(root, rootDsl, launcher, launcherDsl, Version);
             var bumped = GradlePluginInjection.Apply(once.Root, rootDsl, once.Launcher, launcherDsl, "4.1.0");
 
-            Assert.That(bumped.Root + bumped.Launcher, Does.Not.Contain("4.0.8"), name);
-            Assert.That(bumped.Root + bumped.Launcher, Does.Contain("4.1.0").Or.Contain("gradle'"), name);
+            string all = bumped.Root + bumped.Launcher;
+            Assert.That(all, Does.Not.Contain("4.0.8"), name);
+            // Every shape that writes a version writes exactly one marked line carrying the new one; the others write none.
+            int withVersion = System.Text.RegularExpressions.Regex.Matches(all, @"com\.bugsee[^\n]*4\.1\.0[^\n]*// bugsee:gradle-plugin").Count;
+            bool carriesVersion = (once.Root + once.Launcher).Contains("4.0.8");
+            Assert.That(withVersion, Is.EqualTo(carriesVersion ? 1 : 0), name);
             Assert.That(GradlePluginInjection.Apply(bumped.Root, rootDsl, bumped.Launcher, launcherDsl, "4.1.0").Launcher, Is.EqualTo(bumped.Launcher), name);
         }
 
@@ -81,7 +91,140 @@ namespace Bugsee.WrapperPolicy.Tests
                 launcher, "apply plugin: 'com.android.application'", GradlePluginInjection.LauncherGroovyPatch()));
         }
 
+        // ---- a bugsee block or a plugin application the project wrote itself ------------------------------
+
+        [Test]
+        public void A_launchers_own_bugsee_block_is_kept_and_the_apply_line_is_still_added_once()
+        {
+            string launcher = Read("Unity6000.0.84f1-default", "launcher.build.gradle") + "\nbugsee {\n    debug = true\n}\n";
+            string root = Read("Unity6000.0.84f1-default", "root.build.gradle");
+
+            var once = GradlePluginInjection.Apply(root, Groovy, launcher, Groovy, Version);
+            var twice = GradlePluginInjection.Apply(once.Root, Groovy, once.Launcher, Groovy, Version);
+
+            Assert.That(once.Applied, Is.True);
+            Assert.That(once.Launcher, Does.Contain("apply plugin: 'com.bugsee.android.gradle' // bugsee:gradle-plugin"));
+            Assert.That(once.Launcher, Does.Contain("bugsee {\n    debug = true\n}"));
+            Assert.That(once.Launcher, Does.Not.Contain("bugsee:gradle-ndk"), "the project configures the plugin itself");
+            Assert.That(System.Text.RegularExpressions.Regex.Matches(once.Launcher, @"^bugsee \{", System.Text.RegularExpressions.RegexOptions.Multiline).Count, Is.EqualTo(1));
+            Assert.That(twice.Launcher, Is.EqualTo(once.Launcher));
+        }
+
+        [Test]
+        public void An_own_bugsee_block_next_to_the_apply_line_is_not_swallowed_by_our_region()
+        {
+            string launcher = "apply plugin: 'com.android.application'\n\nbugsee {\n    debug = true\n}\n\nandroid {\n}\n";
+
+            var once = GradlePluginInjection.Apply(UnityRoot, Groovy, launcher, Groovy, Version);
+            var twice = GradlePluginInjection.Apply(once.Root, Groovy, once.Launcher, Groovy, Version);
+
+            Assert.That(once.Launcher, Does.Contain("bugsee {\n    debug = true\n}"));
+            Assert.That(once.Launcher, Does.Not.Contain("enabled = true"));
+            Assert.That(twice.Launcher, Is.EqualTo(once.Launcher));
+        }
+
+        [TestCase("pluginManager.apply('com.bugsee.android.gradle')\n")]
+        [TestCase("plugins.apply('com.bugsee.android.gradle')\n")]
+        [TestCase("pluginManager.apply(\"com.bugsee.android.gradle\")\n")]
+        public void A_plugin_applied_through_the_plugin_manager_is_the_projects_own_declaration(string line)
+        {
+            Assert.That(GradlePluginInjection.HasUnmarkedDeclaration(line), Is.True);
+            string launcher = "apply plugin: 'com.android.application'\n" + line + "\nandroid {\n}\n";
+
+            var patch = GradlePluginInjection.Apply(UnityRoot, Groovy, launcher, Groovy, Version);
+
+            Assert.That(patch.Launcher, Is.EqualTo(launcher));
+            Assert.That(patch.Root, Is.EqualTo(UnityRoot));
+            Assert.That(patch.Applied, Is.True);
+            Assert.That(patch.Message, Does.Contain("already declares"));
+        }
+
+        [Test]
+        public void A_launchers_plugins_block_closing_on_the_entry_line_is_reported_not_misapplied()
+        {
+            var shared = GradlePluginInjection.Apply(UnityRoot, Groovy, "plugins {\n    id 'com.android.application' }\n", Groovy, Version);
+            var first = GradlePluginInjection.Apply(UnityRoot, Groovy, "plugins { id 'com.android.application'\n}\n", Groovy, Version);
+
+            Assert.That(shared.Applied, Is.False);
+            Assert.That(shared.Message, Does.Contain("ends on the line of its last entry"));
+            Assert.That(first.Applied, Is.True);
+            Assert.That(first.Launcher, Does.Contain("    id 'com.bugsee.android.gradle' // bugsee:gradle-plugin\n}"));
+        }
+
+        [Test]
+        public void Manual_instructions_use_the_root_files_dsl_for_the_root_edit()
+        {
+            var patch = GradlePluginInjection.Apply(
+                KotlinRoot, Kotlin, "apply plugin: 'com.android.application'\n", Groovy, Version);
+
+            Assert.That(patch.Applied, Is.False);
+            Assert.That(patch.Message, Does.Contain("id(\"com.bugsee.android.gradle\") version \"4.0.8\" apply false in the root plugins"));
+            Assert.That(patch.Message, Does.Contain("apply plugin: 'com.bugsee.android.gradle'"));
+        }
+
         // ---- repositories ------------------------------------------------------------------------------------
+
+        [Test]
+        public void A_one_line_repositories_block_with_a_trailing_comment_is_edited_once_and_the_comment_kept()
+        {
+            string settings = "pluginManagement {\n    repositories { google() } // see {x}\n}\n";
+
+            Assert.That(Plugins(settings, out string once), Is.EqualTo(GradleMavenInjection.RepositoryStatus.Inserted));
+            Assert.That(once, Does.Contain("repositories { google(); mavenCentral() } // see {x}"));
+            Assert.That(Plugins(once, out string twice), Is.EqualTo(GradleMavenInjection.RepositoryStatus.AlreadyPresent));
+            Assert.That(twice, Is.EqualTo(once));
+        }
+
+        [Test]
+        public void An_entry_on_the_closing_line_is_split_off_so_the_new_line_comes_last()
+        {
+            string settings = "pluginManagement {\n    repositories {\n        google() }\n}\n";
+
+            Assert.That(Plugins(settings, out string once), Is.EqualTo(GradleMavenInjection.RepositoryStatus.Inserted));
+            Assert.That(once, Is.EqualTo("pluginManagement {\n    repositories {\n        google()\n        mavenCentral() // bugsee:maven-repository\n    }\n}\n"));
+            Assert.That(Plugins(once, out _), Is.EqualTo(GradleMavenInjection.RepositoryStatus.AlreadyPresent));
+        }
+
+        [Test]
+        public void Kotlin_maven_shorthands_are_recognised_by_url()
+        {
+            string[] shorthands =
+            {
+                "        maven(\"https://plugins.gradle.org/m2/\")\n",
+                "        maven(url = \"https://plugins.gradle.org/m2\")\n",
+                "        maven(\"https://repo.maven.apache.org/maven2\")\n",
+                "        maven(url = uri(\"https://repo1.maven.org/maven2\"))\n",
+            };
+            foreach (string repository in shorthands)
+            {
+                Assert.That(Plugins(Settings("        google()\n" + repository), out _),
+                    Is.EqualTo(GradleMavenInjection.RepositoryStatus.AlreadyPresent), repository);
+            }
+
+            Assert.That(Plugins(Settings("        maven(\"https://nexus.corp/x\")\n"), out _), Is.EqualTo(GradleMavenInjection.RepositoryStatus.Inserted));
+        }
+
+        [Test]
+        public void A_catastrophic_filter_regex_does_not_stall_the_build_step()
+        {
+            string settings = Settings(
+                "        maven {\n            url 'https://nexus.corp/proxy'\n            content { includeGroupByRegex('(a|aa|aaa|[a-z.]+)*(.*)*(.*)*(.*)*#') }\n        }\n");
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+
+            Plugins(settings, out _);
+
+            Assert.That(watch.ElapsedMilliseconds, Is.LessThan(5000));
+        }
+
+        [Test]
+        public void An_AGP_range_is_an_unknown_version_and_the_dot_version_form_is_read()
+        {
+            Assert.That(GradleTemplateDefaults.TryGetAgpVersion("id 'com.android.application' version '8.+' apply false", out _, out _), Is.False);
+            Assert.That(GradleTemplateDefaults.TryGetAgpVersion("classpath 'com.android.tools.build:gradle:8.+'", out _, out _), Is.False);
+            Assert.That(GradleTemplateDefaults.TryGetAgpVersion(
+                "id(\"com.android.application\").version(\"9.0.0\").apply(false)", out int major, out int minor), Is.True);
+            Assert.That((major, minor), Is.EqualTo((9, 0)));
+        }
 
         static GradleMavenInjection.RepositoryStatus Plugins(string settings, out string updated) =>
             GradleMavenInjection.EnsurePluginRepositories(settings, out updated);
