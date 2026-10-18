@@ -33,7 +33,7 @@ log warns when its version differs from the one this package pins.
 | Platform | Integration | Current pin |
 |---|---|---|
 | **Android** | Maven Central, declared in the generated Gradle project by `BugseeAndroidMavenDependencies` | `bugsee-android:7.4.1` + `bugsee-android-ndk:7.4.1` |
-| **iOS** | Swift Package Manager + `Plugins/iOS/BugseeUnityBridge.mm` | [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta6` |
+| **iOS** | Swift Package Manager + `Plugins/iOS/BugseeUnityBridge.mm` | [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta7` |
 
 **Android stack**
 

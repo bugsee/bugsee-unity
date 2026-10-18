@@ -4,7 +4,7 @@ using Bugsee.Contracts.Options;
 namespace Bugsee.WrapperPolicy
 {
     /// <summary>
-    /// Options the iOS SDK has no counterpart for (absent from its headers and binary as of 7.0.0-beta6).
+    /// Options the iOS SDK has no counterpart for (absent from its headers and binary as of 7.0.0-beta7).
     /// </summary>
     public static class OptionPlatformGate
     {

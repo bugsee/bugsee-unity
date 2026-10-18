@@ -5,7 +5,7 @@ Bug reporting, crash capture, and session replay for Unity games and apps on iOS
 ## Requirements
 
 - Unity **2021.3** or newer
-- iOS builds: Xcode with Swift Package Manager support; **iOS 15+** (Bugsee 7.0.0-beta6); `bugsee-cli` on the PATH for archive-time symbol upload
+- iOS builds: Xcode with Swift Package Manager support; **iOS 15+** (Bugsee 7.0.0-beta7); `bugsee-cli` on the PATH for archive-time symbol upload
 - Android builds: nothing to set up (no EDM4U, no custom Gradle templates; the build needs Maven Central, which Unity's Gradle project already lists); `bugsee-cli` on the PATH for Editor symbol upload
 
 ## Installation
@@ -302,7 +302,7 @@ A `RectTransform` corner from `GetWorldCorners` in a screen-space overlay canvas
 ## Native dependencies
 
 - **Android:** Maven `com.bugsee:bugsee-android:7.4.1` + `com.bugsee:bugsee-android-ndk:7.4.1`, declared in the generated Gradle project by `Editor/BugseeAndroidMavenDependencies.cs` (Gradle plugin `4.0.8`, patched into the generated project when it pins AGP 8.6+). Native symbols for upload come from Unity's `symbols.zip` (Player Settings > Publishing Settings > Create symbols.zip). Unity 6 defaults it to Disabled and Public holds symbol tables only; native/IL2CPP file:line symbolication needs Debugging (about ten times larger, mind Google Play's limits). The build warns when a Bugsee app token is set and the level is not Debugging; `Bugsee > Android > Use Full Native Symbols (Debugging) For Symbol Upload` (or `BUGSEE_ANDROID_FULL_SYMBOLS=1`) builds with Debugging and restores the setting. On 2021.3 release builds also get `debugSymbolLevel 'FULL'`. Core publishes no transitives; NDK is a separate artifact and must be declared. Fragment secure-view overloads are typed as `Object`, so Unity JNI does not need `androidx.fragment`.
-- **iOS:** SPM-only. Xcode resolves [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta6` (iOS 15+). C bridge: `Plugins/iOS/BugseeUnityBridge.mm` + `BugseeUnityCallbacks.mm`.
+- **iOS:** SPM-only. Xcode resolves [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta7` (iOS 15+). C bridge: `Plugins/iOS/BugseeUnityBridge.mm` + `BugseeUnityCallbacks.mm`.
 
 ### iOS bridge status
 
@@ -310,9 +310,9 @@ Wired: Launch/Stop, blackout, log/trace/event, exceptions (JSON-in-reason), Test
 
 ### iOS managed exceptions by SDK version
 
-The bridge builds against both native APIs. From iOS SDK 7.0.0-beta7 a logged exception takes only `domain` (the wrapper passes `UnityManagedException`, as on Android) and `skipFrames`, so `Bugsee.LogException(exception, options)` honours only the `skipFrames` key on iOS. `labels`, `includeVideo` and `mergingRules` are dropped (with a one-time warning in the Unity console and the native log): a logged exception takes no labels and always carries the live capture. (Labels are not attached through a report handler either: nothing on the report identifies it as the exception's, and a wrong label is worse than none.) On the simulator the SDK files no logged exception (see the simulator note above). Exceptions are only validated end to end on a device. With the SDK pinned at beta6 the bridge still passes labels, `includeVideo`, `mergingRules` and `skipFrames` as native options.
+The bridge builds against both native APIs. From iOS SDK 7.0.0-beta7 a logged exception takes only `domain` (the wrapper passes `UnityManagedException`, as on Android) and `skipFrames`, so `Bugsee.LogException(exception, options)` honours only the `skipFrames` key on iOS. `labels`, `includeVideo` and `mergingRules` are dropped (with a one-time warning in the Unity console and the native log): a logged exception takes no labels and always carries the live capture. (Labels are not attached through a report handler either: nothing on the report identifies it as the exception's, and a wrong label is worse than none.) On the simulator the SDK files no logged exception (see the simulator note above). Exceptions are only validated end to end on a device.
 
-`DeleteCollectedDataOnDevice` uses the SDK's delete-everything form from beta7 on (it also deletes report bundles not uploaded yet and unsent crashes); the beta6 flag form is kept for the pinned version.
+`DeleteCollectedDataOnDevice` uses the SDK's delete-everything form (it also deletes report bundles not uploaded yet and unsent crashes).
 
 ### Developing against an unreleased iOS SDK
 
@@ -324,7 +324,7 @@ export BUGSEE_IOS_SDK_LOCAL_PACKAGE=<package dir>   # read by the iOS export pos
 sh Tests~/iOS/run-tests.sh <package dir>            # bridge tests against the same build
 ```
 
-The script builds the xcframework as the beta release does (`scripts/build_new.sh`), then lays out the package `bugsee/spm` carries with a path `binaryTarget`. Nothing is published. With the variable set, the post-process copies that package next to the Xcode project instead of adding the pinned `bugsee/spm` tag and logs a warning; a directory without `Package.swift` and `Bugsee.xcframework` fails the build, and a release export (one built without `BuildOptions.Development`) ignores the variable unless `BUGSEE_IOS_SDK_LOCAL_PACKAGE_ALLOW_RELEASE=1`. Unset, the pinned tag is used. A relative `BUGSEE_IOS_SDK_LOCAL_PACKAGE` is resolved against the Unity process's working directory (the project folder in batchmode). The package is copied (also from a read-only source) before the Xcode project is touched, any failure of the SPM step fails the build, and a refused or failed export leaves the SPM link of the project as it was; later post-processors, such as the symbol-upload Run Script injection, still run. An export refuses (build error) to replace a `Bugsee/` folder at the Xcode project root that it did not copy there itself. Known edges: a re-export removes every earlier link to the official repository spelled as `https://github.com/bugsee/spm.git` and a local package at `Bugsee` that provides a product named `Bugsee`, including one of your own; the same repository under another spelling (no `.git`, other case) is not recognised, so the project then has two references and Xcode may pick yours over the pin. CI only builds the default pinned path.
+The script builds the xcframework as the beta release does (`scripts/build_new.sh`), then lays out the package `bugsee/spm` carries with a path `binaryTarget`. Nothing is published. With the variable set, the post-process copies that package next to the Xcode project instead of adding the pinned `bugsee/spm` tag and logs a warning; a directory without `Package.swift` and `Bugsee.xcframework` fails the build, and a release export (one built without `BuildOptions.Development`) ignores the variable unless `BUGSEE_IOS_SDK_LOCAL_PACKAGE_ALLOW_RELEASE=1`. Unset, the pinned tag is used. A relative `BUGSEE_IOS_SDK_LOCAL_PACKAGE` is resolved against the Unity process's working directory (the project folder in batchmode). The package is copied (also from a read-only source) before the Xcode project is touched, any failure of the SPM step fails the build, and a refused or failed export leaves the SPM link of the project as it was; later post-processors, such as the symbol-upload Run Script injection, still run. An export refuses (build error) to replace a `Bugsee/` folder at the Xcode project root that it did not copy there itself. Known edges: a re-export removes every earlier link to the official repository spelled as `https://github.com/bugsee/spm.git` and a local package at `Bugsee` that provides a product named `Bugsee`, including one of your own; the same repository under another spelling (no `.git`, other case) is not recognised, so the project then has two references and Xcode may pick yours over the pin.
 
 ### Attributes
 

@@ -3,9 +3,9 @@ set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
 BUILD="$ROOT/Tests~/iOS/.build"
-ZIP="$BUILD/Bugsee-7.0.0-beta6.zip"
-URL="https://download.bugsee.com/sdk/ios/spm/Bugsee-7.0.0-beta6.zip"
-CHECKSUM="a5dbd8a7681fbda9ce269431a1babc37ea054da99b79092bb8453962e0f117ad"
+ZIP="$BUILD/Bugsee-7.0.0-beta7.zip"
+URL="https://download.bugsee.com/sdk/ios/spm/Bugsee-7.0.0-beta7.zip"
+CHECKSUM="21b8209c2541c632b39085702e4b71930cf08673cbe05406cbd0b1783f87043b"
 
 # A local SDK build (Tools~/scripts/assemble-local-ios-sdk.sh) replaces the published zip: pass its package
 # directory (or its Bugsee.xcframework), or set BUGSEE_IOS_SDK_LOCAL_PACKAGE, as for the Unity export.
