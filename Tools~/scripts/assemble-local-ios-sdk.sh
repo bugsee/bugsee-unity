@@ -97,7 +97,9 @@ for file in "${STAMPED_HEADER}" "${STAMPED_VERSION}"; do
   index=$((index + 1))
 done
 LOCKED=0
-trap 'restore_stamped; rm -rf "${STAGE}"; [[ "${LOCKED}" == 1 ]] && rmdir "${LOCK}"; true' EXIT
+# Restored only by the run that holds the lock: a run refused by the lock must not write its saved copies over the files
+# of the run that is building.
+trap '[[ "${LOCKED}" == 1 ]] && restore_stamped; rm -rf "${STAGE}"; [[ "${LOCKED}" == 1 ]] && rmdir "${LOCK}"; true' EXIT
 if ! mkdir "${LOCK}" 2>/dev/null; then
   echo "Another assemble run seems to be using ${COCOA} (lock ${LOCK}); remove the lock if it is stale." >&2
   exit 1

@@ -60,12 +60,32 @@ namespace Bugsee.Editor
                     throw new InvalidOperationException($"Copying the local iOS SDK package {source} left no usable package: {copied}");
                 }
 
+                // The old copy is moved aside, not deleted, until the new one is in place, so a failed move keeps it.
+                string backup = null;
                 if (Directory.Exists(destination))
                 {
-                    DeleteTree(destination);
+                    backup = destination + ".old-" + Guid.NewGuid().ToString("N");
+                    Directory.Move(destination, backup);
                 }
 
-                Directory.Move(staging, destination);
+                try
+                {
+                    Directory.Move(staging, destination);
+                }
+                catch
+                {
+                    if (backup != null && !Directory.Exists(destination))
+                    {
+                        Directory.Move(backup, destination);
+                    }
+
+                    throw;
+                }
+
+                if (backup != null)
+                {
+                    DeleteTree(backup, bestEffort: true);
+                }
             }
             finally
             {

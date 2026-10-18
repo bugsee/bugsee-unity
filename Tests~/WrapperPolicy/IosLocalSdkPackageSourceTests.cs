@@ -297,11 +297,31 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Switching_back_to_the_published_package_drops_the_old_copy_after_the_project_is_rewritten_and_never_fails()
+        {
+            string editor = Read("Editor", "BugseeIosSpmPostProcess.cs");
+            int drop = editor.IndexOf("LocalPackageCopy.DeleteTree(packageFolder, bestEffort: true)", System.StringComparison.Ordinal);
+            Assert.That(drop, Is.GreaterThan(editor.IndexOf("project.WriteToFile(projectPath)", System.StringComparison.Ordinal)));
+            Assert.That(editor, Does.Not.Contain("LocalPackageCopy.DeleteTree(packageFolder);"));
+        }
+
+        [Test]
+        public void The_old_package_copy_is_moved_aside_and_put_back_when_the_new_one_cannot_be_moved_in()
+        {
+            string copy = Read("Editor", "LocalPackageCopy.cs");
+            Assert.That(copy, Does.Contain("Directory.Move(destination, backup);"));
+            Assert.That(copy, Does.Contain("Directory.Move(backup, destination);"));
+            Assert.That(copy.IndexOf("Directory.Move(staging, destination);", System.StringComparison.Ordinal),
+                Is.GreaterThan(copy.IndexOf("Directory.Move(destination, backup);", System.StringComparison.Ordinal)));
+        }
+
+        [Test]
         public void Assemble_script_puts_the_stamped_files_back_on_exit()
         {
             string script = Read("Tools~", "scripts", "assemble-local-ios-sdk.sh");
-            Assert.That(script, Does.Contain("trap 'restore_stamped; rm -rf \"${STAGE}\"; [[ \"${LOCKED}\" == 1 ]] && rmdir \"${LOCK}\"; true' EXIT"));
-            Assert.That(script.IndexOf("trap 'restore_stamped", System.StringComparison.Ordinal),
+            // Only the run that holds the lock restores: a run the lock refused must not overwrite the running build's files.
+            Assert.That(script, Does.Contain("trap '[[ \"${LOCKED}\" == 1 ]] && restore_stamped; rm -rf \"${STAGE}\"; [[ \"${LOCKED}\" == 1 ]] && rmdir \"${LOCK}\"; true' EXIT"));
+            Assert.That(script.IndexOf("trap '[[ \"${LOCKED}\" == 1 ]] && restore_stamped", System.StringComparison.Ordinal),
                 Is.LessThan(script.IndexOf("> \"${COCOA}/BugseeDev/BugseeLib/BugseeLib/BGSSdkVersion.h\"", System.StringComparison.Ordinal)));
         }
 

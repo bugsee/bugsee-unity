@@ -145,11 +145,6 @@ namespace Bugsee.Editor
 
                 LocalPackageCopy.CopyAndSwapIn(localPackageSource, packageFolder, overridePackage != null);
             }
-            else if (File.Exists(Path.Combine(packageFolder, LocalPackageMarker)))
-            {
-                // An earlier export that linked a local package left a copy next to the project; drop it (only ours).
-                LocalPackageCopy.DeleteTree(packageFolder);
-            }
 
             string projectPath = PBXProject.GetPBXProjectPath(pathToBuiltProject);
             // An export into an existing project (Append) keeps the links an earlier export added; drop them so the
@@ -184,6 +179,13 @@ namespace Bugsee.Editor
 
             if (localPackageSource == null)
             {
+                if (File.Exists(Path.Combine(packageFolder, LocalPackageMarker)))
+                {
+                    // An earlier export that linked a local package left a copy next to the project; the link no longer
+                    // points at it, so drop it (only ours). Best effort: a folder that cannot be removed is left, unused.
+                    LocalPackageCopy.DeleteTree(packageFolder, bestEffort: true);
+                }
+
                 Debug.Log($"[Bugsee] Linked remote SPM {RemoteSpmUrl}@{RemoteSpmVersion} (iOS {MinIosVersion}+)");
                 return;
             }
