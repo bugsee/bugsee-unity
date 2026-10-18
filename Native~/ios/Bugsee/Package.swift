@@ -2,7 +2,7 @@
 import PackageDescription
 
 // Local stub kept for offline / UseRemoteSpm = false.
-// Default iOS integration is remote SPM: https://github.com/bugsee/spm @ 7.0.0-beta6
+// Default iOS integration is remote SPM: https://github.com/bugsee/spm @ 7.0.0-beta7
 // (see Tools~/versions.env and Editor/BugseeIosSpmPostProcess.cs).
 
 let package = Package(

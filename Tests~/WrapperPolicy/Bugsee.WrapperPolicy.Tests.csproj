@@ -24,6 +24,7 @@
     <Compile Include="..\..\Runtime\Contracts\Reporting\IAttachment.cs" />
     <Compile Include="..\..\Runtime\Platform\IOS\IosReport.cs" />
     <Compile Include="IosKvTestStub.cs" />
+    <Compile Include="..\..\Editor\LocalPackageCopy.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\LogLevel.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\Options.cs" />
     <Compile Include="**\*Tests.cs" />

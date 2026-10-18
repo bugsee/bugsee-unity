@@ -42,7 +42,19 @@ void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completio
 const char *_bugsee_test_exception_options(const char *optionsJson);
 int _bugsee_test_simulator_warning_count(void);
 int _bugsee_exceptions_filed(void);
+void _bugsee_logException(const char *name, const char *reason, bool handled, const char *optionsJson);
+int _bugsee_exception_options_dropped(void);
 }
+
+// Same switch as BugseeUnityBridge.mm: bugsee-cocoa up to 7.0.0-beta6 still has the exception logging options.
+#if __has_include(<Bugsee/BugseeExceptionLoggingOptions.h>)
+#define BUGSEE_IOS_LEGACY_EXCEPTION_API 1
+#else
+#define BUGSEE_IOS_LEGACY_EXCEPTION_API 0
+#endif
+#if !BUGSEE_IOS_LEGACY_EXCEPTION_API
+extern "C" int _bugsee_test_dropped_options_warning_count(void);
+#endif
 
 static int gStartedToken;
 static int gStartedCount;
@@ -226,9 +238,13 @@ int main(void)
     expect(kindColor == NULL, "a string property has no color value");
     free(kindText);
     free(kindColor);
-    // LogException options reach BugseeExceptionLoggingOptions; unknown keys and wrong types are ignored.
+    // LogException options reach the SDK; unknown keys and wrong types are ignored.
     expect(_bugsee_test_exception_options(NULL) == NULL, "no exception options means nil options");
     expect(_bugsee_test_exception_options("[1]") == NULL, "non-object exception options are ignored");
+    expect(_bugsee_test_exception_options("{\"labels\":[\"\xff\"]}") == NULL, "options that are not valid UTF-8 are ignored, not raised on");
+    expect(_bugsee_exception_options_dropped() == (BUGSEE_IOS_LEGACY_EXCEPTION_API ? 0 : 1),
+           "the wrapper knows whether the SDK drops the labels, includeVideo and mergingRules options");
+#if BUGSEE_IOS_LEGACY_EXCEPTION_API
     value = _bugsee_test_exception_options(
         "{\"labels\":[\"a\",3,\"b\"],\"includeVideo\":false,\"mergingRules\":{\"k\":1},\"domain\":\"x\"}");
     expect(value != NULL && strstr(value, "labels=a,b;video=0;") != NULL && strstr(value, "k = 1") != NULL,
@@ -244,6 +260,27 @@ int main(void)
     expect(value != NULL && strstr(value, "video=1;") != NULL && strstr(value, "= 2") != NULL,
            "top-level skipFrames becomes the skip-frames merging rule");
     free((void *)value);
+#else
+    value = _bugsee_test_exception_options(
+        "{\"labels\":[\"a\"],\"includeVideo\":false,\"mergingRules\":{\"k\":1},\"skipFrames\":2,\"domain\":\"x\"}");
+    expect(value != NULL && strcmp(value, "skipFrames=2") == 0,
+           "exception options carry skipFrames and nothing the SDK no longer has");
+    free((void *)value);
+    // The dropped-options warning is its own one-time line, apart from the simulator warning.
+    int simulatorWarnings = _bugsee_test_simulator_warning_count();
+    _bugsee_logException("UnityManagedException", "{}", true, "{\"skipFrames\":1}");
+    expect(_bugsee_test_dropped_options_warning_count() == 0, "no warning when only skipFrames is passed");
+    _bugsee_logException("UnityManagedException", "{}", true, "{\"labels\":[\"a\"]}");
+    _bugsee_logException("UnityManagedException", "{}", true, "{\"includeVideo\":false}");
+    expect(_bugsee_test_dropped_options_warning_count() == 1, "dropped LogException options are warned about once");
+    expect(_bugsee_test_simulator_warning_count() == simulatorWarnings, "the simulator warning is untouched by it");
+    value = _bugsee_test_exception_options("{\"skipFrames\":\"two\"}");
+    expect(value != NULL && strcmp(value, "skipFrames=0") == 0, "a wrong-typed skipFrames is dropped");
+    free((void *)value);
+    value = _bugsee_test_exception_options("{\"skipFrames\":true}");
+    expect(value != NULL && strcmp(value, "skipFrames=0") == 0, "a boolean skipFrames is not a frame count");
+    free((void *)value);
+#endif
     // The wire's digits must not follow the user's locale: C# parses them as invariant.
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     [defaults setObject:@"de_DE" forKey:@"AppleLocale"];

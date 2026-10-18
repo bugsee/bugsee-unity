@@ -1,8 +1,12 @@
+using System;
+using System.Diagnostics;
 using System.IO;
 using UnityEditor;
-using UnityEditor.Callbacks;
+using UnityEditor.Build;
 using UnityEditor.iOS.Xcode;
+using Bugsee.WrapperPolicy;
 using UnityEngine;
+using Debug = UnityEngine.Debug;
 
 namespace Bugsee.Editor
 {
@@ -12,6 +16,10 @@ namespace Bugsee.Editor
     /// iOS 7.x is SPM-only: Xcode resolves <see cref="RemoteSpmUrl"/> at
     /// <see cref="RemoteSpmVersion"/> (github.com/bugsee/spm). The local
     /// Native~/ios/Bugsee wrapper is unused unless <see cref="UseRemoteSpm"/> is flipped off.
+    ///
+    /// To build against an SDK that is not published yet, set <see cref="LocalPackageEnvVar"/> to a local SPM
+    /// package directory (Tools~/scripts/assemble-local-ios-sdk.sh makes one). It is copied next to the Xcode
+    /// project and replaces the remote reference for that export; unset, the pinned tag is used as before.
     /// </summary>
     public static class BugseeIosSpmPostProcess
     {
@@ -25,10 +33,20 @@ namespace Bugsee.Editor
         public const string RemoteSpmVersion = BugseePackageVersion.IosSdkVersion;
         public const string SpmProductName = "Bugsee";
 
+        /// <summary>
+        /// Directory of a local SPM package (a Package.swift next to Bugsee.xcframework) to use instead of the
+        /// published one. Meant for developing against an unreleased SDK, never for a release build.
+        /// </summary>
+        public const string LocalPackageEnvVar = "BUGSEE_IOS_SDK_LOCAL_PACKAGE";
+
+        /// <summary>Set to 1 to let <see cref="LocalPackageEnvVar"/> apply to a non-development (release) build too.</summary>
+        public const string LocalPackageAllowReleaseEnvVar = "BUGSEE_IOS_SDK_LOCAL_PACKAGE_ALLOW_RELEASE";
+
         /// <summary>Bugsee 7.x / github.com/bugsee/spm requires iOS 15.</summary>
         public const string MinIosVersion = "15.0";
 
         const string LocalPackageFolderName = "Bugsee";
+        const string LocalPackageMarker = LocalPackageCopy.Marker;
         const string LocalPackageRelativePath = "Native~/ios/Bugsee";
         const string PrefNoDsymForce = "Bugsee.Ios.NoDsymForce";
         const string MenuNoDsymForce = "Bugsee/iOS/Keep Xcode Debug Info Format (skip dSYM force)";
@@ -50,15 +68,94 @@ namespace Bugsee.Editor
             return true;
         }
 
-        [PostProcessBuild(999)]
-        public static void OnPostProcessBuild(BuildTarget target, string pathToBuiltProject)
+        [System.Obsolete("Run by the build pipeline with the build's own options; do not call.")]
+        public static void OnPostProcessBuild(BuildTarget target, string pathToBuiltProject) =>
+            Run(target, pathToBuiltProject, EditorUserBuildSettings.development);
+
+        /// <param name="development">Whether this build was started with BuildOptions.Development (the build's own options,
+        /// not the Build Settings checkbox, which a script that builds with explicit options leaves alone).</param>
+        internal static void Run(BuildTarget target, string pathToBuiltProject, bool development)
         {
             if (target != BuildTarget.iOS)
             {
                 return;
             }
 
+            // Only a BuildFailedException fails a Unity build from a post-processor; any other exception is logged and the
+            // build still reports success, with whatever the project links by then. Turn every failure into one.
+            try
+            {
+                LocalPackageCopy.Warn = message => Debug.LogWarning($"[Bugsee] {message}");
+                Link(pathToBuiltProject, development);
+            }
+            catch (Exception e) when (!(e is BuildFailedException))
+            {
+                Debug.LogException(e);
+                throw new BuildFailedException($"[Bugsee] Linking the iOS SDK failed: {e.GetType().Name}: {e.Message}");
+            }
+        }
+
+        static void Link(string pathToBuiltProject, bool development)
+        {
+            string packageFolder = Path.Combine(pathToBuiltProject, LocalPackageFolderName);
+
+            // Everything that can refuse the export, and the copy of the local package, happen before the Xcode project is
+            // touched, so a refused or failed export leaves the SPM link as it was (later post-processors, such as the
+            // symbol-upload Run Script, still run). An explicit local package (env var) beats everything; UseRemoteSpm = false
+            // falls back to the in-package stub.
+            string overridePackage = LocalPackageOverride(development);
+            string localPackageSource = overridePackage;
+            if (localPackageSource == null && !UseRemoteSpm)
+            {
+                localPackageSource = ResolveLocalPackagePath();
+                if (string.IsNullOrEmpty(localPackageSource))
+                {
+                    throw new BuildFailedException(
+                        "[Bugsee] Local SPM package not found. Expected Package.swift under " +
+                        $"{LocalPackageRelativePath}. Run Tools~/scripts/update-native-sdks.sh first.");
+                }
+            }
+
+            if (localPackageSource != null)
+            {
+                // A package that cannot be used fails the build instead of exporting a project with no SDK (the offline stub
+                // Native~/ios/Bugsee has no xcframework until Tools~/scripts/update-native-sdks.sh has run).
+                string problem = LocalPackageCopy.Problem(localPackageSource);
+                if (problem != null)
+                {
+                    string how = overridePackage != null ? $" ({LocalPackageEnvVar})" : " Run Tools~/scripts/update-native-sdks.sh first.";
+                    throw new BuildFailedException($"[Bugsee] Local iOS SDK package {localPackageSource}: {problem}{how}");
+                }
+
+                // The package may not live inside the export (the copy there is replaced, and so would be the source). Compared
+                // as physical paths: symlinks (/tmp, aliases) and the volume's case are resolved first.
+                string sourcePhysical = LocalPackageCopy.PhysicalPath(localPackageSource);
+                string exportPhysical = LocalPackageCopy.PhysicalPath(pathToBuiltProject);
+                if ((sourcePhysical + "/").StartsWith(exportPhysical.TrimEnd('/') + "/", StringComparison.Ordinal))
+                {
+                    throw new BuildFailedException($"[Bugsee] The local iOS SDK package {localPackageSource} is inside the export {pathToBuiltProject}; point {LocalPackageEnvVar} at the assembled package instead.");
+                }
+
+                if (Directory.Exists(packageFolder) && !File.Exists(Path.Combine(packageFolder, LocalPackageMarker)))
+                {
+                    throw new BuildFailedException(
+                        $"[Bugsee] {packageFolder} exists and is not a copy of the Bugsee package made by an earlier export; " +
+                        $"move it away, or export into a project without a '{LocalPackageFolderName}' folder at its root.");
+                }
+
+                LocalPackageCopy.CopyAndSwapIn(localPackageSource, packageFolder, overridePackage != null);
+            }
+
             string projectPath = PBXProject.GetPBXProjectPath(pathToBuiltProject);
+            // An export into an existing project (Append) keeps the links an earlier export added; drop them so the
+            // package is linked once, whichever way (published tag or local package) the earlier export linked it.
+            string existing = File.ReadAllText(projectPath);
+            string cleaned = XcodeLocalPackage.RemoveBugseePackage(existing, RemoteSpmUrl, LocalPackageFolderName, out var removedPackageIds);
+            if (cleaned != existing)
+            {
+                File.WriteAllText(projectPath, cleaned);
+            }
+
             var project = new PBXProject();
             project.ReadFromFile(projectPath);
 
@@ -69,38 +166,47 @@ namespace Bugsee.Editor
             EnsureDsymGeneration(project, mainTargetGuid);
             EnsureDsymGeneration(project, frameworkTargetGuid);
 
-            if (UseRemoteSpm)
+            // Unity's PBXProject API only knows remote packages. It writes everything a link needs (the project's
+            // package list, both targets' product dependencies and Frameworks entries), so the local case lets it
+            // add the remote reference and then turns that one reference into a path reference.
+            string packageGuid = project.AddRemotePackageReferenceAtVersion(RemoteSpmUrl, RemoteSpmVersion);
+            project.AddRemotePackageFrameworkToProject(mainTargetGuid, SpmProductName, packageGuid, false);
+            project.AddRemotePackageFrameworkToProject(frameworkTargetGuid, SpmProductName, packageGuid, false);
+            project.WriteToFile(projectPath);
+            // The user's other products of the package an earlier export linked (BugseeSwiftUI) follow the new reference.
+            string linked = XcodeLocalPackage.RepointProducts(File.ReadAllText(projectPath), packageGuid, removedPackageIds);
+            File.WriteAllText(projectPath, linked);
+
+            if (localPackageSource == null)
             {
-                string packageGuid = project.AddRemotePackageReferenceAtVersion(RemoteSpmUrl, RemoteSpmVersion);
-                project.AddRemotePackageFrameworkToProject(mainTargetGuid, SpmProductName, packageGuid, false);
-                project.AddRemotePackageFrameworkToProject(frameworkTargetGuid, SpmProductName, packageGuid, false);
-                project.WriteToFile(projectPath);
+                if (File.Exists(Path.Combine(packageFolder, LocalPackageMarker)))
+                {
+                    // An earlier export that linked a local package left a copy next to the project; the link no longer
+                    // points at it, so drop it (only ours). Best effort: a folder that cannot be removed is left, unused.
+                    LocalPackageCopy.DeleteTree(packageFolder, bestEffort: true);
+                }
+
                 Debug.Log($"[Bugsee] Linked remote SPM {RemoteSpmUrl}@{RemoteSpmVersion} (iOS {MinIosVersion}+)");
                 return;
             }
 
-            string localPackageSource = ResolveLocalPackagePath();
-            if (string.IsNullOrEmpty(localPackageSource) || !File.Exists(Path.Combine(localPackageSource, "Package.swift")))
+            string converted = XcodeLocalPackage.FromRemote(File.ReadAllText(projectPath), RemoteSpmUrl, LocalPackageFolderName);
+            if (converted == null)
             {
-                Debug.LogError(
-                    "[Bugsee] Local SPM package not found. Expected Package.swift under " +
-                    $"{LocalPackageRelativePath}. Run Tools~/scripts/update-native-sdks.sh first.");
-                return;
+                throw new BuildFailedException($"[Bugsee] Could not turn the {RemoteSpmUrl} package reference into a local one in {projectPath}.");
             }
 
-            string destPackageDir = Path.Combine(pathToBuiltProject, LocalPackageFolderName);
-            CopyDirectory(localPackageSource, destPackageDir);
-
-            if (!Directory.Exists(Path.Combine(destPackageDir, "Bugsee.xcframework")))
+            File.WriteAllText(projectPath, converted);
+            if (overridePackage != null)
             {
                 Debug.LogWarning(
-                    "[Bugsee] Bugsee.xcframework is missing from the local SPM package. " +
-                    "iOS linking will fail until you run Tools~/scripts/update-native-sdks.sh.");
+                    $"[Bugsee] Linked the LOCAL iOS SDK package {overridePackage} ({LocalPackageEnvVar}); " +
+                    $"not the published {RemoteSpmVersion}. Do not ship this build.");
             }
-
-            project.WriteToFile(projectPath);
-            InjectLocalSwiftPackageReference(projectPath, LocalPackageFolderName, SpmProductName, mainTargetGuid, frameworkTargetGuid);
-            Debug.Log($"[Bugsee] Linked local SPM package at {destPackageDir}");
+            else
+            {
+                Debug.Log($"[Bugsee] Linked local SPM package at {packageFolder}");
+            }
         }
 
         /// <summary>
@@ -204,6 +310,35 @@ namespace Bugsee.Editor
             return v;
         }
 
+        /// <summary>The directory named by <see cref="LocalPackageEnvVar"/>, made absolute; null when it is unset or blank.</summary>
+        static string LocalPackageOverride(bool development)
+        {
+            string value = System.Environment.GetEnvironmentVariable(LocalPackageEnvVar);
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            if (!development &&
+                System.Environment.GetEnvironmentVariable(LocalPackageAllowReleaseEnvVar) != "1")
+            {
+                Debug.LogWarning(
+                    $"[Bugsee] {LocalPackageEnvVar} is set but this is not a development build, so the published " +
+                    $"iOS SDK is used. Set {LocalPackageAllowReleaseEnvVar}=1 to link the local package anyway.");
+                return null;
+            }
+
+            value = value.Trim();
+            if (value == "~" || value.StartsWith("~/"))
+            {
+                value = Path.Combine(
+                    System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),
+                    value.Substring(1).TrimStart('/'));
+            }
+
+            return Path.GetFullPath(value);
+        }
+
         static string ResolveLocalPackagePath()
         {
             foreach (var info in UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages())
@@ -224,151 +359,19 @@ namespace Bugsee.Editor
             string fromCwd = Path.GetFullPath(Path.Combine(Application.dataPath, "..", LocalPackageRelativePath));
             return Directory.Exists(fromCwd) ? fromCwd : null;
         }
+    }
 
-        static void CopyDirectory(string sourceDir, string destDir)
+    /// <summary>Runs <see cref="BugseeIosSpmPostProcess"/> after the Xcode project is exported, with the build's own options.</summary>
+    class BugseeIosSpmPostProcessEntry : UnityEditor.Build.IPostprocessBuildWithReport
+    {
+        public int callbackOrder => 999;
+
+        public void OnPostprocessBuild(UnityEditor.Build.Reporting.BuildReport report)
         {
-            if (Directory.Exists(destDir))
-            {
-                Directory.Delete(destDir, true);
-            }
-
-            Directory.CreateDirectory(destDir);
-
-            foreach (string file in Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
-            {
-                if (file.Contains($"{Path.DirectorySeparatorChar}.git{Path.DirectorySeparatorChar}") ||
-                    Path.GetFileName(file) == ".DS_Store")
-                {
-                    continue;
-                }
-
-                string relative = file.Substring(sourceDir.Length)
-                    .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                string destFile = Path.Combine(destDir, relative);
-                string destParent = Path.GetDirectoryName(destFile);
-                if (!string.IsNullOrEmpty(destParent))
-                {
-                    Directory.CreateDirectory(destParent);
-                }
-
-                File.Copy(file, destFile, true);
-            }
-        }
-
-        /// <summary>
-        /// Unity's PBXProject API exposes remote SPM helpers but not local path packages.
-        /// Inject XCLocalSwiftPackageReference + product dependencies into project.pbxproj.
-        /// </summary>
-        static void InjectLocalSwiftPackageReference(
-            string projectPath,
-            string relativePackagePath,
-            string productName,
-            string mainTargetGuid,
-            string frameworkTargetGuid)
-        {
-            string contents = File.ReadAllText(projectPath);
-            if (contents.Contains($"XCLocalSwiftPackageReference \"{relativePackagePath}\""))
-            {
-                return;
-            }
-
-            string packageRefGuid = Guid24();
-            string mainProductGuid = Guid24();
-            string frameworkProductGuid = Guid24();
-
-            string localRefSection =
-                "/* Begin XCLocalSwiftPackageReference section */\n" +
-                $"\t\t{packageRefGuid} /* XCLocalSwiftPackageReference \"{relativePackagePath}\" */ = {{\n" +
-                "\t\t\tisa = XCLocalSwiftPackageReference;\n" +
-                $"\t\t\trelativePath = {relativePackagePath};\n" +
-                "\t\t};\n" +
-                "/* End XCLocalSwiftPackageReference section */\n";
-
-            string productSection =
-                "/* Begin XCSwiftPackageProductDependency section */\n" +
-                $"\t\t{mainProductGuid} /* {productName} */ = {{\n" +
-                "\t\t\tisa = XCSwiftPackageProductDependency;\n" +
-                $"\t\t\tpackage = {packageRefGuid} /* XCLocalSwiftPackageReference \"{relativePackagePath}\" */;\n" +
-                $"\t\t\tproductName = {productName};\n" +
-                "\t\t};\n" +
-                $"\t\t{frameworkProductGuid} /* {productName} */ = {{\n" +
-                "\t\t\tisa = XCSwiftPackageProductDependency;\n" +
-                $"\t\t\tpackage = {packageRefGuid} /* XCLocalSwiftPackageReference \"{relativePackagePath}\" */;\n" +
-                $"\t\t\tproductName = {productName};\n" +
-                "\t\t};\n" +
-                "/* End XCSwiftPackageProductDependency section */\n";
-
-            int objectsEnd = contents.LastIndexOf("/* End PBXProject section */");
-            if (objectsEnd < 0)
-            {
-                Debug.LogError("[Bugsee] Could not locate PBXProject section to inject local SPM reference.");
-                return;
-            }
-
-            contents = contents.Insert(objectsEnd, localRefSection + productSection);
-            contents = AddPackageReferenceToProjectObject(contents, packageRefGuid, relativePackagePath);
-            contents = AddProductDependencyToTarget(contents, mainTargetGuid, mainProductGuid, productName);
-            contents = AddProductDependencyToTarget(contents, frameworkTargetGuid, frameworkProductGuid, productName);
-
-            File.WriteAllText(projectPath, contents);
-        }
-
-        static string AddPackageReferenceToProjectObject(string contents, string packageRefGuid, string relativePackagePath)
-        {
-            const string marker = "packageReferences = (";
-            int idx = contents.IndexOf(marker);
-            if (idx < 0)
-            {
-                Debug.LogWarning(
-                    "[Bugsee] PBXProject has no packageReferences list; " +
-                    "Xcode may still resolve the local package after a manual refresh.");
-                return contents;
-            }
-
-            int insertAt = idx + marker.Length;
-            string entry = $"\n\t\t\t\t{packageRefGuid} /* XCLocalSwiftPackageReference \"{relativePackagePath}\" */,";
-            return contents.Insert(insertAt, entry);
-        }
-
-        static string AddProductDependencyToTarget(string contents, string targetGuid, string productGuid, string productName)
-        {
-            string targetMarker = $"{targetGuid} /*";
-            int targetIdx = contents.IndexOf(targetMarker);
-            if (targetIdx < 0)
-            {
-                return contents;
-            }
-
-            int searchFrom = targetIdx;
-            int depsIdx = contents.IndexOf("packageProductDependencies = (", searchFrom);
-            int nextTarget = contents.IndexOf("isa = PBXNativeTarget", searchFrom + 1);
-            if (depsIdx >= 0 && (nextTarget < 0 || depsIdx < nextTarget))
-            {
-                int insertAt = depsIdx + "packageProductDependencies = (".Length;
-                string entry = $"\n\t\t\t\t{productGuid} /* {productName} */,";
-                return contents.Insert(insertAt, entry);
-            }
-
-            int afterDeps = contents.IndexOf("dependencies = (", searchFrom);
-            if (afterDeps > 0 && (nextTarget < 0 || afterDeps < nextTarget))
-            {
-                int close = contents.IndexOf(");", afterDeps);
-                if (close > 0)
-                {
-                    string block =
-                        $"\n\t\t\tpackageProductDependencies = (\n" +
-                        $"\t\t\t\t{productGuid} /* {productName} */,\n" +
-                        "\t\t\t);";
-                    return contents.Insert(close + 2, block);
-                }
-            }
-
-            return contents;
-        }
-
-        static string Guid24()
-        {
-            return System.Guid.NewGuid().ToString("N").Substring(0, 24).ToUpperInvariant();
+            BugseeIosSpmPostProcess.Run(
+                report.summary.platform,
+                report.summary.outputPath,
+                (report.summary.options & BuildOptions.Development) != 0);
         }
     }
 }

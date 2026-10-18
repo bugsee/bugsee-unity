@@ -20,6 +20,11 @@ namespace Bugsee.Sample.Editor
     ///   BUGSEE_E2E_DEV      1 (default, Development build) | 0 (Release)
     ///   BUGSEE_E2E_MINIFY   0 (default) | 1: R8 minification on Android (produces mapping.txt)
     ///   BUGSEE_E2E_IOS_SIM  1: build the iOS Simulator SDK (default: the device SDK)
+    ///   BUGSEE_E2E_IOS_SIM_ARCH  arm64 (default on an Apple silicon Mac) | x64 | universal: the simulator slice (Unity 2022.1+);
+    ///                            iOS 26+ simulators on Apple silicon run arm64 only
+    ///   BUGSEE_E2E_APPEND   1: export into an existing Xcode project (BuildOptions.AcceptExternalModificationsToPlayer)
+    ///   BUGSEE_E2E_SETTING_DEV  0|1: set the Build Settings "Development Build" checkbox apart from the build's own
+    ///                       options (BUGSEE_E2E_DEV), as a CI script that passes explicit BuildOptions does
     ///   BUGSEE_E2E_OUT      output path override
     ///
     /// Note: the backend, architectures and minify settings are written to the project's tracked
@@ -77,6 +82,10 @@ namespace Bugsee.Sample.Editor
                 // The Simulator SDK needs simulator slices of the IL2CPP runtime; the device SDK does not link there.
                 var simulator = Environment.GetEnvironmentVariable("BUGSEE_E2E_IOS_SIM") == "1";
                 PlayerSettings.iOS.sdkVersion = simulator ? iOSSdkVersion.SimulatorSDK : iOSSdkVersion.DeviceSDK;
+#if UNITY_2022_1_OR_NEWER
+                if (simulator)
+                    PlayerSettings.iOS.simulatorSdkArchitecture = SimulatorArchitecture();
+#endif
             }
 
             EditorUserBuildSettings.SwitchActiveBuildTarget(group, target);
@@ -111,6 +120,11 @@ namespace Bugsee.Sample.Editor
                 Debug.Log("[E2EBuild] Building " + label + " → " + output + " scenes=" + string.Join(",", scenes));
 
                 var options = development ? BuildOptions.Development | BuildOptions.AllowDebugging : BuildOptions.None;
+                if (Environment.GetEnvironmentVariable("BUGSEE_E2E_APPEND") == "1")
+                    options |= BuildOptions.AcceptExternalModificationsToPlayer;
+                var settingDev = Environment.GetEnvironmentVariable("BUGSEE_E2E_SETTING_DEV");
+                if (settingDev == "0" || settingDev == "1")
+                    EditorUserBuildSettings.development = settingDev == "1";
                 report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
                 {
                     scenes = scenes,
@@ -128,6 +142,24 @@ namespace Bugsee.Sample.Editor
             // calling it inside the try would skip the finally on a failed build.
             ExitFromReport(report);
         }
+
+#if UNITY_2022_1_OR_NEWER
+        static AppleMobileArchitectureSimulator SimulatorArchitecture()
+        {
+            switch ((Environment.GetEnvironmentVariable("BUGSEE_E2E_IOS_SIM_ARCH") ?? "").ToLowerInvariant())
+            {
+                case "x64": return AppleMobileArchitectureSimulator.X86_64;
+                case "universal": return AppleMobileArchitectureSimulator.Universal;
+                case "arm64": return AppleMobileArchitectureSimulator.ARM64;
+                default:
+                    return System.Runtime.InteropServices.RuntimeInformation.OSArchitecture ==
+                           System.Runtime.InteropServices.Architecture.Arm64
+                        ? AppleMobileArchitectureSimulator.ARM64
+                        : AppleMobileArchitectureSimulator.X86_64;
+            }
+        }
+
+#endif
 
         [Serializable]
         class E2EOverride

@@ -78,7 +78,7 @@ do
   fi
 done
 
-ok "iOS native SDK via remote SPM (github.com/bugsee/spm ${IOS_SDK_VERSION:-7.0.0-beta6})"
+ok "iOS native SDK via remote SPM (github.com/bugsee/spm ${IOS_SDK_VERSION:-7.0.0-beta7})"
 
 extract_macho_uuid() {
   local bin="$1"
