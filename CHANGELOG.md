@@ -59,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - On Android, `LaunchAsync`/`RelaunchAsync` complete true when the SDK accepted the launch and false when it refused it or the request was superseded; if the SDK gives no answer within 10 s they complete true when it is already Launching/Launched, otherwise false; `StopAsync` is not dropped by a Launch that follows it, and the 10 s deadline counts from each call, also for one that joins a stop already in flight. Android hands every lifecycle call to the Unity main thread (from another thread it is queued there and never refused), so a stalled main thread leaves the Task pending.
 - Editor IL2CPP linemap upload (`BugseeIl2CppLinemapUpload`) and symbol orchestrator (`BugseeSymbolUpload`: ELF / ProGuard / archive dSYM).
 - Hang / ANR / OOM launch-option docs and sample defaults.
+- `IOSLaunchOptions.CrashHandlerType` (`com.bugsee.option.capture.crash-handler-type`, iOS SDK 7.0.0-beta7+): BSD signal handlers, a Mach exception handler, or both (the default). The 6.x wrapper's `BugseeEnableMachExceptions` key is not supported: the iOS SDK removed it and ignores it.
 - iOS bridge depth: identity get/set, attribute get, appearance, report/upload labels.
 - iOS MonoPInvokeCallback channel (`BugseeUnityCallbacks.mm` + `IosNativeCallbacks`): network/log/breadcrumb filters, report handler via `BugseeWrapper`, lifecycle events.
 - `Tools~/scripts/validate-field-symbols.sh` for S1/S2 prerequisite checks.
