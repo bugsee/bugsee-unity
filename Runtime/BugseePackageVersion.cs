@@ -13,6 +13,6 @@ namespace Bugsee
         public const string AndroidNdkArtifact = "bugsee-android-ndk";
         public const string IosSdkSource = "https://github.com/bugsee/spm.git";
         public const string IosSdkVersion = "7.0.0-beta7";
-        public const string IosSdkCommit = "<commit of the bugsee/spm 7.0.0-beta7 tag>";
+        public const string IosSdkCommit = "73ed98341d1243ffa7985f871417adcd0ad19799";
     }
 }
