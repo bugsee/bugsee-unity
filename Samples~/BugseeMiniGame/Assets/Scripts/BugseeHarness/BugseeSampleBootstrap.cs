@@ -209,7 +209,8 @@ namespace Bugsee.Sample
                 // Editor / unsupported: still call Launch (no-op bridge).
                 Bugsee.Launch(appToken);
 #endif
-                if (ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "severity")
+                var severityScenario = ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO");
+                if (severityScenario == "severity" || severityScenario == "severitylabels")
                     Bugsee.SetReportHandler(new SeverityLoggingReportHandler());
                 else if (installReportHandler)
                     Bugsee.SetReportHandler(new SampleReportHandler());
@@ -364,6 +365,19 @@ namespace Bugsee.Sample
                         _pendingE2EFire = "V:dialog";
                     }
                     break;
+                case "severitylabels":
+                    // The same with labels and no severity: the native SDKs have no such overload on iOS.
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 1;
+                        _pendingE2EFire = "V:labelled-upload";
+                    }
+                    else if (_e2ePhase == 1 && _e2eTimer >= 9f)
+                    {
+                        _e2ePhase = 99;
+                        _pendingE2EFire = "V:labelled-dialog";
+                    }
+                    break;
                 case "apm":
                 case "apmoff":
                 case "apmleak":
@@ -468,6 +482,10 @@ namespace Bugsee.Sample
                         Bugsee.Upload("severity-omitted", "no severity given");
                     else if (marker == "explicit")
                         Bugsee.Upload("severity-explicit", "Blocker given", IssueSeverity.Blocker);
+                    else if (marker == "labelled-upload")
+                        Bugsee.Upload("severity-labelled-upload", "labels, no severity", labels: new List<string> { "sev", "labelled" });
+                    else if (marker == "labelled-dialog")
+                        Bugsee.ShowReportDialog("severity-labelled-dialog", "labels, no severity", labels: new List<string> { "sev", "labelled" });
                     else
                         Bugsee.ShowReportDialog("severity-dialog", "no severity given");
                     break;
