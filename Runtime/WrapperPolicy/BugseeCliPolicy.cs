@@ -109,6 +109,7 @@ namespace Bugsee.WrapperPolicy
                 case "x86_64-unknown-linux-gnu": return "4d9d985945f3ec20ce56b0dca0bdf208c0d240ea9855d17ea44c6993619b220b";
                 case "aarch64-unknown-linux-gnu": return "7617959bbfb14823a7cb86a1fcf876040b24ff1e5e778b3b557a44f7a375f298";
                 case "x86_64-pc-windows-msvc": return "08f97390a73ec3b710eac498bb05ce9dc436482af7f6f053f73f7b70e12988a5";
+                case "aarch64-pc-windows-msvc": return "9bd2fb8daa6b6f59704042a31526ea9c0343381c4bf9333002666f14248c2f1a";
                 default: return null;
             }
         }
@@ -128,6 +129,7 @@ namespace Bugsee.WrapperPolicy
             if (linux && arm64) return "aarch64-unknown-linux-gnu";
             if (linux && x64) return "x86_64-unknown-linux-gnu";
             if (windows && x64) return "x86_64-pc-windows-msvc";
+            if (windows && arm64) return "aarch64-pc-windows-msvc";
             return null;
         }
 
@@ -322,9 +324,23 @@ namespace Bugsee.WrapperPolicy
             if (!string.IsNullOrWhiteSpace(s.ExplicitPath))
             {
                 string explicitPath = s.ExplicitPath.Trim();
+                if (s.IsWindows)
+                {
+                    // A path pasted from Explorer or a .bat often keeps its quotes ("C:\Program Files\...\bugsee-cli.exe"); a
+                    // quote cannot be part of a Windows file name.
+                    explicitPath = explicitPath.Trim('"').Trim();
+                }
+
                 bool bareName = explicitPath.IndexOf('/') < 0 && explicitPath.IndexOf('\\') < 0;
                 if (!bareName)
                 {
+                    // On Windows the program may be named without its extension, as at a command prompt.
+                    if (s.IsWindows && !probe.FileExists(explicitPath) && !explicitPath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                        && probe.FileExists(explicitPath + ".exe"))
+                    {
+                        explicitPath += ".exe";
+                    }
+
                     if (probe.FileExists(explicitPath))
                     {
                         resolution.Path = explicitPath;
@@ -461,7 +477,7 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>The warning shown (once per build) when no CLI could be resolved.</summary>
-        public static string NotFoundMessage(CliResolution resolution)
+        public static string NotFoundMessage(CliResolution resolution, bool windows = false)
         {
             var text = new StringBuilder("Bugsee: bugsee-cli was not found, so symbols are NOT uploaded (the build continues). ");
             foreach (string note in resolution.Notes)
@@ -469,7 +485,10 @@ namespace Bugsee.WrapperPolicy
                 text.Append(note).Append(' ');
             }
 
-            text.Append("Install it (curl --proto '=https' --tlsv1.2 -sSfL https://download.bugsee.com/cli/install.sh | sh) ")
+            // install.sh does not run on Windows; install.ps1 puts the binary in %LOCALAPPDATA%\Bugsee\bin, which the lookup checks.
+            text.Append(windows
+                    ? "Install it (powershell -ExecutionPolicy ByPass -c \"irm https://download.bugsee.com/cli/install.ps1 | iex\") "
+                    : "Install it (curl --proto '=https' --tlsv1.2 -sSfL https://download.bugsee.com/cli/install.sh | sh) ")
                 .Append("or point BUGSEE_CLI_PATH at the binary.");
             return text.ToString();
         }

@@ -111,7 +111,7 @@ namespace Bugsee.Editor
             if (!_notFoundReported)
             {
                 _notFoundReported = true;
-                Debug.LogWarning(BugseeCliPolicy.NotFoundMessage(resolution));
+                Debug.LogWarning(BugseeCliPolicy.NotFoundMessage(resolution, IsWindows));
             }
 
             return true;
