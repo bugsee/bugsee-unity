@@ -177,18 +177,19 @@ static void BugseeUnityApplyNetworkDict(BugseeNetworkEvent *event, NSDictionary 
     NSMutableDictionary *error = event.error ? [event.error mutableCopy] : [NSMutableDictionary dictionary];
     BOOL touchedError = NO;
     id shortMsg = d[@"errorShortMessage"];
-    if ([shortMsg isKindOfClass:[NSString class]]) {
+    // An empty string removes the key like null: "no error name" must not leave a non-nil error behind.
+    if ([shortMsg isKindOfClass:[NSString class]] && [(NSString *)shortMsg length] > 0) {
         error[@"name"] = shortMsg;
         touchedError = YES;
-    } else if (shortMsg == [NSNull null]) {
+    } else if (shortMsg == [NSNull null] || [shortMsg isKindOfClass:[NSString class]]) {
         [error removeObjectForKey:@"name"];
         touchedError = YES;
     }
     id desc = d[@"errorDescription"];
-    if ([desc isKindOfClass:[NSString class]]) {
+    if ([desc isKindOfClass:[NSString class]] && [(NSString *)desc length] > 0) {
         error[@"description"] = desc;
         touchedError = YES;
-    } else if (desc == [NSNull null]) {
+    } else if (desc == [NSNull null] || [desc isKindOfClass:[NSString class]]) {
         [error removeObjectForKey:@"description"];
         touchedError = YES;
     }

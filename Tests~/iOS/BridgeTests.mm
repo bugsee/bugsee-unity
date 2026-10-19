@@ -160,9 +160,29 @@ int main(void)
         "{\"body\":null,\"errorShortMessage\":null,\"errorDescription\":null}");
     expect(strstr(value, "\"body\":null") && strstr(value, "\"error\":null"), "an explicit null clears the body and the whole error");
     free((void *)value);
-    // What the old wrapper sent for an untouched event (JsonUtility writes null as ""): shows why it must be omitted.
-    value = _bugsee_test_apply_network_result(netStart, "{\"url\":\"\",\"body\":\"\",\"errorShortMessage\":\"\",\"errorDescription\":\"\"}");
-    expect(!strstr(value, "\"error\":null") && strstr(value, "\"url\":\"\""), "empty strings WOULD turn a clean event into one with an error and no url");
+    // Empty error strings remove the key like null: a filter clearing an error with "" must not leave {name:""} behind.
+    value = _bugsee_test_apply_network_result(netStart, "{\"url\":\"\",\"errorShortMessage\":\"\",\"errorDescription\":\"\"}");
+    expect(strstr(value, "\"error\":null") && strstr(value, "\"url\":\"\""), "empty error strings leave no error and an empty url applies");
+    free((void *)value);
+    value = _bugsee_test_apply_network_result("{\"errorShortMessage\":\"e\",\"errorDescription\":\"d\"}", "{\"errorShortMessage\":\"\",\"errorDescription\":\"\"}");
+    expect(strstr(value, "\"error\":null") != NULL, "clearing both error fields with empty strings clears the error");
+    free((void *)value);
+    value = _bugsee_test_apply_network_result("{\"errorShortMessage\":\"e\",\"errorDescription\":\"d\"}", "{\"errorShortMessage\":\"\"}");
+    expect(strstr(value, "\"description\":\"d\"") && !strstr(value, "\"name\""), "an empty name removes only the name");
+    free((void *)value);
+    // A replacement event is applied onto the original: the original's body, Authorization header and error must go.
+    value = _bugsee_test_apply_network_result(
+        "{\"url\":\"host-a\",\"body\":\"secret\",\"headers\":{\"Authorization\":\"Bearer abc\"},\"errorShortMessage\":\"e\",\"errorDescription\":\"d\"}",
+        "{\"stage\":\"complete\",\"url\":\"host-clean\",\"body\":null,\"errorShortMessage\":null,\"errorDescription\":null,\"size\":0,\"responseCode\":200,\"headers\":{}}");
+    expect(strstr(value, "\"url\":\"host-clean\"") && strstr(value, "\"body\":null") && strstr(value, "\"error\":null")
+               && strstr(value, "\"headers\":{}") && !strstr(value, "Authorization"),
+           "a replacement result removes the original's body, header and error");
+    free((void *)value);
+    // The same replacement with keys left out (what omission-style JSON would do) would keep them: why it is written in full.
+    value = _bugsee_test_apply_network_result(
+        "{\"url\":\"host-a\",\"body\":\"secret\",\"headers\":{\"Authorization\":\"Bearer abc\"}}",
+        "{\"stage\":\"complete\",\"url\":\"host-clean\"}");
+    expect(strstr(value, "Authorization") && strstr(value, "\"body\":\"secret\""), "keys left out keep the original's body and header");
     free((void *)value);
 
     // A scalar attribute must not throw from NSJSONSerialization (top-level non-container), and

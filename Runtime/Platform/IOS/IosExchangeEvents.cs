@@ -56,8 +56,10 @@ namespace Bugsee.Platform.IOS
         readonly IosNetworkDto _dto;
         Dictionary<string, string> _headers;
 
-        // What native handed over: the result carries only what the filter changed against it.
+        // What native handed over, to tell a changed header map from an untouched one (Headers hands out a mutable map).
         readonly IosNetworkFields _original;
+        // Fields a setter was called on: the result carries exactly these, whatever value they hold.
+        IosNetworkField _touched;
 
         public IosNetworkEvent(IosNetworkDto dto)
         {
@@ -85,43 +87,43 @@ namespace Bugsee.Platform.IOS
         public string Url
         {
             get => _dto.url;
-            set => _dto.url = value;
+            set { _dto.url = value; _touched |= IosNetworkField.Url; }
         }
 
         public string Body
         {
             get => _dto.body;
-            set => _dto.body = value;
+            set { _dto.body = value; _touched |= IosNetworkField.Body; }
         }
 
         public long Size
         {
             get => _dto.size;
-            set => _dto.size = value;
+            set { _dto.size = value; _touched |= IosNetworkField.Size; }
         }
 
         public int ResponseCode
         {
             get => _dto.responseCode;
-            set => _dto.responseCode = value;
+            set { _dto.responseCode = value; _touched |= IosNetworkField.ResponseCode; }
         }
 
         public string StatusText
         {
             get => _dto.statusText;
-            set => _dto.statusText = value;
+            set { _dto.statusText = value; _touched |= IosNetworkField.StatusText; }
         }
 
         public string ErrorShortMessage
         {
             get => _dto.errorShortMessage;
-            set => _dto.errorShortMessage = value;
+            set { _dto.errorShortMessage = value; _touched |= IosNetworkField.ErrorShortMessage; }
         }
 
         public string ErrorDescription
         {
             get => _dto.errorDescription;
-            set => _dto.errorDescription = value;
+            set { _dto.errorDescription = value; _touched |= IosNetworkField.ErrorDescription; }
         }
 
         public IDictionary<string, string> Headers
@@ -129,6 +131,7 @@ namespace Bugsee.Platform.IOS
             get => _headers ?? (_headers = new Dictionary<string, string>());
             set
             {
+                _touched |= IosNetworkField.Headers;
                 _headers = value != null
                     ? new Dictionary<string, string>(value)
                     : new Dictionary<string, string>();
@@ -141,8 +144,22 @@ namespace Bugsee.Platform.IOS
         public NetworkEventStage Stage => ParseStage(_dto.stage);
 
         // Fields only, no JsonUtility: it writes a null string as "" and cannot omit one, which gave every filtered
-        // event an empty error, body and url. Headers go out as an object map, as native reads them.
-        public string ToResultJson() => IosNetworkResultJson.ForFilter(_original, Fields(), _dto.stage);
+        // event an empty error, body and url. Only the fields the filter set go back (a body native could not read
+        // as text arrives as "", so a changed value cannot be told from an untouched one by comparing); headers also
+        // when the map handed out was edited in place. They go out as an object map, as native reads them.
+        public string ToResultJson()
+        {
+            var touched = _touched;
+            if (!IosNetworkResultJson.SameHeaders(_original.Headers, _headers)) touched |= IosNetworkField.Headers;
+            return IosNetworkResultJson.ForFilter(Fields(), touched, _dto.stage);
+        }
+
+        /// <summary>
+        /// This event as the filter's replacement for the event it was handed: every field is written (see
+        /// <see cref="IosNetworkResultJson.ForReplacement"/>).
+        /// </summary>
+        internal string ToReplacementJson(string nativeStage) =>
+            IosNetworkResultJson.ForReplacement(Fields(), _dto.method, _dto.mechanism, nativeStage);
 
         /// <summary>
         /// Serializes for the wrapper channel. The SDK types events by its own strings

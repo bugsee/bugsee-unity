@@ -145,7 +145,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string complete = ExtractMethodBody(
                 ios, "static void CompleteNetwork(long requestId, string json, EventFilter<INetworkEvent> filter)");
             Assert.That(complete, Does.Contain("IosNetworkEvent.ToNativeStage(ios.Stage)"));
-            Assert.That(complete, Does.Contain("ios.ToChannelJson(nativeStage, 0)"));
+            Assert.That(complete, Does.Contain("ios.ToReplacementJson(nativeStage)"));
             Assert.That(complete, Does.Contain("ReferenceEquals(ios, managed)"));
         }
 
