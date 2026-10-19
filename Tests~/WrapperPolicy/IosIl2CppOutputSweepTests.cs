@@ -197,8 +197,17 @@ namespace Bugsee.WrapperPolicy.Tests
                 Run(l.Export, l.Build, Start, true);
                 Run(export2, l.Build, Start, true);
 
+                // A link higher up: Il2CppOutputProject itself points outside the export.
+                var export3 = Path.Combine(l.Root, "export3");
+                var realProject = Path.Combine(l.Root, "realProject");
+                var victim2 = l.Put(Path.Combine(realProject, "Source", "il2cppOutput", "Symbols"), "MethodMap.tsv", "old", Old);
+                Directory.CreateDirectory(export3);
+                Directory.CreateSymbolicLink(Path.Combine(export3, "Il2CppOutputProject"), realProject);
+                Run(export3, l.Build, Start, true);
+
                 Assert.That(File.Exists(outside), Is.True);
                 Assert.That(File.Exists(victim), Is.True);
+                Assert.That(File.Exists(victim2), Is.True);
             }
         }
 

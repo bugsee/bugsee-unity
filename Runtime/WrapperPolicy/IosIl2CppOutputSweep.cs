@@ -58,7 +58,7 @@ namespace Bugsee.WrapperPolicy
             string dir = string.IsNullOrEmpty(exportRoot) ? null : ExportSymbolsDirectory(exportRoot);
             // Unity removes the build's Symbols folder when a build emits no map, so a missing folder is an answer, provided
             // its parent (il2cppOutput/cpp) is there: without that this build's output is not where this looks.
-            if (dir == null || !Directory.Exists(dir) || IsLink(dir) || !BuildOutputFound(buildSymbols))
+            if (dir == null || !Directory.Exists(dir) || !BuildOutputFound(buildSymbols) || HasLinkBetween(exportRoot, dir))
             {
                 return actions;
             }
@@ -88,6 +88,20 @@ namespace Bugsee.WrapperPolicy
             }
 
             return actions;
+        }
+
+        // A link on any folder from the export's root down to the Symbols folder could send a delete outside the export.
+        static bool HasLinkBetween(string exportRoot, string dir)
+        {
+            string root = Path.GetFullPath(exportRoot).TrimEnd('/', '\\');
+            string current = Path.GetFullPath(dir).TrimEnd('/', '\\');
+            while (current.Length > root.Length && current.StartsWith(root, StringComparison.Ordinal))
+            {
+                if (IsLink(current)) return true;
+                current = Path.GetDirectoryName(current);
+                if (string.IsNullOrEmpty(current)) return true;
+            }
+            return false;
         }
 
         static bool IsLink(string path)
