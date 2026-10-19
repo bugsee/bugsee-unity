@@ -47,7 +47,6 @@ namespace Bugsee.Platform.IOS
         public string message;
         public string type;
         public int level;
-        public IosKv[] data;
     }
 
     sealed class IosNetworkEvent : INetworkEvent
@@ -242,18 +241,10 @@ namespace Bugsee.Platform.IOS
         readonly IosBreadcrumbDto _dto;
         Dictionary<string, object> _data;
 
-        public IosBreadcrumb(IosBreadcrumbDto dto)
+        public IosBreadcrumb(IosBreadcrumbDto dto, IDictionary<string, object> data)
         {
             _dto = dto ?? new IosBreadcrumbDto();
-            _data = new Dictionary<string, object>();
-            if (_dto.data != null)
-            {
-                foreach (var p in _dto.data)
-                {
-                    if (p == null || string.IsNullOrEmpty(p.key)) continue;
-                    _data[p.key] = p.value;
-                }
-            }
+            _data = data != null ? new Dictionary<string, object>(data) : new Dictionary<string, object>();
         }
 
         public long Timestamp
@@ -297,28 +288,9 @@ namespace Bugsee.Platform.IOS
             }
         }
 
-        public string ToResultJson()
-        {
-            if (_data == null || _data.Count == 0)
-            {
-                _dto.data = Array.Empty<IosKv>();
-            }
-            else
-            {
-                var list = new List<IosKv>(_data.Count);
-                foreach (var kv in _data)
-                {
-                    if (kv.Key == null) continue;
-                    list.Add(new IosKv
-                    {
-                        key = kv.Key,
-                        value = kv.Value == null ? null : Convert.ToString(kv.Value),
-                    });
-                }
-                _dto.data = list.ToArray();
-            }
-            return JsonUtility.ToJson(_dto);
-        }
+        // data goes back as a real JSON object (nested values and scalar kinds kept), not through JsonUtility.
+        public string ToResultJson() =>
+            IosBridgeJson.AppendObjectField(JsonUtility.ToJson(_dto), "data", _data);
     }
 
     /// <summary>
@@ -332,12 +304,6 @@ namespace Bugsee.Platform.IOS
             if (string.IsNullOrEmpty(json)) return "{}";
             // Headers arrive as {"a":"b"}; rewrite to [{"key":"a","value":"b"}].
             return RewriteObjectMapField(json, "headers");
-        }
-
-        public static string NormalizeBreadcrumb(string json)
-        {
-            if (string.IsNullOrEmpty(json)) return "{}";
-            return RewriteObjectMapField(json, "data");
         }
 
         public static string NormalizeReport(string json)
