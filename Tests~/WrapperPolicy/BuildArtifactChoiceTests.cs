@@ -242,6 +242,10 @@ namespace Bugsee.WrapperPolicy.Tests
                 Is.EqualTo("Il2CppOutputProject/Source/il2cppOutput/Symbols/LineNumberMappings.json"));
             var mine = Path.Combine(Path.GetTempPath(), "mine", "LineNumberMappings.json");
             Assert.That(BuildArtifactChoice.PendingPointer(root, mine), Is.EqualTo(mine));
+            // A relative path the user gave is made absolute: the script resolves a relative pointer against the export.
+            var relative = BuildArtifactChoice.PendingPointer(root, Path.Combine("rel", "x.json"));
+            Assert.That(Path.IsPathRooted(relative), Is.True);
+            Assert.That(relative, Does.EndWith(Path.Combine("rel", "x.json")));
             // A sibling folder that shares the prefix is not inside.
             var sibling = Path.Combine(Path.GetTempPath(), "exp2", "LineNumberMappings.json");
             Assert.That(BuildArtifactChoice.PendingPointer(root, sibling), Is.EqualTo(sibling));

@@ -31,15 +31,17 @@ namespace Bugsee.Editor
             exportStartEpoch = BuildArtifactChoice.UnixSeconds(report.summary.buildStartedAt);
             if (report.summary.platform == BuildTarget.iOS || report.summary.platform == BuildTarget.tvOS)
             {
-                // The Run Script's age check is safe only where the export step could compare the exported maps with the
-                // build's own output (it refreshes the time of a valid one an unchanged Append export did not copy again).
-                var buildSymbols = IosIl2CppOutputSweep.BuildSymbolsDirectory(
-                    Path.GetDirectoryName(Application.dataPath), report.summary.platform == BuildTarget.tvOS ? "tvOS" : "iOS");
-                if (!IosIl2CppOutputSweep.BuildOutputFound(buildSymbols))
+                // The Run Script's age check is safe only where the export step could compare the exported maps with this build's
+                // own output and bring a valid one's time up to date (an unchanged Append export does not copy it again): see
+                // BugseeIl2CppLinemapUpload's sweep, which runs before this.
+                if (!BugseeIl2CppLinemapUpload.IosAgeCheckSafe)
                 {
                     exportStartEpoch = 0;
-                    Debug.LogWarning("Bugsee: this build's IL2CPP output was not found at " + buildSymbols + ", so the exported line map " +
-                                     "cannot be checked against it; the Run Script uploads the map it finds without an age check.");
+                    var message = "Bugsee: the exported IL2CPP line map could not be checked against this build's own IL2CPP output " +
+                                  "(not found, a link in the way, or a file's time could not be set); the Run Script uploads the map " +
+                                  "it finds without an age check.";
+                    if (BugseeCliRunner.HasAppToken) Debug.LogWarning(message);
+                    else Debug.Log(message);
                 }
             }
 

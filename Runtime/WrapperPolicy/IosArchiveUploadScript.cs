@@ -302,6 +302,31 @@ if [ -f ""${PROJECT_DIR}/BugseePendingIl2CppLinemap.txt"" ]; then
 fi
 [ -n ""${LINEMAP}"" ] || find_current_map ""${PROJECT_DIR}/Il2CppOutputProject""
 [ -n ""${LINEMAP}"" ] || find_current_map ""${PROJECT_DIR}""
+# bugsee-cli packs the MethodMap.tsv and il2cppFileRoot.txt beside the map. One of them that is older than the export is an
+# earlier build's (this build did not write it): upload the map from a temporary folder holding only the current files.
+STAGE=""""
+if [ -n ""${LINEMAP}"" ] && [ -n ""${EXPORT_START}"" ] && in_project ""${LINEMAP}""; then
+  MAP_DIR=$(dirname ""${LINEMAP}"")
+  OLD_SIBLINGS=""""
+  for SIBLING in MethodMap.tsv il2cppFileRoot.txt; do
+    if [ -f ""${MAP_DIR}/${SIBLING}"" ] && ! map_is_current ""${MAP_DIR}/${SIBLING}""; then
+      OLD_SIBLINGS=""${OLD_SIBLINGS} ${SIBLING}""
+    fi
+  done
+  if [ -n ""${OLD_SIBLINGS}"" ]; then
+    STAGE=$(mktemp -d ""${TMPDIR:-/tmp}/bugsee-linemap.XXXXXX"" 2>/dev/null) || STAGE=""""
+    if [ -n ""${STAGE}"" ] && cp ""${LINEMAP}"" ""${STAGE}/LineNumberMappings.json""; then
+      for SIBLING in MethodMap.tsv il2cppFileRoot.txt; do
+        case ""${OLD_SIBLINGS} "" in
+          *"" ${SIBLING} ""*) ;;
+          *) [ ! -f ""${MAP_DIR}/${SIBLING}"" ] || cp ""${MAP_DIR}/${SIBLING}"" ""${STAGE}/${SIBLING}"" || true ;;
+        esac
+      done
+      echo ""Bugsee: not uploading the earlier build's${OLD_SIBLINGS} beside ${LINEMAP}""
+      LINEMAP=""${STAGE}/LineNumberMappings.json""
+    fi
+  fi
+fi
 UUID=""${BUGSEE_IL2CPP_UUIDS:-}""
 if [ -z ""${UUID}"" ]; then
   UF_BIN=""${BUILT_PRODUCTS_DIR}/UnityFramework.framework/UnityFramework""
@@ -323,6 +348,7 @@ if [ -n ""${LINEMAP}"" ] && [ -f ""${LINEMAP}"" ] && [ -n ""${UUID}"" ]; then
 else
   echo ""Bugsee: skip il2cpp-linemap (map='${LINEMAP}' uuid='${UUID}')${STALE_MAPS:+, older than this export:${STALE_MAPS}}""
 fi
+[ -z ""${STAGE}"" ] || rm -rf ""${STAGE}""
 exit 0
 ";
     }

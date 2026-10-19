@@ -96,7 +96,8 @@ namespace Bugsee.WrapperPolicy
             if (string.IsNullOrEmpty(exportRoot) || string.IsNullOrEmpty(mapPath)) return mapPath;
             string root = Path.GetFullPath(exportRoot).TrimEnd('/', '\\') + Path.DirectorySeparatorChar;
             string full = Path.GetFullPath(mapPath);
-            if (!full.StartsWith(root, StringComparison.Ordinal)) return mapPath;
+            // Outside: absolute, whatever the user wrote (the script resolves a relative pointer against the export).
+            if (!full.StartsWith(root, StringComparison.Ordinal)) return full;
             return full.Substring(root.Length).Replace('\\', '/');
         }
 

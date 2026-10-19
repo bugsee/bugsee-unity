@@ -154,8 +154,13 @@ namespace Bugsee.Editor
         // from a build without --emit-method-map would be uploaded with this build's line map). What decides is the build's
         // own output in Library: an equal file is current and gets a fresh time, any other older than the export is removed,
         // and only when Bugsee is handling the map for this build (token set, upload not turned off, no map of the user's own).
+        // Whether the Run Script may apply its age check to the exported map: set by the sweep of the export that is running
+        // (false until it has run), read by BugseeSymbolUpload when it writes the script.
+        internal static bool IosAgeCheckSafe;
+
         static void SweepIosIl2CppOutput(BuildReport report)
         {
+            IosAgeCheckSafe = false;
             if (!IsIosFamily(report))
             {
                 return;
@@ -169,8 +174,10 @@ namespace Bugsee.Editor
                 var projectRoot = Path.GetDirectoryName(Application.dataPath);
                 var buildSymbols = IosIl2CppOutputSweep.BuildSymbolsDirectory(
                     projectRoot, report.summary.platform == BuildTarget.tvOS ? "tvOS" : "iOS");
-                foreach (var action in IosIl2CppOutputSweep.Run(
-                             report.summary.outputPath, buildSymbols, report.summary.buildStartedAt, mayDelete))
+                var result = IosIl2CppOutputSweep.Run(
+                    report.summary.outputPath, buildSymbols, report.summary.buildStartedAt, mayDelete);
+                IosAgeCheckSafe = result.AgeCheckSafe;
+                foreach (var action in result.Actions)
                 {
                     Debug.Log($"Bugsee: IL2CPP output of the iOS export: {action} (compared with this build's own output in Library).");
                 }

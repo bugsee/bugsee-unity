@@ -25,6 +25,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(Classify(exists, written, Start, sourceExists, same), Is.EqualTo(expected));
         }
 
+        // Root/Library plays "il2cppOutput/cpp/Symbols" of the build (its parent, Root, is the cpp folder).
         sealed class Layout : IDisposable
         {
             public readonly string Root = Path.Combine(Path.GetTempPath(), "bugsee-sweep-" + Guid.NewGuid().ToString("N"));
@@ -32,10 +33,16 @@ namespace Bugsee.WrapperPolicy.Tests
             public string Build => Path.Combine(Root, "Library");
             public string Symbols => ExportSymbolsDirectory(Export);
 
-            public Layout()
+            public Layout(bool withBuildCpp = true)
             {
                 Directory.CreateDirectory(Symbols);
                 Directory.CreateDirectory(Build);
+                if (withBuildCpp)
+                {
+                    // A generated source this build wrote, copied into the export unchanged.
+                    Put(Root, "Assembly-CSharp.cpp", "// generated", Old);
+                    Put(Path.GetDirectoryName(Symbols), "Assembly-CSharp.cpp", "// generated", Old);
+                }
             }
 
             public string Put(string dir, string name, string content, DateTime mtime)
@@ -49,8 +56,13 @@ namespace Bugsee.WrapperPolicy.Tests
 
             public void Dispose()
             {
-                try { Directory.Delete(Root, true); }
-                catch (IOException) { }
+                try
+                {
+                    foreach (var f in Directory.GetFiles(Root, "*", SearchOption.AllDirectories))
+                        File.SetAttributes(f, FileAttributes.Normal);
+                    Directory.Delete(Root, true);
+                }
+                catch (Exception) { }
             }
         }
 
@@ -69,12 +81,13 @@ namespace Bugsee.WrapperPolicy.Tests
                 l.Put(l.Build, "LineNumberMappings.json", "{\"a\":1}", old);
                 l.Put(l.Build, "MethodMap.tsv", "m\tn", old);
 
-                var actions = Run(l.Export, l.Build, start, mayDelete: true);
+                var result = Run(l.Export, l.Build, start, mayDelete: true);
 
-                Assert.That(File.Exists(map) && File.Exists(methods), Is.True, string.Join("\n", actions));
+                Assert.That(File.Exists(map) && File.Exists(methods), Is.True, string.Join("\n", result.Actions));
                 Assert.That(BuildArtifactChoice.WrittenByExport(File.GetLastWriteTimeUtc(map), start), Is.True);
                 Assert.That(BuildArtifactChoice.WrittenByExport(File.GetLastWriteTimeUtc(methods), start), Is.True);
-                Assert.That(actions, Has.Count.EqualTo(2));
+                Assert.That(result.Actions, Has.Count.EqualTo(2));
+                Assert.That(result.AgeCheckSafe, Is.True);
             }
         }
 
@@ -116,10 +129,10 @@ namespace Bugsee.WrapperPolicy.Tests
                 var map = l.Put(l.Symbols, "LineNumberMappings.json", "{}", Old);
                 l.Put(l.Build, "MethodMap.tsv", "x", Old);
 
-                var actions = Run(l.Export, l.Build, Start, mayDelete: false);
+                var result = Run(l.Export, l.Build, Start, mayDelete: false);
 
                 Assert.That(File.Exists(map), Is.True);
-                Assert.That(actions, Has.Some.StartWith("left stale"));
+                Assert.That(result.Actions, Has.Some.StartWith("left stale"));
             }
         }
 
@@ -130,7 +143,7 @@ namespace Bugsee.WrapperPolicy.Tests
             {
                 var map = l.Put(l.Symbols, "LineNumberMappings.json", "{}", Start.AddSeconds(5));
 
-                Assert.That(Run(l.Export, l.Build, Start, true), Is.Empty);
+                Assert.That(Run(l.Export, l.Build, Start, true).Actions, Is.Empty);
                 Assert.That(File.Exists(map), Is.True);
             }
         }
@@ -142,12 +155,13 @@ namespace Bugsee.WrapperPolicy.Tests
             using (var l = new Layout())
             {
                 var map = l.Put(l.Symbols, "LineNumberMappings.json", "{}", Old);
-                Run(l.Export, Path.Combine(l.Build, "Symbols"), Start, true);
+                Run(l.Export, Path.Combine(l.Root, "Symbols"), Start, true);
                 Assert.That(File.Exists(map), Is.False);
             }
         }
 
-        // The build's own folder is not where this knows to look (another Unity layout): nothing can be proven, nothing is touched.
+        // The build's own folder is not where this knows to look (another Unity layout): nothing can be proven, nothing is
+        // touched and the Run Script is not given an export time.
         [Test]
         public void Nothing_happens_without_the_builds_own_output_folder()
         {
@@ -155,9 +169,91 @@ namespace Bugsee.WrapperPolicy.Tests
             {
                 var map = l.Put(l.Symbols, "LineNumberMappings.json", "{}", Old);
 
-                Assert.That(Run(l.Export, Path.Combine(l.Root, "nodir", "Symbols"), Start, true), Is.Empty);
-                Assert.That(Run(l.Export, null, Start, true), Is.Empty);
+                foreach (var build in new[] { Path.Combine(l.Root, "nodir", "Symbols"), null })
+                {
+                    var result = Run(l.Export, build, Start, true);
+                    Assert.That(result.Actions, Is.Empty);
+                    Assert.That(result.AgeCheckSafe, Is.False);
+                }
                 Assert.That(File.Exists(map), Is.True);
+            }
+        }
+
+        // M1: a cpp folder in Library that another build left (nothing in it equals the export's sources) is not this build's.
+        [Test]
+        public void A_library_folder_from_another_build_is_not_trusted()
+        {
+            using (var l = new Layout(withBuildCpp: false))
+            {
+                l.Put(l.Root, "Assembly-CSharp.cpp", "// an older build", Old);
+                l.Put(Path.GetDirectoryName(l.Symbols), "Assembly-CSharp.cpp", "// this build", Old);
+                var map = l.Put(l.Symbols, "LineNumberMappings.json", "{\"valid\":1}", Old);
+                l.Put(l.Build, "LineNumberMappings.json", "{\"other\":1}", Old);
+
+                Assert.That(BuildOutputMatches(l.Export, l.Build), Is.False);
+                var result = Run(l.Export, l.Build, Start, true);
+
+                Assert.That(File.Exists(map), Is.True, "a valid map is not deleted on the word of another build's folder");
+                Assert.That(result.AgeCheckSafe, Is.False);
+            }
+        }
+
+        [Test]
+        public void A_library_folder_without_any_generated_source_is_not_trusted()
+        {
+            using (var l = new Layout(withBuildCpp: false))
+            {
+                Assert.That(BuildOutputMatches(l.Export, l.Build), Is.False);
+            }
+        }
+
+        [Test]
+        public void A_library_folder_holding_a_source_identical_to_the_exports_is_this_builds()
+        {
+            using (var l = new Layout())
+            {
+                Assert.That(BuildOutputMatches(l.Export, l.Build), Is.True);
+                Assert.That(BuildOutputMatches(l.Export, Path.Combine(l.Root, "nodir", "Symbols")), Is.False);
+                Assert.That(BuildOutputMatches(null, l.Build), Is.False);
+                Assert.That(BuildOutputMatches(l.Export, null), Is.False);
+            }
+        }
+
+        // M2: a file whose time cannot be set does not stop the others, and the Run Script gets no export time.
+        [Test]
+        public void A_file_that_fails_does_not_stop_the_other_files()
+        {
+            if (Environment.OSVersion.Platform == PlatformID.Win32NT) Assert.Ignore("needs unix file modes");
+            using (var l = new Layout())
+            {
+                var start = DateTime.UtcNow.AddMinutes(-1);
+                var old = start.AddHours(-2);
+                var map = l.Put(l.Symbols, "LineNumberMappings.json", "{}", old);
+                var methods = l.Put(l.Symbols, "MethodMap.tsv", "m", old);
+                l.Put(l.Build, "LineNumberMappings.json", "{}", old);
+                l.Put(l.Build, "MethodMap.tsv", "m", old);
+                var root = l.Put(l.Symbols, "il2cppFileRoot.txt", "stale", old);
+
+                // A folder the user cannot write to: deleting the stale file there fails with an exception, which must not
+                // stop the files after it (the order is map, MethodMap, il2cppFileRoot: put the failing one first by
+                // making the map itself the stale one is not possible, so the failing delete comes last and the
+                // two touches before it must still have happened).
+                File.SetUnixFileMode(l.Symbols, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+                try
+                {
+                    var result = Run(l.Export, l.Build, start, mayDelete: true);
+                    Assert.That(result.Actions, Has.Some.StartWith("touched"), string.Join("\n", result.Actions));
+                    Assert.That(File.Exists(map) && File.Exists(methods), Is.True);
+                    if (Environment.UserName != "root")
+                    {
+                        Assert.That(result.Actions, Has.Some.StartWith("failed"), string.Join("\n", result.Actions));
+                        Assert.That(File.Exists(root), Is.True);
+                    }
+                }
+                finally
+                {
+                    File.SetUnixFileMode(l.Symbols, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                }
             }
         }
 
@@ -177,8 +273,9 @@ namespace Bugsee.WrapperPolicy.Tests
             }
         }
 
+        // L3: a link in the way disables the touch, so the age check must go too.
         [Test]
-        public void Nothing_behind_a_link_is_touched()
+        public void Nothing_behind_a_link_is_touched_and_the_age_check_is_withdrawn()
         {
             if (Environment.OSVersion.Platform == PlatformID.Win32NT) Assert.Ignore("needs symbolic links");
             using (var l = new Layout())
@@ -187,27 +284,32 @@ namespace Bugsee.WrapperPolicy.Tests
                 // A linked file: its target outside the export must survive.
                 var outside = l.Put(Path.Combine(l.Root, "outside"), "LineNumberMappings.json", "{}", Old);
                 File.CreateSymbolicLink(Path.Combine(l.Symbols, "LineNumberMappings.json"), outside);
-                // A linked folder in place of the Symbols folder of a second export.
+                // A linked folder in place of the Symbols folder of a second export (it needs the matching source too).
                 var export2 = Path.Combine(l.Root, "export2");
                 var elsewhere = Path.Combine(l.Root, "elsewhere");
                 var victim = l.Put(elsewhere, "MethodMap.tsv", "old", Old);
-                Directory.CreateDirectory(Path.GetDirectoryName(ExportSymbolsDirectory(export2)));
+                l.Put(Path.Combine(export2, "Il2CppOutputProject", "Source", "il2cppOutput"), "Assembly-CSharp.cpp", "// generated", Old);
                 Directory.CreateSymbolicLink(ExportSymbolsDirectory(export2), elsewhere);
 
-                Run(l.Export, l.Build, Start, true);
-                Run(export2, l.Build, Start, true);
+                var r1 = Run(l.Export, l.Build, Start, true);
+                var r2 = Run(export2, l.Build, Start, true);
+
+                Assert.That(File.Exists(outside), Is.True);
+                Assert.That(File.Exists(victim), Is.True);
+                Assert.That(r1.AgeCheckSafe, Is.False);
+                Assert.That(r2.AgeCheckSafe, Is.False);
 
                 // A link higher up: Il2CppOutputProject itself points outside the export.
                 var export3 = Path.Combine(l.Root, "export3");
                 var realProject = Path.Combine(l.Root, "realProject");
                 var victim2 = l.Put(Path.Combine(realProject, "Source", "il2cppOutput", "Symbols"), "MethodMap.tsv", "old", Old);
+                l.Put(Path.Combine(realProject, "Source", "il2cppOutput"), "Assembly-CSharp.cpp", "// generated", Old);
                 Directory.CreateDirectory(export3);
                 Directory.CreateSymbolicLink(Path.Combine(export3, "Il2CppOutputProject"), realProject);
-                Run(export3, l.Build, Start, true);
+                var r3 = Run(export3, l.Build, Start, true);
 
-                Assert.That(File.Exists(outside), Is.True);
-                Assert.That(File.Exists(victim), Is.True);
                 Assert.That(File.Exists(victim2), Is.True);
+                Assert.That(r3.AgeCheckSafe, Is.False);
             }
         }
 
@@ -227,29 +329,19 @@ namespace Bugsee.WrapperPolicy.Tests
             }
         }
 
-        // Where the build's output is not found the Run Script gets no export time (no age check), see BugseeSymbolUpload.
         [Test]
-        public void The_builds_output_is_found_by_its_cpp_folder_not_the_symbols_folder()
-        {
-            using (var l = new Layout())
-            {
-                Assert.That(BuildOutputFound(Path.Combine(l.Build, "Symbols")), Is.True);
-                Assert.That(BuildOutputFound(Path.Combine(l.Root, "nodir", "Symbols")), Is.False);
-                Assert.That(BuildOutputFound(null), Is.False);
-                Assert.That(BuildOutputFound(""), Is.False);
-            }
-        }
-
-        [Test]
-        public void The_injector_bakes_no_export_time_where_the_builds_output_is_not_found()
+        public void The_injector_takes_the_export_time_from_the_sweep_and_the_sweep_runs_first()
         {
             var dir = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
             while (dir != null && !File.Exists(Path.Combine(dir.FullName, "package.json"))) dir = dir.Parent;
             var source = File.ReadAllText(Path.Combine(dir.FullName, "Editor", "BugseeSymbolUpload.cs"));
-            int check = source.IndexOf("IosIl2CppOutputSweep.BuildOutputFound(buildSymbols)");
+            int check = source.IndexOf("BugseeIl2CppLinemapUpload.IosAgeCheckSafe");
             int zero = source.IndexOf("exportStartEpoch = 0;");
             Assert.That(check, Is.GreaterThan(0));
             Assert.That(zero, Is.GreaterThan(check));
+            var linemap = File.ReadAllText(Path.Combine(dir.FullName, "Editor", "BugseeIl2CppLinemapUpload.cs"));
+            Assert.That(linemap, Does.Contain("public int callbackOrder => 900;"));
+            Assert.That(source, Does.Contain("public int callbackOrder => 910;"));
         }
 
         [Test]

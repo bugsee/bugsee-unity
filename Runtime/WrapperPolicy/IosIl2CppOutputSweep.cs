@@ -10,7 +10,7 @@ namespace Bugsee.WrapperPolicy
     /// with unchanged code leaves this build's map there with the modification time of the earlier export: a time older than
     /// the export's start does not make a file stale. What decides is the build's own output (Library/Bee/artifacts/&lt;platform&gt;/
     /// il2cppOutput/cpp/Symbols): a file equal to it is current (its time is brought up to date, so the Run Script's check
-    /// holds), and one that differs from it, or that this build did not write at all and is older than the export, is
+    /// holds), and one that differs from it, or that this build did not write at all, and is older than the export, is
     /// left over from an earlier build.
     /// </summary>
     public static class IosIl2CppOutputSweep
@@ -28,15 +28,34 @@ namespace Bugsee.WrapperPolicy
             Path.Combine(projectRoot, "Library", "Bee", "artifacts", platformFolder, "il2cppOutput", "cpp", "Symbols");
 
         /// <summary>
-        /// True when this build's own output (the il2cppOutput/cpp folder; its Symbols folder is absent when the build emitted no
-        /// map) is where <see cref="BuildSymbolsDirectory"/> says. When it is not (another Unity layout) nothing can be proven
-        /// about the exported files, and the Run Script must not apply its age check either: a valid map that an unchanged
-        /// Append export did not copy again would be skipped.
+        /// True when the folder <see cref="BuildSymbolsDirectory"/> names (its parent, il2cppOutput/cpp; the Symbols folder is
+        /// absent when the build emitted no map) holds THIS build's output: one of its generated .cpp files is identical to the
+        /// export's copy under Il2CppOutputProject/Source/il2cppOutput. A folder left behind by another build, or another Unity
+        /// layout, proves nothing about the exported files, and then neither the sweep nor the Run Script's age check may act: a
+        /// valid map that an unchanged Append export did not copy again would be deleted or skipped.
         /// </summary>
-        public static bool BuildOutputFound(string buildSymbols)
+        public static bool BuildOutputMatches(string exportRoot, string buildSymbols)
         {
             string cpp = string.IsNullOrEmpty(buildSymbols) ? null : Path.GetDirectoryName(buildSymbols);
-            return !string.IsNullOrEmpty(cpp) && Directory.Exists(cpp);
+            if (string.IsNullOrEmpty(exportRoot) || string.IsNullOrEmpty(cpp) || !Directory.Exists(cpp)) return false;
+            string exported = Path.Combine(exportRoot, "Il2CppOutputProject", "Source", "il2cppOutput");
+            if (!Directory.Exists(exported)) return false;
+            try
+            {
+                var files = new List<FileInfo>(new DirectoryInfo(cpp).GetFiles("*.cpp"));
+                files.RemoveAll(f => f.Length == 0);
+                files.Sort((a, b) => b.Length.CompareTo(a.Length));
+                for (int i = 0; i < files.Count && i < 4; i++)
+                {
+                    string counterpart = Path.Combine(exported, files[i].Name);
+                    if (File.Exists(counterpart) && SameContent(files[i].FullName, counterpart)) return true;
+                }
+            }
+            catch (Exception)
+            {
+            }
+
+            return false;
         }
 
         public static Verdict Classify(bool exists, DateTime fileWriteUtc, DateTime exportStartUtc, bool sourceExists, bool sameAsSource)
@@ -47,47 +66,86 @@ namespace Bugsee.WrapperPolicy
             return written ? Verdict.Current : Verdict.Stale;
         }
 
+        public sealed class Result
+        {
+            public readonly List<string> Actions = new List<string>();
+
+            /// <summary>
+            /// True when the exported files could be checked against this build's own output and every current one is fresh:
+            /// the Run Script's age check is then safe. False (the export time is not given to the script) when this build's
+            /// output was not found, a link is in the way, or a current file's time could not be brought up to date.
+            /// </summary>
+            public bool AgeCheckSafe;
+        }
+
         /// <summary>
         /// Applies <see cref="Classify"/> to the three files. Only the exact Unity location is looked at, nothing behind a
         /// link is touched, and a file is deleted only when <paramref name="mayDelete"/> (Bugsee is handling the map for this
-        /// build). Does nothing when the build's own folder is not there (a Unity layout this does not know). Returns what it did.
+        /// build). Does nothing when this build's own output is not found. Each file is handled on its own: one that cannot
+        /// be touched does not stop the others.
         /// </summary>
-        public static List<string> Run(string exportRoot, string buildSymbols, DateTime exportStartUtc, bool mayDelete)
+        public static Result Run(string exportRoot, string buildSymbols, DateTime exportStartUtc, bool mayDelete)
         {
-            var actions = new List<string>();
-            string dir = string.IsNullOrEmpty(exportRoot) ? null : ExportSymbolsDirectory(exportRoot);
-            // Unity removes the build's Symbols folder when a build emits no map, so a missing folder is an answer, provided
-            // its parent (il2cppOutput/cpp) is there: without that this build's output is not where this looks.
-            if (dir == null || !Directory.Exists(dir) || !BuildOutputFound(buildSymbols) || HasLinkBetween(exportRoot, dir))
+            var result = new Result();
+            if (string.IsNullOrEmpty(exportRoot) || !BuildOutputMatches(exportRoot, buildSymbols))
             {
-                return actions;
+                return result;
             }
 
+            string dir = ExportSymbolsDirectory(exportRoot);
+            if (!Directory.Exists(dir))
+            {
+                result.AgeCheckSafe = true;
+                return result;
+            }
+
+            if (HasLinkBetween(exportRoot, dir))
+            {
+                return result;
+            }
+
+            result.AgeCheckSafe = true;
             foreach (string name in Names)
             {
                 string file = Path.Combine(dir, name);
-                if (!File.Exists(file) || IsLink(file)) continue;
-                string source = Path.Combine(buildSymbols, name);
-                bool sourceExists = File.Exists(source);
-                Verdict verdict = Classify(true, File.GetLastWriteTimeUtc(file), exportStartUtc, sourceExists,
-                    sourceExists && SameContent(file, source));
-                if (verdict == Verdict.Touch)
+                Verdict verdict = Verdict.Absent;
+                try
                 {
-                    File.SetLastWriteTimeUtc(file, DateTime.UtcNow);
-                    actions.Add("touched " + file);
+                    if (!File.Exists(file)) continue;
+                    if (IsLink(file))
+                    {
+                        result.AgeCheckSafe = false;
+                        continue;
+                    }
+
+                    string source = Path.Combine(buildSymbols, name);
+                    bool sourceExists = File.Exists(source);
+                    verdict = Classify(true, File.GetLastWriteTimeUtc(file), exportStartUtc, sourceExists,
+                        sourceExists && SameContent(file, source));
+                    if (verdict == Verdict.Touch)
+                    {
+                        File.SetLastWriteTimeUtc(file, DateTime.UtcNow);
+                        result.Actions.Add("touched " + file);
+                    }
+                    else if (verdict == Verdict.Stale && mayDelete)
+                    {
+                        File.Delete(file);
+                        result.Actions.Add("deleted " + file);
+                    }
+                    else if (verdict == Verdict.Stale)
+                    {
+                        result.Actions.Add("left stale " + file);
+                    }
                 }
-                else if (verdict == Verdict.Stale && mayDelete)
+                catch (Exception ex)
                 {
-                    File.Delete(file);
-                    actions.Add("deleted " + file);
-                }
-                else if (verdict == Verdict.Stale)
-                {
-                    actions.Add("left stale " + file);
+                    // A current file whose time could not be set would be skipped by the age check.
+                    if (verdict == Verdict.Touch) result.AgeCheckSafe = false;
+                    result.Actions.Add("failed (" + ex.Message + ") on " + file);
                 }
             }
 
-            return actions;
+            return result;
         }
 
         // A link on any folder from the export's root down to the Symbols folder could send a delete outside the export.
