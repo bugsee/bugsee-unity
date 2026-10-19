@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Bugsee.Contracts.Options;
 using NUnit.Framework;
@@ -169,6 +170,31 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(log.IsOpen, Is.False, "the SDK has dropped the event and may have reused its callback");
             clock.Now = 3600000;
             Assert.That(network.IsOpen, Is.True, "the SDK never times it out: withholding the reply would lose the event");
+        }
+
+        [Test]
+        public void An_abandoned_handler_is_still_abandoned_when_nothing_refers_to_its_guard()
+        {
+            var finished = new List<bool>();
+            using (var abandoned = new System.Threading.ManualResetEventSlim())
+            {
+                Arm(finished, abandoned);
+                for (var i = 0; i < 3; i++)
+                {
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                }
+                Assert.That(abandoned.Wait(5000), Is.True);
+            }
+
+            Assert.That(finished, Is.EqualTo(new[] { false }));
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static void Arm(List<bool> finished, System.Threading.ManualResetEventSlim abandoned)
+        {
+            var guard = new LateReplyGuard(50, LateReplyGuard.StopwatchMillis, finished.Add);
+            guard.ArmTimeout(50, run => { run(); abandoned.Set(); });
         }
     }
 }

@@ -50,6 +50,10 @@ namespace Bugsee.WrapperPolicy
         bool _finished;
         Timer _timer;
 
+        // An armed guard is held here: when the handler drops its completion callback nothing else refers to the guard,
+        // and a collected timer would never fire (seen on IL2CPP).
+        static readonly HashSet<LateReplyGuard> Armed = new HashSet<LateReplyGuard>();
+
         public LateReplyGuard(long budgetMs, Func<long> nowMs, Action<bool> finish)
         {
             _nowMs = nowMs ?? throw new ArgumentNullException(nameof(nowMs));
@@ -88,6 +92,7 @@ namespace Bugsee.WrapperPolicy
             lock (_gate)
             {
                 if (_finished) return;
+                lock (Armed) Armed.Add(this);
                 _timer = new Timer(_ =>
                 {
                     try { marshal(Abandon); }
@@ -106,7 +111,11 @@ namespace Bugsee.WrapperPolicy
                 timer = _timer;
                 _timer = null;
             }
-            timer?.Dispose();
+            if (timer != null)
+            {
+                timer.Dispose();
+                lock (Armed) Armed.Remove(this);
+            }
             _finish(applyEdits);
         }
     }

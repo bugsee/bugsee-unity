@@ -154,7 +154,9 @@ namespace Bugsee.Platform.Android
             // A handler that never answers must not keep the completion alive: abandon it after the SDK's deadline.
             guard.ArmTimeout(AbandonMarginMs, run =>
             {
-                using (AndroidJniScope.Enter()) run();
+                Debug.LogWarning("[Bugsee] The report handler did not call its completion callback by the SDK's deadline; it was abandoned.");
+                try { using (AndroidJniScope.Enter()) run(); }
+                catch (Exception ex) { Debug.LogWarning("[Bugsee] Abandoning the report handler failed: " + ex.Message); }
             });
 
             MainThreadDispatcher.Run(() =>

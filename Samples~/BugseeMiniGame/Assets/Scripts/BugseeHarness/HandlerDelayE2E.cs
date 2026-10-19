@@ -55,6 +55,13 @@ namespace Bugsee.Sample
         {
             _logPath = System.IO.Path.Combine(Application.persistentDataPath, "handler-e2e.log");
             try { System.IO.File.Delete(_logPath); } catch (Exception) { }
+            // The wrapper's own warnings ("[Bugsee] ... skipped / abandoned") do not reach the iOS system log from C#.
+            Application.logMessageReceivedThreaded += (condition, stackTrace, type) =>
+            {
+                if (condition == null || !condition.StartsWith("[Bugsee]", StringComparison.Ordinal)) return;
+                try { lock (LogGate) System.IO.File.AppendAllText(_logPath, "[wrapper] " + condition + " " + T() + "\n"); }
+                catch (Exception) { }
+            };
             float delay = 0f;
             if (mode.StartsWith("slow", StringComparison.Ordinal))
                 float.TryParse(mode.Substring(4), NumberStyles.Float, CultureInfo.InvariantCulture, out delay);
