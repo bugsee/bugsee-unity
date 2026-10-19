@@ -51,6 +51,11 @@ namespace Bugsee.WrapperPolicy.Tests
             expected.Add(Options.CaptureRespectFlagSecure);
             expected.Add(Options.CaptureVideoMode);
             expected.Add(Options.CaptureVideoUsingCustomMuxer);
+            expected.Add(Options.CaptureVideoSecureScrolling);
+            expected.Add(Options.CaptureVideoFullscreenRememberUserDecision);
+            expected.Add(Options.CaptureVideoFullscreenKeepRunning);
+            expected.Add(Options.ReportHandlerCallbackTimeout);
+            expected.Add(Options.PerformanceUploadMode);
             expected.Add(Options.ReportProcessingInProcess);
             expected.Add(Options.WebViewDomainAllowlist);
             return expected;
@@ -180,10 +185,59 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void AndroidBridge_does_not_reference_option_platform_gate()
+        public void Android_launch_drops_ios_only_keys_and_keeps_shared_and_android_keys()
+        {
+            var options = new Dictionary<string, object>
+            {
+                [Options.CaptureCrashHandlerType] = 1,
+                [Options.CaptureVideo] = true,
+                [Options.CaptureVideoMode] = 2,
+                [Options.CaptureVideoSecureScrolling] = true,
+                [Options.PerformanceUploadMode] = 1
+            };
+
+            var android = OptionPlatformGate.ForAndroid(options);
+
+            Assert.That(android.ContainsKey(Options.CaptureCrashHandlerType), Is.False);
+            Assert.That(android.ContainsKey(Options.CaptureVideo), Is.True);
+            Assert.That(android.ContainsKey(Options.CaptureVideoMode), Is.True);
+            Assert.That(android.ContainsKey(Options.CaptureVideoSecureScrolling), Is.True);
+            Assert.That(android.ContainsKey(Options.PerformanceUploadMode), Is.True);
+            Assert.That(options.ContainsKey(Options.CaptureCrashHandlerType), Is.True, "input must not be mutated");
+            Assert.That(OptionPlatformGate.IosOnly, Is.EquivalentTo(new[] { Options.CaptureCrashHandlerType }));
+        }
+
+        [Test]
+        public void Ios_launch_drops_the_keys_ios_does_not_know_but_keeps_crash_handler_type()
+        {
+            var options = new Dictionary<string, object>
+            {
+                [Options.CaptureCrashHandlerType] = 1,
+                [Options.CaptureVideoSecureScrolling] = true,
+                [Options.CaptureVideoFullscreenRememberUserDecision] = true,
+                [Options.CaptureVideoFullscreenKeepRunning] = true,
+                [Options.ReportHandlerCallbackTimeout] = 5,
+                [Options.PerformanceUploadMode] = 1
+            };
+
+            var ios = OptionPlatformGate.ForIos(options);
+
+            Assert.That(ios.Keys, Is.EquivalentTo(new[] { Options.CaptureCrashHandlerType }));
+        }
+
+        [Test]
+        public void Android_gate_handles_null_and_empty()
+        {
+            Assert.That(OptionPlatformGate.ForAndroid(null).Count, Is.EqualTo(0));
+            Assert.That(OptionPlatformGate.ForAndroid(new Dictionary<string, object>()).Count, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void AndroidBridge_launch_and_relaunch_call_ForAndroid_before_the_java_map()
         {
             string text = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs"));
-            Assert.That(text, Does.Not.Contain("OptionPlatformGate"));
+            Assert.That(CountOccurrences(text, "AndroidOptionsMapper.ToJavaMap(OptionPlatformGate.ForAndroid(options))"), Is.EqualTo(2));
+            Assert.That(CountOccurrences(text, "ToJavaMap("), Is.EqualTo(2), "every map handed to native must be gated");
         }
     }
 }

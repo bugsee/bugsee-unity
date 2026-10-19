@@ -67,6 +67,7 @@ Legacy reference: `cross/unity/.../LaunchOptions/` (`BugseeLaunchOptions` + `And
 - **Write-only properties** — setters write into the map; no public getters.
 - **Omit unset keys** — empty until set; no constructor defaults that pre-fill the map. Native SDK applies defaults for omitted keys.
 - **Wire keys** — property setters store under Android 7.0 `Options.*` (or mapped iOS keys later). Enums as wire ints/bytes; bridge coerces to native enums (`AndroidOptionsMapper`).
+- **Platform gate** — the bridge does not translate keys (only `AndroidOptionsMapper` coerces the enum-valued Android keys to SDK enums and boxes scalars; byte/short/uint/array values are dropped with a warning). `OptionPlatformGate` drops, before the native call, the keys the other SDK does not know: `ForIos` removes the Android-only set (exit detection, notification/broadcast triggers, video mode, custom muxer, secure scrolling, fullscreen remember/keep-running, report-handler callback timeout, performance upload mode, ...), `ForAndroid` removes the iOS-only `capture.crash-handler-type`. `Unity.*` wrapper keys are read by the wrapper and are not gated.
 - **Custom keys** — `SetCustomOption(string, object)` on the base (and/or raw map / `OptionsBuilder`).
 
 ### Facade
