@@ -349,8 +349,9 @@ namespace Bugsee.Sample
                 case "severity":
                     // Reports created without a severity must take ReportingDefaultBugPriority (BUGSEE_E2E_BUG_PRIORITY,
                     // 1..5); an explicit severity must still win. SeverityLoggingReportHandler logs what each report got.
+                    // The first call waits for the SDK to be launched (a call made while it is still Launching is ignored natively).
                     // The scenario ends on an open report dialog: dismiss it before the next run.
-                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && Bugsee.IsLaunched)
                     {
                         _e2ePhase = 1;
                         _pendingE2EFire = "V:omitted";
@@ -368,7 +369,7 @@ namespace Bugsee.Sample
                     break;
                 case "severitylabels":
                     // The same with labels and no severity: the native SDKs have no such overload on iOS.
-                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && Bugsee.IsLaunched)
                     {
                         _e2ePhase = 1;
                         _pendingE2EFire = "V:labelled-upload";
