@@ -108,6 +108,14 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Breadcrumb_data_is_only_written_back_when_the_filter_touched_it()
+        {
+            var events = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IosExchangeEvents.cs"));
+            Assert.That(events, Does.Contain("_dataTouched ? _data : null"));
+            Assert.That(System.Text.RegularExpressions.Regex.Matches(events, "_dataTouched = true;").Count, Is.EqualTo(2));
+        }
+
+        [Test]
         public void Managed_report_completion_never_throws_into_native_and_clears_the_token_atomically()
         {
             var bridge = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));

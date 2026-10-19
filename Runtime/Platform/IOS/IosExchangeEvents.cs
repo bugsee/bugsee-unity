@@ -241,12 +241,14 @@ namespace Bugsee.Platform.IOS
     {
         readonly IosBreadcrumbDto _dto;
         Dictionary<string, object> _data;
+        // Data hands out a mutable dictionary, so any access counts as a touch. Until then the result omits `data`
+        // and native keeps its own (exact numbers, nulls, a nil data stay as they were).
+        bool _dataTouched;
 
         public IosBreadcrumb(IosBreadcrumbDto dto, IDictionary<string, object> data)
         {
             _dto = dto ?? new IosBreadcrumbDto();
-            // null: native data could not be read (malformed or too deep). Left null until the filter touches Data,
-            // so the result then omits the field and native keeps the original.
+            // null: native data could not be read (malformed or too deep); a filter that reads Data then sees empty.
             _data = data != null ? new Dictionary<string, object>(data) : null;
         }
 
@@ -282,18 +284,23 @@ namespace Bugsee.Platform.IOS
 
         public IDictionary<string, object> Data
         {
-            get => _data ?? (_data = new Dictionary<string, object>());
+            get
+            {
+                _dataTouched = true;
+                return _data ?? (_data = new Dictionary<string, object>());
+            }
             set
             {
+                _dataTouched = true;
                 _data = value != null
                     ? new Dictionary<string, object>(value)
                     : new Dictionary<string, object>();
             }
         }
 
-        // data goes back as a real JSON object (nested values and scalar kinds kept), not through JsonUtility.
+        // A touched data goes back as a real JSON object (nested values and scalar kinds kept), not through JsonUtility.
         public string ToResultJson() =>
-            IosBridgeJson.AppendObjectField(JsonUtility.ToJson(_dto), "data", _data);
+            IosBridgeJson.AppendObjectField(JsonUtility.ToJson(_dto), "data", _dataTouched ? _data : null);
     }
 
     /// <summary>
