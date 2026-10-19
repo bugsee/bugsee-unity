@@ -74,7 +74,18 @@ static NSMutableArray<NSString *> *gLifecycleEvents;
 
 static void OnLifecycle(const char *eventType, const char *dataJson)
 {
-    [gLifecycleEvents addObject:[NSString stringWithFormat:@"%s|%s", eventType, dataJson ? dataJson : "(null)"]];
+    // Real SDK events (from the launch above) also arrive here, on a worker thread: keep only this test's.
+    if (strncmp(eventType, "e.", 2) != 0) return;
+    @synchronized (gLifecycleEvents) {
+        [gLifecycleEvents addObject:[NSString stringWithFormat:@"%s|%s", eventType, dataJson ? dataJson : "(null)"]];
+    }
+}
+
+static NSArray<NSString *> *lifecycleEvents(void)
+{
+    @synchronized (gLifecycleEvents) {
+        return [gLifecycleEvents copy];
+    }
 }
 
 static int gDeletedToken;
@@ -323,17 +334,21 @@ int main(void)
     _bugsee_test_emit_lifecycle("e.early1", NULL);
     _bugsee_test_emit_lifecycle("e.early2", "\"snap-1\"");
     _bugsee_test_emit_lifecycle("e.early3", "{\"value\":\"x\"}");
-    expect(gLifecycleEvents.count == 0, "events before the callback registered are held, not delivered");
+    expect(lifecycleEvents().count == 0, "events before the callback registered are held, not delivered");
     _bugsee_register_unity_callbacks(NULL, NULL, OnLifecycle);
-    expect(gLifecycleEvents.count == 3
-               && [gLifecycleEvents[0] isEqualToString:@"e.early1|(null)"]
-               && [gLifecycleEvents[1] isEqualToString:@"e.early2|\"snap-1\""]
-               && [gLifecycleEvents[2] isEqualToString:@"e.early3|{\"value\":\"x\"}"],
-           "held events replay on registration in order: no payload, a string literal, a dictionary as an object");
+    expect(lifecycleEvents().count == 0, "registering does not replay inside the registering call");
+    // Arrives while the replay is pending: it queues behind the held events instead of overtaking them.
     _bugsee_test_emit_lifecycle("e.live", "\"snap-2\"");
+    expect(waitFor(^{ return lifecycleEvents().count == 4 ? 1 : 0; }, 5)
+               && [lifecycleEvents()[0] isEqualToString:@"e.early1|(null)"]
+               && [lifecycleEvents()[1] isEqualToString:@"e.early2|\"snap-1\""]
+               && [lifecycleEvents()[2] isEqualToString:@"e.early3|{\"value\":\"x\"}"]
+               && [lifecycleEvents()[3] isEqualToString:@"e.live|\"snap-2\""],
+           "held events replay after the registering call, in order (no payload, a string literal, a dictionary as an object), before a later event");
     _bugsee_register_unity_callbacks(NULL, NULL, OnLifecycle);
-    expect(gLifecycleEvents.count == 4 && [gLifecycleEvents[3] isEqualToString:@"e.live|\"snap-2\""],
-           "a later event goes straight through and registering again replays nothing twice");
+    _bugsee_test_emit_lifecycle("e.live2", NULL);
+    expect(lifecycleEvents().count == 5 && [lifecycleEvents()[4] isEqualToString:@"e.live2|(null)"],
+           "once replayed, an event goes straight through and registering again replays nothing twice");
     // The effective options are valid JSON holding the host's value merged over the SDK defaults.
     char *launchOptions = _bugsee_get_launch_options();
     id parsedOptions = launchOptions
