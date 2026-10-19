@@ -482,7 +482,17 @@ namespace Bugsee.Sample
                     FirePipelineLogException(marker);
                     break;
                 case 'O':
-                    LogGatingProbe();
+                    // GetLaunchOptions is only meaningful once the SDK is launched: wait (bounded), then say so if it never was.
+                    if (!Bugsee.IsLaunched && _apmLaunchWaits++ < 120)
+                    {
+                        _e2ePhase = 0;
+                        _e2eTimer = 4f;
+                        break;
+                    }
+                    if (!Bugsee.IsLaunched)
+                        Debug.Log("[OPTIONS] NOT LAUNCHED after waiting: no comparison made, status=" + Bugsee.Status);
+                    else
+                        LogGatingProbe();
                     break;
                 case 'S':
                     ShapesE2E.Run(this);

@@ -12,14 +12,14 @@ namespace Bugsee.WrapperPolicy
     {
         static readonly HashSet<string> AndroidOnlyKeys = BuildAndroidOnlyKeys();
 
-        public static readonly IReadOnlyCollection<string> AndroidOnly = AndroidOnlyKeys;
+        public static readonly IReadOnlyCollection<string> AndroidOnly = new List<string>(AndroidOnlyKeys).AsReadOnly();
 
         static readonly HashSet<string> IosOnlyKeys = new HashSet<string>
         {
             Options.CaptureCrashHandlerType,
         };
 
-        public static readonly IReadOnlyCollection<string> IosOnly = IosOnlyKeys;
+        public static readonly IReadOnlyCollection<string> IosOnly = new List<string>(IosOnlyKeys).AsReadOnly();
 
         static HashSet<string> BuildAndroidOnlyKeys()
         {
