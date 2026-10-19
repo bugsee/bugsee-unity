@@ -399,15 +399,37 @@ namespace Bugsee.Sample
             }
         }
 
-        // Scenario "options": every key one platform's gate removes is sent in the launch map, then LogGatingProbe
-        // reads back what native kept.
+        // Scenario "options": checks the platform gate (OptionPlatformGate) against the native launch options.
+        // iOS keeps every key it is given, so there the check is real: every Android-only key (including the ones
+        // Options has no constant for) is sent and must be absent from GetLaunchOptions, the iOS-only key present.
+        // Android's GetLaunchOptions returns every registered key with its default, so presence proves nothing there:
+        // only keys with type-correct values are sent, and each returned value is compared with what was sent
+        // (a mismatch means the value did not reach the SDK). Android drops the iOS-only key itself, so its absence
+        // there is not evidence for the gate.
+        static readonly Dictionary<string, object> ProbeSent = new Dictionary<string, object>();
+
+        static void Probe(BugseeLaunchOptions options, string key, object value)
+        {
+            ProbeSent[key] = value;
+            options.SetCustomOption(key, value);
+        }
+
         static void AddGatingProbeOptions(BugseeLaunchOptions options)
         {
+#if UNITY_IOS
             foreach (var key in OptionPlatformGate.AndroidOnly)
-                options.SetCustomOption(key, true);
-            options.SetCustomOption(Options.ReportHandlerCallbackTimeout, 5);
-            options.SetCustomOption(Options.PerformanceUploadMode, 1);
-            options.SetCustomOption(Options.CaptureCrashHandlerType, 3);
+                Probe(options, key, true);
+#else
+            Probe(options, Options.CaptureVideoSecureScrolling, true);
+            Probe(options, Options.CaptureVideoFullscreenRememberUserDecision, true);
+            Probe(options, Options.CaptureVideoFullscreenKeepRunning, true);
+            Probe(options, Options.CaptureLogsUseAllSources, true);
+            Probe(options, Options.CaptureRespectFlagSecure, false);
+            Probe(options, Options.DetectAndReportExitUserRequested, true);
+            Probe(options, Options.DetectAndReportExitOther, true);
+            Probe(options, Options.ReportHandlerCallbackTimeout, 7000);
+#endif
+            Probe(options, Options.CaptureCrashHandlerType, 3);
         }
 
         static void LogGatingProbe()
@@ -417,14 +439,24 @@ namespace Bugsee.Sample
             keys.AddRange(OptionPlatformGate.IosOnly);
             keys.Sort(StringComparer.Ordinal);
             var present = 0;
+            var mismatches = 0;
             foreach (var key in keys)
             {
                 var has = launched != null && launched.ContainsKey(key);
                 if (has) present++;
-                Debug.Log("[OPTIONS] " + key + " native-has=" + has);
+                var sent = ProbeSent.TryGetValue(key, out var sentValue) ? sentValue.ToString() : "-";
+                var got = has ? Convert.ToString(launched[key]) : "absent";
+#if UNITY_IOS
+                // iOS: an Android-only key must be absent, the iOS-only key must come back as sent.
+                var ok = key == Options.CaptureCrashHandlerType ? got == sent : !has;
+#else
+                var ok = sent == "-" || string.Equals(sent, got, StringComparison.OrdinalIgnoreCase);
+#endif
+                if (!ok) mismatches++;
+                Debug.Log("[OPTIONS] " + key + " sent=" + sent + " native=" + got + (ok ? " ok" : " MISMATCH"));
             }
             Debug.Log("[OPTIONS] launched=" + Bugsee.IsLaunched + " total-native-keys=" + (launched == null ? -1 : launched.Count)
-                + " gated-keys-present=" + present + "/" + keys.Count);
+                + " gated-keys-present=" + present + "/" + keys.Count + " mismatches=" + mismatches);
         }
 
         void PumpPendingE2EFire(string pending)

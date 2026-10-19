@@ -31,6 +31,50 @@ namespace Bugsee.WrapperPolicy.Tests
             return Path.GetFullPath(Path.Combine(FindRepoRoot(), relative));
         }
 
+        // Android SDK 7.4.2 keys that Options has no constant for (#96); iOS would keep them verbatim.
+        static readonly string[] RawAndroidOnlyKeys =
+        {
+            "com.bugsee.option.detect.crash-ndk", "com.bugsee.option.crash-ndk.tombstone-logs",
+            "com.bugsee.option.detect.anr.sampling", "com.bugsee.option.detect.hang.sampling",
+            "com.bugsee.option.detect.memory_leaks", "com.bugsee.option.detect.memory_leaks.mode",
+            "com.bugsee.option.detect.memory_leaks.deep_sample_rate", "com.bugsee.option.detect.thread_leaks",
+            "com.bugsee.option.detect.exit.bg_low_memory_as_error", "com.bugsee.option.config.max-pending-reports",
+            "com.bugsee.option.config.max-pending-report-age"
+        };
+
+        // Keys both SDKs know: never gated.
+        static readonly string[] SharedConstants =
+        {
+            nameof(Options.Duration), nameof(Options.WifiOnlyUpload), nameof(Options.DetectAndReportExit),
+            nameof(Options.DetectAndReportHang), nameof(Options.DetectAndReportHangFairLevel),
+            nameof(Options.DetectAndReportHangMediumLevel), nameof(Options.DetectAndReportHangSevereLevel),
+            nameof(Options.DetectAndReportCrash), nameof(Options.DetectAndReportMainThreadMisuse),
+            nameof(Options.DetectAndReportEarlyCrash), nameof(Options.DetectAndReportHttpErrors),
+            nameof(Options.DetectAndReportAnomaly), nameof(Options.DetectFrustration), nameof(Options.CaptureLogs),
+            nameof(Options.CaptureLogsLevel), nameof(Options.CaptureScreenshot),
+            nameof(Options.CaptureScreenshotScale), nameof(Options.CaptureNetwork),
+            nameof(Options.CaptureNetworkBodySizeLimit), nameof(Options.CaptureNetworkBodyWithoutType),
+            nameof(Options.CaptureNetworkUseDefaultSanitizer), nameof(Options.CaptureNetworkOnLaunch),
+            nameof(Options.CaptureViewHierarchy), nameof(Options.CaptureBreadcrumbs),
+            nameof(Options.CaptureBreadcrumbsExtras), nameof(Options.AdvancedWebViewCapture),
+            nameof(Options.WebViewReportTrigger), nameof(Options.CaptureVideo), nameof(Options.CaptureVideoQuality),
+            nameof(Options.CaptureVideoFrameRate), nameof(Options.CaptureVideoAdaptive),
+            nameof(Options.CaptureVideoScale), nameof(Options.ReportingTriggerByShake),
+            nameof(Options.ReportingTriggerByScreenshot), nameof(Options.ReportingDefaultCrashPriority),
+            nameof(Options.ReportingDefaultErrorPriority), nameof(Options.ReportingDefaultBugPriority),
+            nameof(Options.ReportingUISummaryRequired), nameof(Options.ReportingUIDescriptionRequired),
+            nameof(Options.ReportingUIEmailRequired), nameof(Options.ReportingUILabelsEnabled),
+            nameof(Options.ReportingUILabelsRequired), nameof(Options.ReportingUIPrioritySelectorEnabled),
+            nameof(Options.PerformanceMonitoring), nameof(Options.PerformanceSampleRate),
+            nameof(Options.PerformanceAdaptiveSampling), nameof(Options.Debug), nameof(Options.Endpoint)
+        };
+
+        // Read by the wrapper from the managed dictionary; passed to native unchanged on both platforms.
+        static readonly string[] WrapperConstants =
+        {
+            nameof(Options.CaptureManagedExceptions), nameof(Options.TreatUnityLogExceptionsAsFatal)
+        };
+
         static HashSet<string> ExpectedAndroidOnlyKeysFromOptionsContract()
         {
             var expected = new HashSet<string>();
@@ -58,6 +102,8 @@ namespace Bugsee.WrapperPolicy.Tests
             expected.Add(Options.PerformanceUploadMode);
             expected.Add(Options.ReportProcessingInProcess);
             expected.Add(Options.WebViewDomainAllowlist);
+            foreach (var raw in RawAndroidOnlyKeys)
+                expected.Add(raw);
             return expected;
         }
 
@@ -223,6 +269,46 @@ namespace Bugsee.WrapperPolicy.Tests
             var ios = OptionPlatformGate.ForIos(options);
 
             Assert.That(ios.Keys, Is.EquivalentTo(new[] { Options.CaptureCrashHandlerType }));
+        }
+
+        [Test]
+        public void Every_options_constant_is_classified_exactly_once()
+        {
+            var android = new HashSet<string>(OptionPlatformGate.AndroidOnly);
+            var ios = new HashSet<string>(OptionPlatformGate.IosOnly);
+            var shared = new HashSet<string>(SharedConstants);
+            var wrapper = new HashSet<string>(WrapperConstants);
+            foreach (var field in typeof(Options).GetFields(BindingFlags.Public | BindingFlags.Static))
+            {
+                if (field.FieldType != typeof(string))
+                    continue;
+                var key = (string)field.GetValue(null);
+                var homes = (android.Contains(key) ? 1 : 0) + (ios.Contains(key) ? 1 : 0)
+                    + (shared.Contains(field.Name) ? 1 : 0) + (wrapper.Contains(field.Name) ? 1 : 0);
+                Assert.That(homes, Is.EqualTo(1),
+                    "Options." + field.Name + " must be in exactly one of AndroidOnly, IosOnly, SharedConstants, WrapperConstants "
+                    + "(a new option: decide whether iOS and Android both know the key)");
+            }
+        }
+
+        [Test]
+        public void Raw_android_keys_are_dropped_for_ios_and_shared_keys_are_kept()
+        {
+            var options = new Dictionary<string, object>
+            {
+                ["com.bugsee.option.config.max-data-size"] = 1,
+                ["com.bugsee.option.config.notify-flush-delay"] = 2
+            };
+            foreach (var raw in RawAndroidOnlyKeys)
+                options[raw] = true;
+
+            var ios = OptionPlatformGate.ForIos(options);
+
+            Assert.That(ios.Keys, Is.EquivalentTo(new[]
+            {
+                "com.bugsee.option.config.max-data-size", "com.bugsee.option.config.notify-flush-delay"
+            }));
+            Assert.That(OptionPlatformGate.ForAndroid(options).Count, Is.EqualTo(options.Count));
         }
 
         [Test]

@@ -50,6 +50,19 @@ namespace Bugsee.WrapperPolicy
                 Options.PerformanceUploadMode,
                 Options.ReportProcessingInProcess,
                 Options.WebViewDomainAllowlist,
+                // Android keys with no constant in Options yet (typed options come with #96); the strings are the
+                // Android SDK 7.4.2 keys. iOS keeps an unknown key verbatim, so they are gated like the rest.
+                "com.bugsee.option.detect.crash-ndk",
+                "com.bugsee.option.crash-ndk.tombstone-logs",
+                "com.bugsee.option.detect.anr.sampling",
+                "com.bugsee.option.detect.hang.sampling",
+                "com.bugsee.option.detect.memory_leaks",
+                "com.bugsee.option.detect.memory_leaks.mode",
+                "com.bugsee.option.detect.memory_leaks.deep_sample_rate",
+                "com.bugsee.option.detect.thread_leaks",
+                "com.bugsee.option.detect.exit.bg_low_memory_as_error",
+                "com.bugsee.option.config.max-pending-reports",
+                "com.bugsee.option.config.max-pending-report-age",
             };
         }
 
