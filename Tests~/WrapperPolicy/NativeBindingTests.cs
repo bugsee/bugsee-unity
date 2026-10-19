@@ -54,11 +54,20 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             var parts = new List<string>();
             int depth = 0, start = 0;
+            char quote = '\0';
             for (int i = 0; i < args.Length; i++)
             {
                 char c = args[i];
-                if (c == '(' || c == '[' || c == '{' || c == '<') depth++;
-                else if (c == ')' || c == ']' || c == '}' || c == '>') depth--;
+                if (quote != '\0')
+                {
+                    if (c == '\\') i++;
+                    else if (c == quote) quote = '\0';
+                    continue;
+                }
+
+                if (c == '"' || c == '\'') quote = c;
+                else if (c == '(' || c == '[' || c == '{') depth++;
+                else if (c == ')' || c == ']' || c == '}') depth--;
                 else if (c == ',' && depth == 0)
                 {
                     parts.Add(args.Substring(start, i - start).Trim());
@@ -258,6 +267,14 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void SplitTopLevel_ignores_commas_in_literals_and_brackets_and_lambda_arrows()
+        {
+            Assert.That(SplitTopLevel("\"log\", \"a, b\", 1"), Is.EqualTo(new[] { "\"log\"", "\"a, b\"", "1" }));
+            Assert.That(SplitTopLevel("f(1, 2), x => x > 1, ','"), Is.EqualTo(new[] { "f(1, 2)", "x => x > 1", "','" }));
+            Assert.That(SplitTopLevel(""), Is.Empty);
+        }
+
+        [Test]
         public void Parsers_find_the_known_surface()
         {
             // Guards the parsers themselves: a regex that silently matches nothing would pass every other test.
@@ -407,7 +424,16 @@ namespace Bugsee.WrapperPolicy.Tests
             foreach (var path in Directory.GetFiles(RepoFile("Runtime/Platform/Android"), "*.cs", SearchOption.AllDirectories))
             {
                 var src = StripComments(File.ReadAllText(path));
-                foreach (Match m in Regex.Matches(src, @"\bwrapper\s*\.\s*CallStatic(?:<[^>]+>)?\s*\("))
+                // The receiver may be named anything: find the locals bound to the UnityWrapper class, and require that
+                // every mention of the class is such a binding so a differently spelled call cannot slip past.
+                const string binding = @"\bvar\s+(\w+)\s*=\s*new\s+AndroidJavaClass\(\s*""com\.bugsee\.unity\.UnityWrapper""\s*\)";
+                var receivers = Regex.Matches(src, binding).Cast<Match>().Select(r => r.Groups[1].Value).Distinct().ToList();
+                Assert.That(Regex.Matches(src, @"""com\.bugsee\.unity\.UnityWrapper""").Count,
+                    Is.EqualTo(Regex.Matches(src, binding).Count),
+                    Path.GetFileName(path) + ": UnityWrapper is referenced other than as 'var x = new AndroidJavaClass(...)'");
+                if (receivers.Count == 0) continue;
+                var callRe = new Regex(@"\b(?:" + string.Join("|", receivers) + @")\s*\.\s*CallStatic(?:<[^>]+>)?\s*\(");
+                foreach (Match m in callRe.Matches(src))
                 {
                     int open = m.Index + m.Length;
                     int depth = 1, i = open;
