@@ -51,18 +51,26 @@ namespace Bugsee.WrapperPolicy
             return json.Substring(0, start) + map + json.Substring(end + 1);
         }
 
-        /// <summary>An object-valued field with nested values and scalar kinds intact; empty when absent or not an object.</summary>
+        /// <summary>
+        /// An object-valued field with nested values and scalar kinds intact; empty when the field is absent, or
+        /// null when the JSON cannot be read (malformed, or nested deeper than <see cref="JsonWire.MaxDepth"/>).
+        /// </summary>
         public static Dictionary<string, object> ReadObjectField(string json, string field)
         {
             var root = JsonRead.Object(json);
-            if (root != null && root.TryGetValue(field, out var value) && value is Dictionary<string, object> map)
+            if (root == null) return null;
+            if (root.TryGetValue(field, out var value) && value is Dictionary<string, object> map)
                 return map;
             return new Dictionary<string, object>();
         }
 
-        /// <summary>Appends <c>"field":{...}</c> to a JSON object that does not carry that field.</summary>
+        /// <summary>
+        /// Appends <c>"field":{...}</c> to a JSON object that does not carry that field. A null map leaves the field
+        /// out, so native keeps what it had instead of replacing it with an empty object.
+        /// </summary>
         public static string AppendObjectField(string json, string field, IDictionary<string, object> map)
         {
+            if (map == null) return json ?? "{}";
             var body = JsonWire.Object(map) ?? "{}";
             var close = json == null ? -1 : json.LastIndexOf('}');
             if (close < 0) return "{" + JsonWire.String(field) + ":" + body + "}";

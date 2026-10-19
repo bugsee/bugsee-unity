@@ -31,7 +31,7 @@ namespace Bugsee.Platform.IOS
         delegate void LaunchStartedNativeCallback(int token, int success);
 
         // Written on the main thread, read and cleared on the SDK queue: always through Interlocked.
-        ulong _inFlightUploadToken;
+        long _inFlightUploadToken; // the upload token as a long: Interlocked has no ulong overloads in Unity
         ulong _managedReportUploadFence;
         int _reportUploadGeneration;
 
@@ -513,7 +513,7 @@ namespace Bugsee.Platform.IOS
         {
             _reportUploadGeneration++;
             _managedReportUploadFence++;
-            Interlocked.Exchange(ref _inFlightUploadToken, 0UL);
+            Interlocked.Exchange(ref _inFlightUploadToken, 0L);
             // Native fence first: an upload applying on the SDK queue must already read as cancelled when its
             // snapshot files go away, or a report stripped of those attachments is uploaded.
             _bugsee_invalidate_managed_report_uploads();
@@ -584,7 +584,7 @@ namespace Bugsee.Platform.IOS
             _openReport = null;
             _openReportHandle = null;
             _uploadCompletionBridge = this;
-            Interlocked.Exchange(ref _inFlightUploadToken, uploadToken);
+            Interlocked.Exchange(ref _inFlightUploadToken, (long)uploadToken);
             _bugsee_upload_managed_report(json, uploadToken, uploadFence, OnManagedReportCreateCompletion);
         }
 
@@ -612,7 +612,7 @@ namespace Bugsee.Platform.IOS
         {
             ReleaseUploadSnapshotReport(uploadToken);
             // Clears the token only when it is still this upload's; a newer upload or a cancel already replaced it.
-            if (Interlocked.CompareExchange(ref _inFlightUploadToken, 0UL, uploadToken) != uploadToken)
+            if (Interlocked.CompareExchange(ref _inFlightUploadToken, 0L, (long)uploadToken) != (long)uploadToken)
                 return;
             if (!succeeded)
                 Debug.LogError("[Bugsee] CreateReport failed.");

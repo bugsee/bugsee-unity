@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Options;
+using Bugsee.WrapperPolicy;
 using UnityEngine;
 
 namespace Bugsee.Platform.IOS
@@ -244,7 +245,9 @@ namespace Bugsee.Platform.IOS
         public IosBreadcrumb(IosBreadcrumbDto dto, IDictionary<string, object> data)
         {
             _dto = dto ?? new IosBreadcrumbDto();
-            _data = data != null ? new Dictionary<string, object>(data) : new Dictionary<string, object>();
+            // null: native data could not be read (malformed or too deep). Left null until the filter touches Data,
+            // so the result then omits the field and native keeps the original.
+            _data = data != null ? new Dictionary<string, object>(data) : null;
         }
 
         public long Timestamp

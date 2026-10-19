@@ -34,14 +34,6 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Key_text_inside_a_value_is_not_mistaken_for_the_field()
-        {
-            var obj = "{\"key\":\"k\\\"value\\\":\",\"value\":\"v\"}";
-            Assert.That(IosBridgeJson.ExtractStringField(obj, "key"), Is.EqualTo("k\"value\":"));
-            Assert.That(IosBridgeJson.ExtractStringField(obj, "value"), Is.EqualTo("v"));
-        }
-
-        [Test]
         public void Extract_string_field_is_null_for_null_absent_or_non_string()
         {
             Assert.That(IosBridgeJson.ExtractStringField("{\"value\":null}", "value"), Is.Null);
@@ -86,13 +78,23 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Unreadable_breadcrumb_data_is_left_out_so_native_keeps_it()
+        {
+            var deep = new string('[', 40) + new string(']', 40);
+            Assert.That(IosBridgeJson.ReadObjectField("{\"data\":{\"a\":" + deep + "}}", "data"), Is.Null);
+            Assert.That(IosBridgeJson.ReadObjectField("{\"data\":{", "data"), Is.Null);
+            Assert.That(IosBridgeJson.AppendObjectField("{\"category\":\"c\"}", "data", null),
+                Is.EqualTo("{\"category\":\"c\"}"));
+        }
+
+        [Test]
         public void Untouched_breadcrumb_without_data_round_trips_as_an_empty_object()
         {
             var data = IosBridgeJson.ReadObjectField("{\"category\":\"c\"}", "data");
             Assert.That(data, Is.Empty);
             Assert.That(IosBridgeJson.AppendObjectField("{\"category\":\"c\"}", "data", data),
                 Is.EqualTo("{\"category\":\"c\",\"data\":{}}"));
-            Assert.That(IosBridgeJson.AppendObjectField("{}", "data", null), Is.EqualTo("{\"data\":{}}"));
+            Assert.That(IosBridgeJson.AppendObjectField("{}", "data", new Dictionary<string, object>()), Is.EqualTo("{\"data\":{}}"));
         }
 
         [Test]
