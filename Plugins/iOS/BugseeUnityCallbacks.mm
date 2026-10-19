@@ -236,6 +236,18 @@ static void BugseeUnityApplyBreadcrumbDict(id<BGSBreadcrumb> crumb, NSDictionary
     id data = d[@"data"]; if ([data isKindOfClass:[NSDictionary class]]) crumb.data = data;
 }
 
+// The attributes keep their kinds (number, bool, string, containers). A value JSON cannot hold (a date, data, NaN)
+// is sent as its description: one such attribute must not turn the whole report JSON into "{}".
+static NSDictionary *BugseeUnityJsonSafeAttributes(NSDictionary *attributes)
+{
+    NSMutableDictionary *safe = [NSMutableDictionary dictionaryWithCapacity:attributes.count];
+    [attributes enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+        if (![key isKindOfClass:[NSString class]]) return;
+        safe[key] = [NSJSONSerialization isValidJSONObject:@[obj]] ? obj : [obj description];
+    }];
+    return safe;
+}
+
 static NSDictionary *BugseeUnityReportToDict(id<BGSReportContract> report)
 {
     NSMutableDictionary *d = [NSMutableDictionary dictionary];
@@ -245,7 +257,7 @@ static NSDictionary *BugseeUnityReportToDict(id<BGSReportContract> report)
     d[@"email"] = report.email ?: @"";
     d[@"severity"] = @(report.severity);
     d[@"labels"] = report.labels ? [report.labels copy] : @[];
-    d[@"attributes"] = report.attributes ? [report.attributes copy] : @{};
+    d[@"attributes"] = report.attributes ? BugseeUnityJsonSafeAttributes(report.attributes) : @{};
     // Optional on concrete BugseeReport; BGSReportContract does not declare type.
     if ([(id)report respondsToSelector:@selector(type)]) {
 #pragma clang diagnostic push
@@ -300,7 +312,11 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
             [report clearAllAttributes];
         }
         [(NSDictionary *)attrs enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-            if ([key isKindOfClass:[NSString class]]) {
+            if (![key isKindOfClass:[NSString class]]) return;
+            // A JSON null is a name with no value: removed, as the SDK takes no nil attribute value.
+            if (obj == [NSNull null]) {
+                [report removeAttributeForName:key];
+            } else {
                 [report setAttribute:obj forName:key];
             }
         }];
@@ -739,6 +755,52 @@ const char *_bugsee_test_copy_context_value(const char *key)
     if (!gWrapperContext || !key) return NULL;
     NSString *value = gWrapperContext[[NSString stringWithUTF8String:key]];
     return value ? strdup(value.UTF8String) : NULL;
+}
+
+} // extern "C" (an Objective-C class cannot be declared inside it)
+
+// A report that keeps attributes the way the SDK's does (values stored as given, kinds intact), with only what
+// BugseeUnityApplyReportDict touches for attributes implemented.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wprotocol"
+#pragma clang diagnostic ignored "-Wobjc-protocol-property-synthesis"
+@interface BugseeUnityTestReport : NSObject <BGSReportContract>
+@property(nonatomic, strong) NSMutableDictionary *store;
+@end
+@implementation BugseeUnityTestReport
+@synthesize summary, reportDescription, email, severity;
+- (NSMutableDictionary *)attributes { return [self.store mutableCopy]; }
+- (void)setAttribute:(id)value forName:(NSString *)name { self.store[name] = value; }
+- (void)removeAttributeForName:(NSString *)name { [self.store removeObjectForKey:name]; }
+- (void)clearAllAttributes { [self.store removeAllObjects]; }
+@end
+#pragma clang diagnostic pop
+
+extern "C" {
+
+// Applies a report handler result the way _bugsee_complete_report does to a report holding startAttributesJson
+// as its attributes, and returns the report's attributes as JSON (sorted keys). Caller frees.
+const char *_bugsee_test_apply_report_result(const char *startAttributesJson, const char *resultJson)
+{
+    BugseeUnityTestReport *report = [BugseeUnityTestReport new];
+    NSDictionary *start = startAttributesJson ? BugseeUnityParseJson(startAttributesJson) : nil;
+    report.store = start ? [start mutableCopy] : [NSMutableDictionary dictionary];
+    BugseeUnityApplyReportDict(report, BugseeUnityParseJson(resultJson));
+    NSData *json = [NSJSONSerialization dataWithJSONObject:report.store options:NSJSONWritingSortedKeys error:nil];
+    NSString *text = json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] : nil;
+    return strdup((text ?: @"unserializable").UTF8String);
+}
+
+// The attributes JSON the report handler receives for a report whose attributes are startAttributesJson, plus
+// a date and NaN value that JSON cannot hold. Caller frees.
+const char *_bugsee_test_report_json_with_unserializable_attributes(const char *startAttributesJson)
+{
+    BugseeUnityTestReport *report = [BugseeUnityTestReport new];
+    NSMutableDictionary *store = [BugseeUnityParseJson(startAttributesJson) mutableCopy] ?: [NSMutableDictionary dictionary];
+    store[@"when"] = [NSDate dateWithTimeIntervalSince1970:0];
+    store[@"nan"] = @(NAN);
+    report.store = store;
+    return strdup(BugseeUnityJsonString(BugseeUnityReportToDict(report)).UTF8String);
 }
 #endif
 

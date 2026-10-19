@@ -250,9 +250,9 @@ namespace Bugsee.Platform.IOS
                 try
                 {
                     var handler = _reportHandler;
-                    var dto = JsonUtility.FromJson<IosReportDto>(
-                        IosJsonNormalize.NormalizeReport(json ?? "{}"));
-                    report = new IosReport(dto);
+                    // attributes are read separately: JsonUtility cannot hold free-form values or keep a scalar's kind.
+                    var dto = JsonUtility.FromJson<IosReportDto>(json ?? "{}");
+                    report = new IosReport(dto, IosReport.ReadAttributes(json));
 
                     if (handler == null)
                     {
