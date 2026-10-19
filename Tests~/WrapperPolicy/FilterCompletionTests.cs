@@ -249,12 +249,22 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(invoke, Does.Contain("new LateReplyGuard(BudgetMillis()"));
             Assert.That(invoke, Does.Contain("if (!guard.TryBegin())"));
             Assert.That(invoke, Does.Contain("guard.Abandon()"));
+            Assert.That(invoke, Does.Contain("guard.ArmTimeout("));
+            Assert.That(ExtractMethodBody(invoke, "if (!guard.TryBegin())"), Does.Contain("report?.Dispose()"));
             Assert.That(invoke, Does.Not.Contain("var finished"));
+
+            string filter = ExtractMethodBody(android, "public void filter(AndroidJavaObject data, AndroidJavaObject callback)");
+            Assert.That(filter, Does.Contain("new FilterReplyWindow(_sdkTimeoutMs"));
+            Assert.That(filter, Does.Contain("if (!window.IsOpen)"));
+            Assert.That(filter, Does.Not.Contain("callback?.Call(\"run\", result"));
+            string bridge = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs"));
+            Assert.That(bridge, Does.Contain("new AndroidLogEvent(native), FilterReplyWindow.LogFilterSdkTimeoutMs"));
 
             string ios = StripComments(File.ReadAllText(RepoFile("Runtime/Platform/IOS/IosNativeCallbacks.cs")));
             string onReport = ExtractMethodBody(ios, "static void OnReport(long requestId, int phase, int isTerminating, string json)");
             Assert.That(onReport, Does.Contain("new LateReplyGuard(ReportHandlerDeadline.DefaultBudgetMs"));
             Assert.That(onReport, Does.Contain("if (!guard.TryBegin()) return;"));
+            Assert.That(onReport, Does.Contain("guard.ArmTimeout("));
             Assert.That(onReport, Does.Contain("guard.Done"));
             Assert.That(onReport, Does.Not.Contain("var finished"));
         }

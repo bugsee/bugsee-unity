@@ -251,6 +251,9 @@ namespace Bugsee.Platform.IOS
             var guard = new LateReplyGuard(ReportHandlerDeadline.DefaultBudgetMs, LateReplyGuard.StopwatchMillis,
                 applyEdits => CompleteReport(requestId, report, applyEdits && report != null ? report.ToResultJson() : null));
 
+            // A handler that never answers must not keep the native entry, the report and its snapshot files alive.
+            guard.ArmTimeout(1000, MainThreadDispatcher.Run);
+
             void Work()
             {
                 if (!guard.TryBegin()) return;

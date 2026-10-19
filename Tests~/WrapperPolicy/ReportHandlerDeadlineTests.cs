@@ -93,5 +93,82 @@ namespace Bugsee.WrapperPolicy.Tests
 
             Assert.That(finished, Is.EqualTo(new[] { false }));
         }
+
+        [Test]
+        public void A_handler_that_never_answers_is_abandoned_once_after_the_deadline_and_a_late_reply_does_nothing()
+        {
+            var finished = new List<bool>();
+            var guard = new LateReplyGuard(30, LateReplyGuard.StopwatchMillis, finished.Add);
+            using (var abandoned = new System.Threading.ManualResetEventSlim())
+            {
+                guard.ArmTimeout(30, run => { run(); abandoned.Set(); });
+                Assert.That(abandoned.Wait(5000), Is.True, "the timer fires without a reply");
+            }
+
+            guard.Done();
+            guard.Abandon();
+            Assert.That(finished, Is.EqualTo(new[] { false }), "completed once, edits not applied");
+        }
+
+        [Test]
+        public void A_reply_stops_the_timer_so_it_cannot_abandon_afterwards()
+        {
+            var finished = new List<bool>();
+            var guard = new LateReplyGuard(20, LateReplyGuard.StopwatchMillis, finished.Add);
+            var marshalled = 0;
+            guard.ArmTimeout(20, run => { System.Threading.Interlocked.Increment(ref marshalled); run(); });
+
+            guard.Done();
+            System.Threading.Thread.Sleep(300);
+
+            Assert.That(finished, Is.EqualTo(new[] { true }));
+            Assert.That(marshalled, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void Racing_reply_skip_and_abandon_complete_exactly_once()
+        {
+            for (var round = 0; round < 200; round++)
+            {
+                var completions = 0;
+                var guard = new LateReplyGuard(0, LateReplyGuard.StopwatchMillis,
+                    _ => System.Threading.Interlocked.Increment(ref completions));
+                guard.ArmTimeout(0, run => run());
+                var start = new System.Threading.ManualResetEventSlim();
+                var threads = new System.Threading.Thread[4];
+                for (var i = 0; i < threads.Length; i++)
+                {
+                    var which = i;
+                    threads[i] = new System.Threading.Thread(() =>
+                    {
+                        start.Wait();
+                        if (which == 0) guard.Done();
+                        else if (which == 1) guard.TryBegin();
+                        else if (which == 2) guard.Abandon();
+                        else guard.Done();
+                    });
+                    threads[i].Start();
+                }
+                start.Set();
+                foreach (var t in threads) t.Join();
+                System.Threading.Thread.Sleep(2);
+                Assert.That(completions, Is.EqualTo(1), "round " + round);
+            }
+        }
+
+        [Test]
+        public void A_log_filter_reply_is_wanted_only_inside_the_sdks_window_and_a_filter_without_one_always()
+        {
+            var clock = new Clock();
+            var log = new FilterReplyWindow(FilterReplyWindow.LogFilterSdkTimeoutMs, () => clock.Now);
+            var network = new FilterReplyWindow(0, () => clock.Now);
+
+            clock.Now = 9999;
+            Assert.That(log.IsOpen, Is.True);
+            clock.Now = 10000;
+            Assert.That(log.IsOpen, Is.False, "the SDK has dropped the event and may have reused its callback");
+            clock.Now = 3600000;
+            Assert.That(network.IsOpen, Is.True, "the SDK never times it out: withholding the reply would lose the event");
+        }
     }
 }

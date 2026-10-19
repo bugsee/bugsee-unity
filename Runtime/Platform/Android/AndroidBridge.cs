@@ -447,7 +447,7 @@ namespace Bugsee.Platform.Android
             if (_networkFilterProxy == null)
             {
                 _networkFilterProxy = new EventFilterProxy<INetworkEvent>(
-                    native => new AndroidNetworkEvent(native));
+                    native => new AndroidNetworkEvent(native)); // the SDK never times the network filter out (7.4.1/7.4.2): no reply window
                 _bugsee.CallStatic("setNetworkEventFilter", _networkFilterProxy);
             }
             _networkFilterProxy.SetFilter(filter);
@@ -466,7 +466,7 @@ namespace Bugsee.Platform.Android
             if (_logFilterProxy == null)
             {
                 _logFilterProxy = new EventFilterProxy<ILogEvent>(
-                    native => new AndroidLogEvent(native));
+                    native => new AndroidLogEvent(native), FilterReplyWindow.LogFilterSdkTimeoutMs);
                 _bugsee.CallStatic("setLogEventFilter", _logFilterProxy);
             }
             _logFilterProxy.SetFilter(filter);

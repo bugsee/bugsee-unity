@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.Threading;
 using Bugsee.Contracts.Options;
 
 namespace Bugsee.WrapperPolicy
@@ -47,6 +48,7 @@ namespace Bugsee.WrapperPolicy
         readonly Func<long> _nowMs;
         readonly Action<bool> _finish;
         bool _finished;
+        Timer _timer;
 
         public LateReplyGuard(long budgetMs, Func<long> nowMs, Action<bool> finish)
         {
@@ -73,14 +75,66 @@ namespace Bugsee.WrapperPolicy
         /// <summary>The handler failed or there is none: complete the report unchanged.</summary>
         public void Abandon() => Finish(false);
 
+        /// <summary>
+        /// Completes the report unchanged <paramref name="marginMs"/> after the deadline if nothing has finished it, so a
+        /// handler that never calls its completion does not keep the native completion, the report and its snapshot files
+        /// alive. <paramref name="marshal"/> runs the abandon where the platform needs it (a thread attached to the JVM,
+        /// the Unity main thread). A reply after that finds the guard finished and does nothing.
+        /// </summary>
+        public void ArmTimeout(long marginMs, Action<Action> marshal)
+        {
+            if (marshal == null) throw new ArgumentNullException(nameof(marshal));
+            long due = Math.Max(0, _deadlineMs - _nowMs()) + marginMs;
+            lock (_gate)
+            {
+                if (_finished) return;
+                _timer = new Timer(_ =>
+                {
+                    try { marshal(Abandon); }
+                    catch (Exception) { }
+                }, null, due, Timeout.Infinite);
+            }
+        }
+
         void Finish(bool applyEdits)
         {
+            Timer timer;
             lock (_gate)
             {
                 if (_finished) return;
                 _finished = true;
+                timer = _timer;
+                _timer = null;
             }
+            timer?.Dispose();
             _finish(applyEdits);
         }
+    }
+}
+
+namespace Bugsee.WrapperPolicy
+{
+    /// <summary>
+    /// The window in which an Android filter's reply is still wanted. The SDK's log filter drops the event after 10 s and
+    /// reuses its callback object for the next event; the SDK does not tell a late reply from the next event's own, so
+    /// a reply after the window would complete the wrong event with this one's data. Past the window the wrapper does
+    /// not reply at all. A filter the SDK never times out (network and breadcrumb in 7.4.1/7.4.2) has no window: a reply
+    /// is always wanted, and dropping it would lose the event.
+    /// </summary>
+    public sealed class FilterReplyWindow
+    {
+        public const long LogFilterSdkTimeoutMs = 10000;
+
+        readonly long _deadlineMs;
+        readonly Func<long> _nowMs;
+
+        /// <param name="sdkTimeoutMs">0 for a filter the SDK never times out.</param>
+        public FilterReplyWindow(long sdkTimeoutMs, Func<long> nowMs)
+        {
+            _nowMs = nowMs ?? throw new ArgumentNullException(nameof(nowMs));
+            _deadlineMs = sdkTimeoutMs > 0 ? nowMs() + sdkTimeoutMs : long.MaxValue;
+        }
+
+        public bool IsOpen => _nowMs() < _deadlineMs;
     }
 }

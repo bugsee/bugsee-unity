@@ -12,7 +12,9 @@ namespace Bugsee.Sample
     /// <summary>
     /// Report handler for checking what happens when the SDK stops waiting for it (issue #136).
     /// Android intent extras / iOS environment:
-    ///   bugsee_handler_mode     = prompt | slow&lt;seconds&gt;   (prompt: completion at once; slowN: completion after N s)
+    ///   bugsee_handler_mode     = prompt | slow&lt;seconds&gt; | never | filter&lt;seconds&gt;
+    ///                             (prompt: completion at once; slowN: after N s; never: the completion is never called;
+    ///                              filterN: a log filter that blocks the main thread for N s on a probe line, so its reply is late)
     ///   bugsee_handler_report_s = seconds after launch at which a worker thread calls Bugsee.Upload
     ///                             (so the report is made while Unity's loop may be paused, e.g. the app in the background)
     /// Every step logs "[HandlerE2E] ... t=&lt;seconds since install&gt;" so the log shows when the handler really ran.
@@ -56,12 +58,28 @@ namespace Bugsee.Sample
             float delay = 0f;
             if (mode.StartsWith("slow", StringComparison.Ordinal))
                 float.TryParse(mode.Substring(4), NumberStyles.Float, CultureInfo.InvariantCulture, out delay);
+            else if (mode == "never")
+                delay = -1f;
+            else if (mode.StartsWith("filter", StringComparison.Ordinal))
+            {
+                float.TryParse(mode.Substring(6), NumberStyles.Float, CultureInfo.InvariantCulture, out var stall);
+                Bugsee.SetLogEventFilter(ev =>
+                {
+                    if (ev.Message == null || !ev.Message.Contains("FILTERPROBE")) return ev;
+                    Log("[HandlerE2E] filter-start " + T() + " blocking " + stall + "s");
+                    Thread.Sleep((int)(stall * 1000));
+                    ev.Message = "FILTERPROBE-FILTERED " + ev.Message;
+                    Log("[HandlerE2E] filter-returning " + T());
+                    return ev;
+                });
+                host.StartCoroutine(Probe());
+            }
             Bugsee.SetReportHandler(new HandlerDelayE2E(host, delay));
             Log("[HandlerE2E] installed mode=" + mode + " delay=" + delay + " " + T());
 
             if (float.TryParse(reportAfterSeconds, NumberStyles.Float, CultureInfo.InvariantCulture, out var at))
             {
-                var touched = Bugsee.IsLaunched; // first use of Bugsee initialises its statics, on the main thread
+                var touched = Bugsee.IsLaunched; // read only to initialise Bugsee's statics on the main thread, before the worker thread uses them
                 new Thread(() =>
                 {
                     Thread.Sleep((int)(at * 1000));
@@ -88,12 +106,23 @@ namespace Bugsee.Sample
         public override void OnAfterReportCreated(IReport report, bool isTerminating, Action completionCallback) =>
             Run("after", report, completionCallback);
 
+        static IEnumerator Probe()
+        {
+            yield return new WaitForSeconds(5f);
+            Log("[HandlerE2E] probe-line-logged " + T());
+            Debug.Log("FILTERPROBE line");
+            yield return new WaitForSeconds(2f);
+            Debug.Log("FILTERPROBE second line");
+        }
+
         void Run(string phase, IReport report, Action completion)
         {
             Log("[HandlerE2E] " + phase + "-start " + T() + " frame=" + Time.frameCount + " delay=" + _delaySeconds);
             if (phase == "before" && report != null)
                 report.Summary = "[HandlerE2E-edit] " + (report.Summary ?? "");
-            if (_delaySeconds <= 0f)
+            if (_delaySeconds < 0f)
+                return; // never completes
+            if (_delaySeconds == 0f)
             {
                 completion?.Invoke();
                 Log("[HandlerE2E] " + phase + "-done-called " + T());
