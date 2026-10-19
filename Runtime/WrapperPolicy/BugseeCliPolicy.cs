@@ -81,7 +81,8 @@ namespace Bugsee.WrapperPolicy
         public const string DefaultVersion = "0.8.1";
 
         /// <summary>
-        /// Oldest installed CLI the Editor uses as is (the Android and standalone uploads, which send ELF files).
+        /// Oldest installed CLI the Editor uses as is. Only the Android ELF upload needs 0.8.1, but every Editor upload (the
+        /// il2cpp linemap of a standalone build too) shares this lookup, so the floor is shared.
         /// 0.8.1 upgrades a stored symbol table to DWARF without --force; the uploads never pass --force, so on 0.8.0
         /// a re-upload of richer symbols under the same build id keeps the poorer copy. A too-old CLI is passed over
         /// and the pinned release is downloaded, which costs one cached download.
