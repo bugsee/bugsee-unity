@@ -84,7 +84,12 @@ Residual races after the hard deadline (the native SDKs cannot cancel an operati
 
 `Bugsee.LifecycleEvent` and `ILifecycleEventListener.OnEvent(eventType, data)` behave the same on both platforms. `data` is `null`, a `string` (the snapshot or request id of the report events) or, if the SDK ever sends a map, a `Dictionary<string, object>`; the native SDKs send only strings and no payload today. Events the SDK announces before the managed side is listening (for example `Launching` or `RelaunchedAfterCrash`, or any event after a `Relaunch` that is the first call) are held, up to 128, and delivered in order as soon as the wrapper starts listening, on both iOS and Android. `Relaunch` registers the wrapper the same way `Launch` does. Handlers run on the Unity main thread on iOS and Android alike.
 
-Other platform differences, not aligned: before `Launched`, iOS holds network and breadcrumb events in the wrapper and submits them at launch, while Android hands them straight to the SDK.
+Other platform differences, not aligned:
+
+- Before `Launched`, iOS holds network and breadcrumb events in the wrapper and submits them at launch, while Android hands them straight to the SDK.
+- `IReport.Email` set on a report from `CreateReport` is used on Android; on iOS it is dropped with a warning (the managed upload cannot carry it): use `SetUserIdentifier` there.
+- `IAppearance.ToMap()` returns what the SDK reports on Android; on iOS it lists only the properties set through the wrapper that the native theme applied.
+- `Trace(name, value)` with a collection or other non-primitive value: iOS sends it as JSON, Android as its `ToString()`. Pass a string or a primitive to get the same result on both.
 
 ## Crash & exception capture
 

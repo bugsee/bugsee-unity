@@ -791,6 +791,18 @@ const char *_bugsee_test_copy_wrapper_build(void)
     return gWrapperBuild ? strdup(gWrapperBuild.UTF8String) : NULL;
 }
 
+// Hands the wrapper a lifecycle event the way the SDK does; payloadJson is a JSON value (string literal or
+// object), NULL for no payload.
+void _bugsee_test_emit_lifecycle(const char *eventType, const char *payloadJson)
+{
+    id payload = nil;
+    if (payloadJson) {
+        NSData *bytes = [[NSString stringWithUTF8String:payloadJson] dataUsingEncoding:NSUTF8StringEncoding];
+        payload = [NSJSONSerialization JSONObjectWithData:bytes options:NSJSONReadingFragmentsAllowed error:nil];
+    }
+    [gWrapper onLifecycleEvent:[NSString stringWithUTF8String:eventType] data:payload];
+}
+
 int _bugsee_test_wrapper_installed(void)
 {
     return gWrapper != nil;
