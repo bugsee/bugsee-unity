@@ -39,6 +39,7 @@ namespace Bugsee.Sample
             Bugsee.SetAttribute("a_double", 1.5);
             Bugsee.SetAttribute("a_string", "hello");
             Bugsee.SetAttribute("a_numstr", "42");
+            Bugsee.SetAttribute("a_whole", 2.0);
             Bugsee.SetReportHandler(new Probe(edit));
             yield return new WaitForSeconds(1f);
             Bugsee.Upload("attrs-" + (edit ? "edit-" : "noop-") + marker, "report attribute kinds, " + (edit ? "edit" : "noop") + " handler");
@@ -53,9 +54,16 @@ namespace Bugsee.Sample
             {
                 var value = report.Attributes[key];
                 sb.Append(' ').Append(key).Append('=')
-                    .Append(value == null ? "null" : value.GetType().Name + ":" + Convert.ToString(value, CultureInfo.InvariantCulture));
+                    .Append(value == null ? "null" : value.GetType().Name + ":" + (value is System.Collections.IEnumerable && !(value is string) ? Items(value) : Convert.ToString(value, CultureInfo.InvariantCulture)));
             }
             return sb.ToString();
+        }
+
+        static string Items(object value)
+        {
+            var sb = new StringBuilder("[");
+            foreach (var item in (System.Collections.IEnumerable)value) sb.Append(item).Append(',');
+            return sb.Append(']').ToString();
         }
 
         sealed class Probe : ReportHandlerBase
@@ -73,6 +81,8 @@ namespace Bugsee.Sample
                     report.SetAttribute("added_double", 2.5);
                     report.SetAttribute("added_bool", false);
                     report.SetAttribute("added_long", 7L);
+                    report.SetAttribute("added_whole", 3.0);
+                    report.SetAttribute("added_list", new List<object> { 1, "a" });
                     report.RemoveAttribute("a_numstr");
                     Debug.Log("[ATTRS] before-out:" + Describe(report));
                 }

@@ -769,6 +769,9 @@ const char *_bugsee_test_copy_context_value(const char *key)
 @end
 @implementation BugseeUnityTestReport
 @synthesize summary, reportDescription, email, severity;
+- (NSString *)reportId { return @"test"; }
+- (NSString *)type { return @"bug"; }
+- (NSMutableArray *)labels { return [NSMutableArray array]; }
 - (NSMutableDictionary *)attributes { return [self.store mutableCopy]; }
 - (void)setAttribute:(id)value forName:(NSString *)name { self.store[name] = value; }
 - (void)removeAttributeForName:(NSString *)name { [self.store removeObjectForKey:name]; }

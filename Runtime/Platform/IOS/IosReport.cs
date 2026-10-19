@@ -323,37 +323,9 @@ namespace Bugsee.Platform.IOS
         static void AppendRawString(StringBuilder sb, string value) =>
             IosJsonStringEncoding.AppendQuoted(sb, value);
 
-        static void AppendValue(StringBuilder sb, object value)
-        {
-            if (value == null) { sb.Append("null"); return; }
-            if (value is bool b) { sb.Append(b ? "true" : "false"); return; }
-            if (value is float f)
-            {
-                if (float.IsNaN(f) || float.IsInfinity(f)) { sb.Append("null"); return; }
-                sb.Append(f.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                return;
-            }
-            if (value is double d)
-            {
-                if (double.IsNaN(d) || double.IsInfinity(d)) { sb.Append("null"); return; }
-                sb.Append(d.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                return;
-            }
-            if (value is byte || value is sbyte || value is short || value is ushort
-                || value is int || value is uint || value is long || value is ulong
-                || value is decimal)
-            {
-                sb.Append(Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture));
-                return;
-            }
-            // A nested map or list (what native sends for a container attribute) stays a JSON container.
-            if (value is System.Collections.IDictionary || (value is System.Collections.IEnumerable && !(value is string)))
-            {
-                sb.Append(JsonWire.Value(value));
-                return;
-            }
-            IosJsonStringEncoding.AppendQuoted(sb, Convert.ToString(value));
-        }
+        // The same value wire as Bugsee.SetAttribute: a whole-number double keeps its ".0" (native would read 2 as an
+        // integer), "R" digits, invariant culture, enums by value, containers as JSON, NaN/Infinity as null.
+        static void AppendValue(StringBuilder sb, object value) => sb.Append(AttributeWire.ToJson(value));
     }
 
     static class IosJsonStringEncoding

@@ -120,6 +120,36 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(json, Does.Not.Contain("attributes"));
         }
 
+        enum Color { Red = 3 }
+
+        [Test]
+        public void Values_a_handler_sets_use_the_attribute_wire_not_ToString()
+        {
+            var previous = System.Threading.Thread.CurrentThread.CurrentCulture;
+            System.Threading.Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+            try
+            {
+                var report = FromNative();
+                report.SetAttribute("whole", 2.0);
+                report.SetAttribute("sum", 0.1 + 0.2);
+                report.SetAttribute("ratio", 1.5f);
+                report.SetAttribute("color", Color.Red);
+                report.SetAttribute("when", new System.DateTime(2020, 1, 2, 3, 4, 5, System.DateTimeKind.Utc));
+                var json = report.ToResultJson();
+                Assert.That(json, Does.Contain("\"whole\":2.0"));
+                Assert.That(json, Does.Contain("\"sum\":0.30000000000000004"));
+                Assert.That(json, Does.Contain("\"ratio\":1.5"));
+                Assert.That(json, Does.Contain("\"color\":3"));
+                Assert.That(json, Does.Contain("\"when\":\"2020-01-02T03:04:05.0000000Z\""));
+                var attrs = (Dictionary<string, object>)JsonRead.Object(json)["attributes"];
+                Assert.That(attrs["whole"], Is.EqualTo(2.0).And.TypeOf<double>());
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = previous;
+            }
+        }
+
         [Test]
         public void The_native_report_path_reads_attributes_with_their_kinds()
         {
