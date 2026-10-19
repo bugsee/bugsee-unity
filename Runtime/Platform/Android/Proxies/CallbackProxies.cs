@@ -3,6 +3,7 @@ using System;
 using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Reporting;
 using Bugsee.Internal;
+using Bugsee.WrapperPolicy;
 using UnityEngine;
 
 namespace Bugsee.Platform.Android
@@ -114,29 +115,42 @@ namespace Bugsee.Platform.Android
                 return;
             }
 
+            // The SDK waits for the handler at most ReportHandlerCallbackTimeout, then carries on with the report
+            // unchanged. While the Unity loop is paused (app in the background) this hop sits in the queue, so a
+            // handler that would only start after that is skipped and a reply after it is only acknowledged.
+            var guard = new LateReplyGuard(BudgetMillis(), LateReplyGuard.StopwatchMillis, _ =>
+            {
+                try { completion?.Call("run"); }
+                finally { try { completion?.Dispose(); } catch (Exception) { } }
+            });
+
             MainThreadDispatcher.Run(() =>
             {
-                var finished = false;
-                Action done = () =>
+                if (!guard.TryBegin())
                 {
-                    if (finished) return;
-                    finished = true;
-                    try { completion?.Call("run"); }
-                    finally { try { completion?.Dispose(); } catch (Exception) { } }
-                };
+                    Debug.LogWarning("[Bugsee] The report handler was skipped: the SDK stopped waiting for it before the Unity main loop could run it.");
+                    try { report?.Dispose(); } catch (Exception) { }
+                    return;
+                }
 
                 try
                 {
                     var wrapped = new AndroidReport(report);
-                    if (before) handler.OnBeforeReportCreated(wrapped, false, done);
-                    else handler.OnAfterReportCreated(wrapped, false, done);
+                    if (before) handler.OnBeforeReportCreated(wrapped, false, guard.Done);
+                    else handler.OnAfterReportCreated(wrapped, false, guard.Done);
                 }
                 catch (Exception ex)
                 {
                     Debug.LogException(ex);
-                    done();
+                    guard.Abandon();
                 }
             });
+        }
+
+        static long BudgetMillis()
+        {
+            try { return ReportHandlerDeadline.BudgetMillis(global::Bugsee.Bugsee.GetLaunchOptions(), true); }
+            catch (Exception) { return ReportHandlerDeadline.DefaultBudgetMs; }
         }
     }
 

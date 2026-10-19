@@ -210,7 +210,10 @@ namespace Bugsee.WrapperPolicy.Tests
             string invoke = ExtractMethodBody(proxies, "void Invoke(AndroidJavaObject report, bool isTerminating");
             foreach (var branch in new[] { "if (handler == null)", "if (isTerminating)" })
                 Assert.That(ExtractMethodBody(ExtractMethodBody(invoke, branch), "finally"), Does.Contain("ReleaseArgs(report, completion)"));
-            Assert.That(ExtractMethodBody(invoke, "Action done = () =>"), Does.Contain("completion?.Dispose()"));
+            // The handler's done goes through the late-reply guard, whose single completion releases the argument.
+            string finish = ExtractMethodBody(invoke, "new LateReplyGuard(");
+            Assert.That(ExtractMethodBody(finish, "finally"), Does.Contain("completion?.Dispose()"));
+            Assert.That(invoke, Does.Contain("guard.Done"));
         }
 
         [Test]
@@ -236,6 +239,24 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(catchBody, Does.Contain("filter-failed"));
             Assert.That(catchBody, Does.Not.Contain("callback?.Call(\"run\", data);"));
             Assert.That(catchBody, Does.Contain("(AndroidJavaObject)null"));
+        }
+
+        [Test]
+        public void Report_handlers_on_both_platforms_go_through_the_late_reply_guard()
+        {
+            string android = StripComments(File.ReadAllText(RepoFile("Runtime/Platform/Android/Proxies/CallbackProxies.cs")));
+            string invoke = ExtractMethodBody(android, "void Invoke(AndroidJavaObject report, bool isTerminating");
+            Assert.That(invoke, Does.Contain("new LateReplyGuard(BudgetMillis()"));
+            Assert.That(invoke, Does.Contain("if (!guard.TryBegin())"));
+            Assert.That(invoke, Does.Contain("guard.Abandon()"));
+            Assert.That(invoke, Does.Not.Contain("var finished"));
+
+            string ios = StripComments(File.ReadAllText(RepoFile("Runtime/Platform/IOS/IosNativeCallbacks.cs")));
+            string onReport = ExtractMethodBody(ios, "static void OnReport(long requestId, int phase, int isTerminating, string json)");
+            Assert.That(onReport, Does.Contain("new LateReplyGuard(ReportHandlerDeadline.DefaultBudgetMs"));
+            Assert.That(onReport, Does.Contain("if (!guard.TryBegin()) return;"));
+            Assert.That(onReport, Does.Contain("guard.Done"));
+            Assert.That(onReport, Does.Not.Contain("var finished"));
         }
     }
 }
