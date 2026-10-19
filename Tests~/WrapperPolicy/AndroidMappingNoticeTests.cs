@@ -7,10 +7,13 @@ namespace Bugsee.WrapperPolicy.Tests
     {
         static readonly string[] Roots = { "/out/Builds/E2E" };
 
-        static MappingFileInfo File(string path, long length) => new MappingFileInfo(path, length);
+        static readonly DateTime Start = new DateTime(2026, 10, 20, 12, 0, 0, DateTimeKind.Utc);
+
+        static MappingFileInfo File(string path, long length, int minutesAfterStart = 1) =>
+            new MappingFileInfo(path, length, Start.AddMinutes(minutesAfterStart));
 
         static string Missing(bool minify, AndroidOutputFormat format, params MappingFileInfo[] found) =>
-            AndroidMappingNotice.MissingMapping(minify, format, "Game_mapping.txt", Roots, found, "1.2.3", "45");
+            AndroidMappingNotice.MissingMapping(minify, format, "Game_mapping.txt", Roots, found, Start, "1.2.3", "45");
 
         [Test]
         public void Minify_follows_the_build_type()
@@ -33,16 +36,33 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             // Age is not judged: Unity copies Gradle's file with its modification time, and an unchanged rebuild
             // leaves that time before the build started.
-            Assert.That(Missing(true, AndroidOutputFormat.Apk, File("/out/Builds/E2E/Game_mapping.txt", 4096)), Is.Null);
-            Assert.That(Missing(true, AndroidOutputFormat.Apk, File("/out/a/mapping.txt", 0), File("/out/b/mapping.txt", 4096)), Is.Null);
+            Assert.That(Missing(true, AndroidOutputFormat.Apk, File("/out/Builds/E2E/Game_mapping.txt", 4096, -600)), Is.Null);
+            Assert.That(Missing(true, AndroidOutputFormat.Aab, File("/out/Builds/E2E/Game_mapping.txt", 4096, -600)), Is.Null);
+            Assert.That(Missing(true, AndroidOutputFormat.Apk, File("/out/a/mapping.txt", 0), File("/out/b/mapping.txt", 4096, -600)), Is.Null);
         }
 
         [Test]
         public void Only_a_file_with_content_is_usable()
         {
-            Assert.That(AndroidMappingNotice.IsUsable(File("/m", 1)), Is.True);
-            Assert.That(AndroidMappingNotice.IsUsable(File("/m", 0)), Is.False);
-            Assert.That(AndroidMappingNotice.IsUsable(File("/m", -1)), Is.False);
+            Assert.That(AndroidMappingNotice.IsUsable(File("/m", 1), AndroidOutputFormat.Apk, Start), Is.True);
+            Assert.That(AndroidMappingNotice.IsUsable(File("/m", 0), AndroidOutputFormat.Apk, Start), Is.False);
+            Assert.That(AndroidMappingNotice.IsUsable(File("/m", -1), AndroidOutputFormat.Apk, Start), Is.False);
+        }
+
+        [Test]
+        public void In_an_exported_project_a_mapping_from_before_the_build_is_not_this_builds()
+        {
+            // Unity never runs Gradle for an export: a mapping.txt there was left by an earlier Gradle run.
+            var old = File("/out/exp/launcher/build/outputs/mapping/release/mapping.txt", 4096, -60);
+            Assert.That(AndroidMappingNotice.IsUsable(old, AndroidOutputFormat.ExportProject, Start), Is.False);
+            Assert.That(AndroidMappingNotice.IsUsable(old, AndroidOutputFormat.Apk, Start), Is.True);
+            Assert.That(AndroidMappingNotice.IsUsable(File("/m", 1, 0), AndroidOutputFormat.ExportProject, Start), Is.True);
+
+            var message = Missing(true, AndroidOutputFormat.ExportProject, old);
+            Assert.That(message, Does.Contain(old.Path));
+            Assert.That(message, Does.Contain("2026-10-20 11:00:00Z").And.Contain("2026-10-20 12:00:00Z"));
+            Assert.That(message, Does.Contain("earlier Gradle run"));
+            Assert.That(Missing(true, AndroidOutputFormat.ExportProject, old, File("/out/exp/mapping.txt", 9, 2)), Is.Null);
         }
 
         [Test]
@@ -57,7 +77,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(message, Does.Not.Contain("build an APK"));
             Assert.That(message, Does.Contain("Library/Bee/Android/Prj"));
             Assert.That(message, Does.Contain("bugsee-cli debug-files upload"));
-            Assert.That(message, Does.Contain("--type proguard --version 1.2.3 --build 45"));
+            Assert.That(message, Does.Contain("--type proguard --version \"1.2.3\" --build \"45\""));
             Assert.That(message, Does.Contain("BUGSEE_APP_TOKEN set in the environment"));
         }
 
@@ -81,7 +101,7 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void No_output_path_is_said_plainly()
         {
-            var message = AndroidMappingNotice.MissingMapping(true, AndroidOutputFormat.Apk, "Game_mapping.txt", new string[0], null, "1", "1");
+            var message = AndroidMappingNotice.MissingMapping(true, AndroidOutputFormat.Apk, "Game_mapping.txt", new string[0], null, Start, "1", "1");
             Assert.That(message, Does.Contain("the build has no output path"));
         }
 
@@ -91,7 +111,7 @@ namespace Bugsee.WrapperPolicy.Tests
             var message = AndroidMappingNotice.MappingNotUploaded("/out/Game_mapping.txt", "BUGSEE_APP_TOKEN is not set in the Unity Editor's environment", "1.2.3", "45");
             Assert.That(message, Does.Contain("/out/Game_mapping.txt was not uploaded (BUGSEE_APP_TOKEN is not set"));
             Assert.That(message, Does.Contain("lose their line numbers"));
-            Assert.That(message, Does.Contain("bugsee-cli debug-files upload \"/out/Game_mapping.txt\" --type proguard --version 1.2.3 --build 45"));
+            Assert.That(message, Does.Contain("bugsee-cli debug-files upload \"/out/Game_mapping.txt\" --type proguard --version \"1.2.3\" --build \"45\""));
             Assert.That(message, Does.Contain("BUGSEE_APP_TOKEN set in the environment"));
         }
 

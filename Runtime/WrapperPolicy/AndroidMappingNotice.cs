@@ -15,14 +15,16 @@ namespace Bugsee.WrapperPolicy
     /// <summary>A file that looked like this build's R8 mapping, with what decides whether it is usable.</summary>
     public readonly struct MappingFileInfo
     {
-        public MappingFileInfo(string path, long length)
+        public MappingFileInfo(string path, long length, DateTime modifiedUtc)
         {
             Path = path;
             Length = length;
+            ModifiedUtc = modifiedUtc;
         }
 
         public string Path { get; }
         public long Length { get; }
+        public DateTime ModifiedUtc { get; }
     }
 
     /// <summary>
@@ -40,9 +42,11 @@ namespace Bugsee.WrapperPolicy
     /// frames of every crash from that build lose their line numbers (and the names of classes R8 may rename) unless
     /// its mapping.txt is uploaded; before this an Export Project, which has no mapping at all, was never reported.
     ///
-    /// A mapping is usable when it exists and is not empty. Its age is deliberately not judged: Unity deletes and
-    /// recreates <c>&lt;player&gt;_mapping.txt</c> on every build, but copies Gradle's file with its modification time,
-    /// and Gradle does not rewrite mapping.txt when R8's task is up to date, so a good mapping can predate the build.
+    /// A mapping is usable when it exists and is not empty. For an APK or AAB its age is deliberately not judged: Unity
+    /// deletes and recreates <c>&lt;player&gt;_mapping.txt</c> on every build, but copies Gradle's file with its
+    /// modification time, and Gradle does not rewrite mapping.txt when R8's task is up to date, so a good mapping can
+    /// predate the build. An Export Project is different: Unity never runs Gradle for it, so any mapping.txt in the
+    /// folder was left by an earlier Gradle run and is not this build's.
     /// </summary>
     public static class AndroidMappingNotice
     {
@@ -53,8 +57,12 @@ namespace Bugsee.WrapperPolicy
         public static bool MinifyIsOn(bool developmentBuild, bool minifyRelease, bool minifyDebug) =>
             developmentBuild ? minifyDebug : minifyRelease;
 
-        /// <summary>A mapping with content: R8 writes an empty one when nothing was obfuscated.</summary>
-        public static bool IsUsable(MappingFileInfo file) => file.Length > 0;
+        /// <summary>
+        /// A mapping with content (R8 writes an empty one when nothing was obfuscated) that, in an exported project,
+        /// was written by this build's time or later.
+        /// </summary>
+        public static bool IsUsable(MappingFileInfo file, AndroidOutputFormat format, DateTime buildStartUtc) =>
+            file.Length > 0 && (format != AndroidOutputFormat.ExportProject || file.ModifiedUtc >= buildStartUtc);
 
         /// <summary>
         /// The warning to log, or null when there is nothing to say (Minify off, or a usable mapping was found).
@@ -67,6 +75,7 @@ namespace Bugsee.WrapperPolicy
             string expectedName,
             IList<string> searched,
             IList<MappingFileInfo> found,
+            DateTime buildStartUtc,
             string version,
             string build)
         {
@@ -78,7 +87,7 @@ namespace Bugsee.WrapperPolicy
             var seen = found ?? new List<MappingFileInfo>();
             foreach (var file in seen)
             {
-                if (IsUsable(file))
+                if (IsUsable(file, format, buildStartUtc))
                 {
                     return null;
                 }
@@ -91,12 +100,12 @@ namespace Bugsee.WrapperPolicy
             }
             else
             {
-                text.Append("the R8 mapping found has no content (");
+                text.Append("the R8 mapping found is not this build's (");
                 for (var i = 0; i < seen.Count; i++)
                 {
                     if (i > 0) text.Append("; ");
                     var file = seen[i];
-                    text.Append(file.Path).Append(": ").Append(file.Length < 0 ? "unreadable" : "empty");
+                    text.Append(file.Path).Append(": ").Append(file.Length > 0 ? "last written " + file.ModifiedUtc.ToString("u") + ", before this build started " + buildStartUtc.ToString("u") + ", so left by an earlier Gradle run" : file.Length < 0 ? "unreadable" : "empty");
                 }
 
                 text.Append(")");
@@ -121,7 +130,7 @@ namespace Bugsee.WrapperPolicy
 
         /// <summary>The CLI call that uploads a mapping by hand (the id is computed from the file, as the app's asset id is).</summary>
         public static string UploadCommand(string mappingPath, string version, string build) =>
-            "bugsee-cli debug-files upload \"" + mappingPath + "\" --type proguard --version " + version + " --build " + build;
+            "bugsee-cli debug-files upload \"" + mappingPath + "\" --type proguard --version \"" + version + "\" --build \"" + build + "\"";
 
         static string FormatName(AndroidOutputFormat format)
         {

@@ -108,7 +108,7 @@ namespace Bugsee.Editor
             var mappingExtra = AndroidUploadIdentity.MappingArguments(identity.Uuid, icon);
             var seen = new List<MappingFileInfo>();
             var found = UploadIfFound(roots, "*mapping.txt", "proguard", version, build,
-                path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), mappingExtra, identityWarning, seen);
+                path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), mappingExtra, identityWarning, seen, MappingUsable(report));
             if (found == null)
             {
                 WarnMappingMissing(report, roots, stem, seen, version, build);
@@ -219,9 +219,10 @@ namespace Bugsee.Editor
             Func<string, int> rank,
             IList<string> extraArgs = null,
             string warnWhenFound = null,
-            List<MappingFileInfo> seen = null)
+            List<MappingFileInfo> seen = null,
+            Func<MappingFileInfo, bool> usable = null)
         {
-            var best = PickBest(roots, pattern, rank, seen);
+            var best = PickBest(roots, pattern, rank, seen, usable);
             if (best == null)
             {
                 return null;
@@ -254,7 +255,7 @@ namespace Bugsee.Editor
             return best;
         }
 
-        static string PickBest(List<string> roots, string pattern, Func<string, int> rank, List<MappingFileInfo> seen)
+        static string PickBest(List<string> roots, string pattern, Func<string, int> rank, List<MappingFileInfo> seen, Func<MappingFileInfo, bool> usable = null)
         {
             string best = null;
             var bestRank = BuildArtifactChoice.Reject;
@@ -281,9 +282,10 @@ namespace Bugsee.Editor
                         DateTime mtime;
                         try { mtime = File.GetLastWriteTimeUtc(file); }
                         catch { mtime = DateTime.MinValue; }
-                        seen?.Add(new MappingFileInfo(file, FileLength(file)));
+                        var info = new MappingFileInfo(file, FileLength(file), mtime);
+                        seen?.Add(info);
                         // R8 writes an empty mapping when nothing was obfuscated: there is nothing to deobfuscate.
-                        if (IsEmptyFile(file))
+                        if (usable != null ? !usable(info) : info.Length <= 0)
                         {
                             continue;
                         }
@@ -305,6 +307,14 @@ namespace Bugsee.Editor
         {
             try { return new FileInfo(path).Length; }
             catch { return -1; }
+        }
+
+        // What counts as this build's mapping (see AndroidMappingNotice.IsUsable).
+        static Func<MappingFileInfo, bool> MappingUsable(BuildReport report)
+        {
+            var format = OutputFormat(report);
+            var started = BuildClock.StartedUtc(report.summary.buildStartedAt);
+            return file => AndroidMappingNotice.IsUsable(file, format, started);
         }
 
         // Whether R8 ran for this build: Player Settings' Minify Release or Debug, by the build's own Development option.
@@ -342,7 +352,7 @@ namespace Bugsee.Editor
             }
 
             var message = AndroidMappingNotice.MissingMapping(
-                true, OutputFormat(report), ExpectedMappingName(report, stem), roots, seen, version, build);
+                true, OutputFormat(report), ExpectedMappingName(report, stem), roots, seen, BuildClock.StartedUtc(report.summary.buildStartedAt), version, build);
             if (message != null)
             {
                 Debug.LogWarning(message);
@@ -362,7 +372,7 @@ namespace Bugsee.Editor
 
             var stem = OutputStem(report);
             var allowGeneric = OutputIsDirectory(report);
-            var best = PickBest(CollectRoots(report), "*mapping.txt", path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), null);
+            var best = PickBest(CollectRoots(report), "*mapping.txt", path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), null, MappingUsable(report));
             if (best == null)
             {
                 return;
@@ -483,12 +493,6 @@ namespace Bugsee.Editor
             }
 
             return roots;
-        }
-
-        static bool IsEmptyFile(string path)
-        {
-            try { return new FileInfo(path).Length == 0; }
-            catch { return false; }
         }
 
         static bool IsExcludedPath(string path)
