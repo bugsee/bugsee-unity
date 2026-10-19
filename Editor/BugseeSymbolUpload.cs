@@ -455,6 +455,11 @@ namespace Bugsee.Editor
             // The phase reads the exported project and the build's dSYMs and uploads over the network: a sandboxed script
             // phase (ENABLE_USER_SCRIPT_SANDBOXING = YES, the default of new Xcode projects) is not allowed to, and Xcode
             // then fails it with "Operation not permitted" before the script starts. Unity leaves the setting unset (off).
+            if (project.GetBuildPropertyForAnyConfig(target, "ENABLE_USER_SCRIPT_SANDBOXING") == "YES")
+            {
+                Debug.Log("[Bugsee] Setting ENABLE_USER_SCRIPT_SANDBOXING to NO on the Unity-iPhone target (it was YES): " +
+                          "Xcode does not start a sandboxed Run Script phase here, so symbols would not be uploaded.");
+            }
             project.SetBuildProperty(target, "ENABLE_USER_SCRIPT_SANDBOXING", "NO");
             project.WriteToFile(projectPath);
             // Declared inputs make Xcode run the phase after the tasks that write the app's and UnityFramework's dSYMs: a

@@ -239,22 +239,30 @@ fi
 # --- il2cpp-linemap (UUID from UnityFramework binary / dSYM) ---
 # The map must be this export's. An ""Append"" export keeps the earlier export's files, and Unity leaves an old
 # LineNumberMappings.json in place when the new build wrote none: it would be uploaded under the new UnityFramework's UUID.
-# So a map inside the project that is older than the export (EXPORT_START, baked in when the Editor exports) is skipped.
+# The Editor brings the current map's time up to date at export (an unchanged Append export does not copy it again), so a
+# map inside the project that is more than two minutes older than the export (EXPORT_START, baked in when the Editor
+# exports; the slack covers a file server's clock) is skipped.
 # Tried in order: the pending pointer, the maps under Il2CppOutputProject, any other under the project. A path outside the
 # project (BUGSEE_IL2CPP_MAPPING at export time) is the user's own file and is used as given.
 EXPORT_START=''
 STALE_MAPS=""""
+# Inside the project by resolved path (a pointer through a symlink such as /tmp -> /private/tmp is inside too).
+in_project() {
+  REAL_DIR=$(cd -P ""$(dirname ""$1"")"" 2>/dev/null && pwd -P) || return 1
+  REAL_PROJECT=$(cd -P ""${PROJECT_DIR}"" 2>/dev/null && pwd -P) || return 1
+  case ""${REAL_DIR}/"" in
+    ""${REAL_PROJECT}""/*) return 0 ;;
+  esac
+  return 1
+}
 map_is_current() {
   [ -f ""$1"" ] || return 1
-  case ""$1"" in
-    ""${PROJECT_DIR}""/*) ;;
-    *) return 0 ;;
-  esac
+  in_project ""$1"" || return 0
   [ -n ""${EXPORT_START}"" ] || return 0
   MAP_TIME=$(stat -c %Y ""$1"" 2>/dev/null) || MAP_TIME=$(stat -f %m ""$1"" 2>/dev/null) || MAP_TIME=""""
   case ""${MAP_TIME}"" in
     """"|*[!0-9]*) ;;
-    *) [ ""${MAP_TIME}"" -ge ""${EXPORT_START}"" ] && return 0 ;;
+    *) [ $((MAP_TIME + 120)) -ge ""${EXPORT_START}"" ] && return 0 ;;
   esac
   case ""${STALE_MAPS} "" in
     *"" $1 ""*) ;;
@@ -268,6 +276,7 @@ find_current_map() {
   OLD_IFS=""${IFS}""
   IFS='
 '
+  set -f
   for CANDIDATE in ${FOUND_MAPS}; do
     IFS=""${OLD_IFS}""
     if map_is_current ""${CANDIDATE}""; then
@@ -275,12 +284,18 @@ find_current_map() {
       break
     fi
   done
+  set +f
   IFS=""${OLD_IFS}""
   return 0
 }
 LINEMAP=""""
 if [ -f ""${PROJECT_DIR}/BugseePendingIl2CppLinemap.txt"" ]; then
   PENDING=$(head -n1 ""${PROJECT_DIR}/BugseePendingIl2CppLinemap.txt"")
+  # A map inside the export is named relative to it, so a copy of the export finds its own; only a user's own is absolute.
+  case ""${PENDING}"" in
+    /*) ;;
+    *) PENDING=""${PROJECT_DIR}/${PENDING}"" ;;
+  esac
   if map_is_current ""${PENDING}""; then
     LINEMAP=""${PENDING}""
   fi

@@ -87,6 +87,20 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>
+        /// What the iOS pending-map pointer holds for <paramref name="mapPath"/>: the path relative to the exported project
+        /// (forward slashes) when the map is inside it, so a copy of the export finds its own map and not the original's;
+        /// the full path for a map elsewhere (one the user named).
+        /// </summary>
+        public static string PendingPointer(string exportRoot, string mapPath)
+        {
+            if (string.IsNullOrEmpty(exportRoot) || string.IsNullOrEmpty(mapPath)) return mapPath;
+            string root = Path.GetFullPath(exportRoot).TrimEnd('/', '\\') + Path.DirectorySeparatorChar;
+            string full = Path.GetFullPath(mapPath);
+            if (!full.StartsWith(root, StringComparison.Ordinal)) return mapPath;
+            return full.Substring(root.Length).Replace('\\', '/');
+        }
+
+        /// <summary>
         /// Whole seconds since the Unix epoch of a UTC time (rounded down), the unit the iOS upload script compares file
         /// modification times in.
         /// </summary>

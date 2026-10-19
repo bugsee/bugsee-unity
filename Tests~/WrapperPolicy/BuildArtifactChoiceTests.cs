@@ -232,6 +232,22 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void The_pending_pointer_is_relative_inside_the_export_and_absolute_outside()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "exp");
+            var inside = Path.Combine(root, "Il2CppOutputProject", "Source", "il2cppOutput", "Symbols", "LineNumberMappings.json");
+            Assert.That(BuildArtifactChoice.PendingPointer(root, inside),
+                Is.EqualTo("Il2CppOutputProject/Source/il2cppOutput/Symbols/LineNumberMappings.json"));
+            Assert.That(BuildArtifactChoice.PendingPointer(root + Path.DirectorySeparatorChar, inside),
+                Is.EqualTo("Il2CppOutputProject/Source/il2cppOutput/Symbols/LineNumberMappings.json"));
+            var mine = Path.Combine(Path.GetTempPath(), "mine", "LineNumberMappings.json");
+            Assert.That(BuildArtifactChoice.PendingPointer(root, mine), Is.EqualTo(mine));
+            // A sibling folder that shares the prefix is not inside.
+            var sibling = Path.Combine(Path.GetTempPath(), "exp2", "LineNumberMappings.json");
+            Assert.That(BuildArtifactChoice.PendingPointer(root, sibling), Is.EqualTo(sibling));
+        }
+
+        [Test]
         public void Unix_seconds_are_whole_seconds_since_the_epoch_in_utc()
         {
             Assert.That(BuildArtifactChoice.UnixSeconds(new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)), Is.EqualTo(0));

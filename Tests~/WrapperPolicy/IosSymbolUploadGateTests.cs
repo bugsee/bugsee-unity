@@ -212,7 +212,7 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Archive_script_searches_the_project_for_a_current_map_and_never_a_stale_one()
         {
             var stale = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, exportStart: ExportStart, uuids: Uuid,
-                plant: root => PlantMap(root, SymbolsMap, ExportStart - 10));
+                plant: root => PlantMap(root, SymbolsMap, ExportStart - 3600));
             Assert.That(Linemaps(stale), Is.Empty, stale.Output);
 
             var current = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, exportStart: ExportStart, uuids: Uuid,
@@ -236,6 +236,61 @@ namespace Bugsee.WrapperPolicy.Tests
             var maps = Linemaps(run);
             Assert.That(maps, Has.Count.EqualTo(1), run.Output);
             Assert.That(maps[0], Does.Contain("/mine/LineNumberMappings.json --type il2cpp-linemap"));
+        }
+
+        // The export's own map is named relative to it, so a copy of the export uploads its own map.
+        [Test]
+        public void Archive_script_resolves_a_relative_pointer_inside_the_project()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, exportStart: ExportStart, uuids: Uuid, plant: root =>
+            {
+                PlantMap(root, SymbolsMap, ExportStart + 5);
+                File.WriteAllText(Path.Combine(root, "project", "BugseePendingIl2CppLinemap.txt"), SymbolsMap + "\n");
+            });
+
+            var maps = Linemaps(run);
+            Assert.That(maps, Has.Count.EqualTo(1), run.Output);
+            Assert.That(maps[0], Does.Contain("/project/" + SymbolsMap + " --type il2cpp-linemap"));
+        }
+
+        // A file server's clock may run a little behind the build machine's.
+        [Test]
+        public void Archive_script_allows_two_minutes_of_clock_skew()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, exportStart: ExportStart, uuids: Uuid,
+                plant: root => PlantPending(root, PlantMap(root, SymbolsMap, ExportStart - 100)));
+            Assert.That(Linemaps(run), Has.Count.EqualTo(1), run.Output);
+        }
+
+        // /tmp vs /private/tmp: a pointer through a link is still a path inside the project, so the freshness check applies.
+        [Test]
+        public void Archive_script_decides_inside_the_project_by_resolved_path()
+        {
+            if (Environment.OSVersion.Platform == PlatformID.Win32NT) Assert.Ignore("needs symbolic links");
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, exportStart: ExportStart, uuids: Uuid, plant: root =>
+            {
+                var stale = PlantMap(root, SymbolsMap, ExportStart - 3600);
+                var link = Path.Combine(root, "link");
+                Directory.CreateSymbolicLink(link, Path.Combine(root, "project"));
+                PlantPending(root, Path.Combine(link, SymbolsMap));
+            });
+
+            Assert.That(Linemaps(run), Is.Empty, run.Output);
+        }
+
+        // Folder names with glob characters are matched literally.
+        [Test]
+        public void Archive_script_does_not_expand_globs_in_found_paths()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, exportStart: ExportStart, uuids: Uuid, plant: root =>
+            {
+                PlantMap(root, "Il2CppOutputProject/a*b/LineNumberMappings.json", ExportStart - 3600);
+                PlantMap(root, "Il2CppOutputProject/aXb/LineNumberMappings.json", ExportStart + 10);
+            });
+
+            var maps = Linemaps(run);
+            Assert.That(maps, Has.Count.EqualTo(1), run.Output);
+            Assert.That(maps[0], Does.Contain("/aXb/LineNumberMappings.json"));
         }
 
         // A script written without the export time (an unknown one) keeps the earlier behaviour.

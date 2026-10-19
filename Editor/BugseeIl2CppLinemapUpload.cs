@@ -32,6 +32,7 @@ namespace Bugsee.Editor
             // Before any gate below: an "Append" export keeps the pointer of the earlier export, and it must not outlive
             // an export that finds no map of its own (it would name the earlier build's, or a folder that is gone).
             DeleteIosPendingLinemap(report);
+            SweepIosIl2CppOutput(report);
 
             if (Environment.GetEnvironmentVariable("BUGSEE_NO_IL2CPP_MAPPING") != null)
             {
@@ -146,41 +147,37 @@ namespace Bugsee.Editor
             {
                 Debug.LogWarning($"Bugsee: failed removing the pending iOS linemap pointer of an earlier export: {ex.Message}");
             }
-
-            DeleteStaleIosIl2CppOutput(report);
         }
 
-        // Unity rewrites an Xcode export's IL2CPP output files only when the build emits them, and an "Append" export keeps
-        // the rest: a MethodMap.tsv of an earlier build (this one was built without --emit-method-map) would sit beside this
-        // build's line map and be uploaded with it, and a LineNumberMappings.json of an earlier build would be taken for this
-        // one's. A file older than the export is that build's: remove it.
-        static void DeleteStaleIosIl2CppOutput(BuildReport report)
+        // An "Append" export keeps the earlier export's IL2CPP files, and Unity copies one in only when it changed: this build's
+        // own map is there with the earlier export's time, and one this build did not write is left beside it (a MethodMap.tsv
+        // from a build without --emit-method-map would be uploaded with this build's line map). What decides is the build's
+        // own output in Library: an equal file is current and gets a fresh time, any other older than the export is removed,
+        // and only when Bugsee is handling the map for this build (token set, upload not turned off, no map of the user's own).
+        static void SweepIosIl2CppOutput(BuildReport report)
         {
-            var root = report.summary.outputPath;
-            if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
+            if (!IsIosFamily(report))
             {
                 return;
             }
 
-            foreach (var name in new[] { "LineNumberMappings.json", "MethodMap.tsv", "il2cppFileRoot.txt" })
+            try
             {
-                try
+                var mayDelete = Environment.GetEnvironmentVariable("BUGSEE_NO_IL2CPP_MAPPING") == null
+                    && BugseeCliRunner.HasAppToken
+                    && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("BUGSEE_IL2CPP_MAPPING"));
+                var projectRoot = Path.GetDirectoryName(Application.dataPath);
+                var buildSymbols = IosIl2CppOutputSweep.BuildSymbolsDirectory(
+                    projectRoot, report.summary.platform == BuildTarget.tvOS ? "tvOS" : "iOS");
+                foreach (var action in IosIl2CppOutputSweep.Run(
+                             report.summary.outputPath, buildSymbols, report.summary.buildStartedAt, mayDelete))
                 {
-                    foreach (var file in Directory.EnumerateFiles(root, name, SearchOption.AllDirectories))
-                    {
-                        if (BuildArtifactChoice.WrittenByExport(File.GetLastWriteTimeUtc(file), report.summary.buildStartedAt))
-                        {
-                            continue;
-                        }
-
-                        File.Delete(file);
-                        Debug.Log($"Bugsee: removed {file}: left in the exported project by an earlier build, this one did not write it.");
-                    }
+                    Debug.Log($"Bugsee: IL2CPP output of the iOS export: {action} (compared with this build's own output in Library).");
                 }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning($"Bugsee: could not check {name} under {root} for files left by an earlier build: {ex.Message}");
-                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"Bugsee: could not check the exported IL2CPP map files against this build's: {ex.Message}");
             }
         }
 
@@ -194,7 +191,7 @@ namespace Bugsee.Editor
                     return;
                 }
                 var dest = Path.Combine(outPath, "BugseePendingIl2CppLinemap.txt");
-                File.WriteAllText(dest, jsonPath + "\n");
+                File.WriteAllText(dest, BuildArtifactChoice.PendingPointer(outPath, jsonPath) + "\n");
             }
             catch (Exception ex)
             {
