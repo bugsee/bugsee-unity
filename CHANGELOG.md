@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - Unreleased
 
+### Fixed
+
+- **iOS:** lifecycle events that arrive before the managed callback is registered (for example after a `Relaunch` that is the first call) are held, up to 128, and replayed in order on registration, as on Android, instead of being dropped. `Relaunch` now registers the wrapper like `Launch`.
+- **iOS:** a lifecycle payload that is a dictionary reaches `LifecycleEvent` / `ILifecycleEventListener` as a `Dictionary<string, object>`, as on Android, not as raw JSON text; a one-key dictionary is no longer mistaken for a string.
+
 ### Changed
 
 - The iOS bridge now warns once at the first launch on the iOS or tvOS simulator (in the Unity log and the native log) that native crashes, hangs and managed exceptions (handled and unhandled) are not reported there, only from a device: the SDK's simulator build has no crash reporter. The docs say so, and what still works (bug reports, logs, events, video).

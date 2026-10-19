@@ -357,6 +357,38 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
     }
 }
 
+// Lifecycle events reach C# through this wrapper only. It is registered in +load, so an event can arrive before
+// C# has registered its callback (a Relaunch before any Launch, an early event on a slow start): those are held
+// and replayed, in order, by _bugsee_register_unity_callbacks, like Android's UnityWrapperProvider. The replay
+// runs outside the lock; events that arrive during it queue behind it and are flushed before the callback
+// becomes the direct destination, so nothing overtakes it.
+static const NSUInteger kMaxEarlyLifecycleEvents = 128;
+static NSObject *gLifecycleLock = [NSObject new];
+static NSMutableArray<NSArray *> *gEarlyLifecycle = [NSMutableArray array];
+static BOOL gLifecycleReplaying = NO;
+
+// A string crosses as a JSON string literal and a dictionary as a JSON object (C# decodes both to the types
+// Android delivers); anything else as a JSON string holding its description. nil: no payload.
+static NSString *BugseeUnityLifecycleJson(id data)
+{
+    if (!data) return nil;
+    if ([data isKindOfClass:[NSDictionary class]] && [NSJSONSerialization isValidJSONObject:data]) {
+        return BugseeUnityJsonString(data);
+    }
+    NSString *text = [data isKindOfClass:[NSString class]] ? data : [data description];
+    NSString *wrapped = BugseeUnityJsonString(@[ text ?: @"" ]);
+    return wrapped.length > 2 ? [wrapped substringWithRange:NSMakeRange(1, wrapped.length - 2)] : @"\"\"";
+}
+
+static void BugseeUnityDeliverLifecycle(BugseeUnityLifecycleCb cb, NSString *eventType, NSString *json)
+{
+    char *eventCopy = BugseeUnityCopyUTF8(eventType);
+    char *dataCopy = BugseeUnityCopyUTF8(json);
+    cb(eventCopy, dataCopy);
+    free(eventCopy);
+    free(dataCopy);
+}
+
 @interface BugseeUnityWrapper : NSObject <BugseeWrapper>
 @end
 
@@ -387,20 +419,20 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
 
 - (void)onLifecycleEvent:(NSString *)eventType data:(id)data
 {
-    if (!gLifecycleCb || !eventType) return;
-    NSString *json = nil;
-    if (data && [NSJSONSerialization isValidJSONObject:data]) {
-        json = BugseeUnityJsonString(data);
-    } else if ([data isKindOfClass:[NSString class]]) {
-        json = BugseeUnityJsonString(@{ @"value": data });
-    } else if (data != nil) {
-        json = BugseeUnityJsonString(@{ @"value": [data description] });
+    if (!eventType) return;
+    NSString *json = BugseeUnityLifecycleJson(data);
+    BugseeUnityLifecycleCb cb;
+    @synchronized (gLifecycleLock) {
+        if (gLifecycleReplaying || !gLifecycleCb) {
+            // Keep the earliest events (Launching, RelaunchedAfterCrash...); once full, later ones are dropped.
+            if (gEarlyLifecycle.count < kMaxEarlyLifecycleEvents) {
+                [gEarlyLifecycle addObject:@[ eventType, json ?: [NSNull null] ]];
+            }
+            return;
+        }
+        cb = gLifecycleCb;
     }
-    char *eventCopy = BugseeUnityCopyUTF8(eventType);
-    char *dataCopy = BugseeUnityCopyUTF8(json);
-    gLifecycleCb(eventCopy, dataCopy);
-    free(eventCopy);
-    free(dataCopy);
+    BugseeUnityDeliverLifecycle(cb, eventType, json);
 }
 
 - (void)onBeforeReportCreated:(id<BGSReportContract>)report
@@ -480,7 +512,37 @@ void _bugsee_register_unity_callbacks(BugseeUnityFilterCb filterCb,
 {
     gFilterCb = filterCb;
     gReportCb = reportCb;
-    gLifecycleCb = lifecycleCb;
+    NSArray<NSArray *> *batch = nil;
+    @synchronized (gLifecycleLock) {
+        if (gLifecycleReplaying) return; // a replay is running; it finishes with the callback it started with
+        if (!lifecycleCb) {
+            gLifecycleCb = NULL;
+            return;
+        }
+        if (gEarlyLifecycle.count == 0) {
+            gLifecycleCb = lifecycleCb;
+            return;
+        }
+        batch = [gEarlyLifecycle copy];
+        [gEarlyLifecycle removeAllObjects];
+        gLifecycleReplaying = YES;
+    }
+    while (batch) {
+        for (NSArray *event in batch) {
+            id json = event[1];
+            BugseeUnityDeliverLifecycle(lifecycleCb, event[0], [json isKindOfClass:[NSString class]] ? json : nil);
+        }
+        @synchronized (gLifecycleLock) {
+            if (gEarlyLifecycle.count == 0) {
+                gLifecycleCb = lifecycleCb;
+                gLifecycleReplaying = NO;
+                batch = nil;
+            } else {
+                batch = [gEarlyLifecycle copy];
+                [gEarlyLifecycle removeAllObjects];
+            }
+        }
+    }
 }
 
 void _bugsee_set_secure_buffer(int display, int *packed, int packedLength)

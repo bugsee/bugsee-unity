@@ -80,6 +80,12 @@ Residual races after the hard deadline (the native SDKs cannot cancel an operati
 - **Android**: a late `Launch`/`Relaunch` result arriving after the reset is ignored when no stop intent is set (no `Stop` requested and no `Delete` started since), so the managed capture hooks can be out of step with that session until the next lifecycle call. With a stop intent set, a session started by a late result is stopped again.
 - **Android**: after the reset of a delete, a queued `Launch` can run while the native delete is still wiping. A `Delete` started after the reset of a relaunch can overlap a relaunch that completes later still.
 
+### Lifecycle events
+
+`Bugsee.LifecycleEvent` and `ILifecycleEventListener.OnEvent(eventType, data)` behave the same on both platforms. `data` is `null`, a `string` (the snapshot or request id of the report events) or, if the SDK ever sends a map, a `Dictionary<string, object>`; the native SDKs send only strings and no payload today. Events the SDK announces before the managed side is listening (for example `Launching` or `RelaunchedAfterCrash`, or any event after a `Relaunch` that is the first call) are held, up to 128, and delivered in order as soon as the wrapper starts listening, on both iOS and Android. `Relaunch` registers the wrapper the same way `Launch` does. Handlers run on the Unity main thread on iOS and Android alike.
+
+Other platform differences, not aligned: before `Launched`, iOS holds network and breadcrumb events in the wrapper and submits them at launch, while Android hands them straight to the SDK.
+
 ## Crash & exception capture
 
 | Source | API / option | Severity default |

@@ -35,6 +35,8 @@ char *_bugsee_appearance_get_string(const char *propertyName);
 typedef void (*BugseeLaunchStartedFn)(int token, int success);
 void _bugsee_launch(const char *appToken, const char *optionsJson, int startedToken, BugseeLaunchStartedFn started);
 void _bugsee_relaunch(const char *optionsJson, int startedToken, BugseeLaunchStartedFn started);
+typedef void (*BugseeLifecycleFn)(const char *eventType, const char *dataJson);
+void _bugsee_register_unity_callbacks(void *filterCb, void *reportCb, BugseeLifecycleFn lifecycleCb);
 typedef void (*BugseeStopCompletionFn)(int token);
 void _bugsee_stop(int token, BugseeStopCompletionFn completion);
 typedef void (*BugseeDeleteCompletionFn)(int token, int wiped);
@@ -65,6 +67,14 @@ static void OnStarted(int token, int success)
     (void)success;
     gStartedToken = token;
     gStartedCount++;
+}
+
+static NSMutableArray<NSString *> *gLifecycleEvents;
+
+static void OnLifecycle(const char *eventType, const char *dataJson)
+{
+    (void)dataJson;
+    [gLifecycleEvents addObject:[NSString stringWithUTF8String:eventType]];
 }
 
 static int gDeletedToken;
@@ -306,6 +316,12 @@ int main(void)
     _bugsee_launch("00000000-0000-0000-0000-000000000000", "{\"max_recording_time\":60}", 41, OnStarted);
     expect(waitFor(^{ return gStartedCount == 1 ? 1 : 0; }, 5) && gStartedToken == 41,
            "launch reports the SDK's started answer with its token");
+    // The SDK announced Launching while no callback was registered (the wrapper is installed in +load): the
+    // event is held, and registering the callback replays it, before anything that arrives later.
+    gLifecycleEvents = [NSMutableArray array];
+    _bugsee_register_unity_callbacks(NULL, NULL, OnLifecycle);
+    expect(waitFor(^{ return [gLifecycleEvents containsObject:@"com.bugsee.lifecycle.Launching"] ? 1 : 0; }, 5),
+           "a lifecycle event from before the callback registered is replayed on registration");
     // The effective options are valid JSON holding the host's value merged over the SDK defaults.
     char *launchOptions = _bugsee_get_launch_options();
     id parsedOptions = launchOptions

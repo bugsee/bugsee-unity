@@ -295,27 +295,8 @@ namespace Bugsee.Platform.IOS
         [MonoPInvokeCallback(typeof(LifecycleCb))]
         static void OnLifecycle(string eventType, string dataJson)
         {
-            object data = null;
-            if (!string.IsNullOrEmpty(dataJson))
-            {
-                // Prefer a simple string payload when wrapped as {"value":"..."}.
-                if (dataJson.IndexOf("\"value\"", StringComparison.Ordinal) >= 0)
-                {
-                    try
-                    {
-                        var box = JsonUtility.FromJson<StringBox>(dataJson);
-                        data = box != null ? box.value : dataJson;
-                    }
-                    catch
-                    {
-                        data = dataJson;
-                    }
-                }
-                else
-                {
-                    data = dataJson;
-                }
-            }
+            // A string arrives as a JSON string literal, a dictionary as a JSON object: the same types as Android.
+            object data = LifecyclePayload.Decode(dataJson);
 
             MainThreadDispatcher.Run(() =>
             {
@@ -443,12 +424,6 @@ namespace Bugsee.Platform.IOS
                 .Replace("\\\\", "\\")
                 .Replace("\\n", "\n")
                 .Replace("\\r", "\r");
-        }
-
-        [Serializable]
-        sealed class StringBox
-        {
-            public string value;
         }
 
         delegate void FilterCb(long requestId, int kind, string json);
