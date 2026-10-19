@@ -93,7 +93,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
             string body = ExtractNativeFunctionBody(bridge, "_bugsee_delete_collected_data");
             Assert.That(body, Does.Contain("BugseeRunOnMain"));
-            Assert.That(body, Does.Contain("deleteCollectedDataOnDevice:YES"));
+            Assert.That(body, Does.Contain("[Bugsee deleteCollectedDataOnDevice:done]"));
             // A delete is never skipped (request order, as on Android): no generation check in the native part.
             Assert.That(body, Does.Not.Contain("shouldRun"));
             Assert.That(body, Does.Not.Contain("capturedGeneration"));
@@ -264,6 +264,33 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(body, Does.Contain("BreadcrumbLevelMap.ParseOrThrow"));
             Assert.That(body, Does.Not.Contain("_bugsee_"));
             Assert.That(body, Does.Not.Contain("CallStatic"));
+        }
+
+        [Test]
+        public void Editor_SetAttribute_validates_like_the_device_bridges()
+        {
+            string body = ExtractMethodBody(
+                File.ReadAllText(RepoFile("Runtime/Platform/Editor/EditorBridge.cs")),
+                "public void SetAttribute(string key, object value)");
+            Assert.That(body, Does.Contain("AttributePolicy.Evaluate(key, value)"));
+            Assert.That(body, Does.Contain("throw new ArgumentException(decision.Error, nameof(value))"));
+        }
+
+        [Test]
+        public void Ios_bridge_exports_nothing_the_managed_side_does_not_import()
+        {
+            string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
+            string cs = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
+            foreach (string dead in new[]
+            {
+                "_bugsee_add_secure_rect", "_bugsee_remove_secure_rect", "_bugsee_remove_all_secure_rects",
+                "_bugsee_get_device_id", "_bugsee_cancel_managed_report_upload",
+            })
+            {
+                Assert.That(bridge, Does.Not.Contain(dead), dead);
+                Assert.That(cs, Does.Not.Contain(dead), dead);
+            }
+            Assert.That(bridge, Does.Not.Contain("BUGSEE_IOS_LEGACY_EXCEPTION_API"));
         }
 
         [Test]
@@ -498,7 +525,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
             string body = ExtractNativeFunctionBody(bridge, "_bugsee_delete_collected_data");
             Assert.That(body, Does.Contain("[Bugsee stop:"));
-            Assert.That(body, Does.Contain("deleteCollectedDataOnDevice:YES"));
+            Assert.That(body, Does.Contain("[Bugsee deleteCollectedDataOnDevice:done]"));
             Assert.That(body, Does.Contain("sharedInstance"));
 
             string iosDelete = ExtractMethodBody(

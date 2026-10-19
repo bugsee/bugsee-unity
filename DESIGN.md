@@ -134,7 +134,7 @@ Runtime/
 │   ├── iOS/
 │   │   └── IOSBridge.cs                  # P/Invoke → BugseeUnityBridge.mm + xcframework
 │   └── Editor/
-│       └── EditorBridge.cs               # Editor / unsupported no-op
+│       └── EditorBridge.cs               # Editor / unsupported no-op (SetAttribute still validates)
 │
 ├── Capture/
 │   └── BugseeFrameCapturer.cs            # VideoMode.DirectBuffers → getVideoFrameConsumer()

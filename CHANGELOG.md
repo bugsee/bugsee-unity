@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Removed dead bridge code: the iOS exports `_bugsee_add_secure_rect`, `_bugsee_remove_secure_rect`, `_bugsee_remove_all_secure_rects`, `_bugsee_get_device_id` and `_bugsee_cancel_managed_report_upload` (no-ops or never imported; secure rectangles go through `_bugsee_set_secure_buffer`, upload cancellation through `_bugsee_invalidate_managed_report_uploads`), their two unused C# DllImports, the unused `BugseeBridgeSetAttachmentFileNameIfNeeded` helper, and the `BUGSEE_IOS_LEGACY_EXCEPTION_API` (bugsee-cocoa up to beta6) branches. The delayed-delete retry block no longer trips `-Warc-retain-cycles`.
+- In the Unity Editor `Bugsee.SetAttribute` now applies the same `AttributePolicy` validation as the device bridges and throws `ArgumentException` for an invalid key or value; it still stores nothing, so `GetAttribute` returns null there.
+
 - The iOS bridge now warns once at the first launch on the iOS or tvOS simulator (in the Unity log and the native log) that native crashes, hangs and managed exceptions (handled and unhandled) are not reported there, only from a device: the SDK's simulator build has no crash reporter. The docs say so, and what still works (bug reports, logs, events, video).
 
 - Documented the secure-rectangle origin: `AddSecureRectangle`/`RemoveSecureRectangle` take a top-left-origin pixel rectangle on both platforms and pass it to native unchanged (no flip from Unity's bottom-left screen space). Behaviour is unchanged; the docs now include a conversion helper.
