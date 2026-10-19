@@ -65,11 +65,13 @@ namespace Bugsee.Platform.IOS
             }
         }
 
-        /// <summary>The <c>attributes</c> object of the native report JSON with value kinds intact; empty when absent or unreadable.</summary>
+        /// <summary>The <c>attributes</c> object of the native report JSON with value kinds intact; empty when
+        /// absent, null when the JSON cannot be read (malformed, or nested past the depth limit), so the caller can say so.</summary>
         internal static Dictionary<string, object> ReadAttributes(string json)
         {
             var root = JsonRead.Object(json);
-            if (root != null && root.TryGetValue("attributes", out var value) && value is Dictionary<string, object> map)
+            if (root == null) return null;
+            if (root.TryGetValue("attributes", out var value) && value is Dictionary<string, object> map)
                 return map;
             return new Dictionary<string, object>();
         }

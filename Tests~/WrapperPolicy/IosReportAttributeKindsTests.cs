@@ -113,10 +113,12 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void Attributes_that_cannot_be_read_leave_a_handler_that_touches_nothing_without_attributes()
         {
-            Assert.That(IosReport.ReadAttributes("{\"attributes\":{\"a\":"), Is.Empty);
-            Assert.That(IosReport.ReadAttributes(null), Is.Empty);
+            var deep = "{\"attributes\":{\"a\":" + new string('[', 40) + new string(']', 40) + ",\"b\":1}}";
+            Assert.That(IosReport.ReadAttributes("{\"attributes\":{\"a\":"), Is.Null);
+            Assert.That(IosReport.ReadAttributes(deep), Is.Null);
+            Assert.That(IosReport.ReadAttributes(null), Is.Null);
             Assert.That(IosReport.ReadAttributes("{\"id\":\"r\"}"), Is.Empty);
-            var json = new IosReport(new IosReportDto(), IosReport.ReadAttributes("{\"attributes\":{\"a\":")).ToResultJson();
+            var json = new IosReport(new IosReportDto(), IosReport.ReadAttributes(deep)).ToResultJson();
             Assert.That(json, Does.Not.Contain("attributes"));
         }
 
