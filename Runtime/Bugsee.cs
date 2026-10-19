@@ -67,6 +67,7 @@ namespace Bugsee
                 throw new ArgumentException("appToken is required", nameof(appToken));
 
             MainThreadDispatcher.Ensure();
+            BuildTokenCheck.OnLaunch(appToken);
             options = ApplyCapturePolicy(options, out bool startPusher);
             if (Bridge is ILifecycleResultBridge bridge)
             {

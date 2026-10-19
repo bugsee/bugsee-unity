@@ -15,6 +15,8 @@ namespace Bugsee.Sample.Editor
     ///
     /// Environment:
     ///   BUGSEE_APP_TOKEN    required; baked into the build and used for symbol upload
+    ///   BUGSEE_E2E_LAUNCH_TOKEN  optional: the token the player launches with, when it must differ from BUGSEE_APP_TOKEN
+    ///                       (the build token symbols are uploaded for): checks the package's token mismatch warning
     ///   BUGSEE_ENDPOINT     API host (no /v2); iOS gets /v2 appended
     ///   BUGSEE_E2E_BACKEND  il2cpp (default) | mono
     ///   BUGSEE_E2E_DEV      1 (default, Development build) | 0 (Release)
@@ -112,7 +114,8 @@ namespace Bugsee.Sample.Editor
             // A copy left by a build that was killed would otherwise take priority over everything else.
             RemoveOverride();
             var endpoint = Environment.GetEnvironmentVariable("BUGSEE_ENDPOINT");
-            WriteOverride(token, endpoint, ios);
+            var launchToken = Environment.GetEnvironmentVariable("BUGSEE_E2E_LAUNCH_TOKEN");
+            WriteOverride(string.IsNullOrWhiteSpace(launchToken) ? token : launchToken, endpoint, ios);
             BuildReport report;
             try
             {
