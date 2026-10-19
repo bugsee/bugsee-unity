@@ -81,10 +81,12 @@ namespace Bugsee.WrapperPolicy
         public const string DefaultVersion = "0.8.1";
 
         /// <summary>
-        /// Oldest installed CLI used as is: 0.8.0 validates LineNumberMappings.json before packing it and uploads
-        /// ELF directories; older ones lack behaviour the uploads rely on.
+        /// Oldest installed CLI used as is. 0.8.0 validates LineNumberMappings.json before packing it and uploads ELF
+        /// directories; 0.8.1 also upgrades a stored symbol table to DWARF without --force (the uploads never pass
+        /// --force, so on 0.8.0 a re-upload of richer symbols under the same build id keeps the poorer copy). Older
+        /// ones lack behaviour the uploads rely on. The iOS Run Script gets this value baked in.
         /// </summary>
-        public const string MinVersion = "0.8.0";
+        public const string MinVersion = "0.8.1";
 
         public const string DefaultBaseUrl = "https://download.bugsee.com/cli";
 

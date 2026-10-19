@@ -150,7 +150,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 string good = box.Stub("home/.bugsee/bin/bugsee-cli", "0.10.0");
                 var run = box.Run(null);
                 Assert.That(run.Output, Does.Contain(broken + " (does not run)"));
-                Assert.That(run.Output, Does.Contain("(version 0.7.9, older than 0.8.0)"));
+                Assert.That(run.Output, Does.Contain("(version 0.7.9, older than 0.8.1)"));
                 Assert.That(run.Output, Does.Contain("using " + good));
                 Assert.That(run.Calls, Has.Count.GreaterThan(0), run.Output);
             }
@@ -248,8 +248,10 @@ namespace Bugsee.WrapperPolicy.Tests
         [TestCase("bugsee-cli 0.8.1\n")]
         [TestCase("bugsee-cli 10.0.0\n")]
         [TestCase("bugsee-cli 1.2.0 (protocol 0.3.1)\n")]
-        [TestCase("bugsee-cli 0.8.0-beta.1\n")]
+        [TestCase("bugsee-cli 0.8.1-beta.1\n")]
         [TestCase("bugsee-cli 0.8.1\r\n")]
+        [TestCase("bugsee-cli 1.0.0\n")]
+        [TestCase("bugsee-cli 0.9.0\n")]
         [TestCase("bugsee-cli\n0.8.2\n")]
         [TestCase("bugsee-cli 0.08.01\n")]
         [TestCase("0.9\n")]
@@ -265,6 +267,9 @@ namespace Bugsee.WrapperPolicy.Tests
 
         [TestCase("bugsee-cli 0.7.9 (protocol 1.2.3)\n")]
         [TestCase("bugsee-cli 0.7.99\n")]
+        [TestCase("bugsee-cli 0.8.0\n")]
+        [TestCase("bugsee-cli 0.8.0-rc.1\n")]
+        [TestCase("bugsee-cli 0.8\n")]
         [TestCase("bugsee-cli v0.9\n")]
         [TestCase("")]
         [TestCase("not a version at all\n")]
@@ -276,8 +281,14 @@ namespace Bugsee.WrapperPolicy.Tests
                 var run = box.Run(null);
                 Assert.That(run.ExitCode, Is.EqualTo(0));
                 Assert.That(run.Output, Does.Contain("bugsee-cli was not found"));
-                Assert.That(run.Output, Does.Contain(cli + " (").And.Matches(@"\((no version in --version output|version [0-9.]+, older than 0\.8\.0)\)"));
+                Assert.That(run.Output, Does.Contain(cli + " (").And.Matches(@"\((no version in --version output|version [0-9a-z.-]+, older than 0\.8\.1)\)"));
             }
+        }
+
+        [Test]
+        public void The_script_floor_is_baked_in_from_the_policy_constant()
+        {
+            Assert.That(IosArchiveUploadScript.Build(), Does.Contain("\nMIN_VERSION='" + BugseeCliPolicy.MinVersion + "'\n"));
         }
 
         [Test]
