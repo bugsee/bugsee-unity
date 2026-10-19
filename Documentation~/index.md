@@ -142,7 +142,7 @@ The iOS Run Script uploads for **every** Xcode configuration (Debug included, so
 
 | Artifact | When | CLI type |
 |---|---|---|
-| `LineNumberMappings.json` + `MethodMap.tsv` (the package passes `--emit-source-mapping --emit-method-map` to IL2CPP for the build) | Android post-build; iOS at **Xcode build** (every configuration) | `il2cpp-linemap` |
+| `LineNumberMappings.json` + `MethodMap.tsv` (the package passes `--emit-source-mapping --emit-method-map` to IL2CPP for every IL2CPP build, token or not) | Android post-build; iOS at **Xcode build** (every configuration) | `il2cpp-linemap` |
 | Android `symbols.zip` / ELF | Android post-build | `elf` |
 | ProGuard / R8 `mapping.txt` | Android post-build when present | `proguard` |
 | iOS `.dSYM` | Xcode Run Script (`Bugsee Upload Symbols`), every configuration | `dsym` |
@@ -227,9 +227,26 @@ Releases built without R8 (Minify off, the Unity default) have no mapping and no
 4. Ensure `BUGSEE_APP_TOKEN` is visible to the Xcode Run Script phase
 5. The iOS export sets `DEBUG_INFORMATION_FORMAT=dwarf-with-dsym` on every configuration of Unity-iPhone and UnityFramework, so Debug builds have a dSYM too. `dsymutil` on UnityFramework adds time to each Debug build; to keep Unity's own setting, tick **Bugsee → iOS → Keep Xcode Debug Info Format (skip dSYM force)** or set `BUGSEE_NO_DSYM_FORCE` in the Editor's environment (CI)
 
+### Uploading the mapping from a later CI job
+
+The build writes the mapping next to the generated C++ even without a token. Keep it as a build artifact and upload it after the build:
+
+| Platform | Where the files are |
+|---|---|
+| Android | `<output>_BackUpThisFolder_ButDontShipItWithYourGame/il2cppOutput/Symbols/` (also `Library/Bee/artifacts/Android/il2cppOutput/cpp/Symbols/`) |
+| iOS | `<Xcode export>/Il2CppOutputProject/Source/il2cppOutput/Symbols/` |
+
+```sh
+bugsee-cli debug-files upload <Symbols>/LineNumberMappings.json \
+  --type il2cpp-linemap --version <CFBundleShortVersionString/versionName> --build <build number> \
+  --uuid <module UUIDs>
+```
+
+`MethodMap.tsv` and `il2cppFileRoot.txt` next to the JSON are sent with it. The UUIDs are those of the IL2CPP module: the GNU build-id of each `libil2cpp.so` for Android (one per ABI, comma separated; `readelf -n libil2cpp.so` on the unstripped copy in `symbols.zip`, or the APK's `lib/<abi>/libil2cpp.so`), the Mach-O UUID of `UnityFramework` for iOS (`dwarfdump --uuid UnityFramework.framework/UnityFramework`). Version and build must match the build's. Upload the matching native symbols (`elf` / `dsym`) as well.
+
 ### Script Debugging vs dSYM
 
-- **Script Debugging** / IL2CPP stacktrace information controls managed stack quality. LineNumberMappings.json and MethodMap.tsv come from the IL2CPP arguments the package adds for the build when the upload is on (not from Script Debugging); set `BUGSEE_NO_IL2CPP_MAPPING` to turn that and the upload off, or `BUGSEE_IL2CPP_MAPPING` to upload a file you made yourself (Player Settings are then left alone). Adding or removing the token changes the arguments, which makes IL2CPP regenerate its cache once.
+- **Script Debugging** / IL2CPP stacktrace information controls managed stack quality. LineNumberMappings.json and MethodMap.tsv come from the IL2CPP arguments the package adds for every IL2CPP build (not from Script Debugging), with or without `BUGSEE_APP_TOKEN`: the files are written so that a later CI job can upload them; the upload needs the token. Set `BUGSEE_NO_IL2CPP_MAPPING` to turn the emission and the upload off, or `BUGSEE_IL2CPP_MAPPING` to upload a file you made yourself (the arguments are still added for the build). The arguments are added for the build only and removed from Player Settings afterwards; adding or removing them (for example by setting `BUGSEE_NO_IL2CPP_MAPPING`) makes IL2CPP regenerate its cache once. Unity 2022.3 and 6000 also add `--emit-source-mapping` themselves when Cloud Diagnostics crash reporting is on; the package does not add a flag your Additional IL2CPP Arguments already has.
 - **dSYM / ELF** carry native line programs used for the primary LNM remap (native PC → C++ file/line → C#).
 - You need **both** the linemap upload and native symbols with line info for viewer C# file/line on native fatals.
 

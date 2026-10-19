@@ -58,7 +58,7 @@ See [Documentation~/index.md](Documentation~/index.md) for:
 
 - ExceptionPipeline vs `DetectAndReportCrash`
 - Hang / ANR / OOM launch options
-- `BUGSEE_APP_TOKEN` Editor uploads (`il2cpp-linemap`, `elf`, `proguard`)
+- `BUGSEE_APP_TOKEN` Editor uploads (`il2cpp-linemap`, `elf`, `proguard`); the IL2CPP mapping files are written without it, for a later CI upload
 - iOS archive-time dSYM + linemap Run Script
 - Create symbols.zip / FULL native debug symbols vs SYMBOL_TABLE
 

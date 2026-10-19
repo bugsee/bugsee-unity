@@ -249,7 +249,7 @@ Alongside `dsym` / `elf` / `proguard` uploads (`BugseeSymbolUpload`).
 - Explicit `BUGSEE_IL2CPP_MAPPING` missing → warn + skip
 - Unresolved UUID → warn + skip (iOS often deferred to archive Run Script)
 - CLI non-zero / timeout → warn + continue
-- No `BUGSEE_APP_TOKEN` → silent skip (opt-in)
+- No `BUGSEE_APP_TOKEN` → silent skip of the upload (opt-in); the mapping files are still emitted by the build (`--emit-source-mapping --emit-method-map`, any IL2CPP build unless `BUGSEE_NO_IL2CPP_MAPPING`), so a later CI job can upload them
 
 Standalone `bugsee-cli` may still exit non-zero when used directly in CI scripts.
 
