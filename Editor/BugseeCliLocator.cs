@@ -68,7 +68,9 @@ namespace Bugsee.Editor
                 // Routine when something was found after all (a shim that does not run, an old install passed over).
                 foreach (string note in _resolved.Notes)
                 {
-                    Debug.Log("[Bugsee] " + note);
+                    // A too-old BUGSEE_CLI_PATH is used anyway: that is worth a warning, the rest is routine.
+                    if (_resolved.Source == CliSource.Explicit) Debug.LogWarning("[Bugsee] " + note);
+                    else Debug.Log("[Bugsee] " + note);
                 }
             }
 

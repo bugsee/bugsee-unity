@@ -165,6 +165,7 @@ namespace Bugsee.WrapperPolicy.Tests
         public void The_floor_is_the_release_that_upgrades_symbol_tables_without_force()
         {
             Assert.That(BugseeCliPolicy.MinVersion, Is.EqualTo("0.8.1"));
+            Assert.That(BugseeCliPolicy.IosMinVersion, Is.EqualTo("0.8.0"));
             Assert.That(BugseeCliPolicy.VersionAtLeast(BugseeCliPolicy.DefaultVersion, BugseeCliPolicy.MinVersion), Is.True);
         }
 
@@ -193,7 +194,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
             Assert.That(r.Path, Is.EqualTo("/custom/bugsee-cli"));
             Assert.That(r.Source, Is.EqualTo(CliSource.Explicit));
-            Assert.That(r.Notes.Single(), Does.Contain("older than " + BugseeCliPolicy.MinVersion));
+            Assert.That(r.Notes.Single(), Does.Contain("older than " + BugseeCliPolicy.MinVersion).And.Contain("used because you set it"));
         }
 
         [Test]

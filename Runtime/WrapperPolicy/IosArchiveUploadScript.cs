@@ -18,7 +18,7 @@ namespace Bugsee.WrapperPolicy
         {
             string text = Script.Replace("\r\n", "\n");
             text = text.Replace("PINNED_VERSION=''\n", "PINNED_VERSION='" + BugseeCliPolicy.DefaultVersion + "'\n");
-            text = text.Replace("MIN_VERSION=''\n", "MIN_VERSION='" + BugseeCliPolicy.MinVersion + "'\n");
+            text = text.Replace("MIN_VERSION=''\n", "MIN_VERSION='" + BugseeCliPolicy.IosMinVersion + "'\n");
             // Only an absolute POSIX path: a Windows or Linux host exporting an iOS project has nothing usable to bake.
             if (string.IsNullOrEmpty(resolvedCliPath) || resolvedCliPath[0] != '/'
                 || resolvedCliPath.IndexOfAny(new[] { '\n', '\r', '\0' }) >= 0)
@@ -59,7 +59,7 @@ fi
 # Same order as the Editor's lookup: BUGSEE_CLI_PATH, then (in the script only) the CLI the Editor found at export time,
 # PATH, /opt/homebrew/bin, /usr/local/bin, ~/.local/bin, ~/.cargo/bin, ~/.bugsee/bin, then the package's download cache.
 # BUGSEE_CLI_PATH and the baked path are used as given. A discovered candidate must run, print a version and be MIN_VERSION or
-# newer (a pre-release such as 0.8.1-beta.1 counts, as in the Editor). Never downloads. (BUGSEE_CLI_SYSTEM_DIRS replaces the two system directories and
+# newer (a pre-release such as 0.8.0-beta.1 counts, as in the Editor). Never downloads. (BUGSEE_CLI_SYSTEM_DIRS replaces the two system directories and
 # BUGSEE_CLI_PROBE_TIMEOUT the 15 s limit of a --version probe; tests.)
 BAKED_CLI=''
 PINNED_VERSION=''
@@ -120,9 +120,9 @@ $1
     return 0
   }
   # The first token that starts with a digit; major.minor.patch of its numeric prefix (0.8.1-beta.1 is 0.8.1, a missing part is 0,
-  # leading zeros are numbers not octal) against MIN_VERSION, which the package bakes in from BugseeCliPolicy.MinVersion.
-  CANDIDATE_TOKEN=$(printf '%s\n' ""${CANDIDATE_OUT}"" | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]/) { print $i; exit } }')
-  CANDIDATE_CMP=$(printf '%s\n' ""${CANDIDATE_TOKEN}"" | awk -v min=""${MIN_VERSION}"" '{
+  # leading zeros are numbers not octal) against MIN_VERSION, which the package bakes in from BugseeCliPolicy.IosMinVersion.
+  CANDIDATE_TOKEN=$(printf '%s\n' ""${CANDIDATE_OUT}"" | /usr/bin/awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]/) { print $i; exit } }')
+  CANDIDATE_CMP=$(printf '%s\n' ""${CANDIDATE_TOKEN}"" | /usr/bin/awk -v min=""${MIN_VERSION}"" '{
     if (!match($0, /^[0-9]+(\.[0-9]+)?(\.[0-9]+)?/)) exit
     split(substr($0, RSTART, RLENGTH), a, ""."")
     split(min, b, ""."")
