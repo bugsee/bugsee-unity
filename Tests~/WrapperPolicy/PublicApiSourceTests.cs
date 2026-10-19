@@ -810,7 +810,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string android = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs"));
             Assert.That(ExtractMethodBody(android, "public void ShowReportDialog("), Does.Contain("OptionalSeverity(severity)"));
             Assert.That(ExtractMethodBody(android, "public void Upload("), Does.Contain("OptionalSeverity(severity)"));
-            Assert.That(ExtractMethodBody(android, "static AndroidJavaObject OptionalSeverity("), Does.Contain("severity.HasValue ? Severity(severity.Value) : null"));
+            Assert.That(ExtractMethodBody(android, "static AndroidJavaObject OptionalSeverity("), Does.Contain("severity.HasValue && IssueSeverityWire.ToWire(severity) > 0 ? Severity(severity.Value) : null"));
 
             string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
             Assert.That(ios, Does.Contain("_bugsee_show_report(summary ?? \"\", description ?? \"\", IssueSeverityWire.ToWire(severity)"));

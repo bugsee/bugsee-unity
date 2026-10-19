@@ -349,6 +349,7 @@ namespace Bugsee.Sample
                 case "severity":
                     // Reports created without a severity must take ReportingDefaultBugPriority (BUGSEE_E2E_BUG_PRIORITY,
                     // 1..5); an explicit severity must still win. SeverityLoggingReportHandler logs what each report got.
+                    // The scenario ends on an open report dialog: dismiss it before the next run.
                     if (_e2ePhase == 0 && _e2eTimer >= 5f)
                     {
                         _e2ePhase = 1;

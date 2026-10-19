@@ -533,7 +533,18 @@ static BugseeSeverityLevel BugseeDefaultBugSeverity(void)
     return (level >= BugseeSeverityLow && level <= BugseeSeverityBlocker) ? (BugseeSeverityLevel)level : BugseeSeverityHigh;
 }
 
+#if BUGSEE_UNITY_TESTS
+// The tests record which SDK overload a report entry point chose and the severity it passed (0: none).
+static const char *gLastReportOverload = NULL;
+static int gLastReportSeverity = 0;
+#define BUGSEE_NOTE_REPORT_CALL(overload, severityPassed) \
+    do { gLastReportOverload = (overload); gLastReportSeverity = (int)(severityPassed); } while (0)
 int _bugsee_test_default_bug_severity(void) { return (int)BugseeDefaultBugSeverity(); }
+const char *_bugsee_test_last_report_overload(void) { return gLastReportOverload; }
+int _bugsee_test_last_report_severity(void) { return gLastReportSeverity; }
+#else
+#define BUGSEE_NOTE_REPORT_CALL(overload, severityPassed) ((void)0)
+#endif
 
 void _bugsee_show_report(const char *summary, const char *description, int severity, const char *labelsJson)
 {
@@ -544,10 +555,14 @@ void _bugsee_show_report(const char *summary, const char *description, int sever
         NSArray<NSString *> *labels = BugseeLabelsFromJson(labelsStr.UTF8String);
         BOOL hasSeverity = severity > 0;
         if (summaryStr.length == 0 && descriptionStr.length == 0 && labels.count == 0 && !hasSeverity) {
+            BUGSEE_NOTE_REPORT_CALL("showReportDialog", 0);
             [Bugsee showReportDialog];
         } else if (!hasSeverity && labels.count == 0) {
+            BUGSEE_NOTE_REPORT_CALL("showReportDialogWithSummary:description:", 0);
             [Bugsee showReportDialogWithSummary:summaryStr ?: @"" description:descriptionStr ?: @""];
         } else {
+            BUGSEE_NOTE_REPORT_CALL("showReportDialogWithSummary:description:severity:labels:",
+                                    hasSeverity ? (BugseeSeverityLevel)severity : BugseeDefaultBugSeverity());
             [Bugsee showReportDialogWithSummary:summaryStr ?: @""
                                     description:descriptionStr ?: @""
                                        severity:hasSeverity ? (BugseeSeverityLevel)severity : BugseeDefaultBugSeverity()
@@ -562,9 +577,12 @@ void _bugsee_upload(const char *summary, const char *description, int severity, 
     NSString *summaryStr = BugseeNSString(summary) ?: @"";
     NSString *descriptionStr = BugseeNSString(description) ?: @"";
     if (severity <= 0 && labels.count == 0) {
+        BUGSEE_NOTE_REPORT_CALL("uploadWithSummary:description:", 0);
         [Bugsee uploadWithSummary:summaryStr description:descriptionStr];
         return;
     }
+    BUGSEE_NOTE_REPORT_CALL("uploadWithSummary:description:severity:labels:",
+                            severity > 0 ? (BugseeSeverityLevel)severity : BugseeDefaultBugSeverity());
     [Bugsee uploadWithSummary:summaryStr
                   description:descriptionStr
                      severity:severity > 0 ? (BugseeSeverityLevel)severity : BugseeDefaultBugSeverity()

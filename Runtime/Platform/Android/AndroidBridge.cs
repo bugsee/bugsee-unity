@@ -669,8 +669,9 @@ namespace Bugsee.Platform.Android
         }
 
         // A null severity is the native "not given": the report takes the ReportingDefaultBugPriority option.
+        // (IssueSeverity)0 is no severity, as on iOS.
         static AndroidJavaObject OptionalSeverity(IssueSeverity? severity) =>
-            severity.HasValue ? Severity(severity.Value) : null;
+            severity.HasValue && IssueSeverityWire.ToWire(severity) > 0 ? Severity(severity.Value) : null;
 
         static AndroidJavaObject ToJavaStringList(IList<string> labels)
         {
