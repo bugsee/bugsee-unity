@@ -111,3 +111,42 @@ namespace Bugsee.WrapperPolicy.Tests
         }
     }
 }
+
+namespace Bugsee.WrapperPolicy.Tests
+{
+    // The Editor wiring cannot run outside Unity: pin that the upload step reports a missing or unuploaded mapping.
+    public class AndroidMappingNoticeWiringTests
+    {
+        static string Source()
+        {
+            var dir = TestContext.CurrentContext.TestDirectory;
+            while (!string.IsNullOrEmpty(dir))
+            {
+                var file = System.IO.Path.Combine(dir, "Editor", "BugseeSymbolUpload.cs");
+                if (System.IO.File.Exists(file)) return System.IO.File.ReadAllText(file);
+                dir = System.IO.Directory.GetParent(dir)?.FullName;
+            }
+
+            throw new InvalidOperationException("Could not locate Editor/BugseeSymbolUpload.cs.");
+        }
+
+        [Test]
+        public void The_upload_warns_when_minify_is_on_and_no_usable_mapping_was_found()
+        {
+            var source = Source();
+            Assert.That(source, Does.Contain("AndroidMappingNotice.MissingMapping("));
+            Assert.That(source, Does.Contain("WarnMappingMissing(report, roots, stem, seen, version, build)"));
+            Assert.That(source, Does.Contain("PlayerSettings.Android.minifyRelease"));
+            Assert.That(source, Does.Contain("PlayerSettings.Android.minifyDebug"));
+        }
+
+        [Test]
+        public void An_upload_that_is_off_still_says_so_when_a_mapping_exists()
+        {
+            var source = Source();
+            Assert.That(source, Does.Contain("NoteMappingNotUploaded(report,"));
+            Assert.That(source, Does.Contain("AndroidMappingNotice.MappingNotUploaded("));
+            Assert.That(source, Does.Contain("BUGSEE_NO_SYMBOL_UPLOAD is set"));
+        }
+    }
+}

@@ -355,7 +355,7 @@ namespace Bugsee.Editor
         }
 
         static string ExpectedMappingName(BuildReport report, string stem) =>
-            OutputIsDirectory(report) ? "mapping.txt (or " + stem + "_mapping.txt)" : stem + "_mapping.txt";
+            OutputIsDirectory(report) ? "mapping.txt" : stem + "_mapping.txt";
 
         // The upload is off (no token, or opted out): a mapping that exists is still never uploaded, which a Minify build deserves to be told.
         static void NoteMappingNotUploaded(BuildReport report, string reason)
