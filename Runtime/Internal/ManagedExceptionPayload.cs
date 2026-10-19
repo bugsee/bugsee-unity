@@ -15,7 +15,6 @@ namespace Bugsee.Internal
     public static class ManagedExceptionPayload
     {
         static string _buildGuid;
-        static string _moduleUuid;
 
         [Serializable]
         public class Frame
@@ -50,33 +49,6 @@ namespace Bugsee.Internal
                 try { _buildGuid = Application.buildGUID; }
                 catch { _buildGuid = Application.version; }
             }
-
-            if (_moduleUuid == null)
-            {
-                try
-                {
-                    var asset = Resources.Load<TextAsset>("BugseeIl2CppModuleUuids");
-                    if (asset != null && !string.IsNullOrEmpty(asset.text))
-                    {
-                        var lines = asset.text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                        if (lines.Length > 0)
-                        {
-                            var cleaned = new List<string>(lines.Length);
-                            foreach (var line in lines)
-                            {
-                                var t = line.Trim();
-                                if (t.Length > 0) cleaned.Add(t);
-                            }
-                            _moduleUuid = string.Join(",", cleaned.ToArray());
-                        }
-                    }
-                }
-                catch { /* ignore */ }
-                if (_moduleUuid == null)
-                {
-                    _moduleUuid = "";
-                }
-            }
         }
 
         public static string BuildGuid
@@ -88,17 +60,13 @@ namespace Bugsee.Internal
             }
         }
 
-        public static string ModuleUuid
-        {
-            get
-            {
-                EnsureBuildIdentity();
-                return _moduleUuid ?? "";
-            }
-        }
-
-        /// <summary>Comma-separated IL2CPP module UUID(s) for all ABIs when known.</summary>
-        public static string ModuleUuidsCsv => ModuleUuid;
+        /// <summary>
+        /// UUID of the IL2CPP image this player is running (GNU build-id of libil2cpp.so, Mach-O UUID of
+        /// UnityFramework), read at runtime from the loaded image; "" when it cannot be known (Mono, Editor, no
+        /// native stack). Never read from a build-time file: the UUID of a build exists only after the player is
+        /// built, so anything baked into the player would describe an earlier build.
+        /// </summary>
+        public static string ModuleUuid => Il2CppNativeStack.RuntimeImageUuid ?? "";
 
         /// <summary>Frame lines of a stack text (separators dropped); see <see cref="ManagedFrameAssembly"/>.</summary>
         public static string[] GetRawFrames(string stackTrace)

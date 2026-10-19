@@ -66,7 +66,6 @@ namespace Bugsee.Editor
             }
 
             var uuids = ResolveModuleUuids(report);
-            BugseeBuildIdentity.WriteRuntimeModuleUuidFile(uuids);
 
             if (uuids.Count == 0)
             {

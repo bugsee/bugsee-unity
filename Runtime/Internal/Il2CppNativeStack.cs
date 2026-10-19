@@ -35,6 +35,45 @@ namespace Bugsee.Internal
             }
         }
 
+        static string _runtimeImageUuid;
+        static bool _runtimeImageUuidProbed;
+
+        /// <summary>
+        /// UUID of the loaded IL2CPP image, or null when unavailable. Read once from a throwaway exception thrown
+        /// and caught here (the runtime reports the image of a thrown exception's native trace), so it is the UUID
+        /// of this very build, and is known also when the exception being reported was never thrown (the Unity
+        /// log path) or has no native trace.
+        /// </summary>
+        public static string RuntimeImageUuid
+        {
+            get
+            {
+                if (!_runtimeImageUuidProbed)
+                {
+                    _runtimeImageUuid = ProbeImageUuid();
+                    _runtimeImageUuidProbed = true;
+                }
+                return _runtimeImageUuid;
+            }
+        }
+
+        static string ProbeImageUuid()
+        {
+            if (!IsSupported)
+            {
+                return null;
+            }
+
+            try
+            {
+                throw new InvalidOperationException("Bugsee image probe");
+            }
+            catch (Exception probe)
+            {
+                return TryCapture(probe)?.ImageUuid;
+            }
+        }
+
         /// <summary>
         /// Returns native instruction pointers for <paramref name="exception"/>,
         /// or null when unavailable / not IL2CPP / empty.
