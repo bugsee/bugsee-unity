@@ -1,3 +1,4 @@
+using System.IO;
 using NUnit.Framework;
 
 namespace Bugsee.WrapperPolicy.Tests
@@ -15,6 +16,28 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Missing_mapping_arguments_are_appended_and_nothing_else_changes(string existing, string expected)
         {
             Assert.That(Il2CppMappingArgs.Ensure(existing), Is.EqualTo(expected));
+        }
+
+        [TestCase(true, false, true)]
+        [TestCase(true, true, false)]
+        [TestCase(false, false, false)]
+        [TestCase(false, true, false)]
+        public void Emission_follows_the_backend_and_the_opt_out_only(bool il2cpp, bool optOut, bool expected)
+        {
+            Assert.That(Il2CppMappingArgs.ShouldEmit(il2cpp, optOut), Is.EqualTo(expected));
+        }
+
+        // Emission must not depend on the upload configuration: a build without the token (or one a later CI job uploads) still writes the files.
+        [Test]
+        public void The_editor_step_does_not_look_at_the_token_or_the_explicit_mapping_path()
+        {
+            var dir = TestContext.CurrentContext.TestDirectory;
+            while (!File.Exists(Path.Combine(dir, "package.json"))) dir = Directory.GetParent(dir).FullName;
+            var text = File.ReadAllText(Path.Combine(dir, "Editor", "BugseeIl2CppMappingArgs.cs"));
+            Assert.That(text, Does.Contain("Il2CppMappingArgs.ShouldEmit("));
+            Assert.That(text, Does.Not.Contain("HasAppToken"));
+            Assert.That(text, Does.Not.Contain("BUGSEE_IL2CPP_MAPPING\""));
+            Assert.That(text, Does.Not.Contain("BUGSEE_NO_SYMBOL_UPLOAD"));
         }
 
         [Test]

@@ -12,8 +12,9 @@ namespace Bugsee.Editor
     /// <summary>
     /// Makes an IL2CPP Android/iOS build write <c>LineNumberMappings.json</c> and <c>MethodMap.tsv</c>
     /// (see <see cref="Il2CppMappingArgs"/>): IL2CPP writes neither unless asked, so the il2cpp-linemap upload had no
-    /// mapping, or one without MethodMap (mangled names could not be demangled). Runs only when the il2cpp-linemap upload
-    /// is on (a Bugsee app token, and BUGSEE_NO_IL2CPP_MAPPING unset). The arguments are added for this build and the
+    /// mapping, or one without MethodMap (mangled names could not be demangled). Runs for every IL2CPP build unless
+    /// BUGSEE_NO_IL2CPP_MAPPING is set: no Bugsee app token is needed (the files are what a later CI job uploads; only the
+    /// upload needs the token). The arguments are added for this build and the
     /// Player Settings string is restored afterwards (the string is saved in the VCS-tracked ProjectSettings.asset while
     /// the build runs). The post-build callback is skipped when the pipeline aborts, so a one-shot editor update handler
     /// restores once no build is running (success, failure or cancel); the saved state in Library/Bugsee also covers an
@@ -100,10 +101,8 @@ namespace Bugsee.Editor
             // iOS has no Mono backend; Android builds Mono too, which writes no IL2CPP output.
             bool il2cpp = platform != BuildTarget.Android ||
                           PlayerSettings.GetScriptingBackend(NamedBuildTarget.Android) == ScriptingImplementation.IL2CPP;
-            return il2cpp &&
-                   BugseeCliRunner.HasAppToken &&
-                   Environment.GetEnvironmentVariable("BUGSEE_NO_IL2CPP_MAPPING") == null &&
-                   string.IsNullOrEmpty(Environment.GetEnvironmentVariable("BUGSEE_IL2CPP_MAPPING"));
+            // Emission does not need the token (the files are for a later upload too, possibly from another CI job).
+            return Il2CppMappingArgs.ShouldEmit(il2cpp, Environment.GetEnvironmentVariable("BUGSEE_NO_IL2CPP_MAPPING") != null);
         }
 
         public void OnPreprocessBuild(BuildReport report)

@@ -14,6 +14,13 @@ namespace Bugsee.WrapperPolicy
         public const string MethodMap = "--emit-method-map";
 
         /// <summary>
+        /// Whether a build writes the mapping files: any IL2CPP build, with or without a Bugsee app token (a later CI job, or
+        /// a developer, uploads the files; the upload itself still needs the token), unless BUGSEE_NO_IL2CPP_MAPPING is set.
+        /// BUGSEE_IL2CPP_MAPPING (an explicit file to upload) does not turn the emission off.
+        /// </summary>
+        public static bool ShouldEmit(bool il2cppBackend, bool optOutEnvironmentSet) => il2cppBackend && !optOutEnvironmentSet;
+
+        /// <summary>
         /// <paramref name="existing"/> (Player Settings > Additional IL2CPP Arguments) with the mapping arguments it is
         /// missing appended; the same string when it already has both. Existing arguments are never reordered or removed.
         /// </summary>
