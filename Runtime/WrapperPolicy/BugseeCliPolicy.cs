@@ -321,16 +321,16 @@ namespace Bugsee.WrapperPolicy
         {
             var resolution = new CliResolution();
 
-            if (!string.IsNullOrWhiteSpace(s.ExplicitPath))
+            string explicitPath = (s.ExplicitPath ?? "").Trim();
+            if (s.IsWindows)
             {
-                string explicitPath = s.ExplicitPath.Trim();
-                if (s.IsWindows)
-                {
-                    // A path pasted from Explorer or a .bat often keeps its quotes ("C:\Program Files\...\bugsee-cli.exe"); a
-                    // quote cannot be part of a Windows file name.
-                    explicitPath = explicitPath.Trim('"').Trim();
-                }
+                // A path pasted from Explorer or a .bat often keeps its quotes ("C:\Program Files\...\bugsee-cli.exe"), and
+                // `set X=""` leaves a bare pair: a quote cannot be part of a Windows file name, and an empty value is unset.
+                explicitPath = explicitPath.Trim('"').Trim();
+            }
 
+            if (explicitPath.Length > 0)
+            {
                 bool bareName = explicitPath.IndexOf('/') < 0 && explicitPath.IndexOf('\\') < 0;
                 if (!bareName)
                 {

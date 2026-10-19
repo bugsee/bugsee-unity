@@ -141,6 +141,32 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Quote_characters_in_an_explicit_posix_path_are_kept()
+        {
+            var files = new Files();
+            files.Present["\"/opt/x/bugsee-cli\""] = "0.8.1";
+            var s = new CliSettings { PathEnv = "/usr/bin", ExplicitPath = "\"/opt/x/bugsee-cli\"" };
+
+            Assert.That(BugseeCliPolicy.Resolve(s, files.Probe()).Path, Is.EqualTo("\"/opt/x/bugsee-cli\""));
+        }
+
+        [TestCase("\"\"")]
+        [TestCase("  ")]
+        public void An_empty_explicit_windows_value_is_unset(string value)
+        {
+            var files = new Files();
+            files.Present["C:\\Tools\\bugsee-cli.exe"] = "0.8.1";
+            var s = Windows("C:\\Tools");
+            s.ExplicitPath = value;
+
+            var r = BugseeCliPolicy.Resolve(s, files.Probe());
+
+            Assert.That(r.Path, Is.EqualTo("C:\\Tools\\bugsee-cli.exe"));
+            Assert.That(r.Source, Is.EqualTo(CliSource.Path));
+            Assert.That(r.Notes, Is.Empty);
+        }
+
+        [Test]
         public void An_explicit_windows_path_that_is_missing_is_reported_without_its_quotes()
         {
             var s = Windows();
@@ -148,7 +174,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
             var r = BugseeCliPolicy.Resolve(s, new Files().Probe());
 
-            Assert.That(r.Notes.First(), Does.Contain("D:\\gone\\bugsee-cli.exe").And.Contain("does not exist"));
+            Assert.That(r.Notes.First(), Does.Contain("D:\\gone\\bugsee-cli.exe").And.Contain("does not exist").And.Not.Contain("\"D:"));
         }
 
         [Test]
