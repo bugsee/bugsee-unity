@@ -450,7 +450,7 @@ namespace Bugsee.Sample
                 // iOS: an Android-only key must be absent, the iOS-only key must come back as sent.
                 var ok = key == Options.CaptureCrashHandlerType ? got == sent : !has;
 #else
-                var ok = sent == "-" || string.Equals(sent, got, StringComparison.OrdinalIgnoreCase);
+                var ok = key == Options.CaptureCrashHandlerType ? !has : sent == "-" || string.Equals(sent, got, StringComparison.OrdinalIgnoreCase);
 #endif
                 if (!ok) mismatches++;
                 Debug.Log("[OPTIONS] " + key + " sent=" + sent + " native=" + got + (ok ? " ok" : " MISMATCH"));
