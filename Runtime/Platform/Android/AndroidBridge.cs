@@ -88,6 +88,7 @@ namespace Bugsee.Platform.Android
                 ManagedExceptionPayload.EnsureBuildIdentity();
                 EnsureWrapperRegistered();
                 InstallDefaultListeners();
+                ReportHandlerProxy.InvalidateBudget();
                 Lifecycle.Launch(appToken, options, completion);
             });
         }
@@ -95,7 +96,11 @@ namespace Bugsee.Platform.Android
         public void Relaunch(IDictionary<string, object> options) => Relaunch(options, null);
 
         internal void Relaunch(IDictionary<string, object> options, Action<bool> completion) =>
-            MainThreadDispatcher.Run(() => Lifecycle.Relaunch(options, completion));
+            MainThreadDispatcher.Run(() =>
+            {
+                ReportHandlerProxy.InvalidateBudget();
+                Lifecycle.Relaunch(options, completion);
+            });
 
         void ILifecycleResultBridge.Launch(string appToken, IDictionary<string, object> options, Action<bool> started) =>
             Launch(appToken, options, started);

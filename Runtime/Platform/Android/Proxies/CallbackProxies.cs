@@ -161,7 +161,10 @@ namespace Bugsee.Platform.Android
 
             MainThreadDispatcher.Run(() =>
             {
-                if (!guard.TryBegin())
+                // The after-phase is often a notification (record the report, send analytics), so it still runs late,
+                // with a completion that only acknowledges; the before-phase exists to edit the report and is skipped.
+                var late = !guard.TryBegin();
+                if (late && before)
                 {
                     Debug.LogWarning("[Bugsee] The report handler was skipped: the SDK stopped waiting for it before the Unity main loop could run it.");
                     try { report?.Dispose(); } catch (Exception) { }
@@ -171,8 +174,9 @@ namespace Bugsee.Platform.Android
                 try
                 {
                     var wrapped = new AndroidReport(report);
-                    if (before) handler.OnBeforeReportCreated(wrapped, false, guard.Done);
-                    else handler.OnAfterReportCreated(wrapped, false, guard.Done);
+                    Action done = late ? (() => { }) : (Action)guard.Done;
+                    if (before) handler.OnBeforeReportCreated(wrapped, false, done);
+                    else handler.OnAfterReportCreated(wrapped, false, done);
                 }
                 catch (Exception ex)
                 {
@@ -181,6 +185,9 @@ namespace Bugsee.Platform.Android
                 }
             });
         }
+
+        /// <summary>Forget the cached timeout: the SDK was (re)launched, possibly with another one.</summary>
+        internal static void InvalidateBudget() => Interlocked.Exchange(ref _budgetMs, -1);
 
         const long AbandonMarginMs = 1000;
         const long BudgetRefreshMs = 60000;

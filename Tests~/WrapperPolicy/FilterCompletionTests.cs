@@ -247,10 +247,11 @@ namespace Bugsee.WrapperPolicy.Tests
             string android = StripComments(File.ReadAllText(RepoFile("Runtime/Platform/Android/Proxies/CallbackProxies.cs")));
             string invoke = ExtractMethodBody(android, "void Invoke(AndroidJavaObject report, bool isTerminating");
             Assert.That(invoke, Does.Contain("new LateReplyGuard(BudgetMillis()"));
-            Assert.That(invoke, Does.Contain("if (!guard.TryBegin())"));
+            Assert.That(invoke, Does.Contain("var late = !guard.TryBegin();"));
+            Assert.That(invoke, Does.Contain("late ? (() => { }) : (Action)guard.Done"), "a late after-phase handler still runs, acknowledging only");
             Assert.That(invoke, Does.Contain("guard.Abandon()"));
             Assert.That(invoke, Does.Contain("guard.ArmTimeout("));
-            Assert.That(ExtractMethodBody(invoke, "if (!guard.TryBegin())"), Does.Contain("report?.Dispose()"));
+            Assert.That(ExtractMethodBody(invoke, "if (late && before)"), Does.Contain("report?.Dispose()"));
             Assert.That(invoke, Does.Not.Contain("var finished"));
 
             string filter = ExtractMethodBody(android, "public void filter(AndroidJavaObject data, AndroidJavaObject callback)");

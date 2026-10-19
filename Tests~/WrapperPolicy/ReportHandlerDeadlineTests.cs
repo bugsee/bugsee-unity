@@ -115,12 +115,12 @@ namespace Bugsee.WrapperPolicy.Tests
         public void A_reply_stops_the_timer_so_it_cannot_abandon_afterwards()
         {
             var finished = new List<bool>();
-            var guard = new LateReplyGuard(20, LateReplyGuard.StopwatchMillis, finished.Add);
+            var guard = new LateReplyGuard(1000, LateReplyGuard.StopwatchMillis, finished.Add);
             var marshalled = 0;
-            guard.ArmTimeout(20, run => { System.Threading.Interlocked.Increment(ref marshalled); run(); });
+            guard.ArmTimeout(0, run => { System.Threading.Interlocked.Increment(ref marshalled); run(); });
 
             guard.Done();
-            System.Threading.Thread.Sleep(300);
+            System.Threading.Thread.Sleep(2000); // past the timer's due time, so only the cancellation keeps it quiet
 
             Assert.That(finished, Is.EqualTo(new[] { true }));
             Assert.That(marshalled, Is.EqualTo(0));
@@ -195,6 +195,28 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             var guard = new LateReplyGuard(50, LateReplyGuard.StopwatchMillis, finished.Add);
             guard.ArmTimeout(50, run => { run(); abandoned.Set(); });
+        }
+
+        // FilterReplyWindow.LogFilterSdkTimeoutMs (10 s) is the Android SDK's own log-filter timeout, read from these releases.
+        // A newer SDK may change or drop it; re-read FILTER_CALLBACK_TIMEOUT_MS in its log provider, then add the version here.
+        static readonly string[] VerifiedAndroidSdkVersions = { "7.4.1", "7.4.2" };
+
+        [Test]
+        public void The_log_filter_window_is_rechecked_when_the_pinned_android_sdk_changes()
+        {
+            var dir = TestContext.CurrentContext.TestDirectory;
+            while (!string.IsNullOrEmpty(dir) && !System.IO.File.Exists(System.IO.Path.Combine(dir, "package.json")))
+                dir = System.IO.Directory.GetParent(dir)?.FullName;
+            Assert.That(dir, Is.Not.Null.And.Not.Empty, "repo root");
+
+            var line = System.Linq.Enumerable.First(
+                System.IO.File.ReadAllLines(System.IO.Path.Combine(dir, "Tools~", "versions.env")),
+                l => l.StartsWith("ANDROID_SDK_VERSION=", StringComparison.Ordinal));
+            var version = line.Substring(line.IndexOf('=') + 1).Trim('"');
+
+            Assert.That(VerifiedAndroidSdkVersions, Does.Contain(version),
+                "Android SDK " + version + " is pinned. Re-check the log filter timeout (10 s) that FilterReplyWindow.LogFilterSdkTimeoutMs "
+                + "mirrors, and whether the network filter now has one, then add the version to VerifiedAndroidSdkVersions.");
         }
     }
 }
