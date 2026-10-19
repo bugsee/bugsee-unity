@@ -29,6 +29,10 @@ namespace Bugsee.Editor
 
         public void OnPostprocessBuild(BuildReport report)
         {
+            // Before any gate below: an "Append" export keeps the pointer of the earlier export, and it must not outlive
+            // an export that finds no map of its own (it would name the earlier build's, or a folder that is gone).
+            DeleteIosPendingLinemap(report);
+
             if (Environment.GetEnvironmentVariable("BUGSEE_NO_IL2CPP_MAPPING") != null)
             {
                 return;
@@ -117,6 +121,66 @@ namespace Bugsee.Editor
             {
                 Debug.LogWarning(
                     $"Bugsee: bugsee-cli il2cpp-linemap upload failed (exit {exit}) — build continues.");
+            }
+        }
+
+        static bool IsIosFamily(BuildReport report) =>
+            report.summary.platform == BuildTarget.iOS || report.summary.platform == BuildTarget.tvOS;
+
+        static void DeleteIosPendingLinemap(BuildReport report)
+        {
+            if (!IsIosFamily(report))
+            {
+                return;
+            }
+
+            try
+            {
+                var outPath = report.summary.outputPath;
+                if (!string.IsNullOrEmpty(outPath))
+                {
+                    File.Delete(Path.Combine(outPath, "BugseePendingIl2CppLinemap.txt"));
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"Bugsee: failed removing the pending iOS linemap pointer of an earlier export: {ex.Message}");
+            }
+
+            DeleteStaleIosIl2CppOutput(report);
+        }
+
+        // Unity rewrites an Xcode export's IL2CPP output files only when the build emits them, and an "Append" export keeps
+        // the rest: a MethodMap.tsv of an earlier build (this one was built without --emit-method-map) would sit beside this
+        // build's line map and be uploaded with it, and a LineNumberMappings.json of an earlier build would be taken for this
+        // one's. A file older than the export is that build's: remove it.
+        static void DeleteStaleIosIl2CppOutput(BuildReport report)
+        {
+            var root = report.summary.outputPath;
+            if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
+            {
+                return;
+            }
+
+            foreach (var name in new[] { "LineNumberMappings.json", "MethodMap.tsv", "il2cppFileRoot.txt" })
+            {
+                try
+                {
+                    foreach (var file in Directory.EnumerateFiles(root, name, SearchOption.AllDirectories))
+                    {
+                        if (BuildArtifactChoice.WrittenByExport(File.GetLastWriteTimeUtc(file), report.summary.buildStartedAt))
+                        {
+                            continue;
+                        }
+
+                        File.Delete(file);
+                        Debug.Log($"Bugsee: removed {file}: left in the exported project by an earlier build, this one did not write it.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"Bugsee: could not check {name} under {root} for files left by an earlier build: {ex.Message}");
+                }
             }
         }
 

@@ -9,15 +9,28 @@ namespace Bugsee.WrapperPolicy
         /// <summary>The script text, written to BugseeScripts/upload-symbols.sh in the exported Xcode project.</summary>
         public static string Build() => Build(null);
 
+        public static string Build(string resolvedCliPath) => Build(resolvedCliPath, 0);
+
         /// <summary>
         /// The script text with <paramref name="resolvedCliPath"/> (the CLI the Editor found at export time, if any)
         /// baked in as a candidate: Xcode build phases run with a minimal PATH, so the script cannot rely on finding
         /// the CLI the way the Editor did.
         /// </summary>
-        public static string Build(string resolvedCliPath)
+        /// <param name="exportStartEpoch">
+        /// When the Unity export began, in seconds since the Unix epoch (0: unknown). A line map inside the exported project
+        /// that is older than this was left there by an earlier export (an "Append" export keeps the project's files) and is
+        /// not uploaded.
+        /// </param>
+        public static string Build(string resolvedCliPath, long exportStartEpoch)
         {
             string text = Script.Replace("\r\n", "\n");
             text = text.Replace("PINNED_VERSION=''\n", "PINNED_VERSION='" + BugseeCliPolicy.DefaultVersion + "'\n");
+            if (exportStartEpoch > 0)
+            {
+                text = text.Replace("EXPORT_START=''\n",
+                    "EXPORT_START='" + exportStartEpoch.ToString(System.Globalization.CultureInfo.InvariantCulture) + "'\n");
+            }
+
             // Only an absolute POSIX path: a Windows or Linux host exporting an iOS project has nothing usable to bake.
             if (string.IsNullOrEmpty(resolvedCliPath) || resolvedCliPath[0] != '/'
                 || resolvedCliPath.IndexOfAny(new[] { '\n', '\r', '\0' }) >= 0)
@@ -224,13 +237,56 @@ if [ ! -d ""${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}"" ] && [ ! -d ""${
 fi
 
 # --- il2cpp-linemap (UUID from UnityFramework binary / dSYM) ---
+# The map must be this export's. An ""Append"" export keeps the earlier export's files, and Unity leaves an old
+# LineNumberMappings.json in place when the new build wrote none: it would be uploaded under the new UnityFramework's UUID.
+# So a map inside the project that is older than the export (EXPORT_START, baked in when the Editor exports) is skipped.
+# Tried in order: the pending pointer, the maps under Il2CppOutputProject, any other under the project. A path outside the
+# project (BUGSEE_IL2CPP_MAPPING at export time) is the user's own file and is used as given.
+EXPORT_START=''
+STALE_MAPS=""""
+map_is_current() {
+  [ -f ""$1"" ] || return 1
+  case ""$1"" in
+    ""${PROJECT_DIR}""/*) ;;
+    *) return 0 ;;
+  esac
+  [ -n ""${EXPORT_START}"" ] || return 0
+  MAP_TIME=$(stat -c %Y ""$1"" 2>/dev/null) || MAP_TIME=$(stat -f %m ""$1"" 2>/dev/null) || MAP_TIME=""""
+  case ""${MAP_TIME}"" in
+    """"|*[!0-9]*) ;;
+    *) [ ""${MAP_TIME}"" -ge ""${EXPORT_START}"" ] && return 0 ;;
+  esac
+  case ""${STALE_MAPS} "" in
+    *"" $1 ""*) ;;
+    *) STALE_MAPS=""${STALE_MAPS} $1"" ;;
+  esac
+  return 1
+}
+find_current_map() {
+  [ -d ""$1"" ] || return 0
+  FOUND_MAPS=$(find ""$1"" -name LineNumberMappings.json 2>/dev/null || true)
+  OLD_IFS=""${IFS}""
+  IFS='
+'
+  for CANDIDATE in ${FOUND_MAPS}; do
+    IFS=""${OLD_IFS}""
+    if map_is_current ""${CANDIDATE}""; then
+      LINEMAP=""${CANDIDATE}""
+      break
+    fi
+  done
+  IFS=""${OLD_IFS}""
+  return 0
+}
 LINEMAP=""""
 if [ -f ""${PROJECT_DIR}/BugseePendingIl2CppLinemap.txt"" ]; then
-  LINEMAP=$(head -n1 ""${PROJECT_DIR}/BugseePendingIl2CppLinemap.txt"")
+  PENDING=$(head -n1 ""${PROJECT_DIR}/BugseePendingIl2CppLinemap.txt"")
+  if map_is_current ""${PENDING}""; then
+    LINEMAP=""${PENDING}""
+  fi
 fi
-if [ -z ""${LINEMAP}"" ] || [ ! -f ""${LINEMAP}"" ]; then
-  LINEMAP=$(find ""${PROJECT_DIR}"" -name LineNumberMappings.json 2>/dev/null | head -n1 || true)
-fi
+[ -n ""${LINEMAP}"" ] || find_current_map ""${PROJECT_DIR}/Il2CppOutputProject""
+[ -n ""${LINEMAP}"" ] || find_current_map ""${PROJECT_DIR}""
 UUID=""${BUGSEE_IL2CPP_UUIDS:-}""
 if [ -z ""${UUID}"" ]; then
   UF_BIN=""${BUILT_PRODUCTS_DIR}/UnityFramework.framework/UnityFramework""
@@ -250,7 +306,7 @@ if [ -n ""${LINEMAP}"" ] && [ -f ""${LINEMAP}"" ] && [ -n ""${UUID}"" ]; then
   echo ""Bugsee: uploading il2cpp-linemap ${LINEMAP} uuid=${UUID}""
   upload ""${CLI}"" debug-files upload ""${LINEMAP}"" --type il2cpp-linemap --version ""${VERSION}"" --build ""${BUILD}"" --uuid ""${UUID}""
 else
-  echo ""Bugsee: skip il2cpp-linemap (map='${LINEMAP}' uuid='${UUID}')""
+  echo ""Bugsee: skip il2cpp-linemap (map='${LINEMAP}' uuid='${UUID}')${STALE_MAPS:+, older than this export:${STALE_MAPS}}""
 fi
 exit 0
 ";

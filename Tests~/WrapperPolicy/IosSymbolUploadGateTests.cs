@@ -142,8 +142,121 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(dsyms[0], Does.Contain("/Build/Products/Debug-iphoneos/Bugsee.framework.dSYM --type dsym"));
         }
 
+        // The il2cpp-linemap an export's Run Script uploads must be that export's. An "Append" export keeps the earlier
+        // one's files and Unity leaves its LineNumberMappings.json when the new build wrote none: it would be uploaded
+        // under the new UnityFramework's UUID.
+        const long ExportStart = 1_800_000_000;
+        const string Uuid = "8666342e-cda1-39c3-b36a-6763ee6a0b24";
+
+        static string PlantMap(string root, string relative, long mtime)
+        {
+            var map = Path.Combine(root, "project", relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(map));
+            File.WriteAllText(map, "{}");
+            File.SetLastWriteTimeUtc(map, DateTimeOffset.FromUnixTimeSeconds(mtime).UtcDateTime);
+            return map;
+        }
+
+        static void PlantPending(string root, string map) =>
+            File.WriteAllText(Path.Combine(root, "project", "BugseePendingIl2CppLinemap.txt"), map + "\n");
+
+        const string SymbolsMap = "Il2CppOutputProject/Source/il2cppOutput/Symbols/LineNumberMappings.json";
+
+        static List<string> Linemaps(ScriptRun run) => run.Calls.Where(c => c.Contains("--type il2cpp-linemap")).ToList();
+
+        [Test]
+        public void Archive_script_does_not_upload_a_line_map_older_than_the_export()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, exportStart: ExportStart, uuids: Uuid, plant: root =>
+            {
+                var old = PlantMap(root, SymbolsMap, ExportStart - 3600);
+                PlantPending(root, old);
+            });
+
+            Assert.That(Linemaps(run), Is.Empty, run.Output);
+            Assert.That(run.Output, Does.Contain("skip il2cpp-linemap"));
+            Assert.That(run.Output, Does.Contain("older than this export"));
+            Assert.That(run.Output, Does.Contain("LineNumberMappings.json"));
+            Assert.That(run.ExitCode, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void Archive_script_uploads_a_line_map_written_by_the_export()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, exportStart: ExportStart, uuids: Uuid, plant: root =>
+                PlantPending(root, PlantMap(root, SymbolsMap, ExportStart + 20)));
+
+            var maps = Linemaps(run);
+            Assert.That(maps, Has.Count.EqualTo(1), run.Output);
+            Assert.That(maps[0], Does.Contain("/project/" + SymbolsMap + " --type il2cpp-linemap"));
+            Assert.That(maps[0], Does.EndWith("--uuid " + Uuid));
+        }
+
+        // The pointer names a stale file but this export wrote another: the one under the exported project wins.
+        [Test]
+        public void Archive_script_passes_over_a_stale_pointer_for_the_exports_own_map()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, exportStart: ExportStart, uuids: Uuid, plant: root =>
+            {
+                PlantPending(root, PlantMap(root, "Old/LineNumberMappings.json", ExportStart - 86400));
+                PlantMap(root, SymbolsMap, ExportStart + 5);
+            });
+
+            var maps = Linemaps(run);
+            Assert.That(maps, Has.Count.EqualTo(1), run.Output);
+            Assert.That(maps[0], Does.Contain("/project/" + SymbolsMap + " --type il2cpp-linemap"));
+        }
+
+        // Without the pointer (the Editor had no token) the project is searched, newest-at-export only.
+        [Test]
+        public void Archive_script_searches_the_project_for_a_current_map_and_never_a_stale_one()
+        {
+            var stale = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, exportStart: ExportStart, uuids: Uuid,
+                plant: root => PlantMap(root, SymbolsMap, ExportStart - 10));
+            Assert.That(Linemaps(stale), Is.Empty, stale.Output);
+
+            var current = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, exportStart: ExportStart, uuids: Uuid,
+                plant: root => PlantMap(root, SymbolsMap, ExportStart));
+            Assert.That(Linemaps(current), Has.Count.EqualTo(1), current.Output);
+        }
+
+        // BUGSEE_IL2CPP_MAPPING at export time: the user's own file, outside the project, as old as they like.
+        [Test]
+        public void Archive_script_uses_a_map_outside_the_project_as_given()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, exportStart: ExportStart, uuids: Uuid, plant: root =>
+            {
+                var own = Path.Combine(root, "mine", "LineNumberMappings.json");
+                Directory.CreateDirectory(Path.GetDirectoryName(own));
+                File.WriteAllText(own, "{}");
+                File.SetLastWriteTimeUtc(own, DateTimeOffset.FromUnixTimeSeconds(ExportStart - 86400).UtcDateTime);
+                PlantPending(root, own);
+            });
+
+            var maps = Linemaps(run);
+            Assert.That(maps, Has.Count.EqualTo(1), run.Output);
+            Assert.That(maps[0], Does.Contain("/mine/LineNumberMappings.json --type il2cpp-linemap"));
+        }
+
+        // A script written without the export time (an unknown one) keeps the earlier behaviour.
+        [Test]
+        public void Archive_script_without_an_export_time_accepts_any_map_in_the_project()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, uuids: Uuid,
+                plant: root => PlantMap(root, SymbolsMap, ExportStart - 86400));
+
+            Assert.That(Linemaps(run), Has.Count.EqualTo(1), run.Output);
+        }
+
+        [Test]
+        public void Export_start_is_baked_in_only_when_known()
+        {
+            Assert.That(IosArchiveUploadScript.Build(), Does.Contain("EXPORT_START=''\n"));
+            Assert.That(IosArchiveUploadScript.Build(null, 1_800_000_000), Does.Contain("EXPORT_START='1800000000'\n"));
+        }
+
         static ScriptRun RunScript(string[] dsymBundles, int cliExitCode = 0, string token = "test-token",
-            string platform = "iphoneos", Action<string> plant = null)
+            string platform = "iphoneos", Action<string> plant = null, long exportStart = 0, string uuids = null)
         {
             if (!File.Exists("/bin/sh"))
                 Assert.Ignore("needs /bin/sh");
@@ -164,7 +277,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 File.WriteAllText(cli, "#!/bin/sh\n[ \"$1\" = --version ] && { echo 'bugsee-cli 0.8.1'; exit 0; }\necho \"$*\" >> \"" + calls + "\"\nexit " + cliExitCode + "\n");
                 File.SetUnixFileMode(cli, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
                 var script = Path.Combine(projectDir, "upload-symbols.sh");
-                File.WriteAllText(script, IosArchiveUploadScript.Build());
+                File.WriteAllText(script, IosArchiveUploadScript.Build(null, exportStart));
 
                 var info = new ProcessStartInfo("/bin/sh", "\"" + script + "\"")
                 {
@@ -184,7 +297,8 @@ namespace Bugsee.WrapperPolicy.Tests
                 info.Environment["PLATFORM_NAME"] = platform;
                 info.Environment["PROJECT_DIR"] = projectDir;
                 info.Environment.Remove("BUGSEE_SKIP_UPLOAD_ON_DEBUG");
-                info.Environment.Remove("BUGSEE_IL2CPP_UUIDS");
+                if (uuids != null) info.Environment["BUGSEE_IL2CPP_UUIDS"] = uuids;
+                else info.Environment.Remove("BUGSEE_IL2CPP_UUIDS");
 
                 using (var process = Process.Start(info))
                 {

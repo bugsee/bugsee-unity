@@ -86,6 +86,26 @@ namespace Bugsee.WrapperPolicy
             return Path.Combine(parent, Il2CppBackupFolderName(stem));
         }
 
+        /// <summary>
+        /// Whole seconds since the Unix epoch of a UTC time (rounded down), the unit the iOS upload script compares file
+        /// modification times in.
+        /// </summary>
+        public static long UnixSeconds(DateTime utc)
+        {
+            // BuildSummary.buildStartedAt holds UTC with Kind Unspecified: ToUniversalTime would read it as local time and
+            // shift it by the machine's offset (hours early east of Greenwich, late west of it).
+            DateTime value = utc.Kind == DateTimeKind.Local ? utc.ToUniversalTime() : DateTime.SpecifyKind(utc, DateTimeKind.Utc);
+            return (long)Math.Floor((value - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds);
+        }
+
+        /// <summary>
+        /// True when a file in an exported project was written by the export that began at <paramref name="exportStartUtc"/>
+        /// (not before it, to the second). An "Append" export keeps the project's earlier files, and Unity does not delete the
+        /// line map of an earlier build when this one wrote none.
+        /// </summary>
+        public static bool WrittenByExport(DateTime fileWriteUtc, DateTime exportStartUtc) =>
+            UnixSeconds(fileWriteUtc) >= UnixSeconds(exportStartUtc);
+
         /// <summary>Higher rank wins; modification time only breaks a tie between equally ranked files.</summary>
         public static bool Better(int rank, DateTime mtime, int bestRank, DateTime bestMtime) =>
             rank != bestRank ? rank > bestRank : mtime >= bestMtime;
