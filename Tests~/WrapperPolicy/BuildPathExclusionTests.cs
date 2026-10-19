@@ -44,7 +44,7 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void A_root_that_is_itself_an_intermediate_folder_scans_its_own_contents()
         {
-            // A symbol scan may legitimately start in Library/Bee/artifacts/Android/il2cppOutput.
+            // A root under a folder named Library (an output path the user chose) scans its own contents.
             var root = "/p/Library/Bee/artifacts/Android/il2cppOutput";
             Assert.That(X(root + "/arm64-v8a/libil2cpp.so", root), Is.False);
             Assert.That(X(root + "/obj/arm64-v8a/libil2cpp.so", root), Is.True);
@@ -138,14 +138,17 @@ namespace Bugsee.WrapperPolicy.Tests
                 var link = Path.Combine(tmp, "link");
                 Directory.CreateSymbolicLink(link, real);
 
-                // Root reached through a link: the real location is under Temp, the walked path is not.
-                var viaLink = Path.Combine(link, "arm64-v8a", "libil2cpp.so");
-                Assert.That(X(viaLink, link), Is.False);
-
                 // A child link named like an intermediate folder is excluded by the name the scan sees.
-                var obj = Path.Combine(tmp, "link", "obj");
-                Directory.CreateSymbolicLink(obj, Path.Combine(real, "arm64-v8a"));
-                Assert.That(X(Path.Combine(obj, "libil2cpp.so"), link), Is.True);
+                Directory.CreateSymbolicLink(Path.Combine(link, "obj"), Path.Combine(real, "arm64-v8a"));
+
+                // Enumerate through the link: the real location is under Temp, the walked paths are not, and the
+                // enumeration keeps the root as passed.
+                var kept = new System.Collections.Generic.List<string>();
+                foreach (var f in Directory.EnumerateFiles(link, "libil2cpp.so", SearchOption.AllDirectories))
+                {
+                    if (!X(f, link)) kept.Add(f);
+                }
+                Assert.That(kept, Is.EqualTo(new[] { Path.Combine(link, "arm64-v8a", "libil2cpp.so") }));
             }
             finally
             {

@@ -8,7 +8,7 @@ namespace Bugsee.WrapperPolicy
     /// files that must not be uploaded.
     ///
     /// The rule applies to the path BELOW the folder the scan starts from, never to the absolute path. A project
-    /// kept under ~/Library/CloudStorage (OneDrive, iCloud Drive), C:\Temp, %TEMP%, /tmp or any folder that
+    /// kept under ~/Library/CloudStorage (OneDrive, iCloud Drive), C:\Temp, %TEMP% or any folder that
     /// happens to be called obj/Bee/Library would otherwise lose every symbol file and mapping.
     ///
     /// Purely lexical (no symlink resolution): a scan returns paths spelled under its root, so a symlinked root or
@@ -23,7 +23,7 @@ namespace Bugsee.WrapperPolicy
         /// is a folder or file the scan found below the root, or already relative to it. Both separators are
         /// accepted and names compare case-insensitively (macOS and Windows file systems do). The last segment is
         /// the file or folder itself and is not tested; the root's own name and everything above it are not tested
-        /// either. A rooted path that is not under the root cannot come from a scan of that root; it is tested whole.
+        /// either. A rooted path that is not under the root cannot come from a scan of that root (no call site produces one); it is tested whole as a defensive fallback.
         /// </summary>
         public static bool IsExcludedPath(string path, string root)
         {
