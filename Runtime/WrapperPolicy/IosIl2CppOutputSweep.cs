@@ -27,6 +27,18 @@ namespace Bugsee.WrapperPolicy
         public static string BuildSymbolsDirectory(string projectRoot, string platformFolder) =>
             Path.Combine(projectRoot, "Library", "Bee", "artifacts", platformFolder, "il2cppOutput", "cpp", "Symbols");
 
+        /// <summary>
+        /// True when this build's own output (the il2cppOutput/cpp folder; its Symbols folder is absent when the build emitted no
+        /// map) is where <see cref="BuildSymbolsDirectory"/> says. When it is not (another Unity layout) nothing can be proven
+        /// about the exported files, and the Run Script must not apply its age check either: a valid map that an unchanged
+        /// Append export did not copy again would be skipped.
+        /// </summary>
+        public static bool BuildOutputFound(string buildSymbols)
+        {
+            string cpp = string.IsNullOrEmpty(buildSymbols) ? null : Path.GetDirectoryName(buildSymbols);
+            return !string.IsNullOrEmpty(cpp) && Directory.Exists(cpp);
+        }
+
         public static Verdict Classify(bool exists, DateTime fileWriteUtc, DateTime exportStartUtc, bool sourceExists, bool sameAsSource)
         {
             if (!exists) return Verdict.Absent;
@@ -46,8 +58,7 @@ namespace Bugsee.WrapperPolicy
             string dir = string.IsNullOrEmpty(exportRoot) ? null : ExportSymbolsDirectory(exportRoot);
             // Unity removes the build's Symbols folder when a build emits no map, so a missing folder is an answer, provided
             // its parent (il2cppOutput/cpp) is there: without that this build's output is not where this looks.
-            string buildCpp = string.IsNullOrEmpty(buildSymbols) ? null : Path.GetDirectoryName(buildSymbols);
-            if (dir == null || !Directory.Exists(dir) || IsLink(dir) || string.IsNullOrEmpty(buildCpp) || !Directory.Exists(buildCpp))
+            if (dir == null || !Directory.Exists(dir) || IsLink(dir) || !BuildOutputFound(buildSymbols))
             {
                 return actions;
             }

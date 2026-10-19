@@ -218,6 +218,31 @@ namespace Bugsee.WrapperPolicy.Tests
             }
         }
 
+        // Where the build's output is not found the Run Script gets no export time (no age check), see BugseeSymbolUpload.
+        [Test]
+        public void The_builds_output_is_found_by_its_cpp_folder_not_the_symbols_folder()
+        {
+            using (var l = new Layout())
+            {
+                Assert.That(BuildOutputFound(Path.Combine(l.Build, "Symbols")), Is.True);
+                Assert.That(BuildOutputFound(Path.Combine(l.Root, "nodir", "Symbols")), Is.False);
+                Assert.That(BuildOutputFound(null), Is.False);
+                Assert.That(BuildOutputFound(""), Is.False);
+            }
+        }
+
+        [Test]
+        public void The_injector_bakes_no_export_time_where_the_builds_output_is_not_found()
+        {
+            var dir = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
+            while (dir != null && !File.Exists(Path.Combine(dir.FullName, "package.json"))) dir = dir.Parent;
+            var source = File.ReadAllText(Path.Combine(dir.FullName, "Editor", "BugseeSymbolUpload.cs"));
+            int check = source.IndexOf("IosIl2CppOutputSweep.BuildOutputFound(buildSymbols)");
+            int zero = source.IndexOf("exportStartEpoch = 0;");
+            Assert.That(check, Is.GreaterThan(0));
+            Assert.That(zero, Is.GreaterThan(check));
+        }
+
         [Test]
         public void The_build_and_export_folders_are_the_ones_unity_uses()
         {
