@@ -83,6 +83,22 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void When_applying_the_edits_fails_the_report_still_completes_unchanged_once()
+        {
+            var calls = new List<bool>();
+            var guard = new LateReplyGuard(30000, LateReplyGuard.StopwatchMillis, apply =>
+            {
+                calls.Add(apply);
+                if (apply) throw new InvalidOperationException("the result could not be built");
+            });
+
+            Assert.Throws<InvalidOperationException>(() => guard.Done());
+            guard.Abandon();
+
+            Assert.That(calls, Is.EqualTo(new[] { true, false }), "the failed apply is followed by an unchanged completion");
+        }
+
+        [Test]
         public void A_failing_handler_completes_unchanged_and_a_later_reply_does_nothing()
         {
             var clock = new Clock();

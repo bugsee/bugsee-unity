@@ -116,7 +116,17 @@ namespace Bugsee.WrapperPolicy
                 timer.Dispose();
                 lock (Armed) Armed.Remove(this);
             }
-            _finish(applyEdits);
+            try
+            {
+                _finish(applyEdits);
+            }
+            catch (Exception) when (applyEdits)
+            {
+                // Applying the edits failed (the result could not be built): complete unchanged instead, so the
+                // native entry is not left waiting, then let the failure surface.
+                try { _finish(false); } catch (Exception) { }
+                throw;
+            }
         }
     }
 }

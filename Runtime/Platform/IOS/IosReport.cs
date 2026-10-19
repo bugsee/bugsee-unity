@@ -155,9 +155,13 @@ namespace Bugsee.Platform.IOS
 
         public IReadOnlyList<IAttachment> Attachments => _attachments;
 
+        // Set once the report has been completed: a handler that is still running (it was abandoned or answered late)
+        // must not copy a file nothing will ever submit or delete.
+        volatile bool _released;
+
         public IAttachment AddAttachmentFile(string path, string name, string mimeType)
         {
-            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            if (_released || string.IsNullOrEmpty(path) || !File.Exists(path))
                 return null;
 
             string snapshotPath;
@@ -220,6 +224,7 @@ namespace Bugsee.Platform.IOS
 
         public void ReleaseSnapshotFiles()
         {
+            _released = true;
             for (var i = 0; i < _attachments.Count; i++)
                 _attachments[i].DeleteSnapshotIfOwned();
         }
