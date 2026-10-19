@@ -33,7 +33,6 @@ namespace Bugsee.Platform.IOS
         ulong _managedReportUploadFence;
         int _reportUploadGeneration;
 
-        bool _blackout;
         IosAppearance _appearance;
         IosReport _openReport;
         IosLiveReport _openReportHandle;
@@ -429,16 +428,15 @@ namespace Bugsee.Platform.IOS
         public void StartBlackout()
         {
             _bugsee_start_blackout();
-            _blackout = true;
         }
 
         public void EndBlackout()
         {
             _bugsee_end_blackout();
-            _blackout = false;
         }
 
-        public bool IsBlackout() => _blackout;
+        // Read from the SDK, as on Android, so no copy of its state can drift from it.
+        public bool IsBlackout() => _bugsee_is_blackout() != 0;
 
         public void ChannelLog(string message, LogLevel level)
         {
@@ -885,6 +883,7 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern int _bugsee_exceptions_filed();
         [DllImport("__Internal")] static extern void _bugsee_start_blackout();
         [DllImport("__Internal")] static extern void _bugsee_end_blackout();
+        [DllImport("__Internal")] static extern int _bugsee_is_blackout();
         [DllImport("__Internal")] static extern void _bugsee_log(string message, int level);
         [DllImport("__Internal")] static extern void _bugsee_channel_log(string message, int level, int source);
         [DllImport("__Internal")] static extern void _bugsee_channel_network(string eventJson, int requiresFiltering);

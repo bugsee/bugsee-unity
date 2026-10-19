@@ -326,6 +326,13 @@ void _bugsee_end_blackout(void)
     [Bugsee endBlackout];
 }
 
+// The SDK's own blackout state, not a managed shadow of it. A plain BOOL read, like the status above:
+// callable from any thread.
+int _bugsee_is_blackout(void)
+{
+    return [Bugsee isBlackout] ? 1 : 0;
+}
+
 void _bugsee_log(const char *message, int level)
 {
     [Bugsee log:BugseeNSString(message) level:(BugseeLogLevel)level];
@@ -1116,6 +1123,7 @@ void _bugsee_stop(int token, BugseeStopCompletionFn completion) { if (completion
 int _bugsee_get_status(void) { return 0; }
 void _bugsee_start_blackout(void) {}
 void _bugsee_end_blackout(void) {}
+int _bugsee_is_blackout(void) { return 0; }
 void _bugsee_log(const char *message, int level) { (void)message; (void)level; }
 void _bugsee_trace(const char *name, const char *valueJson) { (void)name; (void)valueJson; }
 void _bugsee_event(const char *name, const char *paramsJson) { (void)name; (void)paramsJson; }
