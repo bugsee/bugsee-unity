@@ -143,6 +143,7 @@ namespace Bugsee.Sample
                 };
                 if (!string.IsNullOrWhiteSpace(endpointOverride))
                     options.Endpoint = endpointOverride.Trim();
+                _launchOptions = options;
                 // "bugsee_launch_thread" = 1 launches from a worker thread (checks that a launch from any thread works).
                 if (ReadE2EValue("bugsee_launch_thread", "BUGSEE_LAUNCH_THREAD") == "1")
                 {
@@ -156,10 +157,7 @@ namespace Bugsee.Sample
                     });
                 }
                 else
-                {
-                    _launchOptions = options;
                     Bugsee.Launch(appToken, options);
-                }
                 // "bugsee_status_bar" = 1 shows the status bar, so Unity's view no longer fills the window.
                 if (ReadE2EValue("bugsee_status_bar", "BUGSEE_STATUS_BAR") == "1")
                     Screen.fullScreen = false;
