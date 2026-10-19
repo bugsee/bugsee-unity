@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using Bugsee.Contracts.Options;
 using Bugsee.Internal;
+using Bugsee.WrapperPolicy;
 using UnityEngine;
 
 namespace Bugsee.Sample
@@ -143,6 +144,8 @@ namespace Bugsee.Sample
                 };
                 if (!string.IsNullOrWhiteSpace(endpointOverride))
                     options.Endpoint = endpointOverride.Trim();
+                if (ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "options")
+                    AddGatingProbeOptions(options);
                 // "bugsee_launch_thread" = 1 launches from a worker thread (checks that a launch from any thread works).
                 if (ReadE2EValue("bugsee_launch_thread", "BUGSEE_LAUNCH_THREAD") == "1")
                 {
@@ -200,6 +203,8 @@ namespace Bugsee.Sample
                 var crashHandler = Environment.GetEnvironmentVariable("BUGSEE_E2E_CRASH_HANDLER");
                 if (int.TryParse(crashHandler, out var handlerType))
                     iosOptions.SetCustomOption("com.bugsee.option.capture.crash-handler-type", handlerType);
+                if (Environment.GetEnvironmentVariable("BUGSEE_E2E_SCENARIO") == "options")
+                    AddGatingProbeOptions(iosOptions);
                 Bugsee.Launch(appToken, iosOptions);
 #else
                 // Editor / unsupported: still call Launch (no-op bridge).
@@ -360,6 +365,14 @@ namespace Bugsee.Sample
                         _pendingE2EFire = "S:shapes";
                     }
                     break;
+                case "options":
+                    // Which keys of the platform gate (OptionPlatformGate) reach the native launch options.
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 99;
+                        _pendingE2EFire = "O:options";
+                    }
+                    break;
                 case "none":
                     // Recovery launch: arm nothing, only let the SDK recover and upload what the last run left.
                     break;
@@ -386,6 +399,34 @@ namespace Bugsee.Sample
             }
         }
 
+        // Scenario "options": every key one platform's gate removes is sent in the launch map, then LogGatingProbe
+        // reads back what native kept.
+        static void AddGatingProbeOptions(BugseeLaunchOptions options)
+        {
+            foreach (var key in OptionPlatformGate.AndroidOnly)
+                options.SetCustomOption(key, true);
+            options.SetCustomOption(Options.ReportHandlerCallbackTimeout, 5);
+            options.SetCustomOption(Options.PerformanceUploadMode, 1);
+            options.SetCustomOption(Options.CaptureCrashHandlerType, 3);
+        }
+
+        static void LogGatingProbe()
+        {
+            var launched = Bugsee.GetLaunchOptions();
+            var keys = new List<string>(OptionPlatformGate.AndroidOnly);
+            keys.AddRange(OptionPlatformGate.IosOnly);
+            keys.Sort(StringComparer.Ordinal);
+            var present = 0;
+            foreach (var key in keys)
+            {
+                var has = launched != null && launched.ContainsKey(key);
+                if (has) present++;
+                Debug.Log("[OPTIONS] " + key + " native-has=" + has);
+            }
+            Debug.Log("[OPTIONS] launched=" + Bugsee.IsLaunched + " total-native-keys=" + (launched == null ? -1 : launched.Count)
+                + " gated-keys-present=" + present + "/" + keys.Count);
+        }
+
         void PumpPendingE2EFire(string pending)
         {
             if (string.IsNullOrEmpty(pending) || pending.Length < 2) return;
@@ -407,6 +448,9 @@ namespace Bugsee.Sample
                     break;
                 case 'P':
                     FirePipelineLogException(marker);
+                    break;
+                case 'O':
+                    LogGatingProbe();
                     break;
                 case 'S':
                     ShapesE2E.Run(this);
