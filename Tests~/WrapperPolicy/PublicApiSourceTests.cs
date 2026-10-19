@@ -277,7 +277,7 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Ios_bridge_exports_nothing_the_managed_side_does_not_import()
+        public void Removed_dead_ios_exports_stay_removed()
         {
             string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
             string cs = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));

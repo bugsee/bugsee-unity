@@ -872,10 +872,6 @@ namespace Bugsee.Platform.IOS
 
         static string ToJsonValue(object value) => JsonWire.Value(value);
 
-        static string ToJsonLiteral(object value) => JsonWire.Literal(value);
-
-        static string JsonString(string s) => JsonWire.String(s);
-
         [DllImport("__Internal")] static extern void _bugsee_launch(
             string appToken, string optionsJson, int startedToken, LaunchStartedNativeCallback started);
         [DllImport("__Internal")] static extern void _bugsee_relaunch(
