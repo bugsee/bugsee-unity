@@ -183,6 +183,7 @@ static void BugseeUnityApplyNetworkDict(BugseeNetworkEvent *event, NSDictionary 
         touchedError = YES;
     } else if (shortMsg == [NSNull null] || [shortMsg isKindOfClass:[NSString class]]) {
         [error removeObjectForKey:@"name"];
+        [error removeObjectForKey:@"reason"]; // read back as the name when there is no name: a cleared name leaves neither
         touchedError = YES;
     }
     id desc = d[@"errorDescription"];

@@ -68,7 +68,7 @@ namespace Bugsee.Sample
                 seen["replace"] = Describe(e);
                 Debug.Log("[NETFILTER] replace sees " + seen["replace"] + " Authorization=" + (e.Headers.ContainsKey("Authorization") ? "yes" : "no"));
                 var r = factory.CreateNetworkEvent(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), e.Stage, e.Id, e.Mechanism, e.Method);
-                r.Url = e.Url.Split('?')[0] + "?replaced";
+                r.Url = (e.Url ?? "https://example.com/").Split('?')[0] + "?replaced";
                 r.ResponseCode = e.ResponseCode;
                 Debug.Log("[NETFILTER] replace returns " + Describe(r) + " Authorization=" + (r.Headers.ContainsKey("Authorization") ? "yes" : "no"));
                 return r;
@@ -78,6 +78,7 @@ namespace Bugsee.Sample
             var ok = seen.ContainsKey("pass") && seen["pass"].Contains("url=https://example.com/pass?token=secret") && seen["pass"].Contains("code=200")
                 && seen.ContainsKey("replace") && seen["replace"].Contains("len11");
             Debug.Log("[NETFILTER] managed checks: filters saw the submitted events = " + ok + " (what native applied needs the diagnostic log)");
+            Bugsee.SetNetworkEventFilter(null); // leave no filter installed after the scenario
             Debug.Log("[NETFILTER] done");
         }
 

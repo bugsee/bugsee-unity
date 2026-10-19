@@ -35,6 +35,10 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(cls, Does.Contain("IosNetworkResultJson.ForNewEvent"));
             Assert.That(cls, Does.Not.Contain("JsonUtility.ToJson"));
             var callbacks = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "Runtime/Platform/IOS/IosNativeCallbacks.cs"));
+            // Every setter must record the touch, or its value silently never reaches native.
+            foreach (var flag in new[] { "Url", "Body", "Size", "ResponseCode", "StatusText", "ErrorShortMessage", "ErrorDescription", "Headers" })
+                Assert.That(cls, Does.Contain("_touched |= IosNetworkField." + flag), flag + " setter records the touch");
+            Assert.That(cls, Does.Contain("SameHeaders"), "an in-place Headers edit counts as a touch");
             Assert.That(callbacks, Does.Contain("ToReplacementJson"), "a replacement returned from a filter is not a channel event");
         }
 

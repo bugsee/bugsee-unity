@@ -170,6 +170,9 @@ int main(void)
     value = _bugsee_test_apply_network_result("{\"errorShortMessage\":\"e\",\"errorDescription\":\"d\"}", "{\"errorShortMessage\":\"\"}");
     expect(strstr(value, "\"description\":\"d\"") && !strstr(value, "\"name\""), "an empty name removes only the name");
     free((void *)value);
+    value = _bugsee_test_apply_network_result("{\"errorShortMessage\":\"e\"}", "{\"errorShortMessage\":null}");
+    expect(strstr(value, "\"error\":null") != NULL, "a cleared name leaves no error");
+    free((void *)value);
     // A replacement event is applied onto the original: the original's body, Authorization header and error must go.
     value = _bugsee_test_apply_network_result(
         "{\"url\":\"host-a\",\"body\":\"secret\",\"headers\":{\"Authorization\":\"Bearer abc\"},\"errorShortMessage\":\"e\",\"errorDescription\":\"d\"}",
