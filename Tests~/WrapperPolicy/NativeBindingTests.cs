@@ -432,7 +432,7 @@ namespace Bugsee.WrapperPolicy.Tests
                     Is.EqualTo(Regex.Matches(src, binding).Count),
                     Path.GetFileName(path) + ": UnityWrapper is referenced other than as 'var x = new AndroidJavaClass(...)'");
                 if (receivers.Count == 0) continue;
-                var callRe = new Regex(@"\b(?:" + string.Join("|", receivers) + @")\s*\.\s*CallStatic(?:<[^>]+>)?\s*\(");
+                var callRe = new Regex(@"\b(?:" + string.Join("|", receivers) + @")\s*\??\s*\.\s*CallStatic(?:<[^>]+>)?\s*\(");
                 foreach (Match m in callRe.Matches(src))
                 {
                     int open = m.Index + m.Length;
