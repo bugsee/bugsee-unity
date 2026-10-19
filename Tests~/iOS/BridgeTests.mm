@@ -12,6 +12,7 @@ void _bugsee_ensure_wrapper(const char *version, const char *build);
 const char *_bugsee_test_copy_wrapper_version(void);
 const char *_bugsee_test_copy_wrapper_build(void);
 int _bugsee_test_wrapper_installed(void);
+const char *_bugsee_test_apply_breadcrumb_result(const char *startDataJson, const char *resultJson);
 const char *_bugsee_test_copy_context_value(const char *key);
 void _bugsee_set_attribute(const char *key, const char *valueJson);
 char *_bugsee_get_attribute(const char *key);
@@ -315,6 +316,26 @@ int main(void)
            "launch options come back as a JSON object with the defaults");
     expect([parsedOptions[BugseeMaxRecordingTimeKey] intValue] == 60, "launch options hold the host's value");
     free(launchOptions);
+    // A breadcrumb filter result reaches the SDK's breadcrumb as the data object C# sends: nested values and
+    // scalar kinds intact; a result without a data field leaves the crumb's own data (and a nil data) alone.
+    {
+        const char *start = "{\"orig\":1,\"nul\":null}";
+        const char *kept = _bugsee_test_apply_breadcrumb_result(start, "{\"category\":\"c\",\"level\":2}");
+        expect(kept != NULL && same(kept, "{\"nul\":null,\"orig\":1}"), "a filter result without data keeps the crumb data exactly");
+        free((void *)kept);
+        const char *nilKept = _bugsee_test_apply_breadcrumb_result(NULL, "{\"category\":\"c\"}");
+        expect(nilKept != NULL && same(nilKept, "null"), "a filter result without data keeps a nil data nil");
+        free((void *)nilKept);
+        const char *nested = _bugsee_test_apply_breadcrumb_result(start,
+            "{\"data\":{\"n\":3,\"f\":1.5,\"b\":true,\"s\":\"x\\\\ny\\t\",\"o\":{\"deep\":[1,\"two\",{\"k\":false}]}}}");
+        expect(nested != NULL && same(nested,
+            "{\"b\":true,\"f\":1.5,\"n\":3,\"o\":{\"deep\":[1,\"two\",{\"k\":false}]},\"s\":\"x\\\\ny\\t\"}"),
+            "a filter result with nested data replaces the crumb data with its values and kinds");
+        free((void *)nested);
+        const char *emptied = _bugsee_test_apply_breadcrumb_result(start, "{\"data\":{}}");
+        expect(emptied != NULL && same(emptied, "{}"), "an empty data object clears the crumb data");
+        free((void *)emptied);
+    }
     // notify takes every argument shape without throwing; the title is required and fields are strings only.
     _bugsee_notify("title", NULL, 2, NULL, 0);
     _bugsee_notify("title", "body", 3, "{\"env\":\"prod\",\"n\":1}", 1);

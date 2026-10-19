@@ -740,6 +740,28 @@ const char *_bugsee_test_copy_context_value(const char *key)
     NSString *value = gWrapperContext[[NSString stringWithUTF8String:key]];
     return value ? strdup(value.UTF8String) : NULL;
 }
+
+// Builds a real SDK breadcrumb holding startDataJson as its data, applies a filter result the way
+// _bugsee_complete_filter does, and returns the crumb's data as JSON ("null" when it has none). Caller frees.
+const char *_bugsee_test_apply_breadcrumb_result(const char *startDataJson, const char *resultJson)
+{
+    id factory = [Bugsee getExchangeFactory];
+    if (!factory) return NULL;
+    NSDictionary *start = startDataJson ? BugseeUnityParseJson(startDataJson) : nil;
+    id<BGSBreadcrumb> crumb = [factory createBreadcrumbWithTimestamp:1.0
+                                                            category:@"cat"
+                                                               level:(BugseeLogLevel)0
+                                                             message:@"msg"
+                                                                type:@"manual"
+                                                                data:start];
+    if (!crumb) return NULL;
+    BugseeUnityApplyBreadcrumbDict(crumb, BugseeUnityParseJson(resultJson));
+    id data = crumb.data;
+    if (!data) return strdup("null");
+    NSData *json = [NSJSONSerialization dataWithJSONObject:data options:NSJSONWritingSortedKeys error:nil];
+    NSString *text = json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] : nil;
+    return strdup((text ?: @"unserializable").UTF8String);
+}
 #endif
 
 } // extern "C"
