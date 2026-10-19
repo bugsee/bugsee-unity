@@ -109,7 +109,7 @@ namespace Bugsee.Editor
             var seen = new List<MappingFileInfo>();
             var found = UploadIfFound(roots, "*mapping.txt", "proguard", version, build,
                 path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), mappingExtra, identityWarning, seen);
-            if (found == null || !AndroidMappingNotice.IsUsable(LastInfo(seen, found), report.summary.buildStartedAt.ToUniversalTime()))
+            if (found == null)
             {
                 WarnMappingMissing(report, roots, stem, seen, version, build);
             }
@@ -281,7 +281,7 @@ namespace Bugsee.Editor
                         DateTime mtime;
                         try { mtime = File.GetLastWriteTimeUtc(file); }
                         catch { mtime = DateTime.MinValue; }
-                        seen?.Add(new MappingFileInfo(file, FileLength(file), mtime));
+                        seen?.Add(new MappingFileInfo(file, FileLength(file)));
                         // R8 writes an empty mapping when nothing was obfuscated: there is nothing to deobfuscate.
                         if (IsEmptyFile(file))
                         {
@@ -307,16 +307,6 @@ namespace Bugsee.Editor
             catch { return -1; }
         }
 
-        static MappingFileInfo LastInfo(List<MappingFileInfo> seen, string path)
-        {
-            foreach (var file in seen)
-            {
-                if (file.Path == path) return file;
-            }
-
-            return new MappingFileInfo(path, 0, DateTime.MinValue);
-        }
-
         // Whether R8 ran for this build: Player Settings' Minify Release or Debug, by the build's own Development option.
         static bool MinifyIsOn(BuildReport report) =>
             AndroidMappingNotice.MinifyIsOn(
@@ -332,6 +322,12 @@ namespace Bugsee.Editor
             }
 
             var path = report.summary.outputPath;
+            // A folder that is not a split-APK folder ("Game.apk/") is an exported project, however it was asked for.
+            if (OutputIsDirectory(report) && (path == null || !path.TrimEnd('/', '\\').EndsWith(".apk", StringComparison.OrdinalIgnoreCase)))
+            {
+                return AndroidOutputFormat.ExportProject;
+            }
+
             return EditorUserBuildSettings.buildAppBundle || (path != null && path.EndsWith(".aab", StringComparison.OrdinalIgnoreCase))
                 ? AndroidOutputFormat.Aab
                 : AndroidOutputFormat.Apk;
@@ -346,8 +342,7 @@ namespace Bugsee.Editor
             }
 
             var message = AndroidMappingNotice.MissingMapping(
-                true, OutputFormat(report), ExpectedMappingName(report, stem), roots, seen,
-                report.summary.buildStartedAt.ToUniversalTime(), version, build);
+                true, OutputFormat(report), ExpectedMappingName(report, stem), roots, seen, version, build);
             if (message != null)
             {
                 Debug.LogWarning(message);
@@ -365,11 +360,10 @@ namespace Bugsee.Editor
                 return;
             }
 
-            var seen = new List<MappingFileInfo>();
             var stem = OutputStem(report);
             var allowGeneric = OutputIsDirectory(report);
-            var best = PickBest(CollectRoots(report), "*mapping.txt", path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), seen);
-            if (best == null || !AndroidMappingNotice.IsUsable(LastInfo(seen, best), report.summary.buildStartedAt.ToUniversalTime()))
+            var best = PickBest(CollectRoots(report), "*mapping.txt", path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), null);
+            if (best == null)
             {
                 return;
             }
