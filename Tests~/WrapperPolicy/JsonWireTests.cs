@@ -172,5 +172,50 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(info.GetProperty("metal").GetBoolean(), Is.True);
             Assert.That(info.GetProperty("fps").GetInt32(), Is.EqualTo(30));
         }
+
+        // A class that is only an IDictionary<string, object> (no non-generic IDictionary) still crosses.
+        sealed class TypedOnlyMap : IDictionary<string, object>
+        {
+            readonly Dictionary<string, object> _inner = new Dictionary<string, object>();
+            public object this[string key] { get => _inner[key]; set => _inner[key] = value; }
+            public ICollection<string> Keys => _inner.Keys;
+            public ICollection<object> Values => _inner.Values;
+            public int Count => _inner.Count;
+            public bool IsReadOnly => false;
+            public void Add(string key, object value) => _inner.Add(key, value);
+            public void Add(KeyValuePair<string, object> item) => _inner.Add(item.Key, item.Value);
+            public void Clear() => _inner.Clear();
+            public bool Contains(KeyValuePair<string, object> item) => _inner.ContainsKey(item.Key);
+            public bool ContainsKey(string key) => _inner.ContainsKey(key);
+            public void CopyTo(KeyValuePair<string, object>[] array, int arrayIndex) =>
+                ((ICollection<KeyValuePair<string, object>>)_inner).CopyTo(array, arrayIndex);
+            public IEnumerator<KeyValuePair<string, object>> GetEnumerator() => _inner.GetEnumerator();
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => _inner.GetEnumerator();
+            public bool Remove(string key) => _inner.Remove(key);
+            public bool Remove(KeyValuePair<string, object> item) => _inner.Remove(item.Key);
+            public bool TryGetValue(string key, out object value) => _inner.TryGetValue(key, out value);
+        }
+
+        [Test]
+        public void A_typed_only_dictionary_crosses_with_its_entries()
+        {
+            var map = new TypedOnlyMap { { "a", 1 }, { "b", "x" } };
+            var root = Parse(JsonWire.Object(map));
+            Assert.That(root.GetProperty("a").GetInt32(), Is.EqualTo(1));
+            Assert.That(root.GetProperty("b").GetString(), Is.EqualTo("x"));
+        }
+
+        // IL2CPP managed stripping can remove KeyValuePair<,>.get_Key/get_Value when only reflection reaches
+        // them, which silently turned launch options and event parameters into {} (issue #133).
+        [Test]
+        public void JsonWire_does_not_reflect_on_key_value_pairs()
+        {
+            var dir = TestContext.CurrentContext.TestDirectory;
+            while (!System.IO.File.Exists(System.IO.Path.Combine(dir, "package.json")))
+                dir = System.IO.Directory.GetParent(dir).FullName;
+            var source = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "Runtime", "WrapperPolicy", "JsonWire.cs"));
+            Assert.That(source, Does.Not.Contain("GetProperty("));
+            Assert.That(source, Does.Not.Contain(".GetValue("));
+        }
     }
 }

@@ -85,27 +85,26 @@ namespace Bugsee.WrapperPolicy
             return sb.Append('"').ToString();
         }
 
-        static string WriteMap(IEnumerable entries, int depth)
+        // Typed and non-generic dictionaries are walked without reflection: IL2CPP managed stripping may remove
+        // KeyValuePair<,>.get_Key/get_Value when only reflection reaches them, which would turn every payload into {}.
+        static string WriteMap(IDictionary<string, object> map, int depth)
         {
-            var parts = new List<string>();
-            foreach (var entry in entries)
-            {
-                object key;
-                object value;
-                if (entry is DictionaryEntry de) { key = de.Key; value = de.Value; }
-                else
-                {
-                    // KeyValuePair<string, object>, the generic dictionary's element type
-                    var type = entry.GetType();
-                    key = type.GetProperty("Key")?.GetValue(entry, null);
-                    value = type.GetProperty("Value")?.GetValue(entry, null);
-                }
-
-                if (key == null || value == null) continue;
-                parts.Add(String(Convert.ToString(key, CultureInfo.InvariantCulture)) + ":" + Literal(value, depth + 1));
-            }
-
+            var parts = new List<string>(map.Count);
+            foreach (var kv in map) AddEntry(parts, kv.Key, kv.Value, depth);
             return "{" + string.Join(",", parts.ToArray()) + "}";
+        }
+
+        static string WriteMap(IDictionary map, int depth)
+        {
+            var parts = new List<string>(map.Count);
+            foreach (DictionaryEntry de in map) AddEntry(parts, de.Key, de.Value, depth);
+            return "{" + string.Join(",", parts.ToArray()) + "}";
+        }
+
+        static void AddEntry(List<string> parts, object key, object value, int depth)
+        {
+            if (key == null || value == null) return;
+            parts.Add(String(Convert.ToString(key, CultureInfo.InvariantCulture)) + ":" + Literal(value, depth + 1));
         }
 
         static string Literal(object value, int depth)
