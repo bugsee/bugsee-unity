@@ -23,10 +23,12 @@
     <Compile Include="..\..\Runtime\Contracts\Reporting\IReport.cs" />
     <Compile Include="..\..\Runtime\Contracts\Reporting\IAttachment.cs" />
     <Compile Include="..\..\Runtime\Platform\IOS\IosReport.cs" />
-    <Compile Include="IosKvTestStub.cs" />
+    <Compile Include="..\..\Runtime\Platform\IOS\IosExchangeEvents.cs" />
+    <Compile Include="..\..\Runtime\Contracts\Exchange\*.cs" />
     <Compile Include="..\..\Editor\LocalPackageCopy.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\LogLevel.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\Options.cs" />
+    <Compile Include="UnityEngineJsonStub.cs" />
     <Compile Include="**\*Tests.cs" />
     <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" LinkBase="Fixtures" />
   </ItemGroup>
