@@ -399,6 +399,29 @@ namespace Bugsee.WrapperPolicy.Tests
             return src.Substring(m.Index + m.Length, i - m.Index - m.Length);
         }
 
+        /// <summary>The text between an already consumed "(" at <paramref name="open"/> - 1 and its matching ")".</summary>
+        static string BalancedArgs(string src, int open)
+        {
+            int depth = 1, i = open;
+            bool inString = false;
+            for (; i < src.Length && depth > 0; i++)
+            {
+                char c = src[i];
+                if (inString)
+                {
+                    if (c == '\\') i++;
+                    else if (c == '"') inString = false;
+                    continue;
+                }
+
+                if (c == '"') inString = true;
+                else if (c == '(') depth++;
+                else if (c == ')') depth--;
+            }
+
+            return src.Substring(open, i - 1 - open);
+        }
+
         static List<Sig> JavaPublicStatics()
         {
             var java = ClassBody(StripComments(ReadAll("Plugins/Android", "*.java")), "UnityWrapper");
@@ -435,25 +458,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 var callRe = new Regex(@"\b(?:" + string.Join("|", receivers) + @")\s*\??\s*\.\s*CallStatic(?:<[^>]+>)?\s*\(");
                 foreach (Match m in callRe.Matches(src))
                 {
-                    int open = m.Index + m.Length;
-                    int depth = 1, i = open;
-                    bool inString = false;
-                    for (; i < src.Length && depth > 0; i++)
-                    {
-                        char c = src[i];
-                        if (inString)
-                        {
-                            if (c == '\\') i++;
-                            else if (c == '"') inString = false;
-                            continue;
-                        }
-
-                        if (c == '"') inString = true;
-                        else if (c == '(') depth++;
-                        else if (c == ')') depth--;
-                    }
-
-                    var args = SplitTopLevel(src.Substring(open, i - 1 - open));
+                    var args = SplitTopLevel(BalancedArgs(src, m.Index + m.Length));
                     var nameMatch = Regex.Match(args[0], "^\"(\\w+)\"$");
                     Assert.That(nameMatch.Success, Is.True,
                         Path.GetFileName(path) + ": CallStatic with a non-literal method name cannot be checked: " + args[0]);
@@ -492,13 +497,14 @@ namespace Bugsee.WrapperPolicy.Tests
             var java = StripComments(ReadAll("Plugins/Android", "*.java"));
             var cs = StripComments(ReadAll("Runtime/Platform/Android", "*.cs"));
 
-            var m = Regex.Match(cs, "new AndroidJavaObject\\(\"com\\.bugsee\\.unity\\.UnityManagedException\"\\s*,\\s*([^)]*)\\)");
+            var m = Regex.Match(cs, "new AndroidJavaObject\\(\\s*\"com\\.bugsee\\.unity\\.UnityManagedException\"\\s*");
             Assert.That(m.Success, Is.True, "UnityManagedException is no longer constructed from managed code");
-            int argc = SplitTopLevel(m.Groups[1].Value).Length;
+            // The class name is the first argument; the constructor arguments are the rest (nested calls included).
+            int argc = SplitTopLevel(BalancedArgs(cs, cs.IndexOf('(', m.Index) + 1)).Length - 1;
 
-            var ctor = Regex.Match(java, @"public\s+UnityManagedException\s*\(([^)]*)\)");
+            var ctor = Regex.Match(java, @"public\s+UnityManagedException\s*\(");
             Assert.That(ctor.Success, Is.True);
-            Assert.That(SplitTopLevel(ctor.Groups[1].Value).Length, Is.EqualTo(argc));
+            Assert.That(SplitTopLevel(BalancedArgs(java, ctor.Index + ctor.Length)).Length, Is.EqualTo(argc));
         }
     }
 }
