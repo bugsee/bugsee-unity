@@ -97,7 +97,8 @@ namespace Bugsee.WrapperPolicy
         static string WriteMap(IDictionary map, int depth)
         {
             var parts = new List<string>(map.Count);
-            foreach (DictionaryEntry de in map) AddEntry(parts, de.Key, de.Value, depth);
+            var e = map.GetEnumerator();
+            while (e.MoveNext()) AddEntry(parts, e.Key, e.Value, depth);
             return "{" + string.Join(",", parts.ToArray()) + "}";
         }
 

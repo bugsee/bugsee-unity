@@ -197,6 +197,22 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Nested_non_object_dictionaries_keep_their_entries()
+        {
+            var json = JsonWire.Object(new Dictionary<string, object>
+            {
+                { "strings", new Dictionary<string, string> { { "a", "b" }, { "c", null } } },
+                { "ints", new Dictionary<string, int> { { "n", 3 } } },
+                { "table", new System.Collections.Hashtable { { "k", true } } },
+            });
+            var root = Parse(json);
+            Assert.That(root.GetProperty("strings").GetProperty("a").GetString(), Is.EqualTo("b"));
+            Assert.That(root.GetProperty("strings").TryGetProperty("c", out _), Is.False);
+            Assert.That(root.GetProperty("ints").GetProperty("n").GetInt32(), Is.EqualTo(3));
+            Assert.That(root.GetProperty("table").GetProperty("k").GetBoolean(), Is.True);
+        }
+
+        [Test]
         public void A_typed_only_dictionary_crosses_with_its_entries()
         {
             var map = new TypedOnlyMap { { "a", 1 }, { "b", "x" } };
@@ -213,9 +229,15 @@ namespace Bugsee.WrapperPolicy.Tests
             var dir = TestContext.CurrentContext.TestDirectory;
             while (!System.IO.File.Exists(System.IO.Path.Combine(dir, "package.json")))
                 dir = System.IO.Directory.GetParent(dir).FullName;
-            var source = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "Runtime", "WrapperPolicy", "JsonWire.cs"));
-            Assert.That(source, Does.Not.Contain("GetProperty("));
-            Assert.That(source, Does.Not.Contain(".GetValue("));
+            // Only JsonWire.cs is scanned, comments excluded (they may mention the old approach).
+            var code = System.Text.RegularExpressions.Regex.Replace(
+                System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "Runtime", "WrapperPolicy", "JsonWire.cs")),
+                @"//[^\n]*|/\*.*?\*/", "", System.Text.RegularExpressions.RegexOptions.Singleline);
+            const string why = " reflects on KeyValuePair, whose accessors IL2CPP managed stripping may remove (issue #133)";
+            Assert.That(code, Does.Not.Contain(".GetProperty("), "GetProperty" + why);
+            Assert.That(code, Does.Not.Contain(".GetValue("), "GetValue" + why);
+            foreach (var word in new[] { "GetProperties(", "PropertyInfo", "GetMethod(", "GetMembers(", "dynamic ", "Invoke(" })
+                Assert.That(code, Does.Not.Contain(word), word + why);
         }
     }
 }
