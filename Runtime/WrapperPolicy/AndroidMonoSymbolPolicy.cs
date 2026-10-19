@@ -25,8 +25,9 @@ namespace Bugsee.WrapperPolicy
         public const string ManagedLinesWarning =
             "Bugsee: this Android build uses the Mono scripting backend without Development Build. The runtime " +
             "ships no .pdb, so managed exception frames carry only IL offsets (\"[0x0000b] in <module-guid>:0\") " +
-            "and the report has no C# file or line. Use the IL2CPP scripting backend, or a Development Build " +
-            "(Script Debugging on) for file:line. The build continues.";
+            "and the report has no C# file or line. A Development Build ships the .pdb files and prints file:line " +
+            "(not for store builds). The IL2CPP scripting backend gives file:line only where Unity offers IL2CPP " +
+            "line information. The build continues.";
 
         /// <summary>The value of <c>ScriptingImplementation.Mono2x</c> (or any name starting with "Mono").</summary>
         public static bool IsMono(string scriptingBackend)

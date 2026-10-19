@@ -29,7 +29,8 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             bool warned = false;
             var text = AndroidMonoSymbolPolicy.TakeManagedLinesWarning("Mono2x", false, ref warned);
-            Assert.That(text, Does.Contain("IL2CPP").And.Contain("Development Build").And.Contain("IL offsets"));
+            Assert.That(text, Does.Contain("IL2CPP").And.Contain("Development Build").And.Contain("IL offsets")
+                .And.Contain("not for store builds").And.Not.Contain("Script Debugging"));
             Assert.That(warned, Is.True);
             Assert.That(AndroidMonoSymbolPolicy.TakeManagedLinesWarning("Mono2x", false, ref warned), Is.Null);
         }

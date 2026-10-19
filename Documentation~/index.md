@@ -102,7 +102,7 @@ Managed exceptions use the **UnityManagedException** JSON-in-reason contract (`n
 | Mode | Build / capture | Backend | File:line? |
 |---|---|---|---|
 | **A. Rich managed stacks** | Mono **Development Build** (a portable `.pdb` ships next to each assembly), or IL2CPP **Method Name, File Name, and Line Number** (or Script Debugging) | Parse `frames[].trace` | **Yes** (from string) |
-| **A0. Mono Release** | Mono without Development Build: no `.pdb` in the player, the text is `at Ns.C.M (System.String a) [0x0000b] in <module-guid>:0` | Parse `frames[].trace` | **No**: method names only. The IL offset is not resolved anywhere (the CLI's `PortablePdb` type is a scaffold; the worker reads no Portable PDB). Use IL2CPP or a Development Build. A Release Mono Android build logs a build-time warning. |
+| **A0. Mono Release** | Mono without Development Build: no `.pdb` in the player, the text is `at Ns.C.M (System.String a) [0x0000b] in <module-guid>:0` | Parse `frames[].trace` | **No**: method names only. The IL offset is not resolved anywhere (the CLI's `PortablePdb` type is a scaffold; the worker reads no Portable PDB). A Development Build has file:line (not for store builds); IL2CPP has it only where Unity offers IL2CPP line information. A Release Mono Android build logs a build-time warning. |
 | **B. Release Method-only + LNM** | IL2CPP; thrown exception; SDK emits native IPs via `il2cpp_native_stack_trace` | PC → dSYM/ELF → LineNumberMappings | **In progress** (needs symbols + `il2cpp-linemap`; addresses are module-relative) |
 | **C. MethodMap only** | IL2CPP mangled names; map uploaded | MethodMap.tsv demangle | **Names only** (no invented `.cs:line`) |
 
@@ -274,7 +274,7 @@ Device/CI proof remains manual.
 
 1. `CaptureManagedExceptions` enabled (default).
 2. Unhandled managed exception / `LogUnhandledException` appears once (no dual-hook duplicates).
-3. **Mode A:** MethodFileLineNumber / Mono → viewer shows C# file:line from stack strings.
+3. **Mode A:** MethodFileLineNumber / Mono Development build → viewer shows C# file:line from stack strings.
 4. **Mode B (in progress):** Release IL2CPP + uploaded dSYM/ELF + `il2cpp-linemap` → `LogException` on a **thrown** exception emits native IPs for worker LNM. Validate on device before treating as parity with Sentry.
 5. **Mode C:** MethodMap demangles mangled names when module UUID(s) match (names only if no addresses/lines).
 
