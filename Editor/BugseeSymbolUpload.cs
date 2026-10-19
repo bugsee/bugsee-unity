@@ -24,13 +24,23 @@ namespace Bugsee.Editor
 
         public void OnPostprocessBuild(BuildReport report)
         {
-            if (Environment.GetEnvironmentVariable("BUGSEE_NO_SYMBOL_UPLOAD") != null)
+            var optedOut = Environment.GetEnvironmentVariable("BUGSEE_NO_SYMBOL_UPLOAD") != null;
+            if (optedOut || !BugseeCliRunner.HasAppToken)
             {
-                return;
-            }
+                if (report.summary.platform == BuildTarget.Android)
+                {
+                    try
+                    {
+                        NoteMappingNotUploaded(report, optedOut
+                            ? "BUGSEE_NO_SYMBOL_UPLOAD is set"
+                            : "BUGSEE_APP_TOKEN is not set in the Unity Editor's environment");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogWarning($"Bugsee: could not check for the R8 mapping: {ex.Message}");
+                    }
+                }
 
-            if (!BugseeCliRunner.HasAppToken)
-            {
                 return;
             }
 
@@ -96,8 +106,13 @@ namespace Bugsee.Editor
             }
 
             var mappingExtra = AndroidUploadIdentity.MappingArguments(identity.Uuid, icon);
-            UploadIfFound(roots, "*mapping.txt", "proguard", version, build,
-                path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), mappingExtra, identityWarning);
+            var seen = new List<MappingFileInfo>();
+            var found = UploadIfFound(roots, "*mapping.txt", "proguard", version, build,
+                path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), mappingExtra, identityWarning, seen);
+            if (found == null || !AndroidMappingNotice.IsUsable(LastInfo(seen, found), report.summary.buildStartedAt.ToUniversalTime()))
+            {
+                WarnMappingMissing(report, roots, stem, seen, version, build);
+            }
             // Unity "Create symbols.zip" / Gradle native debug symbols.
             UploadSymbolsZipOrElf(report, roots, version, build, identity.ElfUuid ?? Guid.NewGuid().ToString("D"));
         }
@@ -191,7 +206,11 @@ namespace Bugsee.Editor
             }
         }
 
-        static void UploadIfFound(
+        /// <summary>
+        /// Uploads the best file under <paramref name="roots"/>; returns its path, or null when there is none.
+        /// <paramref name="seen"/> collects every file with this build's name, whatever its size or age.
+        /// </summary>
+        static string UploadIfFound(
             List<string> roots,
             string pattern,
             string type,
@@ -199,52 +218,13 @@ namespace Bugsee.Editor
             string build,
             Func<string, int> rank,
             IList<string> extraArgs = null,
-            string warnWhenFound = null)
+            string warnWhenFound = null,
+            List<MappingFileInfo> seen = null)
         {
-            string best = null;
-            var bestRank = BuildArtifactChoice.Reject;
-            var bestTime = DateTime.MinValue;
-            foreach (var root in roots)
-            {
-                if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
-                {
-                    continue;
-                }
-                try
-                {
-                    foreach (var file in Directory.EnumerateFiles(root, pattern, SearchOption.AllDirectories))
-                    {
-                        if (IsExcludedPath(file))
-                        {
-                            continue;
-                        }
-                        // R8 writes an empty mapping when nothing was obfuscated: there is nothing to deobfuscate.
-                        if (IsEmptyFile(file))
-                        {
-                            continue;
-                        }
-                        var fileRank = rank(file);
-                        if (fileRank == BuildArtifactChoice.Reject)
-                        {
-                            continue;
-                        }
-                        DateTime mtime;
-                        try { mtime = File.GetLastWriteTimeUtc(file); }
-                        catch { mtime = DateTime.MinValue; }
-                        if (best == null || BuildArtifactChoice.Better(fileRank, mtime, bestRank, bestTime))
-                        {
-                            best = file;
-                            bestRank = fileRank;
-                            bestTime = mtime;
-                        }
-                    }
-                }
-                catch { /* ignore */ }
-            }
-
+            var best = PickBest(roots, pattern, rank, seen);
             if (best == null)
             {
-                return;
+                return null;
             }
 
             if (warnWhenFound != null)
@@ -270,6 +250,132 @@ namespace Bugsee.Editor
             {
                 Debug.LogWarning($"Bugsee: bugsee-cli {type} upload failed (exit {exit}) — build continues.");
             }
+
+            return best;
+        }
+
+        static string PickBest(List<string> roots, string pattern, Func<string, int> rank, List<MappingFileInfo> seen)
+        {
+            string best = null;
+            var bestRank = BuildArtifactChoice.Reject;
+            var bestTime = DateTime.MinValue;
+            foreach (var root in roots)
+            {
+                if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
+                {
+                    continue;
+                }
+                try
+                {
+                    foreach (var file in Directory.EnumerateFiles(root, pattern, SearchOption.AllDirectories))
+                    {
+                        if (IsExcludedPath(file))
+                        {
+                            continue;
+                        }
+                        var fileRank = rank(file);
+                        if (fileRank == BuildArtifactChoice.Reject)
+                        {
+                            continue;
+                        }
+                        DateTime mtime;
+                        try { mtime = File.GetLastWriteTimeUtc(file); }
+                        catch { mtime = DateTime.MinValue; }
+                        seen?.Add(new MappingFileInfo(file, FileLength(file), mtime));
+                        // R8 writes an empty mapping when nothing was obfuscated: there is nothing to deobfuscate.
+                        if (IsEmptyFile(file))
+                        {
+                            continue;
+                        }
+                        if (best == null || BuildArtifactChoice.Better(fileRank, mtime, bestRank, bestTime))
+                        {
+                            best = file;
+                            bestRank = fileRank;
+                            bestTime = mtime;
+                        }
+                    }
+                }
+                catch { /* ignore */ }
+            }
+
+            return best;
+        }
+
+        static long FileLength(string path)
+        {
+            try { return new FileInfo(path).Length; }
+            catch { return -1; }
+        }
+
+        static MappingFileInfo LastInfo(List<MappingFileInfo> seen, string path)
+        {
+            foreach (var file in seen)
+            {
+                if (file.Path == path) return file;
+            }
+
+            return new MappingFileInfo(path, 0, DateTime.MinValue);
+        }
+
+        // Whether R8 ran for this build: Player Settings' Minify Release or Debug, by the build's own Development option.
+        static bool MinifyIsOn(BuildReport report) =>
+            AndroidMappingNotice.MinifyIsOn(
+                (report.summary.options & BuildOptions.Development) != 0,
+                PlayerSettings.Android.minifyRelease,
+                PlayerSettings.Android.minifyDebug);
+
+        static AndroidOutputFormat OutputFormat(BuildReport report)
+        {
+            if (EditorUserBuildSettings.exportAsGoogleAndroidProject)
+            {
+                return AndroidOutputFormat.ExportProject;
+            }
+
+            var path = report.summary.outputPath;
+            return EditorUserBuildSettings.buildAppBundle || (path != null && path.EndsWith(".aab", StringComparison.OrdinalIgnoreCase))
+                ? AndroidOutputFormat.Aab
+                : AndroidOutputFormat.Apk;
+        }
+
+        // Minify (R8) is on and this build's mapping did not reach the upload: say so, it is why Java stacks stay obfuscated.
+        static void WarnMappingMissing(BuildReport report, List<string> roots, string stem, List<MappingFileInfo> seen, string version, string build)
+        {
+            if (!MinifyIsOn(report))
+            {
+                return;
+            }
+
+            var message = AndroidMappingNotice.MissingMapping(
+                true, OutputFormat(report), ExpectedMappingName(report, stem), roots, seen,
+                report.summary.buildStartedAt.ToUniversalTime(), version, build);
+            if (message != null)
+            {
+                Debug.LogWarning(message);
+            }
+        }
+
+        static string ExpectedMappingName(BuildReport report, string stem) =>
+            OutputIsDirectory(report) ? "mapping.txt (or " + stem + "_mapping.txt)" : stem + "_mapping.txt";
+
+        // The upload is off (no token, or opted out): a mapping that exists is still never uploaded, which a Minify build deserves to be told.
+        static void NoteMappingNotUploaded(BuildReport report, string reason)
+        {
+            if (!MinifyIsOn(report))
+            {
+                return;
+            }
+
+            var seen = new List<MappingFileInfo>();
+            var stem = OutputStem(report);
+            var allowGeneric = OutputIsDirectory(report);
+            var best = PickBest(CollectRoots(report), "*mapping.txt", path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), seen);
+            if (best == null || !AndroidMappingNotice.IsUsable(LastInfo(seen, best), report.summary.buildStartedAt.ToUniversalTime()))
+            {
+                return;
+            }
+
+            Debug.Log(AndroidMappingNotice.MappingNotUploaded(
+                best, reason, BugseeBuildIdentity.ResolveVersion(report), BugseeBuildIdentity.ResolveBuildNumber(report)));
         }
 
         /// <summary>
