@@ -17,6 +17,9 @@ void _bugsee_set_attribute(const char *key, const char *valueJson);
 char *_bugsee_get_attribute(const char *key);
 void _bugsee_clear_attribute(const char *key);
 char *_bugsee_get_launch_options(void);
+int _bugsee_test_default_bug_severity(void);
+void _bugsee_show_report(const char *summary, const char *description, int severity, const char *labelsJson);
+void _bugsee_upload(const char *summary, const char *description, int severity, const char *labelsJson);
 void _bugsee_notify(const char *title, const char *body, int severity, const char *fieldsJson, int urgent);
 int64_t _bugsee_start_transaction(const char *name, const char *operation, const char *attributesJson);
 int64_t _bugsee_span_start_child(int64_t spanId, const char *operation, const char *description);
@@ -315,6 +318,16 @@ int main(void)
            "launch options come back as a JSON object with the defaults");
     expect([parsedOptions[BugseeMaxRecordingTimeKey] intValue] == 60, "launch options hold the host's value");
     free(launchOptions);
+    // An omitted report severity is the SDK default, High until the host configures ReportingDefaultBugPriority.
+    expect(_bugsee_test_default_bug_severity() == (int)BugseeSeverityHigh, "the default bug severity is High");
+    // Every argument shape of the report entry points (omitted severity is 0) reaches a native overload without throwing.
+    _bugsee_show_report("", "", 0, NULL);
+    _bugsee_show_report("s", "d", 0, NULL);
+    _bugsee_show_report("s", "d", 0, "[\"a\"]");
+    _bugsee_show_report("s", "d", 2, "[\"a\"]");
+    _bugsee_upload("s", "d", 0, NULL);
+    _bugsee_upload("s", "d", 0, "[\"a\"]");
+    _bugsee_upload("s", "d", 4, NULL);
     // notify takes every argument shape without throwing; the title is required and fields are strings only.
     _bugsee_notify("title", NULL, 2, NULL, 0);
     _bugsee_notify("title", "body", 3, "{\"env\":\"prod\",\"n\":1}", 1);

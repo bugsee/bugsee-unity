@@ -141,6 +141,8 @@ namespace Bugsee.Sample
                     PerformanceSampleRate = ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "apmleak" || ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "apmpool" || (ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") ?? "").StartsWith("apmthr") ? 0f : 1f,
                     Debug = true
                 };
+                if (TryReadBugPriority(out var bugPriority))
+                    options.ReportingDefaultBugPriority = bugPriority;
                 if (!string.IsNullOrWhiteSpace(endpointOverride))
                     options.Endpoint = endpointOverride.Trim();
                 // "bugsee_launch_thread" = 1 launches from a worker thread (checks that a launch from any thread works).
@@ -194,6 +196,8 @@ namespace Bugsee.Sample
                     DetectAndReportHang = true,
                     Debug = true
                 };
+                if (TryReadBugPriority(out var iosBugPriority))
+                    iosOptions.ReportingDefaultBugPriority = iosBugPriority;
                 if (!string.IsNullOrWhiteSpace(endpointOverride))
                     iosOptions.Endpoint = endpointOverride.Trim();
                 // BUGSEE_E2E_CRASH_HANDLER = 1 (BSD) | 2 (Mach) | 3 (Mach + BSD): the SDK option the draft IOSLaunchOptions.CrashHandlerType sends.
@@ -205,7 +209,9 @@ namespace Bugsee.Sample
                 // Editor / unsupported: still call Launch (no-op bridge).
                 Bugsee.Launch(appToken);
 #endif
-                if (installReportHandler)
+                if (ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "severity")
+                    Bugsee.SetReportHandler(new SeverityLoggingReportHandler());
+                else if (installReportHandler)
                     Bugsee.SetReportHandler(new SampleReportHandler());
                 if (installSampleFilters)
                     ApplyFilters(true);
@@ -339,6 +345,25 @@ namespace Bugsee.Sample
                         _pendingE2EFire = "L:e2e-upload-" + _e2eRunId;
                     }
                     break;
+                case "severity":
+                    // Reports created without a severity must take ReportingDefaultBugPriority (BUGSEE_E2E_BUG_PRIORITY,
+                    // 1..5); an explicit severity must still win. SeverityLoggingReportHandler logs what each report got.
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 1;
+                        _pendingE2EFire = "V:omitted";
+                    }
+                    else if (_e2ePhase == 1 && _e2eTimer >= 9f)
+                    {
+                        _e2ePhase = 2;
+                        _pendingE2EFire = "V:explicit";
+                    }
+                    else if (_e2ePhase == 2 && _e2eTimer >= 13f)
+                    {
+                        _e2ePhase = 99;
+                        _pendingE2EFire = "V:dialog";
+                    }
+                    break;
                 case "apm":
                 case "apmoff":
                 case "apmleak":
@@ -437,11 +462,30 @@ namespace Bugsee.Sample
                 case 'X':
                     FireExtra(marker);
                     break;
+                case 'V':
+                    SetStatus("E2E severity " + marker);
+                    if (marker == "omitted")
+                        Bugsee.Upload("severity-omitted", "no severity given");
+                    else if (marker == "explicit")
+                        Bugsee.Upload("severity-explicit", "Blocker given", IssueSeverity.Blocker);
+                    else
+                        Bugsee.ShowReportDialog("severity-dialog", "no severity given");
+                    break;
                 case 'L':
                     SetStatus("E2E manual upload " + marker);
                     Bugsee.Upload(marker, "uploaded by the e2e harness");
                     break;
             }
+        }
+
+        // BUGSEE_E2E_BUG_PRIORITY (1..5) sets the ReportingDefaultBugPriority launch option.
+        static bool TryReadBugPriority(out IssueSeverity severity)
+        {
+            severity = IssueSeverity.High;
+            if (!int.TryParse(ReadE2EValue("bugsee_bug_priority", "BUGSEE_E2E_BUG_PRIORITY"), out var level) || !Enum.IsDefined(typeof(IssueSeverity), level))
+                return false;
+            severity = (IssueSeverity)level;
+            return true;
         }
 
 #if UNITY_IOS && !UNITY_EDITOR
