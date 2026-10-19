@@ -13,6 +13,7 @@ const char *_bugsee_test_copy_wrapper_version(void);
 const char *_bugsee_test_copy_wrapper_build(void);
 int _bugsee_test_wrapper_installed(void);
 const char *_bugsee_test_copy_context_value(const char *key);
+const char *_bugsee_test_apply_network_result(const char *startJson, const char *resultJson);
 void _bugsee_set_attribute(const char *key, const char *valueJson);
 char *_bugsee_get_attribute(const char *key);
 void _bugsee_clear_attribute(const char *key);
@@ -134,6 +135,34 @@ int main(void)
     free((void *)value);
     value = _bugsee_test_copy_wrapper_build();
     expect(same(value, "ci"), "ensure wrapper stores the build");
+    free((void *)value);
+
+    // Network filter results: native applies only the keys present, a JSON null clears, and an untouched event keeps
+    // a nil error / body / url (the wrapper omits what the filter did not change).
+    const char *netStart = "{\"id\":\"n1\",\"url\":\"host-a\",\"method\":\"GET\",\"stage\":\"complete\",\"responseCode\":200}";
+    value = _bugsee_test_apply_network_result(netStart, "{\"stage\":\"complete\"}");
+    expect(strstr(value, "\"error\":null") && strstr(value, "\"body\":null") && strstr(value, "\"url\":\"host-a\""),
+           "a no-change network result leaves error and body nil and the url as it was");
+    free((void *)value);
+    value = _bugsee_test_apply_network_result("{\"url\":null,\"stage\":\"complete\"}", "{\"stage\":\"complete\"}");
+    expect(strstr(value, "\"url\":null") && strstr(value, "\"error\":null"), "a no-change result keeps a nil url nil");
+    free((void *)value);
+    value = _bugsee_test_apply_network_result(netStart, "{\"stage\":\"complete\",\"url\":\"host-redacted\",\"headers\":{\"Authorization\":\"x\"}}");
+    expect(strstr(value, "\"url\":\"host-redacted\"") && strstr(value, "\"Authorization\":\"x\"") && strstr(value, "\"error\":null"),
+           "a deliberate url and headers change applies and leaves the error nil");
+    free((void *)value);
+    value = _bugsee_test_apply_network_result(netStart, "{\"url\":null,\"body\":\"\",\"errorShortMessage\":\"boom\"}");
+    expect(strstr(value, "\"url\":null") && strstr(value, "\"body\":\"\"") && strstr(value, "\"name\":\"boom\""),
+           "an explicit null url, empty body and error name apply");
+    free((void *)value);
+    value = _bugsee_test_apply_network_result(
+        "{\"url\":\"host-a\",\"body\":\"secret\",\"errorShortMessage\":\"e\",\"errorDescription\":\"d\"}",
+        "{\"body\":null,\"errorShortMessage\":null,\"errorDescription\":null}");
+    expect(strstr(value, "\"body\":null") && strstr(value, "\"error\":null"), "an explicit null clears the body and the whole error");
+    free((void *)value);
+    // What the old wrapper sent for an untouched event (JsonUtility writes null as ""): shows why it must be omitted.
+    value = _bugsee_test_apply_network_result(netStart, "{\"url\":\"\",\"body\":\"\",\"errorShortMessage\":\"\",\"errorDescription\":\"\"}");
+    expect(!strstr(value, "\"error\":null") && strstr(value, "\"url\":\"\""), "empty strings WOULD turn a clean event into one with an error and no url");
     free((void *)value);
 
     // A scalar attribute must not throw from NSJSONSerialization (top-level non-container), and

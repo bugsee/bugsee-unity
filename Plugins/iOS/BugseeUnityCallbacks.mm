@@ -740,6 +740,25 @@ const char *_bugsee_test_copy_context_value(const char *key)
     NSString *value = gWrapperContext[[NSString stringWithUTF8String:key]];
     return value ? strdup(value.UTF8String) : NULL;
 }
+
+// Builds a real SDK network event from startJson, applies a filter result the way _bugsee_complete_filter does and
+// returns the event as JSON: url, body (text or null), error (object or null), headers. Caller frees.
+const char *_bugsee_test_apply_network_result(const char *startJson, const char *resultJson)
+{
+    BugseeNetworkEvent *event = [BugseeNetworkEvent new];
+    BugseeUnityApplyNetworkDict(event, BugseeUnityParseJson(startJson));
+    BugseeUnityApplyNetworkDict(event, BugseeUnityParseJson(resultJson));
+    NSMutableDictionary *d = [NSMutableDictionary dictionary];
+    d[@"url"] = event.url ?: [NSNull null];
+    NSString *body = event.body ? [[NSString alloc] initWithData:event.body encoding:NSUTF8StringEncoding] : nil;
+    d[@"body"] = event.body ? (body ?: @"<undecodable>") : [NSNull null];
+    d[@"error"] = [event.error isKindOfClass:[NSDictionary class]] ? event.error : [NSNull null];
+    d[@"headers"] = event.headers ?: [NSNull null];
+    d[@"responseCode"] = @(event.responseCode);
+    NSData *json = [NSJSONSerialization dataWithJSONObject:d options:NSJSONWritingSortedKeys error:nil];
+    NSString *text = json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] : nil;
+    return strdup((text ?: @"unserializable").UTF8String);
+}
 #endif
 
 } // extern "C"

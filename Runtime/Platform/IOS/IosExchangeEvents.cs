@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Options;
+using Bugsee.WrapperPolicy;
 using UnityEngine;
 
 namespace Bugsee.Platform.IOS
@@ -55,11 +56,27 @@ namespace Bugsee.Platform.IOS
         readonly IosNetworkDto _dto;
         Dictionary<string, string> _headers;
 
+        // What native handed over: the result carries only what the filter changed against it.
+        readonly IosNetworkFields _original;
+
         public IosNetworkEvent(IosNetworkDto dto)
         {
             _dto = dto ?? new IosNetworkDto();
             _headers = FromKv(_dto.headers);
+            _original = Fields();
         }
+
+        IosNetworkFields Fields() => new IosNetworkFields
+        {
+            Url = _dto.url,
+            Body = _dto.body,
+            Size = _dto.size,
+            ResponseCode = _dto.responseCode,
+            StatusText = _dto.statusText,
+            ErrorShortMessage = _dto.errorShortMessage,
+            ErrorDescription = _dto.errorDescription,
+            Headers = _headers == null ? null : new Dictionary<string, string>(_headers),
+        };
 
         public string Id => _dto.id;
         public string Mechanism => _dto.mechanism;
@@ -123,11 +140,9 @@ namespace Bugsee.Platform.IOS
 
         public NetworkEventStage Stage => ParseStage(_dto.stage);
 
-        public string ToResultJson()
-        {
-            _dto.headers = ToKv(_headers);
-            return JsonUtility.ToJson(_dto);
-        }
+        // Fields only, no JsonUtility: it writes a null string as "" and cannot omit one, which gave every filtered
+        // event an empty error, body and url. Headers go out as an object map, as native reads them.
+        public string ToResultJson() => IosNetworkResultJson.ForFilter(_original, Fields(), _dto.stage);
 
         /// <summary>
         /// Serializes for the wrapper channel. The SDK types events by its own strings
@@ -135,21 +150,9 @@ namespace Bugsee.Platform.IOS
         /// not by <see cref="NetworkEventStage"/> names. The timestamp is the event's own time when it has
         /// one, else <paramref name="timestampMs"/> (Unix milliseconds, the unit the SDK uses).
         /// </summary>
-        internal string ToChannelJson(string nativeStage, long timestampMs)
-        {
-            _dto.headers = ToKv(_headers);
-            var stage = _dto.stage;
-            var stamp = _dto.timestampMs;
-            _dto.stage = nativeStage;
-            // An event minted earlier (and held in the launch buffer) keeps the time it happened.
-            if (_dto.timestampMs <= 0 && timestampMs > 0) _dto.timestampMs = timestampMs;
-            try { return JsonUtility.ToJson(_dto); }
-            finally
-            {
-                _dto.stage = stage;
-                _dto.timestampMs = stamp;
-            }
-        }
+        internal string ToChannelJson(string nativeStage, long timestampMs) =>
+            IosNetworkResultJson.ForNewEvent(Fields(), _dto.id, _dto.method, _dto.mechanism, nativeStage,
+                _dto.timestampMs > 0 ? _dto.timestampMs : timestampMs); // an event held in the launch buffer keeps the time it happened
 
         /// <summary>
         /// SDK event type for a stage, or null when iOS has no equivalent (redirect, timings-only,
