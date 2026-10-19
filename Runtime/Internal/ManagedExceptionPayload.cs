@@ -49,6 +49,9 @@ namespace Bugsee.Internal
                 try { _buildGuid = Application.buildGUID; }
                 catch { _buildGuid = Application.version; }
             }
+
+            // SDK launch calls this on the main thread: probe the image UUID there, not inside the first report.
+            _ = ModuleUuid;
         }
 
         public static string BuildGuid
@@ -129,10 +132,9 @@ namespace Bugsee.Internal
 
             // Exception.StackTrace is formatted anew on every read: read it once.
             var stackTrace = exception.StackTrace;
-            string moduleUuid = string.IsNullOrEmpty(ModuleUuid) ? null : ModuleUuid;
-
             // IL2CPP native IPs, only for an exception that was thrown.
             var native = Il2CppNativeStack.TryCapture(exception);
+            string nativeUuid = null;
             ulong[] ips = null;
             if (native != null && native.Frames != null && native.Frames.Length > 0)
             {
@@ -144,12 +146,11 @@ namespace Bugsee.Internal
                         ? unchecked((ulong)native.Frames[i].ToInt64())
                         : unchecked((uint)native.Frames[i].ToInt32());
                 }
-                if (!string.IsNullOrEmpty(native.ImageUuid))
-                {
-                    // Prefer the runtime image UUID (matches uploaded symbols) over CSV.
-                    moduleUuid = native.ImageUuid;
-                }
+                nativeUuid = native.ImageUuid;
             }
+
+            // The image of this exception's own native trace wins; the running image's UUID only fills the gap.
+            var moduleUuid = ModuleUuidChoice.Pick(nativeUuid, string.IsNullOrEmpty(nativeUuid) ? ModuleUuid : null);
 
             var set = ManagedFrameAssembly.FromStackTrace(stackTrace, ips);
             if (set.Traces.Length == 0)
@@ -220,7 +221,7 @@ namespace Bugsee.Internal
                 frames = ToFrames(set),
                 signature = CalculateSignature(name, raw),
                 buildID = BuildGuid,
-                moduleUUID = string.IsNullOrEmpty(ModuleUuid) ? null : ModuleUuid,
+                moduleUUID = ModuleUuidChoice.Pick(null, ModuleUuid),
             };
         }
 
