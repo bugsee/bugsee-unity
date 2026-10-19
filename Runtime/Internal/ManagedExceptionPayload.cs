@@ -49,8 +49,11 @@ namespace Bugsee.Internal
                 try { _buildGuid = Application.buildGUID; }
                 catch { _buildGuid = Application.version; }
             }
+        }
 
-            // SDK launch calls this on the main thread: probe the image UUID there, not inside the first report.
+        /// <summary>Probe the running image's UUID now. SDK launch calls this on the main thread, so the probe does not first run inside a report.</summary>
+        public static void WarmModuleUuid()
+        {
             _ = ModuleUuid;
         }
 

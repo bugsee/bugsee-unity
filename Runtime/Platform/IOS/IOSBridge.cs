@@ -66,6 +66,7 @@ namespace Bugsee.Platform.IOS
             if (!MainThreadDispatcher.RunSyncLifecycle(() =>
                 {
                     ManagedExceptionPayload.EnsureBuildIdentity();
+                    ManagedExceptionPayload.WarmModuleUuid();
                     LaunchOrDefer("Launch", () => LaunchNow(appToken, options, started), started);
                 }))
             {

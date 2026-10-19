@@ -63,7 +63,7 @@ namespace Bugsee.WrapperPolicy.Tests
         public void A_probe_that_found_nothing_is_tried_again()
         {
             var calls = 0;
-            var cache = new ImageUuidCache(() => ++calls < 2 ? null : "abc");
+            var cache = new ImageUuidCache(() => ++calls < 2 ? null : "abc", 3, 0);
             Assert.That(cache.Get(), Is.Null);
             Assert.That(cache.Get(), Is.EqualTo("abc"));
             Assert.That(calls, Is.EqualTo(2));
@@ -79,7 +79,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 if (calls == 1) return "";
                 if (calls == 2) throw new InvalidOperationException();
                 return "abc";
-            });
+            }, 3, 0);
             Assert.That(cache.Get(), Is.Null);
             Assert.That(cache.Get(), Is.Null);
             Assert.That(cache.Get(), Is.EqualTo("abc"));
@@ -89,9 +89,25 @@ namespace Bugsee.WrapperPolicy.Tests
         public void A_probe_that_never_finds_anything_stops_after_max_attempts()
         {
             var calls = 0;
-            var cache = new ImageUuidCache(() => { calls++; return null; }, 3);
+            var cache = new ImageUuidCache(() => { calls++; return null; }, 3, 0);
             for (var i = 0; i < 10; i++) Assert.That(cache.Get(), Is.Null);
             Assert.That(calls, Is.EqualTo(3));
+        }
+
+        [Test]
+        public void Retries_are_spread_over_time_not_spent_within_one_report()
+        {
+            var calls = 0;
+            long now = 0;
+            var cache = new ImageUuidCache(() => ++calls < 2 ? null : "abc", 3, 2000, () => now);
+            for (var i = 0; i < 20; i++) Assert.That(cache.Get(), Is.Null);
+            Assert.That(calls, Is.EqualTo(1));
+            now = 1999;
+            Assert.That(cache.Get(), Is.Null);
+            Assert.That(calls, Is.EqualTo(1));
+            now = 2000;
+            Assert.That(cache.Get(), Is.EqualTo("abc"));
+            Assert.That(calls, Is.EqualTo(2));
         }
 
         [Test]
