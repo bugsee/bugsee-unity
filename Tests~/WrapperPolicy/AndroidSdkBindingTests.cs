@@ -24,6 +24,10 @@ namespace Bugsee.WrapperPolicy.Tests
     /// interface has with that arity, and every instance Call/Set names a method that exists with that arity (and a
     /// compatible return type) in the SDK contracts or a short JDK list.
     ///
+    /// The raw AndroidJNI lookups of Runtime/Capture/BugseeFrameCapturer.cs (GetMethodID / GetStaticMethodID /
+    /// GetStaticFieldID, with JNI descriptors) are checked for exact name, parameter and return types, and field names.
+    /// The one class it uses outside the snapshot (internal TimeUtils) is listed in RawJniNotInSnapshot.
+    ///
     /// Limits (follow-up #205): an argument whose C# type cannot be told from the text (a member access, a
     /// conditional, an `object`, an enum) is accepted for any parameter; an instance Call is matched against every
     /// class, not its receiver's, because the receiver is an untyped AndroidJavaObject; generic parameters are
@@ -67,6 +71,7 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             public string Name;
             public bool IsEnum;
+            public HashSet<string> Fields = new HashSet<string>();
             public List<string> Supers = new List<string>(); // extended / implemented types, erased
             public List<JavaMethod> Methods = new List<JavaMethod>();
         }
@@ -144,7 +149,12 @@ namespace Bugsee.WrapperPolicy.Tests
                 }
 
                 var open = raw.IndexOf('(');
-                if (open < 0) continue; // a field
+                if (open < 0)
+                {
+                    current.Fields.Add(raw.Trim().TrimEnd(';').Split(' ').Last());
+                    continue;
+                }
+
                 var close = raw.LastIndexOf(')');
                 var head = raw.Substring(0, open).Trim();
                 var name = head.Substring(head.LastIndexOfAny(new[] { ' ', '>' }) + 1);
@@ -303,7 +313,7 @@ namespace Bugsee.WrapperPolicy.Tests
             var seen = 0;
             foreach (var kv in Sources())
             {
-                foreach (Match m in Regex.Matches(kv.Value, @"""(com\.bugsee\.library\.[\w.]+)"""))
+                foreach (Match m in Regex.Matches(kv.Value, @"""(com\.bugsee\.library\.[\w.$]+)"""))
                 {
                     seen++;
                     if (!manifest.ContainsKey(m.Groups[1].Value)) missing.Add(Path.GetFileName(kv.Key) + ": " + m.Groups[1].Value);
@@ -609,7 +619,7 @@ namespace Bugsee.WrapperPolicy.Tests
                     var generic = m.Groups[1].Success ? m.Groups[1].Value.Trim() : null;
                     var where = Path.GetFileName(kv.Key) + ": " + name + "/" + args.Length;
                     var inSdk = sdk.TryGetValue(name, out var methods) && methods.Any(j =>
-                        (j.VarArgs ? args.Length >= j.Params.Length - 1 : j.Params.Length == args.Length) && (generic == null || ReturnFits(j, generic) || j.Ret == "void"));
+                        (j.VarArgs ? args.Length >= j.Params.Length - 1 : j.Params.Length == args.Length) && (generic == null || ReturnFits(j, generic)));
                     var inJdk = JdkMethods.TryGetValue(name, out var arities) && arities.Contains(args.Length);
                     if (!inSdk && !inJdk) failures.Add(where);
                 }
@@ -658,6 +668,126 @@ namespace Bugsee.WrapperPolicy.Tests
             if (depth > 6 || !manifest.TryGetValue(iface, out var cls)) return;
             foreach (var m in cls.Methods.Where(m => !m.Static)) into.Add(m.Name + "/" + m.Params.Length);
             foreach (var super in cls.Supers) CollectAbstract(super, manifest, into, depth + 1);
+        }
+
+        // ---- raw JNI (AndroidJNI.GetMethodID & co.) in the frame capturer ----------------------------------------------------
+
+        // Classes the raw JNI code uses that are not in the snapshot on purpose: internal (not contracts), so the snapshot
+        // leaves them out. Each is a "this can break silently" risk the device frame-capture scenarios cover.
+        static readonly HashSet<string> RawJniNotInSnapshot = new HashSet<string> { "com.bugsee.library.shared.util.TimeUtils" };
+
+        /// <summary>A C# string expression made of literals, const identifiers and "+" (the forms the JNI code uses); null if it is anything else.</summary>
+        static string EvalString(string expr, string src)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var part in expr.Split('+'))
+            {
+                var t = part.Trim();
+                var literal = Regex.Match(t, "^\"([^\"]*)\"$");
+                if (literal.Success) { sb.Append(literal.Groups[1].Value); continue; }
+                var constant = Regex.Match(src, @"\bconst\s+string\s+" + Regex.Escape(t) + @"\s*=\s*((?:""[^""]*""|[^;""])+);");
+                if (!constant.Success) return null; // a parameter or a computed value
+                var inner = EvalString(constant.Groups[1].Value, src);
+                if (inner == null) return null;
+                sb.Append(inner);
+            }
+
+            return sb.ToString();
+        }
+
+        /// <summary>The java types of a JNI descriptor "(...)R", dotted and with "[]" for arrays.</summary>
+        static (string[] args, string ret) ParseDescriptor(string descriptor)
+        {
+            var m = Regex.Match(descriptor, @"^\((.*)\)(.+)$");
+            Assert.That(m.Success, Is.True, "bad JNI descriptor " + descriptor);
+            string One(Match t)
+            {
+                var v = t.Value.TrimStart('[');
+                var dims = t.Value.Length - v.Length;
+                string name;
+                switch (v[0])
+                {
+                    case 'Z': name = "boolean"; break;
+                    case 'B': name = "byte"; break;
+                    case 'C': name = "char"; break;
+                    case 'S': name = "short"; break;
+                    case 'I': name = "int"; break;
+                    case 'J': name = "long"; break;
+                    case 'F': name = "float"; break;
+                    case 'D': name = "double"; break;
+                    case 'V': name = "void"; break;
+                    default: name = v.Substring(1, v.Length - 2).Replace('/', '.'); break;
+                }
+
+                return name + string.Concat(Enumerable.Repeat("[]", dims));
+            }
+
+            var re = new Regex(@"\[*(?:[ZBCSIJFDV]|L[^;]+;)");
+            return (re.Matches(m.Groups[1].Value).Cast<Match>().Select(One).ToArray(), One(re.Match(m.Groups[2].Value)));
+        }
+
+        [Test]
+        public void Raw_JNI_lookups_in_the_runtime_match_the_snapshot()
+        {
+            var manifest = Manifest();
+            var failures = new List<string>();
+            var checkedCount = 0;
+            foreach (var path in Directory.GetFiles(RepoFile("Runtime"), "*.cs", SearchOption.AllDirectories))
+            {
+                var src = StripComments(File.ReadAllText(path));
+                if (!src.Contains("AndroidJNI.")) continue;
+                var file = Path.GetFileName(path);
+                // IntPtr x = FindClassOrClear(<class expr>): the class a later lookup on x is made on.
+                var classes = Regex.Matches(src, @"IntPtr\s+(\w+)\s*=\s*(?:FindClassOrClear|AndroidJNI\.FindClass)\(\s*((?:""[^""]*""|[^;""])+?)\s*\)\s*;")
+                    .Cast<Match>().Select(m => (var: m.Groups[1].Value, index: m.Index, cls: EvalString(m.Groups[2].Value, src)?.Replace('/', '.')))
+                    .Where(c => c.cls != null).ToList();
+                foreach (Match m in Regex.Matches(src, @"AndroidJNI\.(GetStaticMethodID|GetMethodID|GetStaticFieldID|GetFieldID)\("))
+                {
+                    var args = SplitArgs(BalancedArgs(src, m.Index + m.Length));
+                    var holder = classes.Where(c => c.var == args[0].Trim() && c.index < m.Index).Select(c => ((string, int, string)?)c).LastOrDefault();
+                    if (holder == null || !holder.Value.Item3.StartsWith("com.bugsee.library.")) continue; // Android / Unity classes
+                    var cls = holder.Value.Item3;
+                    if (RawJniNotInSnapshot.Contains(cls)) continue;
+                    // The member name is a literal here, or the parameter a caller fills with a literal (RowOrderConstant("TOP_DOWN")).
+                    var nameArg = args[1].Trim();
+                    List<string> names;
+                    if (Regex.IsMatch(nameArg, "^\"[^\"]+\"$")) names = new List<string> { nameArg.Trim('"') };
+                    else
+                    {
+                        var owner = Regex.Matches(src.Substring(0, m.Index), @"\b(\w+)\s*\(\s*string\s+" + Regex.Escape(nameArg) + @"\s*\)").Cast<Match>().LastOrDefault();
+                        Assert.That(owner, Is.Not.Null, file + ": JNI member name '" + nameArg + "' is neither a literal nor a string parameter");
+                        names = Regex.Matches(src, @"\b" + owner.Groups[1].Value + @"\(\s*""(\w+)""\s*\)").Cast<Match>().Select(x => x.Groups[1].Value).Distinct().ToList();
+                        Assert.That(names, Is.Not.Empty, file + ": no literal caller of " + owner.Groups[1].Value);
+                    }
+
+                    if (!manifest.TryGetValue(cls, out var jc))
+                    {
+                        failures.Add(file + ": " + cls + " is not in the snapshot");
+                        continue;
+                    }
+
+                    var descriptor = EvalString(args[2], src);
+                    Assert.That(descriptor, Is.Not.Null, file + ": cannot evaluate the JNI descriptor " + args[2]);
+                    foreach (var name in names)
+                    {
+                        checkedCount++;
+                        if (m.Groups[1].Value.EndsWith("FieldID"))
+                        {
+                            if (!jc.Fields.Contains(name)) failures.Add(file + ": " + cls + " has no field " + name);
+                            continue;
+                        }
+
+                        var (jArgs, jRet) = ParseDescriptor(descriptor);
+                        var isStatic = m.Groups[1].Value.StartsWith("GetStatic");
+                        if (!jc.Methods.Any(j => j.Name == name && j.Static == isStatic && j.Ret == jRet && j.Params.SequenceEqual(jArgs)))
+                            failures.Add(file + ": " + (isStatic ? "static " : "") + cls + "." + name + descriptor + " is not in the snapshot; has "
+                                         + string.Join(" | ", jc.Methods.Where(j => j.Name == name)));
+                    }
+                }
+            }
+
+            Assert.That(checkedCount, Is.GreaterThanOrEqualTo(5), "the raw JNI parser found too few lookups");
+            Assert.That(failures, Is.Empty, "Raw JNI lookups the pinned Android SDK does not have");
         }
 
         [Test]

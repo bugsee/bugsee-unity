@@ -374,7 +374,7 @@ namespace Bugsee.WrapperPolicy.Tests
                         // Another name for the same callback (or an untyped pointer to one): compare the typedef shapes.
                         testTypedefs.TryGetValue(ps[i], out var a);
                         typedefs.TryGetValue(export.Params[i], out var b);
-                        same = ps[i] == "void*" || (a != null && b != null && a[0].SequenceEqual(b[0]));
+                        same = ps[i] == "void*" && b != null || (a != null && b != null && a[0].SequenceEqual(b[0]));
                     }
 
                     if (!same) failures.Add(file + ": " + ret + " " + name + "(" + string.Join(", ", ps) + ") vs export " + export);

@@ -42,7 +42,7 @@ for ARTIFACT in "${ANDROID_MAVEN_ARTIFACT}" "${ANDROID_FEEDBACK_ARTIFACT}"; do
   CLASSES=$(unzip -Z1 "${JAR}" | grep -E '^com/bugsee/library/(Bugsee(\$.*)?|contracts/.*)\.class$' | grep -Ev '\$[0-9]+\.class$' \
     | sed -e 's#\.class$##' -e 's#/#.#g' | LC_ALL=C sort)
   # shellcheck disable=SC2086
-  javap -public -cp "${JAR}" ${CLASSES} 2>/dev/null | grep -v '^Compiled from' >> "${NEW}"
+  javap -public -cp "${JAR}" ${CLASSES} | grep -v '^Compiled from' >> "${NEW}"
 done
 
 [[ $(grep -c "^public" "${NEW}") -gt 100 ]] || { echo "snapshot looks empty; keeping the old one" >&2; exit 1; }
