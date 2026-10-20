@@ -181,6 +181,7 @@ namespace Bugsee.Sample
             _kind = FormKind.None;
             _error = null;
             _expandedColorKey = null;
+            GUIUtility.keyboardControl = 0; // release text-field focus so the hill shortcuts work again
         }
 
         void Open(FormKind kind)

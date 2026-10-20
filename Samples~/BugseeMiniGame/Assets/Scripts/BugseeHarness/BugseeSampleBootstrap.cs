@@ -339,7 +339,10 @@ namespace Bugsee.Sample
                         if (Bugsee.IsLaunched)
                             ActionsE2E.Run(this);
                         else
+                        {
                             Debug.Log("[Sample] actions FAIL not launched :: status=" + Bugsee.Status);
+                            Debug.Log("[Sample] actions e2e done failures=1");
+                        }
                     }
                     break;
                 case "upload":

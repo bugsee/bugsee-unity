@@ -11,6 +11,8 @@ namespace Bugsee.Sample
         public static BugseeDebugPanel Instance { get; private set; }
 
         public bool Visible;
+        string _attrDraft;
+        string _attrCommitted;
 
         BugseeSampleBootstrap _bootstrap;
         Vector2 _scroll;
@@ -34,7 +36,10 @@ namespace Bugsee.Sample
         void Update()
         {
             if (Input.GetKeyDown(KeyCode.BackQuote) || Input.GetKeyDown(KeyCode.F1))
+            {
                 Visible = !Visible;
+                GUIUtility.keyboardControl = 0; // a focused text field must not keep the hill shortcuts blocked
+            }
         }
 
         void OnGUI()
@@ -95,7 +100,12 @@ namespace Bugsee.Sample
                 BugseeActionCatalog.Instance?.Run(BugseeDemoAction.SetAttribute);
             GUILayout.BeginHorizontal();
             GUILayout.Label("Key", GUILayout.Width(32f));
-            BugseeActionCatalog.AttributeKey = GUILayout.TextField(BugseeActionCatalog.AttributeKey);
+            // Edit a draft; only a non-blank key becomes the shared attribute key.
+            if (_attrDraft == null || _attrCommitted != BugseeActionCatalog.AttributeKey)
+                _attrDraft = _attrCommitted = BugseeActionCatalog.AttributeKey;
+            _attrDraft = GUILayout.TextField(_attrDraft);
+            if (!string.IsNullOrWhiteSpace(_attrDraft))
+                BugseeActionCatalog.AttributeKey = _attrCommitted = _attrDraft.Trim();
             GUILayout.EndHorizontal();
             if (GUILayout.Button("GetAttribute"))
             {
