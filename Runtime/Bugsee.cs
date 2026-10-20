@@ -313,7 +313,7 @@ namespace Bugsee
         [Obsolete("Use StartBlackout/EndBlackout instead.")]
         public static void Resume() => EndBlackout();
 
-        /// <summary>Write a line to the Bugsee log. It skips the log filter (<see cref="SetLogEventFilter"/>) on both platforms.</summary>
+        /// <summary>Write a line to the Bugsee log. It skips the log filter (<see cref="SetLogEventFilter"/>): the native default; the wrapper does not expose the opt-in.</summary>
         public static void Log(string message, LogLevel level = LogLevel.Info) =>
             Bridge.Log(message, level);
 
@@ -516,8 +516,9 @@ namespace Bugsee
             Bridge.SetNetworkEventFilter(filter);
 
         /// <summary>
-        /// Filter the log lines the SDK captures itself (the Unity log, logcat on Android). Lines written with
-        /// <see cref="Log"/> skip this filter on both platforms: the native SDKs submit them without filtering.
+        /// Filter the captured logs: the Unity log the wrapper forwards, and logcat on Android (both need
+        /// <c>CaptureLogs</c>). Lines written with <see cref="Log"/> skip this filter (the native default; the wrapper
+        /// does not expose the opt-in).
         /// </summary>
         public static void SetLogEventFilter(EventFilter<ILogEvent> filter) =>
             Bridge.SetLogEventFilter(filter);

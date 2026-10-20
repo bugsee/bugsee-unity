@@ -188,8 +188,8 @@ namespace Bugsee.Contracts.Options
         }
 
         /// <summary>
-        /// Record breadcrumbs. Off by default on both native SDKs (Android 7.4.2, iOS 7.0.0-beta7). While it is off,
-        /// <see cref="Bugsee.AddBreadcrumb"/> does nothing and the breadcrumb filter
+        /// Record breadcrumbs. Off by default on both native SDKs. While it is off,
+        /// <see cref="Bugsee.AddBreadcrumb"/> records nothing and the breadcrumb filter
         /// (<see cref="Bugsee.SetBreadcrumbFilter"/>) is never called: set it to true to use either.
         /// </summary>
         public bool CaptureBreadcrumbs

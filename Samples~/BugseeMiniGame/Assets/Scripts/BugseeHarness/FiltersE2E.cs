@@ -52,8 +52,8 @@ namespace Bugsee.Sample
             x.AddBreadcrumb("e2e", "filters on", "info");
             x.AddBreadcrumb("e2e", "filters on again", "info");
             var androidDebug = LogAndroidDebug("e2e filters debug");
-            // Bugsee.Log skips the log filter on both platforms (the native wrapper channel passes requiresFiltering = NO). The log
-            // filter sees what the SDK captures itself: the Unity log, and on Android the logcat line written above. Which Debug
+            // Bugsee.Log skips the log filter on both platforms (the public native log API defaults to no filtering; the wrapper
+            // does not expose the requiresFiltering opt-in). The log filter sees the captured logs: the Unity log, and on Android the logcat line written above. Which Debug
             // lines it drops elsewhere depends on what the SDK happens to log, so only Android has a deterministic one.
             yield return WaitFor(() => SampleFilters.NetworkRedacted >= 4 && SampleFilters.BreadcrumbMarkerDropped >= 2
                 && SampleFilters.LogSeen >= 1 && (!androidDebug || SampleFilters.LogMarkerDropped >= 1), WaitSeconds);

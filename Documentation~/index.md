@@ -91,12 +91,6 @@ Other platform differences, not aligned:
 - `IAppearance.ToMap()` returns what the SDK reports on Android; on iOS it lists only the properties set through the wrapper that the native theme applied.
 - `Trace(name, value)` with a collection or other non-primitive value: iOS sends it as JSON, Android as its `ToString()`. Pass a string or a primitive to get the same result on both.
 
-### Breadcrumbs and the log filter
-
-Breadcrumbs are off by default on both native SDKs (`CaptureBreadcrumbs`, Android 7.4.2 and iOS 7.0.0-beta7). While it is off, `Bugsee.AddBreadcrumb` does nothing and the breadcrumb filter is never called; launch with `CaptureBreadcrumbs = true` to use either. (The Android SDK's own Javadoc and `api-7.x.md` say the default is true; that is wrong.)
-
-`Bugsee.Log` lines skip the log filter on both platforms (the native SDKs submit them without filtering and the wrapper cannot ask for it). The log filter only sees what the SDK captures itself, such as the Unity log and logcat. This is documented, not exposed as an option.
-
 ## Crash & exception capture
 
 | Source | API / option | Severity default |
@@ -433,6 +427,12 @@ The script builds the xcframework as the beta release does (`scripts/build_new.s
 `Bugsee.Notify(title, body = null, severity = IssueSeverity.Medium, fields = null, urgent = false)` relays a lightweight notification to the app's messaging integrations without creating a report (no video, logs or events). It is stored offline and sent in batches; `urgent` asks for immediate delivery. A call with an empty title, or before the SDK is launched, is ignored by the native SDK (the title case also logs a Unity warning). `fields` are extra string pairs; entries with a null key or value are dropped. The severity is always sent, so the native default for the shorter overloads is not used.
 
 `Bugsee.ShowReportDialog(summary, description, severity, labels)` and `Bugsee.Upload(summary, description, severity, labels)` take an optional `IssueSeverity? severity` (default `null`). Leave it out and the SDK picks its default, the `ReportingDefaultBugPriority` launch option (High when it is not set), on both platforms; an explicit severity is used as given. Code that passed `IssueSeverity.High` explicitly is unchanged. The parameter type changed from `IssueSeverity` to `IssueSeverity?` call sites compile as before (source compatible), but it is a binary-incompatible change: a precompiled assembly built against the old signature must be recompiled, and a delegate bound to these methods or an implementation of `IBugseeNativeBridge` must take `IssueSeverity?`. An explicit `(IssueSeverity)0` is not a severity and counts as omitted.
+
+### Breadcrumbs and the log filter
+
+Breadcrumbs are off by default on both native SDKs (`CaptureBreadcrumbs`). While it is off, `Bugsee.AddBreadcrumb` records nothing and the breadcrumb filter is never called; launch with `CaptureBreadcrumbs = true` to use either. (The Android SDK's own Javadoc and `api-7.x.md` say the default is true; that is wrong.)
+
+`Bugsee.Log` uses the native log API, which skips the log filter by default. Both native SDKs have an overload that opts in (`requiresFiltering`); the wrapper does not expose it yet (#190). The log filter sees the captured logs: the Unity log the wrapper forwards, and logcat on Android (both need `CaptureLogs`).
 
 ### Filters and the report handler while the Unity loop is paused
 

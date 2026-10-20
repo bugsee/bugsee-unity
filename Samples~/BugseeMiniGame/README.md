@@ -220,8 +220,8 @@ It logs `[Sample] presets PASS|FAIL ...` lines ending in `presets e2e done failu
 bubble on, and sends what the Network Event and Breadcrumb bubbles send plus, on Android, a Debug line written to logcat. It
 waits for each filter's counter to move: the network filter redacts the `password-reset` URL and the body, the breadcrumb filter
 drops every breadcrumb (the scenario counts its own `e2e` breadcrumbs apart from the SDK's `http` ones), and the log filter drops
-Debug and Verbose lines. `Bugsee.Log` lines skip the log filter on both platforms (the wrapper submits them without filtering), so
-the log filter only sees what the SDK captures itself (the Unity log, logcat on Android); on iOS which Debug lines it drops depends
+Debug and Verbose lines. `Bugsee.Log` lines skip the log filter on both platforms (the native log API defaults to no filtering and the wrapper does not expose the opt-in), so
+the log filter only sees the captured logs (the Unity log the wrapper forwards, logcat on Android); on iOS which Debug lines it drops depends
 on what the SDK logs, so the scenario only requires that it ran there. It then turns the filters off and checks that the SDK calls
 no filter any more (the seen counters stay 0). It logs `[Sample] filters PASS|FAIL ...` lines ending in
 `filters e2e done failures=N`. The sample launches with `CaptureBreadcrumbs = true`: the option is off by default, and without it no
