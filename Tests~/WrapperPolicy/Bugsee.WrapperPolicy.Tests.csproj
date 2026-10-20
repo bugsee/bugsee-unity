@@ -17,6 +17,9 @@
     <Compile Include="..\..\Runtime\Contracts\Apm\*.cs" />
     <Compile Include="..\..\Runtime\Contracts\Capture\VideoFrameRowOrder.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\VideoMode.cs" />
+    <Compile Include="..\..\Runtime\Contracts\Options\FrameRate.cs" />
+    <Compile Include="..\..\Runtime\Contracts\Options\VideoQuality.cs" />
+    <Compile Include="..\..\Runtime\Contracts\Options\CrashHandlerType.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\IssueSeverity.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\IssueType.cs" />
     <Compile Include="..\..\Runtime\Contracts\Lifecycle\BugseeStatus.cs" />
