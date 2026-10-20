@@ -24,6 +24,7 @@ namespace Bugsee.Platform.Android
         bool _wrapperContextRefined;
         ReportHandlerProxy _reportHandlerProxy;
         LifecycleListenerProxy _lifecycleProxy;
+        DataRequestProviderProxy _dataRequestProxy;
         EventFilterProxy<INetworkEvent> _networkFilterProxy;
         EventFilterProxy<ILogEvent> _logFilterProxy;
         EventFilterProxy<IBreadcrumb> _breadcrumbFilterProxy;
@@ -318,13 +319,26 @@ namespace Bugsee.Platform.Android
                 {
                     map.Call<AndroidJavaObject>("put", "moduleUUID", payload.moduleUUID);
                 }
-                if (handled)
+                // The SDK files the report on this thread and, for the managed view hierarchy, waits for a reply that only this
+                // thread could give (Unity's main thread, now inside this call). Telling the wrapper lets it answer "none" at once
+                // instead of making the SDK time out and the game stall. Only when this is Unity's thread: from any other the reply
+                // can still be made.
+                var onUnityThread = MainThreadDispatcher.IsMainThread;
+                if (onUnityThread) ManagedViewRequests.EnterBlockingNativeCall();
+                try
                 {
-                    _bugsee.CallStatic("logException", throwable, map);
+                    if (handled)
+                    {
+                        _bugsee.CallStatic("logException", throwable, map);
+                    }
+                    else
+                    {
+                        _bugsee.CallStatic("logUnhandledException", throwable, map);
+                    }
                 }
-                else
+                finally
                 {
-                    _bugsee.CallStatic("logUnhandledException", throwable, map);
+                    if (onUnityThread) ManagedViewRequests.ExitBlockingNativeCall();
                 }
             }
         }
@@ -658,6 +672,13 @@ namespace Bugsee.Platform.Android
             using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
             {
                 wrapper.CallStatic("attachLifecycleListener", _lifecycleProxy);
+            }
+
+            // The wrapper answers requestData("vh") with the Unity scene once this is in place (null until then).
+            _dataRequestProxy = new DataRequestProviderProxy();
+            using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
+            {
+                wrapper.CallStatic("setManagedDataProvider", _dataRequestProxy);
             }
         }
 

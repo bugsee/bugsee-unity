@@ -10,6 +10,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import com.bugsee.library.contracts.common.DataRequestProvider;
+import com.bugsee.library.contracts.common.DataRequestResultCallback;
 import com.bugsee.library.contracts.lifecycle.LifecycleEventListener;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -236,6 +238,120 @@ public class AndroidWrapperTests {
                 Files.readAllBytes(repoFile("Runtime/Platform/Android/AndroidBridge.cs")),
                 StandardCharsets.UTF_8);
         assertTrue(bridge.contains("\"testCrash\""));
+    }
+
+    private static final class DataReply implements DataRequestResultCallback {
+        int count;
+        String last = "unset";
+
+        @Override
+        public void onResult(String data) {
+            count++;
+            last = data;
+        }
+    }
+
+    @Test
+    public void requestDataAnswersNullWhenNoProviderIsRegisteredOrTheTypeIsUnknown() {
+        UnityWrapper.setManagedDataProvider(null);
+        UnityWrapper wrapper = new UnityWrapper();
+        DataReply noProvider = new DataReply();
+        wrapper.requestData("vh", noProvider);
+        assertEquals(1, noProvider.count);
+        assertNull(noProvider.last);
+
+        final ArrayList<String> asked = new ArrayList<String>();
+        UnityWrapper.setManagedDataProvider(new DataRequestProvider() {
+            @Override
+            public void requestData(String dataType, DataRequestResultCallback callback) {
+                asked.add(dataType);
+            }
+        });
+        try {
+            DataReply unknown = new DataReply();
+            wrapper.requestData("other", unknown);
+            wrapper.requestData(null, unknown);
+            assertEquals(2, unknown.count);
+            assertNull(unknown.last);
+            assertTrue("an unknown type never reaches managed code", asked.isEmpty());
+        } finally {
+            UnityWrapper.setManagedDataProvider(null);
+        }
+    }
+
+    @Test
+    public void requestDataHandsViewHierarchyToTheProviderAndLetsItAnswerLater() {
+        final ArrayList<DataRequestResultCallback> pending = new ArrayList<DataRequestResultCallback>();
+        UnityWrapper.setManagedDataProvider(new DataRequestProvider() {
+            @Override
+            public void requestData(String dataType, DataRequestResultCallback callback) {
+                assertEquals("vh", dataType);
+                pending.add(callback);
+            }
+        });
+        try {
+            DataReply reply = new DataReply();
+            new UnityWrapper().requestData("vh", reply);
+            assertEquals("the provider owns the answer", 0, reply.count);
+            assertEquals(1, pending.size());
+            pending.get(0).onResult("{\"class_name\":\"UnityPlayer\"}");
+            assertEquals(1, reply.count);
+            assertEquals("{\"class_name\":\"UnityPlayer\"}", reply.last);
+            DataReply none = new DataReply();
+            UnityWrapper.replyNoData(none);
+            assertEquals(1, none.count);
+            assertNull(none.last);
+        } finally {
+            UnityWrapper.setManagedDataProvider(null);
+        }
+    }
+
+    @Test
+    public void requestDataAnswersNullWhenTheProviderThrows() {
+        UnityWrapper.setManagedDataProvider(new DataRequestProvider() {
+            @Override
+            public void requestData(String dataType, DataRequestResultCallback callback) {
+                throw new IllegalStateException("boom");
+            }
+        });
+        try {
+            DataReply reply = new DataReply();
+            new UnityWrapper().requestData("vh", reply);
+            assertEquals(1, reply.count);
+            assertNull(reply.last);
+        } finally {
+            UnityWrapper.setManagedDataProvider(null);
+        }
+    }
+
+    @Test
+    public void viewHierarchyProviderIsRegisteredFromCSharpByName() throws Exception {
+        // C# registers the provider and answers the callback by these names over JNI; a rename on either side would go unnoticed.
+        String bridge = new String(
+                Files.readAllBytes(repoFile("Runtime/Platform/Android/AndroidBridge.cs")),
+                StandardCharsets.UTF_8);
+        assertTrue(bridge.contains("\"setManagedDataProvider\""));
+        String proxies = new String(
+                Files.readAllBytes(repoFile("Runtime/Platform/Android/Proxies/CallbackProxies.cs")),
+                StandardCharsets.UTF_8);
+        assertTrue(proxies.contains("\"replyNoData\""));
+        assertTrue(proxies.contains("com.bugsee.library.contracts.common.DataRequestProvider"));
+    }
+
+    @Test
+    public void loggedExceptionsTellTheWrapperTheUnityThreadIsBlocked() throws Exception {
+        // The SDK files a logged exception on the calling thread and waits for the managed hierarchy reply there; the wrapper must be
+        // told so it answers none at once. Both SDK calls sit between the enter and the exit, and the exit is in a finally.
+        String bridge = new String(
+                Files.readAllBytes(repoFile("Runtime/Platform/Android/AndroidBridge.cs")),
+                StandardCharsets.UTF_8);
+        int enter = bridge.indexOf("ManagedViewRequests.EnterBlockingNativeCall()");
+        int handled = bridge.indexOf("\"logException\", throwable");
+        int unhandled = bridge.indexOf("\"logUnhandledException\", throwable");
+        int exit = bridge.indexOf("ManagedViewRequests.ExitBlockingNativeCall()");
+        assertTrue(enter > 0 && enter < handled && handled < exit && enter < unhandled && unhandled < exit);
+        int fin = bridge.lastIndexOf("finally", exit);
+        assertTrue("the exit runs in the finally that follows both SDK calls", fin > handled && fin > unhandled && fin < exit);
     }
 
     static String classPool(String relative) throws Exception {

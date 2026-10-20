@@ -58,6 +58,14 @@ namespace Bugsee.Internal
             Queue.Enqueue(action);
         }
 
+        /// <summary>Always queued for the next frame, even when called on the main thread (unlike <see cref="Run"/>).</summary>
+        public static void Post(Action action)
+        {
+            if (action == null) return;
+            Ensure();
+            Queue.Enqueue(action);
+        }
+
         /// <summary>
         /// Run on the main thread and block the caller until completion (or timeout).
         /// Used for fatal managed exception flush before process teardown.
