@@ -127,7 +127,9 @@ namespace Bugsee.WrapperPolicy
             finally { state.Path.RemoveAt(state.Path.Count - 1); }
         }
 
-        // Adapts IDictionary<string, object> (which is not the non-generic IDictionary) to the walk above.
+        // Adapts IDictionary<string, object> (which is not the non-generic IDictionary) to the walk above. Other
+        // generic-only dictionaries are not unpacked: reading their KeyValuePair<K,V> needs reflection, which IL2CPP
+        // managed stripping can break (issue #133), so they are written as an array of "[key, value]" text.
         sealed class TypedMap : IDictionary
         {
             readonly IDictionary<string, object> _map;

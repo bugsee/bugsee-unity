@@ -129,12 +129,27 @@ namespace Bugsee.WrapperPolicy.Tests
             public bool TryGetValue(string key, out object value) => _d.TryGetValue(key, out value);
         }
 
+        sealed class ReadOnlyInts : IReadOnlyDictionary<string, int>
+        {
+            readonly Dictionary<string, int> _d = new Dictionary<string, int> { { "a", 1 }, { "b", 2 } };
+            public int this[string key] => _d[key];
+            public IEnumerable<string> Keys => _d.Keys;
+            public IEnumerable<int> Values => _d.Values;
+            public int Count => _d.Count;
+            public bool ContainsKey(string key) => _d.ContainsKey(key);
+            public IEnumerator<KeyValuePair<string, int>> GetEnumerator() => _d.GetEnumerator();
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => _d.GetEnumerator();
+            public bool TryGetValue(string key, out int value) => _d.TryGetValue(key, out value);
+        }
+
         [Test]
         public void Sets_and_generic_only_dictionaries_are_containers()
         {
             Assert.That(AttributeWire.ToNative(new HashSet<object> { 1 }), Is.EqualTo("[1]"));
             Assert.That(AttributeWire.ToNative(new TypedOnly()), Is.EqualTo("{\"k\":1}"));
             Assert.That(AttributeWire.ToNative(new List<object> { new TypedOnly() }), Is.EqualTo("[{\"k\":1}]"));
+            // Other generic-only dictionaries are not unpacked (no reflection on KeyValuePair, issue #133).
+            Assert.That(AttributeWire.ToNative(new ReadOnlyInts()), Is.EqualTo("[\"[a, 1]\",\"[b, 2]\"]"));
         }
 
         [Test]
