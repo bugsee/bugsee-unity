@@ -21,14 +21,15 @@ namespace Bugsee.Platform.Android
         IntPtr _surface;            // global ref to the chosen SurfaceView
         IntPtr _location;           // global ref to an int[2]
         int _pickedForW, _pickedForH;
-        bool _ready;
+        bool _ready, _initFailed;
 
         public bool TryRead(int screenWidth, int screenHeight, out int left, out int top, out int width, out int height)
         {
             left = top = width = height = 0;
             try
             {
-                if (!_ready && !Init()) return false;
+                if (_initFailed) return false;
+                if (!_ready && !Init()) { ReleaseAll(); _initFailed = true; return false; }
                 if (_surface == IntPtr.Zero || screenWidth != _pickedForW || screenHeight != _pickedForH || !IsAttached())
                 {
                     DropSurface();
@@ -49,6 +50,7 @@ namespace Bugsee.Platform.Android
             catch (Exception)
             {
                 Pending();
+                if (!_ready) { ReleaseAll(); _initFailed = true; }
                 return false;
             }
         }
@@ -80,6 +82,15 @@ namespace Bugsee.Platform.Android
             if (Pending()) return false;
             _ready = true;
             return true;
+        }
+
+        // Releases every global ref created so far; after a failed Init nothing is left behind and Init is not tried again.
+        void ReleaseAll()
+        {
+            foreach (IntPtr r in new[] { _viewClass, _surfaceClass, _groupClass, _rectClass, _holderClass, _playerClass, _activityClass, _location })
+                if (r != IntPtr.Zero) AndroidJNI.DeleteGlobalRef(r);
+            _viewClass = _surfaceClass = _groupClass = _rectClass = _holderClass = _playerClass = _activityClass = _location = IntPtr.Zero;
+            DropSurface();
         }
 
         static IntPtr Global(IntPtr local)

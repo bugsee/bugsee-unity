@@ -128,8 +128,9 @@ namespace Bugsee.WrapperPolicy
                 var entry = new Entry
                 {
                     XMin = xMin, YMin = yMin, XMax = xMax, YMax = yMax, DisplayId = displayId, Count = count + 1,
-                    AddedScreenWidth = count > 0 ? existing.AddedScreenWidth : view.ScreenWidth,
-                    AddedScreenHeight = count > 0 ? existing.AddedScreenHeight : view.ScreenHeight,
+                    // The latest add is the app's current intent: the rectangle means that fraction of the screen it was added on last.
+                    AddedScreenWidth = view.ScreenWidth,
+                    AddedScreenHeight = view.ScreenHeight,
                 };
                 _entries[id] = entry;
                 // A view that is not the one the other rectangles were converted with converts all of them: otherwise they

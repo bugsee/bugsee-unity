@@ -501,8 +501,8 @@ namespace Bugsee
         {
             _manualSecureRectOwners.RemoveAll(SecureRectRegistry.Instance);
             PushSecureBufferForDisplay(DefaultSecureRectDisplayId);
-            // Queued like the adds of screen-space rectangles, so an add made before it from another thread is removed too.
-            MainThreadDispatcher.Run(() => _screenSecureRects.RemoveAll());
+            // Queued like every screen-space call, so an add made before it, on any thread, is removed too.
+            MainThreadDispatcher.Post(() => _screenSecureRects.RemoveAll());
         }
 
         /// <summary>
@@ -520,8 +520,8 @@ namespace Bugsee
         /// rectangle you added and add the new one, or it covers the wrong place.
         /// </para>
         /// <para>
-        /// It runs on the main thread: from another thread it is queued and takes effect on the next frame, in order with
-        /// the other screen-space calls (and with <see cref="RemoveAllSecureRectangles"/>). Adding the same rectangle twice needs
+        /// It runs on the main thread, always queued: it takes effect on the next frame, in call order with the other
+        /// screen-space calls and with <see cref="RemoveAllSecureRectangles"/> (which removes the manual ones at once). Adding the same rectangle twice needs
         /// two removals. Remove with exactly the values that were added (a rectangle recomputed from floats may differ in the
         /// last bit and then removes nothing). NaN is ignored with a warning.
         /// </para>
@@ -533,7 +533,7 @@ namespace Bugsee
         public static void AddSecureScreenRectangle(Rect unityScreenRect, int displayId = DefaultSecureRectDisplayId)
         {
             if (displayId < 0) throw new ArgumentOutOfRangeException(nameof(displayId));
-            MainThreadDispatcher.Run(() => _screenSecureRects.Add(
+            MainThreadDispatcher.Post(() => _screenSecureRects.Add(
                 unityScreenRect.xMin, unityScreenRect.yMin, unityScreenRect.xMax, unityScreenRect.yMax, displayId));
         }
 
@@ -541,7 +541,7 @@ namespace Bugsee
         public static void RemoveSecureScreenRectangle(Rect unityScreenRect, int displayId = DefaultSecureRectDisplayId)
         {
             if (displayId < 0) throw new ArgumentOutOfRangeException(nameof(displayId));
-            MainThreadDispatcher.Run(() => _screenSecureRects.Remove(
+            MainThreadDispatcher.Post(() => _screenSecureRects.Remove(
                 unityScreenRect.xMin, unityScreenRect.yMin, unityScreenRect.xMax, unityScreenRect.yMax, displayId));
         }
 

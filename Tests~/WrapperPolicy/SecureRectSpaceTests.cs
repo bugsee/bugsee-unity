@@ -170,6 +170,16 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void ADuplicateAddMeansTheFractionOfTheScreenItWasAddedOnLast()
+        {
+            var registry = new SecureRectRegistry();
+            var owners = new SecureRectScreenOwners();
+            owners.Add(0, 0, 10, 10, 0, Full(100, 100), registry);
+            owners.Add(0, 0, 10, 10, 0, Full(200, 200), registry); // same values on a bigger screen: a smaller fraction
+            Assert.That(Rect(registry, 0, 0), Is.EqualTo(new[] { 0, 190, 10, 200 }));
+        }
+
+        [Test]
         public void NegativeZeroIsTheSameRectangle()
         {
             var registry = new SecureRectRegistry();
