@@ -29,13 +29,15 @@ namespace Bugsee.Sample
             float x = Screen.width - w - 12f;
             float y = 12f;
 
-            GUI.Box(new Rect(x - 8f, y - 4f, w + 16f, _expanded ? 340f : 90f), GUIContent.none);
+            GUI.Box(new Rect(x - 8f, y - 4f, w + 16f, _expanded ? 362f : 112f), GUIContent.none);
 
             if (_bootstrap != null)
             {
                 GUI.Label(new Rect(x, y, w, 22f), Truncate(_bootstrap.StatusLine, 42));
                 y += 22f;
                 GUI.Label(new Rect(x, y, w, 18f), Truncate("lc: " + _bootstrap.LastLifecycle, 42));
+                y += 22f;
+                GUI.Label(new Rect(x, y, w, 18f), Truncate(_bootstrap.FilterLine, 42));
                 y += 22f;
             }
 
