@@ -193,7 +193,7 @@ namespace Bugsee.WrapperPolicy.Tests
             {
                 box.Stub("home/.bugsee/bin/bugsee-cli", exitCode: 7);
                 var run = box.Run(null);
-                Assert.That(run.Output, Does.Contain("upload command failed"));
+                Assert.That(run.Output, Does.Contain("warning: Bugsee: symbol upload failed (exit 7)"));
                 Assert.That(run.ExitCode, Is.EqualTo(0));
             }
         }
