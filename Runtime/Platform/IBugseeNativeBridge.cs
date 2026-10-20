@@ -46,8 +46,8 @@ namespace Bugsee.Platform
         void LogUnhandledExceptionPayload(ManagedExceptionPayload.Payload payload, IDictionary<string, object> options = null);
         void TestCrash();
 
-        void ShowReportDialog(string summary, string description, IssueSeverity severity, IList<string> labels);
-        void Upload(string summary, string description, IssueSeverity severity, IList<string> labels);
+        void ShowReportDialog(string summary, string description, IssueSeverity? severity, IList<string> labels);
+        void Upload(string summary, string description, IssueSeverity? severity, IList<string> labels);
 
         /// <summary>Relay a lightweight notification to the app's messaging integrations (no report is created).</summary>
         void Notify(string title, string body, IssueSeverity severity, IDictionary<string, string> fields, bool urgent);

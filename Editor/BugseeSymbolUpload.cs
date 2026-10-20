@@ -22,15 +22,46 @@ namespace Bugsee.Editor
     {
         public int callbackOrder => 910;
 
+        // When the build that is being exported began (seconds since the Unix epoch), for the Run Script's check that the
+        // line map it finds belongs to this export. Set before the gates below, which only decide about uploading.
+        static long exportStartEpoch;
+
         public void OnPostprocessBuild(BuildReport report)
         {
-            if (Environment.GetEnvironmentVariable("BUGSEE_NO_SYMBOL_UPLOAD") != null)
+            exportStartEpoch = BuildArtifactChoice.UnixSeconds(report.summary.buildStartedAt);
+            if (report.summary.platform == BuildTarget.iOS || report.summary.platform == BuildTarget.tvOS)
             {
-                return;
+                // The Run Script's age check is safe only where the export step could compare the exported maps with this build's
+                // own output and bring a valid one's time up to date (an unchanged Append export does not copy it again): see
+                // BugseeIl2CppLinemapUpload's sweep, which runs before this.
+                if (!BugseeIl2CppLinemapUpload.IosAgeCheckSafe)
+                {
+                    exportStartEpoch = 0;
+                    var message = "Bugsee: the exported IL2CPP line map could not be checked against this build's own IL2CPP output " +
+                                  "(not found, a link in the way, or a file's time could not be set); the Run Script uploads the map " +
+                                  "it finds without an age check.";
+                    if (BugseeCliRunner.HasAppToken) Debug.LogWarning(message);
+                    else Debug.Log(message);
+                }
             }
 
-            if (!BugseeCliRunner.HasAppToken)
+            var optedOut = Environment.GetEnvironmentVariable("BUGSEE_NO_SYMBOL_UPLOAD") != null;
+            if (optedOut || !BugseeCliRunner.HasAppToken)
             {
+                if (report.summary.platform == BuildTarget.Android)
+                {
+                    try
+                    {
+                        NoteMappingNotUploaded(report, optedOut
+                            ? "BUGSEE_NO_SYMBOL_UPLOAD is set"
+                            : "BUGSEE_APP_TOKEN is not set in the Unity Editor's environment");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogWarning($"Bugsee: could not check for the R8 mapping: {ex.Message}");
+                    }
+                }
+
                 return;
             }
 
@@ -96,8 +127,13 @@ namespace Bugsee.Editor
             }
 
             var mappingExtra = AndroidUploadIdentity.MappingArguments(identity.Uuid, icon);
-            UploadIfFound(roots, "*mapping.txt", "proguard", version, build,
-                path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), mappingExtra, identityWarning);
+            var seen = new List<MappingFileInfo>();
+            var found = UploadIfFound(roots, "*mapping.txt", "proguard", version, build,
+                path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), mappingExtra, identityWarning, seen, MappingUsable(report));
+            if (found == null)
+            {
+                WarnMappingMissing(report, roots, stem, seen, version, build);
+            }
             // Unity "Create symbols.zip" / Gradle native debug symbols.
             UploadSymbolsZipOrElf(report, roots, version, build, identity.ElfUuid ?? Guid.NewGuid().ToString("D"));
         }
@@ -138,7 +174,7 @@ namespace Bugsee.Editor
                 {
                     foreach (var so in Directory.EnumerateFiles(root, "libil2cpp.so", SearchOption.AllDirectories))
                     {
-                        if (IsExcludedPath(so))
+                        if (BuildPathExclusion.IsExcludedPath(so, root))
                         {
                             continue;
                         }
@@ -191,7 +227,11 @@ namespace Bugsee.Editor
             }
         }
 
-        static void UploadIfFound(
+        /// <summary>
+        /// Uploads the best file under <paramref name="roots"/>; returns its path, or null when there is none.
+        /// <paramref name="seen"/> collects every file with this build's name, whatever its size or age.
+        /// </summary>
+        static string UploadIfFound(
             List<string> roots,
             string pattern,
             string type,
@@ -199,52 +239,14 @@ namespace Bugsee.Editor
             string build,
             Func<string, int> rank,
             IList<string> extraArgs = null,
-            string warnWhenFound = null)
+            string warnWhenFound = null,
+            List<MappingFileInfo> seen = null,
+            Func<MappingFileInfo, bool> usable = null)
         {
-            string best = null;
-            var bestRank = BuildArtifactChoice.Reject;
-            var bestTime = DateTime.MinValue;
-            foreach (var root in roots)
-            {
-                if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
-                {
-                    continue;
-                }
-                try
-                {
-                    foreach (var file in Directory.EnumerateFiles(root, pattern, SearchOption.AllDirectories))
-                    {
-                        if (IsExcludedPath(file))
-                        {
-                            continue;
-                        }
-                        // R8 writes an empty mapping when nothing was obfuscated: there is nothing to deobfuscate.
-                        if (IsEmptyFile(file))
-                        {
-                            continue;
-                        }
-                        var fileRank = rank(file);
-                        if (fileRank == BuildArtifactChoice.Reject)
-                        {
-                            continue;
-                        }
-                        DateTime mtime;
-                        try { mtime = File.GetLastWriteTimeUtc(file); }
-                        catch { mtime = DateTime.MinValue; }
-                        if (best == null || BuildArtifactChoice.Better(fileRank, mtime, bestRank, bestTime))
-                        {
-                            best = file;
-                            bestRank = fileRank;
-                            bestTime = mtime;
-                        }
-                    }
-                }
-                catch { /* ignore */ }
-            }
-
+            var best = PickBest(roots, pattern, rank, seen, usable);
             if (best == null)
             {
-                return;
+                return null;
             }
 
             if (warnWhenFound != null)
@@ -270,6 +272,135 @@ namespace Bugsee.Editor
             {
                 Debug.LogWarning($"Bugsee: bugsee-cli {type} upload failed (exit {exit}) — build continues.");
             }
+
+            return best;
+        }
+
+        static string PickBest(List<string> roots, string pattern, Func<string, int> rank, List<MappingFileInfo> seen, Func<MappingFileInfo, bool> usable = null)
+        {
+            string best = null;
+            var bestRank = BuildArtifactChoice.Reject;
+            var bestTime = DateTime.MinValue;
+            foreach (var root in roots)
+            {
+                if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
+                {
+                    continue;
+                }
+                try
+                {
+                    foreach (var file in Directory.EnumerateFiles(root, pattern, SearchOption.AllDirectories))
+                    {
+                        if (BuildPathExclusion.IsExcludedPath(file, root))
+                        {
+                            continue;
+                        }
+                        var fileRank = rank(file);
+                        if (fileRank == BuildArtifactChoice.Reject)
+                        {
+                            continue;
+                        }
+                        DateTime mtime;
+                        try { mtime = File.GetLastWriteTimeUtc(file); }
+                        catch { mtime = DateTime.MinValue; }
+                        var info = new MappingFileInfo(file, FileLength(file), mtime);
+                        seen?.Add(info);
+                        // R8 writes an empty mapping when nothing was obfuscated: there is nothing to deobfuscate.
+                        if (usable != null ? !usable(info) : info.Length <= 0)
+                        {
+                            continue;
+                        }
+                        if (best == null || BuildArtifactChoice.Better(fileRank, mtime, bestRank, bestTime))
+                        {
+                            best = file;
+                            bestRank = fileRank;
+                            bestTime = mtime;
+                        }
+                    }
+                }
+                catch { /* ignore */ }
+            }
+
+            return best;
+        }
+
+        static long FileLength(string path)
+        {
+            try { return new FileInfo(path).Length; }
+            catch { return -1; }
+        }
+
+        // What counts as this build's mapping (see AndroidMappingNotice.IsUsable).
+        static Func<MappingFileInfo, bool> MappingUsable(BuildReport report)
+        {
+            var format = OutputFormat(report);
+            var started = BuildClock.StartedUtc(report.summary.buildStartedAt);
+            return file => AndroidMappingNotice.IsUsable(file, format, started);
+        }
+
+        // Whether R8 ran for this build: Player Settings' Minify Release or Debug, by the build's own Development option.
+        static bool MinifyIsOn(BuildReport report) =>
+            AndroidMappingNotice.MinifyIsOn(
+                (report.summary.options & BuildOptions.Development) != 0,
+                PlayerSettings.Android.minifyRelease,
+                PlayerSettings.Android.minifyDebug);
+
+        static AndroidOutputFormat OutputFormat(BuildReport report)
+        {
+            if (EditorUserBuildSettings.exportAsGoogleAndroidProject)
+            {
+                return AndroidOutputFormat.ExportProject;
+            }
+
+            var path = report.summary.outputPath;
+            // A folder that is not a split-APK folder ("Game.apk/") is an exported project, however it was asked for.
+            if (OutputIsDirectory(report) && (path == null || !path.TrimEnd('/', '\\').EndsWith(".apk", StringComparison.OrdinalIgnoreCase)))
+            {
+                return AndroidOutputFormat.ExportProject;
+            }
+
+            return EditorUserBuildSettings.buildAppBundle || (path != null && path.EndsWith(".aab", StringComparison.OrdinalIgnoreCase))
+                ? AndroidOutputFormat.Aab
+                : AndroidOutputFormat.Apk;
+        }
+
+        // Minify (R8) is on and this build's mapping did not reach the upload: say so, it is why Java stacks stay obfuscated.
+        static void WarnMappingMissing(BuildReport report, List<string> roots, string stem, List<MappingFileInfo> seen, string version, string build)
+        {
+            if (!MinifyIsOn(report))
+            {
+                return;
+            }
+
+            var message = AndroidMappingNotice.MissingMapping(
+                true, OutputFormat(report), ExpectedMappingName(report, stem), roots, seen, BuildClock.StartedUtc(report.summary.buildStartedAt), version, build);
+            if (message != null)
+            {
+                Debug.LogWarning(message);
+            }
+        }
+
+        static string ExpectedMappingName(BuildReport report, string stem) =>
+            OutputIsDirectory(report) ? "mapping.txt" : stem + "_mapping.txt";
+
+        // The upload is off (no token, or opted out): a mapping that exists is still never uploaded, which a Minify build deserves to be told.
+        static void NoteMappingNotUploaded(BuildReport report, string reason)
+        {
+            if (!MinifyIsOn(report))
+            {
+                return;
+            }
+
+            var stem = OutputStem(report);
+            var allowGeneric = OutputIsDirectory(report);
+            var best = PickBest(CollectRoots(report), "*mapping.txt", path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), null, MappingUsable(report));
+            if (best == null)
+            {
+                return;
+            }
+
+            Debug.Log(AndroidMappingNotice.MappingNotUploaded(
+                best, reason, BugseeBuildIdentity.ResolveVersion(report), BugseeBuildIdentity.ResolveBuildNumber(report)));
         }
 
         /// <summary>
@@ -298,7 +429,7 @@ namespace Bugsee.Editor
                 {
                     foreach (var zip in Directory.EnumerateFiles(root, "*.zip", SearchOption.AllDirectories))
                     {
-                        if (IsExcludedPath(zip))
+                        if (BuildPathExclusion.IsExcludedPath(zip, root))
                         {
                             continue;
                         }
@@ -385,20 +516,13 @@ namespace Bugsee.Editor
             return roots;
         }
 
-        static bool IsEmptyFile(string path)
+        // The DWARF files inside the dSYMs of the app and of UnityFramework, which the script uploads. A configuration
+        // without a dSYM (Debug with DEBUG_INFORMATION_FORMAT = dwarf) leaves them missing; Xcode does not mind.
+        static readonly string[] DsymInputPaths =
         {
-            try { return new FileInfo(path).Length == 0; }
-            catch { return false; }
-        }
-
-        static bool IsExcludedPath(string path)
-        {
-            var norm = path.Replace('\\', '/');
-            return norm.IndexOf("/Library/", StringComparison.OrdinalIgnoreCase) >= 0
-                || norm.IndexOf("/Temp/", StringComparison.OrdinalIgnoreCase) >= 0
-                || norm.IndexOf("/Bee/", StringComparison.OrdinalIgnoreCase) >= 0
-                || norm.IndexOf("/obj/", StringComparison.OrdinalIgnoreCase) >= 0;
-        }
+            "$(DWARF_DSYM_FOLDER_PATH)/$(DWARF_DSYM_FILE_NAME)/Contents/Resources/DWARF/$(EXECUTABLE_NAME)",
+            "$(DWARF_DSYM_FOLDER_PATH)/UnityFramework.framework.dSYM/Contents/Resources/DWARF/UnityFramework",
+        };
 
         static void InjectArchiveUploadScript(string pathToBuiltProject)
         {
@@ -423,21 +547,39 @@ namespace Bugsee.Editor
                 if (cli != null) cli = Path.GetFullPath(cli);
             }
 
-            File.WriteAllText(scriptPath, IosArchiveUploadScript.Build(cli), new UTF8Encoding(false));
+            File.WriteAllText(scriptPath, IosArchiveUploadScript.Build(cli, exportStartEpoch), new UTF8Encoding(false));
 
             // Run it through sh: a file written from C# has no executable bit, so invoking the path directly
             // fails the whole build with "Permission denied" (Debug and Release alike, before the script's own
             // "never fail the build" handling can run). The "||" keeps a failing upload from failing the build.
             const string shellScript =
-                "/bin/sh \"${PROJECT_DIR}/BugseeScripts/upload-symbols.sh\" || echo \"Bugsee: symbol upload script failed (the build continues).\"\n";
+                "/bin/sh \"${PROJECT_DIR}/BugseeScripts/upload-symbols.sh\" || echo \"warning: Bugsee: symbol upload script failed (the build continues).\"\n";
             // An "Append" export keeps the phase an earlier package version added (the bare-path one fails), and
             // AddShellScriptBuildPhase reuses a phase only when its script is identical: update it in place first.
-            project.ReadFromString(XcodeShellScriptPhase.RewriteScript(project.WriteToString(), phaseName, shellScript));
+            // The inputs and "always out of date" (below) are written as text after the phase is added: PBXProject has no API
+            // for them, and a phase that carries them is not recognised as the one AddShellScriptBuildPhase would add (the
+            // export would end with two), so an earlier export's are taken off first.
+            project.ReadFromString(XcodeShellScriptPhase.SetInputs(
+                XcodeShellScriptPhase.RewriteScript(project.WriteToString(), phaseName, shellScript), phaseName, null));
             project.AddShellScriptBuildPhase(target, phaseName, "/bin/sh", shellScript);
+            // The phase reads the exported project and the build's dSYMs and uploads over the network: a sandboxed script
+            // phase (ENABLE_USER_SCRIPT_SANDBOXING = YES, the default of new Xcode projects) is not allowed to, and Xcode
+            // then fails it with "Operation not permitted" before the script starts. Unity leaves the setting unset (off).
+            if (project.GetBuildPropertyForAnyConfig(target, "ENABLE_USER_SCRIPT_SANDBOXING") == "YES")
+            {
+                Debug.Log("[Bugsee] Setting ENABLE_USER_SCRIPT_SANDBOXING to NO on the Unity-iPhone target (it was YES): " +
+                          "Xcode does not start a sandboxed Run Script phase here, so symbols would not be uploaded.");
+            }
+            project.SetBuildProperty(target, "ENABLE_USER_SCRIPT_SANDBOXING", "NO");
             project.WriteToFile(projectPath);
+            // Declared inputs make Xcode run the phase after the tasks that write the app's and UnityFramework's dSYMs: a
+            // phase without inputs may run beside them and find the dSYM missing or half written.
+            File.WriteAllText(projectPath, XcodeShellScriptPhase.SetInputs(File.ReadAllText(projectPath), phaseName, DsymInputPaths),
+                new UTF8Encoding(false));
             Debug.Log(
                 "[Bugsee] Injected Xcode Run Script 'Bugsee Upload Symbols' for archive-time " +
-                "dSYM + il2cpp-linemap upload (requires BUGSEE_APP_TOKEN in the Xcode/CI env).");
+                "dSYM + il2cpp-linemap upload. The script reads BUGSEE_APP_TOKEN at Xcode build time (environment or a " +
+                "user-defined build setting; it is never written into the project): without it the build prints a warning and uploads nothing.");
         }
     }
 }

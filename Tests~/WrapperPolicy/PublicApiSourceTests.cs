@@ -93,7 +93,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
             string body = ExtractNativeFunctionBody(bridge, "_bugsee_delete_collected_data");
             Assert.That(body, Does.Contain("BugseeRunOnMain"));
-            Assert.That(body, Does.Contain("deleteCollectedDataOnDevice:YES"));
+            Assert.That(body, Does.Contain("[Bugsee deleteCollectedDataOnDevice:done]"));
             // A delete is never skipped (request order, as on Android): no generation check in the native part.
             Assert.That(body, Does.Not.Contain("shouldRun"));
             Assert.That(body, Does.Not.Contain("capturedGeneration"));
@@ -264,6 +264,33 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(body, Does.Contain("BreadcrumbLevelMap.ParseOrThrow"));
             Assert.That(body, Does.Not.Contain("_bugsee_"));
             Assert.That(body, Does.Not.Contain("CallStatic"));
+        }
+
+        [Test]
+        public void Editor_SetAttribute_validates_like_the_device_bridges()
+        {
+            string body = ExtractMethodBody(
+                File.ReadAllText(RepoFile("Runtime/Platform/Editor/EditorBridge.cs")),
+                "public void SetAttribute(string key, object value)");
+            Assert.That(body, Does.Contain("AttributePolicy.Evaluate(key, value)"));
+            Assert.That(body, Does.Contain("throw new ArgumentException(decision.Error, nameof(value))"));
+        }
+
+        [Test]
+        public void Removed_dead_ios_exports_stay_removed()
+        {
+            string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
+            string cs = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
+            foreach (string dead in new[]
+            {
+                "_bugsee_add_secure_rect", "_bugsee_remove_secure_rect", "_bugsee_remove_all_secure_rects",
+                "_bugsee_get_device_id", "_bugsee_cancel_managed_report_upload",
+            })
+            {
+                Assert.That(bridge, Does.Not.Contain(dead), dead);
+                Assert.That(cs, Does.Not.Contain(dead), dead);
+            }
+            Assert.That(bridge, Does.Not.Contain("BUGSEE_IOS_LEGACY_EXCEPTION_API"));
         }
 
         [Test]
@@ -498,7 +525,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
             string body = ExtractNativeFunctionBody(bridge, "_bugsee_delete_collected_data");
             Assert.That(body, Does.Contain("[Bugsee stop:"));
-            Assert.That(body, Does.Contain("deleteCollectedDataOnDevice:YES"));
+            Assert.That(body, Does.Contain("[Bugsee deleteCollectedDataOnDevice:done]"));
             Assert.That(body, Does.Contain("sharedInstance"));
 
             string iosDelete = ExtractMethodBody(
@@ -797,6 +824,37 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(dictGuard, Is.GreaterThanOrEqualTo(0));
             Assert.That(uploadIdx, Is.GreaterThan(dictGuard));
             Assert.That(upload, Does.Contain("callback(0, uploadId)"));
+        }
+
+        [Test]
+        public void Report_dialog_and_upload_default_to_no_severity_so_the_sdk_default_applies()
+        {
+            string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));
+            Assert.That(facade, Does.Match(@"ShowReportDialog\(\s*string summary = """",\s*string description = """",\s*IssueSeverity\? severity = null,"));
+            Assert.That(facade, Does.Match(@"Upload\(\s*string summary,\s*string description = """",\s*IssueSeverity\? severity = null,"));
+            Assert.That(facade, Does.Not.Contain("IssueSeverity severity = IssueSeverity.High"));
+
+            string android = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs"));
+            Assert.That(ExtractMethodBody(android, "public void ShowReportDialog("), Does.Contain("OptionalSeverity(severity)"));
+            Assert.That(ExtractMethodBody(android, "public void Upload("), Does.Contain("OptionalSeverity(severity)"));
+            Assert.That(ExtractMethodBody(android, "static AndroidJavaObject OptionalSeverity("), Does.Contain("severity.HasValue && IssueSeverityWire.ToWire(severity) > 0 ? Severity(severity.Value) : null"));
+
+            string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
+            Assert.That(ios, Does.Contain("_bugsee_show_report(summary ?? \"\", description ?? \"\", IssueSeverityWire.ToWire(severity)"));
+            Assert.That(ios, Does.Contain("_bugsee_upload(summary ?? \"\", description ?? \"\", IssueSeverityWire.ToWire(severity)"));
+        }
+
+        [Test]
+        public void Ios_report_entry_points_use_the_native_overloads_without_severity_when_it_is_omitted()
+        {
+            string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
+            string show = ExtractNativeFunctionBody(bridge, "_bugsee_show_report");
+            Assert.That(show, Does.Contain("[Bugsee showReportDialog];"));
+            Assert.That(show, Does.Contain("showReportDialogWithSummary:summaryStr ?: @\"\" description:descriptionStr ?: @\"\"];"));
+            Assert.That(show, Does.Contain("hasSeverity ? (BugseeSeverityLevel)severity : BugseeDefaultBugSeverity()"));
+            string upload = ExtractNativeFunctionBody(bridge, "_bugsee_upload");
+            Assert.That(upload, Does.Contain("uploadWithSummary:summaryStr description:descriptionStr];"));
+            Assert.That(upload, Does.Contain("severity > 0 ? (BugseeSeverityLevel)severity : BugseeDefaultBugSeverity()"));
         }
 
         [Test]

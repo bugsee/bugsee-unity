@@ -15,7 +15,6 @@ namespace Bugsee.Internal
     public static class ManagedExceptionPayload
     {
         static string _buildGuid;
-        static string _moduleUuid;
 
         [Serializable]
         public class Frame
@@ -50,33 +49,12 @@ namespace Bugsee.Internal
                 try { _buildGuid = Application.buildGUID; }
                 catch { _buildGuid = Application.version; }
             }
+        }
 
-            if (_moduleUuid == null)
-            {
-                try
-                {
-                    var asset = Resources.Load<TextAsset>("BugseeIl2CppModuleUuids");
-                    if (asset != null && !string.IsNullOrEmpty(asset.text))
-                    {
-                        var lines = asset.text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                        if (lines.Length > 0)
-                        {
-                            var cleaned = new List<string>(lines.Length);
-                            foreach (var line in lines)
-                            {
-                                var t = line.Trim();
-                                if (t.Length > 0) cleaned.Add(t);
-                            }
-                            _moduleUuid = string.Join(",", cleaned.ToArray());
-                        }
-                    }
-                }
-                catch { /* ignore */ }
-                if (_moduleUuid == null)
-                {
-                    _moduleUuid = "";
-                }
-            }
+        /// <summary>Probe the running image's UUID now. SDK launch calls this on the main thread, so the probe does not first run inside a report.</summary>
+        public static void WarmModuleUuid()
+        {
+            _ = ModuleUuid;
         }
 
         public static string BuildGuid
@@ -88,17 +66,13 @@ namespace Bugsee.Internal
             }
         }
 
-        public static string ModuleUuid
-        {
-            get
-            {
-                EnsureBuildIdentity();
-                return _moduleUuid ?? "";
-            }
-        }
-
-        /// <summary>Comma-separated IL2CPP module UUID(s) for all ABIs when known.</summary>
-        public static string ModuleUuidsCsv => ModuleUuid;
+        /// <summary>
+        /// UUID of the IL2CPP image this player is running (GNU build-id of libil2cpp.so, Mach-O UUID of
+        /// UnityFramework), read at runtime from the loaded image; "" when it cannot be known (Mono, Editor, no
+        /// native stack). Never read from a build-time file: the UUID of a build exists only after the player is
+        /// built, so anything baked into the player would describe an earlier build.
+        /// </summary>
+        public static string ModuleUuid => Il2CppNativeStack.RuntimeImageUuid ?? "";
 
         /// <summary>Frame lines of a stack text (separators dropped); see <see cref="ManagedFrameAssembly"/>.</summary>
         public static string[] GetRawFrames(string stackTrace)
@@ -161,10 +135,9 @@ namespace Bugsee.Internal
 
             // Exception.StackTrace is formatted anew on every read: read it once.
             var stackTrace = exception.StackTrace;
-            string moduleUuid = string.IsNullOrEmpty(ModuleUuid) ? null : ModuleUuid;
-
             // IL2CPP native IPs, only for an exception that was thrown.
             var native = Il2CppNativeStack.TryCapture(exception);
+            string nativeUuid = null;
             ulong[] ips = null;
             if (native != null && native.Frames != null && native.Frames.Length > 0)
             {
@@ -176,12 +149,11 @@ namespace Bugsee.Internal
                         ? unchecked((ulong)native.Frames[i].ToInt64())
                         : unchecked((uint)native.Frames[i].ToInt32());
                 }
-                if (!string.IsNullOrEmpty(native.ImageUuid))
-                {
-                    // Prefer the runtime image UUID (matches uploaded symbols) over CSV.
-                    moduleUuid = native.ImageUuid;
-                }
+                nativeUuid = native.ImageUuid;
             }
+
+            // The image of this exception's own native trace wins; the running image's UUID only fills the gap.
+            var moduleUuid = ModuleUuidChoice.Pick(nativeUuid, string.IsNullOrEmpty(nativeUuid) ? ModuleUuid : null);
 
             var set = ManagedFrameAssembly.FromStackTrace(stackTrace, ips);
             if (set.Traces.Length == 0)
@@ -252,7 +224,7 @@ namespace Bugsee.Internal
                 frames = ToFrames(set),
                 signature = CalculateSignature(name, raw),
                 buildID = BuildGuid,
-                moduleUUID = string.IsNullOrEmpty(ModuleUuid) ? null : ModuleUuid,
+                moduleUUID = ModuleUuidChoice.Pick(null, ModuleUuid),
             };
         }
 

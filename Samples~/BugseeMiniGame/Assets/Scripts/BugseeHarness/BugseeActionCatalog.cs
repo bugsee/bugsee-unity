@@ -546,6 +546,16 @@ namespace Bugsee.Sample
         }
     }
 
+    /// <summary>Logs the severity each report was created with (the "severity" e2e scenario).</summary>
+    sealed class SeverityLoggingReportHandler : ReportHandlerBase
+    {
+        public override void OnBeforeReportCreated(IReport report, bool isTerminating, Action completionCallback)
+        {
+            Debug.Log("[Sample] severity-check summary=" + report?.Summary + " severity=" + report?.Severity);
+            completionCallback?.Invoke();
+        }
+    }
+
     /// <summary>Optional filters used by the debug panel / filter totem.</summary>
     public static class SampleFilters
     {
