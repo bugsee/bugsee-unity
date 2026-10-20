@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Android:** a map, list or array passed to the SDK (report attributes set in a report handler, `Trace` values, event parameters, `LogException` options, span attributes, breadcrumb-filter maps) is sent as valid JSON text (at most 8192 characters, whole trailing entries dropped, cycles written as null) instead of its type name; an enum goes as its integer value, a `byte[]` as base64, a float as the double that prints the same, and other types as culture-invariant text (#154; references #143 and #147, which stay open for the iOS `ToString()` and the remaining `Trace` parity). Report and global attributes now read back as `long` and `double` on Android, as on iOS.
 - **iOS:** lifecycle events that arrive before the managed callback is registered (for example from a launch the host made natively before any C# call) are held, up to 128, and replayed in order on the main queue after the registering `Launch` or `Relaunch` call, as on Android, instead of being dropped. `Relaunch` now registers the wrapper like `Launch`.
 - **iOS:** a lifecycle payload that is a dictionary reaches `LifecycleEvent` / `ILifecycleEventListener` as a `Dictionary<string, object>`, as on Android, not as raw JSON text; a one-key dictionary is no longer mistaken for a string.
 

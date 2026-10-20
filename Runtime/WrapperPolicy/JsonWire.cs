@@ -41,6 +41,80 @@ namespace Bugsee.WrapperPolicy
 
         public static string Literal(object value) => Literal(value, 0);
 
+        /// <summary>Most values (entries, elements and scalars together) <see cref="Bounded"/> will visit.</summary>
+        public const int MaxNodes = 4096;
+
+        /// <summary>
+        /// A map, list or array as JSON no longer than <paramref name="maxChars"/>. Always valid JSON: when the next
+        /// entry or element would not fit (or <see cref="MaxNodes"/> values were visited) the rest is dropped whole,
+        /// never cut mid-token, so <paramref name="truncated"/> tells the text is a prefix of the data. A collection
+        /// that contains itself writes null where it repeats. Other enumerables (a Unity Transform walks its
+        /// children) are written as text, not iterated. Null map values are omitted, as in <see cref="Value"/>.
+        /// </summary>
+        public static string Bounded(object container, int maxChars, out bool truncated)
+        {
+            var state = new BoundState();
+            var text = BoundedValue(container, 0, maxChars, state) ?? "null";
+            truncated = state.Truncated;
+            return text;
+        }
+
+        /// <summary>True for the values <see cref="Bounded"/> writes as a JSON object or array.</summary>
+        public static bool IsContainer(object value) =>
+            value is IDictionary || (value is ICollection && !(value is string) && !(value is byte[]));
+
+        sealed class BoundState
+        {
+            public int Nodes;
+            public bool Truncated;
+            public readonly List<object> Path = new List<object>();
+        }
+
+        // Returns null when the value does not fit in budget (the caller drops it and marks the result truncated).
+        static string BoundedValue(object value, int depth, int budget, BoundState state)
+        {
+            if (value == null) return Fit("null", budget);
+            if (++state.Nodes > MaxNodes) { state.Truncated = true; return null; }
+            if (!IsContainer(value))
+            {
+                string leaf = value is IEnumerable && !(value is string) && !(value is byte[])
+                    ? String(Convert.ToString(value, CultureInfo.InvariantCulture))
+                    : Literal(value, 0);
+                return Fit(leaf, budget);
+            }
+
+            if (depth > MaxDepth) return Fit("null", budget);
+            foreach (var seen in state.Path)
+                if (ReferenceEquals(seen, value)) return Fit("null", budget);
+
+            state.Path.Add(value);
+            try
+            {
+                var map = value as IDictionary;
+                var sb = new StringBuilder(map != null ? "{" : "[");
+                var closer = map != null ? '}' : ']';
+                var first = true;
+                IDictionaryEnumerator de = map?.GetEnumerator();
+                IEnumerator plain = map == null ? ((IEnumerable)value).GetEnumerator() : null;
+                while (map != null ? de.MoveNext() : plain.MoveNext())
+                {
+                    object item = map != null ? de.Value : plain.Current;
+                    if (map != null && (de.Key == null || item == null)) continue;
+                    var prefix = (first ? "" : ",")
+                        + (map != null ? String(Convert.ToString(de.Key, CultureInfo.InvariantCulture)) + ":" : "");
+                    int room = budget - sb.Length - prefix.Length - 1;
+                    var text = room > 0 ? BoundedValue(item, depth + 1, room, state) : null;
+                    if (text == null) { state.Truncated = true; break; }
+                    sb.Append(prefix).Append(text);
+                    first = false;
+                }
+                return sb.Append(closer).ToString();
+            }
+            finally { state.Path.RemoveAt(state.Path.Count - 1); }
+        }
+
+        static string Fit(string text, int budget) => text.Length <= budget ? text : null;
+
         public static string String(string s)
         {
             if (s == null) return "null";

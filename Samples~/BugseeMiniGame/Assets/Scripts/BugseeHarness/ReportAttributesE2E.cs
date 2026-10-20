@@ -69,7 +69,28 @@ namespace Bugsee.Sample
         static string ContainerCheck(object value, string json)
         {
             if (value is string text) return (text == json ? "PASS" : "FAIL") + " value=" + text;
-            return (value is IEnumerable ? "PASS managed " : "FAIL ") + (value == null ? "null" : value.GetType().Name);
+            var flat = value is IEnumerable ? Flatten(value) : null;
+            return (flat == json ? "PASS managed " : "FAIL ") + (value == null ? "null" : value.GetType().Name) + " flat=" + flat;
+        }
+
+        // Compact JSON of a managed list or map made of numbers, bools, strings and nested lists or maps.
+        static string Flatten(object value)
+        {
+            if (value is string s) return "\"" + s + "\"";
+            if (value is bool b) return b ? "true" : "false";
+            if (value is IDictionary d)
+            {
+                var parts = new List<string>();
+                foreach (DictionaryEntry e in d) parts.Add("\"" + e.Key + "\":" + Flatten(e.Value));
+                return "{" + string.Join(",", parts.ToArray()) + "}";
+            }
+            if (value is IEnumerable l)
+            {
+                var parts = new List<string>();
+                foreach (var item in l) parts.Add(Flatten(item));
+                return "[" + string.Join(",", parts.ToArray()) + "]";
+            }
+            return Convert.ToString(value, CultureInfo.InvariantCulture);
         }
 
         sealed class Probe : ReportHandlerBase
@@ -101,9 +122,9 @@ namespace Bugsee.Sample
                 Debug.Log("[ATTRS] after:" + Describe(report));
                 if (_edit)
                 {
-                    // Integers read back as long on both platforms. A container set by the handler is JSON text on
-                    // Android (the SDK holds the text); on iOS the handler's own report keeps the managed container
-                    // until the handler returns, and only the wire is JSON. Either way it is never a type name.
+                    // Integers read back as long on both platforms. A container set by the handler is stored as JSON text
+                    // on Android and as a native structure on iOS (read back as a managed container); either way it
+                    // must carry the data, never be a type name.
                     Debug.Log("[ATTRS] check a_int long " + (report.GetAttribute("a_int") is long ? "PASS" : "FAIL"));
                     Debug.Log("[ATTRS] check added_long long " + (report.GetAttribute("added_long") is long ? "PASS" : "FAIL"));
                     Debug.Log("[ATTRS] check added_list json " + ContainerCheck(report.GetAttribute("added_list"), "[1,\"a\"]"));

@@ -89,7 +89,7 @@ Other platform differences, not aligned:
 - Before `Launched`, iOS holds network and breadcrumb events in the wrapper and submits them at launch, while Android hands them straight to the SDK.
 - `IReport.Email` set on a report from `CreateReport` is used on Android; on iOS it is dropped with a warning (the managed upload cannot carry it): use `SetUserIdentifier` there.
 - `IAppearance.ToMap()` returns what the SDK reports on Android; on iOS it lists only the properties set through the wrapper that the native theme applied.
-- `Trace(name, value)` with a collection or other non-primitive value: iOS sends it as JSON, Android as its `ToString()`. Pass a string or a primitive to get the same result on both.
+- `Trace(name, value)` with a collection: iOS sends a JSON structure, Android a JSON string (valid JSON, at most 8192 characters), no longer the type name. Other non-primitive values go as culture-invariant text on Android, and `IosNativeCallbacks` still uses `ToString()` for some values (#143).
 
 ## Crash & exception capture
 
@@ -418,7 +418,7 @@ The script builds the xcframework as the beta release does (`scripts/build_new.s
 
 ### Attributes
 
-`SetAttribute` accepts a string (up to 1024 UTF-16 units), a bool or a number within the signed 64-bit range; anything else throws `ArgumentException`. `GetAttribute` returns the kind that was set: `string`, `bool`, an integer or a `double`. The numeric width is not promised (both platforms return `long` for an integer and `double` for floating point), and a 1.0 set as floating point stays floating. A map or list set from managed code in a report handler (`IReport.SetAttribute`) is stored as JSON text on both platforms (on Android cut at 8192 characters), and reads back as that text; a container set natively reads as a `Dictionary` on Android and as JSON text on iOS. On iOS the bridge returns the value as a type tag and payload (`s:`, `b:`, `i:`, `d:`, `j:`; see `AttributeWire`); the SDK stores the plain value, so reports show it unwrapped.
+`SetAttribute` accepts a string (up to 1024 UTF-16 units), a bool or a number within the signed 64-bit range; anything else throws `ArgumentException`. `GetAttribute` returns the kind that was set: `string`, `bool`, an integer or a `double`. The numeric width is not promised (both platforms return `long` for an integer and `double` for floating point), and a 1.0 set as floating point stays floating. A map, list or array set from managed code in a report handler (`IReport.SetAttribute`) is stored by the Android SDK as JSON text (valid JSON of at most 8192 characters; entries that do not fit are dropped whole) and reads back as that string, while iOS stores it as a native structure and the handler's report keeps the managed container; a container set natively reads as a `Dictionary` on Android and as JSON text on iOS. On iOS the bridge returns the value as a type tag and payload (`s:`, `b:`, `i:`, `d:`, `j:`; see `AttributeWire`); the SDK stores the plain value, so reports show it unwrapped.
 
 ### Launch options and notifications
 

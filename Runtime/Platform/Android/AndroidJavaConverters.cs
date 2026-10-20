@@ -55,7 +55,7 @@ namespace Bugsee.Platform.Android
                 case "java.lang.Long":
                     return javaObject.Call<long>("longValue");
                 case "java.lang.Float":
-                    return widen ? (object)(double)javaObject.Call<float>("floatValue") : javaObject.Call<float>("floatValue");
+                    return widen ? (object)WidenFloat(javaObject.Call<float>("floatValue")) : javaObject.Call<float>("floatValue");
                 case "java.lang.Double":
                     return javaObject.Call<double>("doubleValue");
                 case "java.lang.Byte":
@@ -73,6 +73,12 @@ namespace Bugsee.Platform.Android
             // other objects fall back to toString for a usable managed value.
             return javaObject.Call<string>("toString");
         }
+
+        // 1.1f as a double is 1.100000023841858; iOS reads the 1.1 the SDK stored, so use the shortest text that round-trips.
+        static double WidenFloat(float f) =>
+            float.IsNaN(f) || float.IsInfinity(f)
+                ? f
+                : double.Parse(f.ToString("R", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
 
         public static object UnboxLifecycleData(AndroidJavaObject data) => Unbox(data);
 
