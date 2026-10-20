@@ -33,9 +33,12 @@ jobs:
   windows-editor-path:
     name: Windows Editor path (native Windows host)
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -46,16 +49,16 @@ jobs:
         shell: pwsh
         run: |
           dotnet build Tests~/WindowsSmoke/FakeCli/FakeCli.csproj --nologo --configuration Release --output "$env:RUNNER_TEMP\fake-cli"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           "BUGSEE_FAKE_CLI_EXE=$env:RUNNER_TEMP\fake-cli\bugsee-cli.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      # The Windows-relevant classes only: the iOS Run Script, LocalPackageCopy and probe tests drive /bin/sh and POSIX
-      # file modes, which macOS and Linux already cover.
+      # Everything except what is POSIX-only by design: the iOS classes (the Run Script and Xcode export run on a Mac, and
+      # their tests drive /bin/sh and file modes) and LocalPackageCopy (/bin/cp, /bin/chmod).
       - name: Test
         shell: pwsh
         run: |
-          $classes = 'WindowsNativeSmokeTests','WindowsEditorPathTests','BugseeCliPolicyTests','BuildPathExclusionTests','Il2CppMappingArgsTests','AndroidIconPickerTests','AndroidMonoSymbolPolicyTests','AndroidSymbolPolicyTests','AndroidUploadIdentityTests','AndroidBuildUuidTests','GradlePluginInjectionTests','GradleBuildIdBlockTests','GradleMavenInjectionTests','GradleKotlinDslTests','GradleVersionCatalogTests','GradlePluginRepositoriesTests','MarkedGradleBlockTests','ProguardRulesTests'
-          $filter = ($classes | ForEach-Object { "FullyQualifiedName~.$_" }) -join '|'
-          dotnet test Tests~/WrapperPolicy/Bugsee.WrapperPolicy.Tests.csproj --nologo --configuration Release --filter $filter
+          dotnet test Tests~/WrapperPolicy/Bugsee.WrapperPolicy.Tests.csproj --nologo --configuration Release --filter 'FullyQualifiedName!~.Ios&FullyQualifiedName!~.LocalPackageCopyTests'
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
   unity-compile:
     name: Unity C# compile check

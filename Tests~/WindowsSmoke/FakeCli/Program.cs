@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Text;
 
 // Stand-in for bugsee-cli in the Windows smoke tests: "--version" prints what the real one prints, anything else echoes
@@ -8,19 +9,22 @@ internal static class Program
 {
     private static int Main(string[] args)
     {
-        Console.OutputEncoding = new UTF8Encoding(false);
+        // UTF-8 bytes straight to stdout, whatever the console code page is.
+        var o = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false));
         if (args.Length == 1 && args[0] == "--version")
         {
-            Console.Out.Write("bugsee-cli 0.8.1\r\n");
+            o.Write("bugsee-cli 0.8.1\r\n");
+            o.Flush();
             return 0;
         }
 
         foreach (var a in args)
         {
-            Console.Out.Write("[" + a + "]\n");
+            o.Write("[" + a + "]\n");
         }
 
-        Console.Out.Write("token=" + (Environment.GetEnvironmentVariable("BUGSEE_APP_TOKEN") ?? "") + "\n");
+        o.Write("token=" + (Environment.GetEnvironmentVariable("BUGSEE_APP_TOKEN") ?? "") + "\n");
+        o.Flush();
         int.TryParse(Environment.GetEnvironmentVariable("BUGSEE_FAKE_EXIT"), out var code);
         return code;
     }

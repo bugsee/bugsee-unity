@@ -51,7 +51,8 @@ namespace Bugsee.WrapperPolicy.Tests
 
         static string Run(string exe, IEnumerable<string> args, out int exitCode, IDictionary<string, string> env = null)
         {
-            // The same ProcessStartInfo shape as Editor/BugseeCliRunner.cs.
+            // Like Editor/BugseeCliRunner.cs (ArgumentList, redirected output, no window), except that stdout is decoded as
+            // UTF-8 here so the non-ASCII argument can be compared; the runner uses the default encoding.
             var psi = new ProcessStartInfo
             {
                 FileName = exe,
@@ -65,11 +66,19 @@ namespace Bugsee.WrapperPolicy.Tests
             if (env != null) foreach (var kv in env) psi.EnvironmentVariables[kv.Key] = kv.Value;
             using (var p = Process.Start(psi))
             {
-                string output = p.StandardOutput.ReadToEnd();
-                p.StandardError.ReadToEnd();
-                Assert.That(p.WaitForExit(30000), Is.True, "bugsee-cli.exe stand-in did not exit");
+                // Read both streams concurrently and bound the wait, so a hung child fails this test instead of the job.
+                var stdout = p.StandardOutput.ReadToEndAsync();
+                var stderr = p.StandardError.ReadToEndAsync();
+                if (!p.WaitForExit(30000))
+                {
+                    try { p.Kill(); } catch { /* already gone */ }
+                    Assert.Fail("bugsee-cli.exe stand-in did not exit within 30 s");
+                }
+
+                p.WaitForExit();
+                Assert.That(System.Threading.Tasks.Task.WaitAll(new System.Threading.Tasks.Task[] { stdout, stderr }, 10000), Is.True, "output pipes did not close");
                 exitCode = p.ExitCode;
-                return output;
+                return stdout.Result;
             }
         }
 
