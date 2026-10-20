@@ -81,10 +81,20 @@ namespace Bugsee.WrapperPolicy
         public const string DefaultVersion = "0.8.1";
 
         /// <summary>
-        /// Oldest installed CLI used as is: 0.8.0 validates LineNumberMappings.json before packing it and uploads
-        /// ELF directories; older ones lack behaviour the uploads rely on.
+        /// Oldest installed CLI the Editor uses as is. Only the Android ELF upload needs 0.8.1, but every Editor upload (the
+        /// il2cpp linemap of a standalone build too) shares this lookup, so the floor is shared.
+        /// 0.8.1 upgrades a stored symbol table to DWARF without --force; the uploads never pass --force, so on 0.8.0
+        /// a re-upload of richer symbols under the same build id keeps the poorer copy. A too-old CLI is passed over
+        /// and the pinned release is downloaded, which costs one cached download.
         /// </summary>
-        public const string MinVersion = "0.8.0";
+        public const string MinVersion = "0.8.1";
+
+        /// <summary>
+        /// Oldest CLI the iOS Run Script accepts (baked into it). It uploads only dSYMs and the il2cpp linemap, never
+        /// ELF, so the 0.8.1 upgrade does not matter there; 0.8.0 validates LineNumberMappings.json before packing it.
+        /// The script never downloads, so a higher floor would only stop the upload.
+        /// </summary>
+        public const string IosMinVersion = "0.8.0";
 
         public const string DefaultBaseUrl = "https://download.bugsee.com/cli";
 
@@ -334,7 +344,7 @@ namespace Bugsee.WrapperPolicy
                         {
                             resolution.Notes.Add(
                                 "BUGSEE_CLI_PATH " + explicitPath + " is bugsee-cli " + resolution.Version + ", older than " +
-                                s.MinVersion + "; uploads may be rejected (it is used because you set it).");
+                                s.MinVersion + ": it is used because you set it, but a symbol table already stored for a build id is not upgraded to DWARF.");
                         }
 
                         return resolution;
