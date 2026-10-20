@@ -136,6 +136,27 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(run.ExitCode, Is.EqualTo(0));
         }
 
+        // A plain build by a teammate who never uploads gets a note, not a permanent warning; an archive (ACTION=install) warns.
+        [TestCase("build", "note: Bugsee: BUGSEE_APP_TOKEN unset")]
+        [TestCase("install", "warning: Bugsee: BUGSEE_APP_TOKEN unset")]
+        public void Archive_script_warns_about_a_missing_token_only_for_an_archive(string action, string expected)
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, token: "", action: action);
+
+            Assert.That(run.Output, Does.Contain(expected));
+            Assert.That(run.ExitCode, Is.EqualTo(0));
+        }
+
+        // The exit code is recorded for a failed upload even when TMPDIR is unusable (falls back to /tmp).
+        [Test]
+        public void Archive_script_still_reports_a_failed_upload_when_tmpdir_is_unusable()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, cliExitCode: 21, tmpdir: "/nonexistent-bugsee-tmp");
+
+            Assert.That(run.Output, Does.Contain("warning: Bugsee: symbol upload failed (exit 21)"), run.Output);
+            Assert.That(run.ExitCode, Is.EqualTo(0));
+        }
+
         [Test]
         public void Archive_script_uploads_nothing_without_a_token()
         {
@@ -204,7 +225,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(dsyms[0], Does.Contain("/Build/Products/Debug-iphoneos/Bugsee.framework.dSYM --type dsym"));
         }
 
-        static ScriptRun RunScript(string[] dsymBundles, int cliExitCode = 0, string token = "test-token", string[] cliNoise = null,
+        static ScriptRun RunScript(string[] dsymBundles, int cliExitCode = 0, string token = "test-token", string[] cliNoise = null, string action = null, string tmpdir = null,
             string platform = "iphoneos", Action<string> plant = null)
         {
             if (!File.Exists("/bin/sh"))
@@ -247,6 +268,8 @@ namespace Bugsee.WrapperPolicy.Tests
                 info.Environment["PLATFORM_NAME"] = platform;
                 info.Environment["PROJECT_DIR"] = projectDir;
                 info.Environment.Remove("BUGSEE_SKIP_UPLOAD_ON_DEBUG");
+                if (tmpdir != null) info.Environment["TMPDIR"] = tmpdir;
+                if (action == null) info.Environment.Remove("ACTION"); else info.Environment["ACTION"] = action;
                 info.Environment.Remove("BUGSEE_IL2CPP_UUIDS");
 
                 using (var process = Process.Start(info))

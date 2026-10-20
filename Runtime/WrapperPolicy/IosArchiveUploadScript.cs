@@ -50,7 +50,8 @@ if [ ""${CONFIGURATION}"" = ""Debug"" ] && [ ""${BUGSEE_SKIP_UPLOAD_ON_DEBUG}"" 
   exit 0
 fi
 if [ -z ""${BUGSEE_APP_TOKEN}"" ]; then
-  printf '%s\n' ""warning: Bugsee: BUGSEE_APP_TOKEN unset — dSYMs and the il2cpp line map are NOT uploaded (the build continues). Xcode's GUI does not see your shell's environment: set it in your CI / Xcode Cloud environment, or add a user-defined build setting named BUGSEE_APP_TOKEN to the Unity-iPhone target (a Unity Replace export regenerates the project, so add it again after each export).""
+  PREFIX=warning:; [ -z ""${ACTION}"" ] || [ ""${ACTION}"" = install ] || PREFIX=note:
+  printf '%s\n' ""${PREFIX} Bugsee: BUGSEE_APP_TOKEN unset — dSYMs and the il2cpp line map are NOT uploaded (the build continues). Xcode's GUI does not see your shell's environment: set it in your CI / Xcode Cloud environment, or add a user-defined build setting named BUGSEE_APP_TOKEN to the Unity-iPhone target (a Unity Replace export regenerates the project, so add it again after each export).""
   exit 0
 fi
 
@@ -208,15 +209,18 @@ cli_failure() {
 # Xcode fails an archive that prints an error: line, wherever it sits in the line (bugsee-cli prints error: on every
 # failure), even when the script exits 0: every error: from the CLI or a file name becomes ""error -"" (any case).
 defang() {
-  sed 's/[Ee][Rr][Rr][Oo][Rr]:/error -/g'
+  # C locale: BSD sed fails on bytes that are not valid UTF-8, which set -e must not turn into an aborted upload loop.
+  LC_ALL=C sed 's/[Ee][Rr][Rr][Oo][Rr]:/error -/g' || true
 }
 upload() {
-  UPLOAD_RC=0
-  RC_FILE=""${TMPDIR:-/tmp}/bugsee-upload-rc.$$""
+  RC_DIR=""${TMPDIR:-/tmp}""
+  [ -d ""${RC_DIR}"" ] && [ -w ""${RC_DIR}"" ] || RC_DIR=/tmp
+  RC_FILE=""${RC_DIR}/bugsee-upload-rc.$$""
   rm -f ""${RC_FILE}""
-  # The exit code goes through a file: a pipe would hand back sed's. stdout and stderr both pass through defang.
-  { ""$@"" 2>&1 || echo $? >""${RC_FILE}""; } | defang
-  [ ! -s ""${RC_FILE}"" ] || UPLOAD_RC=$(cat ""${RC_FILE}"" 2>/dev/null) || UPLOAD_RC=1
+  # The exit code goes through a file, written on success too: a pipe would hand back sed's, and a code that could not
+  # be recorded counts as a failure. stdout and stderr both pass through defang.
+  { ""$@"" 2>&1 && echo 0 >""${RC_FILE}"" || echo $? >""${RC_FILE}""; } 2>/dev/null | defang
+  UPLOAD_RC=$(cat ""${RC_FILE}"" 2>/dev/null) || UPLOAD_RC=1
   rm -f ""${RC_FILE}""
   case ""${UPLOAD_RC}"" in ''|*[!0-9]*) UPLOAD_RC=1 ;; esac
   if [ ""${UPLOAD_RC}"" -ne 0 ]; then
