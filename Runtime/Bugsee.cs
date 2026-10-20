@@ -300,9 +300,9 @@ namespace Bugsee
         /// <see cref="Relaunch"/> merged over them, as a read-only snapshot (changing it changes nothing). Null while the SDK
         /// is not launched. Keys are the native SDK's own option names and differ between Android and iOS; values are string,
         /// bool, long, double (or a nested dictionary or list); narrower numeric types are widened the same way on both
-        /// platforms. The SDK's internal keys (starting with a double dollar sign, such as the endpoint) and the Unity-only
-        /// <c>unity.*</c> options are left out, so this cannot rebuild the full set for a <see cref="Relaunch"/>: pass the set
-        /// you launched with. A value with no such form, such as a
+        /// platforms. The SDK's internal keys (starting with a double dollar sign, such as the endpoint) are left out.
+        /// The Unity-only <c>unity.*</c> options are not reported on Android and can be echoed on iOS, so this cannot rebuild
+        /// the full set for a <see cref="Relaunch"/>: pass the set you launched with. A value with no such form, such as a
         /// Java array, reads as its text.
         /// </summary>
         public static IReadOnlyDictionary<string, object> GetLaunchOptions()
