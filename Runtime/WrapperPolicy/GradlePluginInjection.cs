@@ -29,6 +29,9 @@ namespace Bugsee.WrapperPolicy
         internal const string NdkMarker = "// bugsee:gradle-ndk";
         const string LegacyMarker = "// Bugsee Gradle plugin";
 
+        const string UploadsComment =
+            "// No token is stored here: when Gradle runs, the plugin's uploads read BUGSEE_APP_TOKEN (and BUGSEE_ENDPOINT, BUGSEE_CLI_PATH) from the environment.";
+
         const string RootAnchor = "plugins {";
         const string LauncherAnchor = "apply plugin: 'com.android.application'";
 
@@ -45,6 +48,12 @@ namespace Bugsee.WrapperPolicy
 
             /// <summary>True when <c>mavenCentral()</c> was appended to the root buildscript repositories so the classpath entry resolves.</summary>
             public bool AddedBuildscriptRepository;
+
+            /// <summary>
+            /// True when the gradleUploads option was asked for and the launcher now carries the lines that read the token from the
+            /// environment. False when the project has a <c>bugsee { }</c> block of its own (left as written) or declares the plugin itself.
+            /// </summary>
+            public bool GradleUploadsApplied;
 
             /// <summary>Why the plugin is not applied, or a note about the project's own declarations; null when nothing needs saying.</summary>
             public string Message;
@@ -65,6 +74,19 @@ namespace Bugsee.WrapperPolicy
             string pluginVersion,
             bool allowRepositoryInjection = true,
             bool gradleUploads = false)
+        {
+            var patch = ApplyCore(root, rootDsl, launcher, launcherDsl, pluginVersion, allowRepositoryInjection, gradleUploads);
+            patch.GradleUploadsApplied = gradleUploads && patch.Applied && patch.Launcher != null &&
+                                         patch.Launcher.IndexOf(UploadsComment, StringComparison.Ordinal) >= 0;
+            return patch;
+        }
+
+        static PluginPatch ApplyCore(
+            string root, GradleMavenInjection.GradleDsl rootDsl,
+            string launcher, GradleMavenInjection.GradleDsl launcherDsl,
+            string pluginVersion,
+            bool allowRepositoryInjection,
+            bool gradleUploads)
         {
             var patch = new PluginPatch { Root = root, Launcher = launcher };
             RootShape rootShape = ShapeOfRoot(root);
@@ -158,7 +180,7 @@ namespace Bugsee.WrapperPolicy
 
         /// <summary>
         /// The <c>bugsee { }</c> block. It always enables NDK support. With <paramref name="gradleUploads"/> it also lets the
-        /// plugin's own mapping and native uploads run: a Unity build has no token the plugin can see (the SDK gets it from
+        /// plugin's own mapping and native uploads run (native from AGP's native-debug-symbols.zip, not the merge step's stripped libraries): a Unity build has no token the plugin can see (the SDK gets it from
         /// <c>Bugsee.Launch</c> at runtime), so they would skip. The added lines read <c>BUGSEE_APP_TOKEN</c> (and
         /// <c>BUGSEE_ENDPOINT</c>, <c>BUGSEE_CLI_PATH</c>) from the environment of the Gradle process when Gradle runs, so nothing is
         /// stored in the Gradle project (an exported project can be committed or shared). Without the token, or with
@@ -175,7 +197,7 @@ namespace Bugsee.WrapperPolicy
             }
             else
             {
-                lines.Add("    // No token is stored here: when Gradle runs, the plugin's uploads read BUGSEE_APP_TOKEN (and BUGSEE_ENDPOINT, BUGSEE_CLI_PATH) from the environment.");
+                lines.Add("    " + UploadsComment);
                 if (kotlin)
                 {
                     lines.Add("    if (System.getenv(\"BUGSEE_NO_SYMBOL_UPLOAD\") == null) {");
@@ -200,9 +222,30 @@ namespace Bugsee.WrapperPolicy
 
             lines.Add("    ndk {");
             lines.Add("        " + enabled);
+            if (gradleUploads)
+            {
+                // The merge step's libraries hold Unity's STRIPPED libil2cpp/libunity/libmain (dynamic symbols only, same build id as the
+                // full ones). bugsee-cli labels those "symtab" and the server keeps the first copy of a build id at that level, so sending
+                // them would block the real symbol tables. AGP's native-debug-symbols.zip carries Unity's full copies (setupSymbols.gradle).
+                lines.Add("        " + (kotlin ? "useMergedNativeLibs.set(false)" : "useMergedNativeLibs = false"));
+            }
+
             lines.Add("    }");
             lines.Add("} " + NdkMarker);
             return lines;
+        }
+
+        /// <summary>
+        /// What to put in a <c>bugsee { }</c> block of your own for the plugin's uploads in an Export Project, when the package could not add
+        /// it (the project owns the block).
+        /// </summary>
+        public static string UploadsInstructions(bool kotlin)
+        {
+            var lines = BlockLines(kotlin, gradleUploads: true);
+            // Everything between the opening line and the end marker, without the marker.
+            lines.RemoveAt(0);
+            lines.RemoveAt(lines.Count - 1);
+            return string.Join("\n", lines);
         }
 
         /// <summary>How the root build file makes plugins available, which decides the manual instructions.</summary>

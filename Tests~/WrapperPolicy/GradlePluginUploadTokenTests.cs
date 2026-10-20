@@ -77,7 +77,9 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(patch.Launcher, Does.Contain("System.getenv('BUGSEE_NO_SYMBOL_UPLOAD') == null"), "the Editor's opt-out turns the plugin's uploads off too");
             Assert.That(patch.Launcher, Does.Contain("endpoint = System.getenv('BUGSEE_ENDPOINT')"));
             Assert.That(patch.Launcher, Does.Contain("cliPath = System.getenv('BUGSEE_CLI_PATH')"));
-            Assert.That(patch.Launcher, Does.Contain("    ndk {\n        enabled = true\n    }\n} // bugsee:gradle-ndk"));
+            Assert.That(patch.Launcher, Does.Contain("    ndk {\n        enabled = true\n        useMergedNativeLibs = false\n    }\n} // bugsee:gradle-ndk"),
+                "the merge step's stripped Unity libraries must not be sent: they would block the real symbol tables");
+            Assert.That(patch.GradleUploadsApplied, Is.True);
             Assert.That(Count(patch.Launcher, "bugsee {"), Is.EqualTo(1));
         }
 
@@ -148,7 +150,25 @@ namespace Bugsee.WrapperPolicy.Tests
 
             Assert.That(patch.Launcher, Does.Contain("bugsee {\n    debug = true\n}"));
             Assert.That(patch.Launcher, Does.Not.Contain("getenv"));
+            Assert.That(patch.Applied, Is.True);
+            Assert.That(patch.GradleUploadsApplied, Is.False, "the Editor must say the lines are missing, not that uploads will happen");
+            Assert.That(GradlePluginInjection.UploadsInstructions(false), Does.Contain("appToken(System.getenv('BUGSEE_APP_TOKEN'))"));
+            Assert.That(GradlePluginInjection.UploadsInstructions(false), Does.Not.Contain("bugsee:gradle-ndk"));
+            Assert.That(GradlePluginInjection.UploadsInstructions(true), Does.Contain("useMergedNativeLibs.set(false)"));
             Assert.That(Count(patch.Launcher, "bugsee {"), Is.EqualTo(1));
+        }
+
+        [Test]
+        public void A_plugin_the_project_declared_itself_is_left_alone_and_reported_as_not_wired()
+        {
+            string root = Read("Unity6000.0.84f1-default", "root.build.gradle");
+            string launcher = Read("Unity6000.0.84f1-default", "launcher.build.gradle")
+                .Replace("apply plugin: 'com.android.application'", "apply plugin: 'com.android.application'\napply plugin: 'com.bugsee.android.gradle'");
+
+            var patch = GradlePluginInjection.Apply(root, Groovy, launcher, Groovy, Version, gradleUploads: true);
+
+            Assert.That(patch.Launcher, Is.EqualTo(launcher));
+            Assert.That(patch.GradleUploadsApplied, Is.False);
         }
 
         [Test]
@@ -167,6 +187,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 "    System.getenv(\"BUGSEE_CLI_PATH\")?.takeIf { java.io.File(it).isFile }?.let { cliPath.set(it) }\n" +
                 "    ndk {\n" +
                 "        enabled.set(true)\n" +
+                "        useMergedNativeLibs.set(false)\n" +
                 "    }\n" +
                 "} // bugsee:gradle-ndk"));
             Assert.That(patch.Launcher, Does.Not.Contain("System.getenv('"), "no Groovy quoting in a Kotlin script");

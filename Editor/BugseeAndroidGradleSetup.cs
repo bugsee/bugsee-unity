@@ -205,11 +205,20 @@ namespace Bugsee.Editor
                     $"Runtime AAR pin {SdkVersion} with NDK enabled.");
                 if (EditorUserBuildSettings.exportAsGoogleAndroidProject)
                 {
-                    Debug.Log(
-                        "[Bugsee] Export Project: the plugin uploads the R8 mapping and the native libraries when this project is built with " +
-                        "BUGSEE_APP_TOKEN set in the environment of that Gradle build (the launcher reads it from there, no token is stored in the project). " +
-                        "Unity's unstripped IL2CPP libraries are in unityLibrary/symbols after that build and are not uploaded by the plugin: see the Bugsee " +
-                        "documentation (Export Project) for the bugsee-cli command.");
+                    if (patch != null && patch.GradleUploadsApplied)
+                    {
+                        Debug.Log(
+                            "[Bugsee] Export Project: the plugin uploads the R8 mapping and the native symbols when this project is built with " +
+                            "BUGSEE_APP_TOKEN set in the environment of that Gradle build (the launcher reads it from there, no token is stored in the project).");
+                    }
+                    else
+                    {
+                        Debug.LogWarning(
+                            "[Bugsee] Export Project: " + launcherPath + " has a bugsee { } block (or declares the plugin) of its own, so the package did not " +
+                            "add the lines that let the plugin upload the mapping and native symbols with BUGSEE_APP_TOKEN from the environment of the Gradle build. " +
+                            "Without them that build uploads nothing. Add inside the block:\n" +
+                            GradlePluginInjection.UploadsInstructions(launcherDsl == GradleMavenInjection.GradleDsl.Kotlin));
+                    }
                 }
             }
             else if (wanted)
