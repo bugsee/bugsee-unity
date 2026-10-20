@@ -42,7 +42,7 @@ log warns when its version differs from the one this package pins.
 | `bugsee-android` | **7.4.2**, added to `unityLibrary/build.gradle` at build time (no Maven transitives) |
 | `bugsee-android-ndk` | Same version, declared alongside (native fatal capture for IL2CPP primary LNM) |
 | `mavenCentral()` | Added to the generated project repositories only if Unity's layout lacks it |
-| Gradle plugin `4.0.8` | Patched into the generated Gradle project by `BugseeAndroidGradleSetup` when it pins AGP 8.6+ (Unity 6; `ndk { enabled = true }`), in Groovy or Kotlin DSL files, see [Gradle file layouts](Documentation~/index.md#gradle-file-layouts). On Unity 2021.3 / 2022.3 (AGP 7.4.2) and Unity 6000.0.1-44 (AGP 8.3.0) it cannot run; the build-id asset is added instead and symbols are uploaded by the Editor with `bugsee-cli` found or downloaded automatically, see [Documentation~/index.md](Documentation~/index.md#unity-20213-and-20223-no-bugsee-gradle-plugin) |
+| Gradle plugin `4.0.8` | Patched into the generated Gradle project by `BugseeAndroidGradleSetup` when it pins AGP 8.6+ (Unity 6; `ndk { enabled = true }`; for an Export Project the block also reads `BUGSEE_APP_TOKEN` from the environment of the later Gradle build, see [Export Project](Documentation~/index.md#export-project-android)), in Groovy or Kotlin DSL files, see [Gradle file layouts](Documentation~/index.md#gradle-file-layouts). On Unity 2021.3 / 2022.3 (AGP 7.4.2) and Unity 6000.0.1-44 (AGP 8.3.0) it cannot run; the build-id asset is added instead and symbols are uploaded by the Editor with `bugsee-cli` found or downloaded automatically, see [Documentation~/index.md](Documentation~/index.md#unity-20213-and-20223-no-bugsee-gradle-plugin) |
 
 ### Refreshing native artifacts
 

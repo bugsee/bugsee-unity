@@ -194,6 +194,38 @@ Limits, not fixed: the structure scanner works line by line, so Groovy slashy st
 
 Kotlin launcher on AGP below 8.6: the build id asset task is Groovy code and is not added to a `.kts` file; the SDK derives its own build id. The release `ndk { debugSymbolLevel }` the package adds on 2021.3 is written in the launcher's own DSL.
 
+### Export Project (Android)
+
+An Export Project build leaves Gradle for later (Android Studio, or `gradlew` on a CI machine), so at export time there is no R8 mapping, no `symbols.zip` and no native library for the Editor to upload (it logs "no Android symbols.zip / libil2cpp.so found"). On AGP 8.6+ (Unity 6) the Bugsee Gradle plugin is applied to the exported launcher, but it reads the app token only from its own `bugsee { appToken(...) }` DSL, from `<root project>/bugsee.properties` (`app_token=`) and from the manifest, never from `BUGSEE_APP_TOKEN`, and a Unity app has the token only at runtime (`Bugsee.Launch`). Its mapping, native and build-info tasks therefore logged `Bugsee: Could not resolve appToken. Skipping ...` (checked on 6000.0.84f1, plugin 4.0.8, with `BUGSEE_APP_TOKEN` set in the environment).
+
+For an Export Project the generated launcher's `bugsee { }` block now reads the token when Gradle runs:
+
+```groovy
+bugsee {
+    if (System.getenv('BUGSEE_NO_SYMBOL_UPLOAD') == null && System.getenv('BUGSEE_APP_TOKEN')) {
+        appToken(System.getenv('BUGSEE_APP_TOKEN'))
+    }
+    if (System.getenv('BUGSEE_ENDPOINT')) { endpoint = System.getenv('BUGSEE_ENDPOINT') }
+    if (System.getenv('BUGSEE_CLI_PATH') && new File(System.getenv('BUGSEE_CLI_PATH')).isFile()) { cliPath = System.getenv('BUGSEE_CLI_PATH') }
+    ndk {
+        enabled = true
+        useMergedNativeLibs = false
+    }
+}
+```
+
+(The Kotlin DSL form is the same in Kotlin syntax.) **No token is written to any file of the exported project**: the lines name an environment variable, so the project can be committed or shared. Build it with `BUGSEE_APP_TOKEN` set in the environment of the Gradle process: from a terminal (`BUGSEE_APP_TOKEN=... ./gradlew assembleRelease`), or in CI. Android Studio uses the environment it was started with (on macOS an app opened from the Dock does not see shell variables; start it from a terminal that has the variable, or run Gradle from a terminal); that case is not verified here. The Gradle user home is not consulted: the plugin reads `bugsee.properties` only from the root project, and putting the token there stores it in the project. Without the variable the plugin skips as before; `BUGSEE_NO_SYMBOL_UPLOAD` (any value) turns it off as for the Editor's uploads. `BUGSEE_ENDPOINT` (a URL such as `https://api.bugsee.com`: the plugin's build-info request needs the scheme) and `BUGSEE_CLI_PATH` (the path of an existing file; a relative path, a directory or a bare command name is ignored without a message and the plugin downloads its own `bugsee-cli`) are passed on the same way. The plugin also registers a build record for the release variant (build info; size analysis stays off); `plugin.buildInfo.enabled=false` in the root project's `bugsee.properties` turns that off.
+
+What the exported project's Gradle build then uploads (real Unity 6000.0.84f1 export, Gradle 9.3.1 / AGP 9.0.0, `bugsee-cli` replaced by a logging stand-in so nothing was sent): the R8 `mapping.txt` with the launcher icon under the build id the APK carries; the native symbols in AGP's `build/outputs/native-debug-symbols/release/native-debug-symbols.zip` (`useMergedNativeLibs = false`): Unity's own symbol tables of `libil2cpp.so`, `libunity.so` and `libmain.so` (Unity's `setupSymbols.gradle` copies the full ones into it; same build id as the unstripped libraries in `unityLibrary/symbols`) and the AAR libraries that carry symbols; and the build-info registration. Why not the default (the `merged_native_libs` directory): it holds Unity's **stripped** copies of those three libraries (dynamic symbols only, same build id). `bugsee-cli` 0.8.1 labels such a library `symtab`, and the server keeps the first copy of a build id at a given level (a same-level copy is answered as a duplicate and the CLI exits 0), so sending the stripped ones first would block the real symbol tables from any later upload (read in the CLI and server code, not run against the server). Limits, not fixed:
+
+- At Player Settings' Public level the symbol tables give function names, not file:line; IL2CPP file:line needs the Debugging level and the line map. An export writes no IL2CPP line map at export time (the Editor uploads nothing then); get it as described for the line-number mapping above and upload it with `bugsee-cli debug-files upload --type il2cpp-linemap`.
+- Bugsee's own native libraries (`libbugsee-native.so`, `libbugsee-crashcp.so`, the crashpad libraries) ship **stripped** in the AAR (only `.dynsym`, checked with `llvm-readelf`), so an app build has nothing to upload for them.
+- On AGP below 8.6 there is no plugin, so the exported project's Gradle build uploads nothing; use `bugsee-cli` on its output.
+- The token is not safe from logs: Gradle with `--info` or `--debug` prints the `bugsee-cli` command line, which contains `--app-token <token>`, in the console and in the daemon log under `~/.gradle/daemon`; the token is also in the CLI's arguments (visible in `ps` while it runs) and in the CLI process's environment. Do not run CI builds of the export with `--info`/`--debug`, or mask the value. `plugin.debug=true` in `bugsee.properties` or `debug = true` in the DSL logs it too, and if the plugin falls back to its own uploader it logs the token when the server calls it invalid (plugin 4.0.8, `SymbolUploader`). These are plugin behaviours, not changed by this package.
+- If the launcher has a `bugsee { }` block of your own (for example from a template), the package does not edit it and the Editor warns at export with the lines to add; without them the plugin skips.
+
+Builds the Editor runs itself are unchanged: the block keeps its token-less form, because the Editor's own upload (after Gradle) already sends the mapping and the full `symbols.zip`. With the token enabled for those builds as well (tried), the plugin would repeat the Editor's mapping (same file, same id), register a build record from every release build, and send its native upload first: the stripped libraries of the merge step, which (as above) can then block the Editor's symbol tables of the same build ids.
+
 ### Unity 2021.3 and 2022.3 (no Bugsee Gradle plugin)
 
 Both ship AGP 7.4.2 / Gradle 7.5.1; Gradle plugin 4.0.8 needs AGP 8.6+ / Gradle 8.7+ and fails to load there (checked on 2022.3.62f3: `NoClassDefFoundError: KotlinCompilerPluginSupportPlugin`, then `NoSuchMethodError` on `OutOperationRequest.toListenTo`). What it does for a Unity app, and what stands in for it:
@@ -203,7 +235,7 @@ Both ship AGP 7.4.2 / Gradle 7.5.1; Gradle plugin 4.0.8 needs AGP 8.6+ / Gradle 
 | Declare `bugsee-android`, `bugsee-android-ndk` | Package (Maven injection) | Same |
 | `assets/bugsee_build_id.properties` = UUID of the R8 mapping (the id the SDK reports) | Plugin | The package adds the same asset task to the launcher (`GradleBuildIdBlock`), for AGP 7.4.x and 8.0 to 8.5 (7.0 to 7.3 and older get no block). With R8 off, or no block, no asset is written and the SDK derives its own id |
 | `com.bugsee.android.BUILD_UUID` manifest meta-data (fallback id when R8 is off) | Plugin | Not added: the SDK derives `UUID(token, versionName, versionCode)` itself when it finds neither; the uploads use that id (`AndroidBuildUuid`) when the built app has no asset |
-| Mapping upload (`--uuid`, `--icon`) | Package Editor upload (the plugin finds no app token in a Unity build, so its own upload skips) | Same, keyed by the id read back from the built APK/AAB's asset (never assumed from the build script), else the SDK's synthesized id with a warning; launcher icon attached |
+| Mapping upload (`--uuid`, `--icon`) | Package Editor upload (the plugin finds no app token in a Unity build, so its own upload skips; an Export Project is the exception, see [Export Project](#export-project-android)) | Same, keyed by the id read back from the built APK/AAB's asset (never assumed from the build script), else the SDK's synthesized id with a warning; launcher icon attached |
 | Native symbol upload | Package Editor upload of Unity's `symbols.zip` (same reason) | Same |
 | NDK enabled | Plugin | Not applicable: the NDK artifact is declared and the Editor uploads the symbols |
 | Bytecode instrumentation (OkHttp, HttpEngine, `android.util.Log`, thread, main-thread misuse, operation dispatch, Compose, startup tracing), SDK-extension provider stripping, Compose compiler plugin | Plugin | **Not recovered** (needs AGP 8.6+). They act on the app module's own JVM bytecode, which in a Unity app is a launcher stub, so little is lost, but a Java/Kotlin plugin of yours that uses OkHttp or `HttpEngine` is not auto-captured on these Unity versions |
@@ -225,6 +257,8 @@ Verified with real IL2CPP arm64 builds (staging token set, `bugsee-cli` 0.8.1, u
 | 2022.3.62f3 | release, Split APKs by target architecture (ARMv7 + ARM64) | on | builds; Unity writes a folder `split.apk/` of per-ABI APKs: both carry the same asset id, equal to the uploaded mapping id; the symbols zip (named after `split`, not `split.apk`) is found and uploaded |
 | 2022.3.62f3 | release, no app token | on | builds; the block is added regardless and the asset is in the APK; no upload, no warning |
 | 2022.3.62f3 | Export Project | on | builds; no native libraries exist in the export, so no ELF upload (the CLI refuses a directory upload without `--uuid`, which every ELF upload now carries; checked with `bugsee-cli --dry-run`) |
+| 6000.0.84f1 | release APK (Gradle 9.3.1, AGP 9.0.0) | on | with `BUGSEE_APP_TOKEN` set and a logging stand-in as `BUGSEE_CLI_PATH` (nothing uploaded): the plugin's mapping, native and build-info tasks logged `Could not resolve appToken. Skipping` and made no CLI call; only the Editor's three uploads (il2cpp-linemap, mapping, `symbols.zip`) ran. Unchanged by this package change |
+| 6000.0.84f1 | Export Project, then `assembleRelease` of the export | on | Before: the same `Skipping` lines. Now: `uploadBugseeReleaseMapping` called the CLI for `mapping.txt` (+ icon, the APK's build id), `uploadBugseeReleaseApk` packed and registered the build, `uploadBugseeReleaseNative` called it once for `native-debug-symbols.zip` (`.sym` of libswappywrapper, libc++_shared, libmain, libil2cpp, libunity; the stripped `merged_native_libs` directory, 21 libraries, is not sent because of `useMergedNativeLibs = false`); no token in any `.gradle`, `.properties`, `.json`, `.xml` or `.txt` file of the project (only Unity's player data file that already carries it, and its build copies). Without `BUGSEE_APP_TOKEN`, or with `BUGSEE_NO_SYMBOL_UPLOAD=1`: `Skipping` and no CLI call, build succeeds |
 | 2021.3.45f1 | release | off, development off | builds, as above |
 | 2021.3.45f1 | release, development | on | builds; APK asset id equals the uploaded mapping id |
 
