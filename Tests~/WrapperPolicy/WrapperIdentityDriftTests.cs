@@ -39,6 +39,36 @@ namespace Bugsee.WrapperPolicy.Tests
                 Is.EqualTo(Capture("Runtime/BugseePackageVersion.cs", "Build = \"([^\"]*)\"")));
         }
 
+        // "dev" is the placeholder the generator writes when it has no build id. Each platform drops it
+        // (a placeholder is not a build id), so all three spellings must be the one the constant carries.
+        [Test]
+        public void The_build_placeholder_is_the_same_in_java_csharp_and_objc()
+        {
+            const string placeholder = "dev";
+            Assert.That(Capture("Runtime/WrapperPolicy/IosHostPolicy.cs", "build == \"([^\"]*)\""), Is.EqualTo(placeholder));
+            Assert.That(Capture("Plugins/Android/UnityWrapperProvider.java", "build.equals\\(\"([^\"]*)\"\\)"), Is.EqualTo(placeholder));
+            Assert.That(Capture("Plugins/iOS/BugseeUnityCallbacks.mm", "isEqualToString:@\"([^\"]*)\"\\]\\) \\? nil : buildString"), Is.EqualTo(placeholder));
+            Assert.That(Capture("Tools~/scripts/update-native-sdks.sh", "\\|\\| echo ([a-z]+)\\)"), Is.EqualTo(placeholder),
+                "the generator's fallback id");
+        }
+
+        // A raw BugseePackageVersion.Build on the wire would report the placeholder as a build id again.
+        [Test]
+        public void Ios_wrapper_build_goes_through_the_placeholder_filter()
+        {
+            Assert.That(File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs")),
+                Does.Contain("IosHostPolicy.WrapperBuild(BugseePackageVersion.Build)"));
+            Assert.That(File.ReadAllText(RepoFile("Runtime/Platform/IOS/IosNativeCallbacks.cs")),
+                Does.Contain("IosHostPolicy.WrapperBuild(BugseePackageVersion.Build)"));
+            foreach (var file in new[] { "Runtime/Platform/IOS/IOSBridge.cs", "Runtime/Platform/IOS/IosNativeCallbacks.cs" })
+            {
+                var text = File.ReadAllText(RepoFile(file));
+                Assert.That(Regex.Matches(text, "BugseePackageVersion\\.Build").Count,
+                    Is.EqualTo(Regex.Matches(text, "WrapperBuild\\(BugseePackageVersion\\.Build\\)").Count),
+                    file + " uses the raw build");
+            }
+        }
+
         // Lifecycle events must reach C# through one path. Registering the managed listener with
         // Bugsee.setLifecycleEventsListener as well would deliver events twice, or lose some in the gap.
         [Test]
