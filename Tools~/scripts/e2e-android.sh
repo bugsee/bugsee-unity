@@ -4,6 +4,7 @@
 #   Tools~/scripts/e2e-android.sh <adb-serial> <apk> <scenario> [<scenario>...]
 #
 # Scenarios (see BugseeSampleBootstrap): handled unhandled pipeline sig crash native abort fatal java hang
+#   PRESET=minimal|detect|privacy launches every scenario with that launch-option preset (extra bugsee_preset).
 #   `crash` and `java` need the TestCrash-on-main-looper change; `hang` blocks the Android UI thread.
 #
 # Each launch passes a unique run id (extra bugsee_e2e_run). The app records it before the scenario fires, so
@@ -82,7 +83,7 @@ fi
 run=""
 launch() {
   run="$1-$(date +%s)-$RANDOM"
-  a shell am start -n "$PKG/$ACTIVITY" --es bugsee_e2e "$1" --es bugsee_e2e_run "$run" >/dev/null
+  a shell am start -n "$PKG/$ACTIVITY" --es bugsee_e2e "$1" --es bugsee_e2e_run "$run" ${PRESET:+--es bugsee_preset "$PRESET"} >/dev/null
 }
 
 # How many times a log on stdin shows this run's scenario armed (-c reads all input: no SIGPIPE under pipefail).
