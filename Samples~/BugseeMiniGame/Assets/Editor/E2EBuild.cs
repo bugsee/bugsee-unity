@@ -16,9 +16,12 @@ namespace Bugsee.Sample.Editor
     /// Environment:
     ///   BUGSEE_APP_TOKEN    required; baked into the build and used for symbol upload
     ///   BUGSEE_ENDPOINT     API host (no /v2); iOS gets /v2 appended
+    ///   BUGSEE_E2E_NO_TOKEN 1: build as a CI without the token in the Editor environment: BUGSEE_APP_TOKEN is not needed
+    ///                       (and is cleared in this process), the build gets a dummy launch token, and no upload runs
     ///   BUGSEE_E2E_BACKEND  il2cpp (default) | mono
     ///   BUGSEE_E2E_DEV      1 (default, Development build) | 0 (Release)
     ///   BUGSEE_E2E_MINIFY   0 (default) | 1: R8 minification on Android (produces mapping.txt)
+    ///   BUGSEE_E2E_FORMAT   apk (default) | aab (Build App Bundle) | export (Export Project, a Gradle project folder): Android only
     ///   BUGSEE_E2E_IOS_SIM  1: build the iOS Simulator SDK (default: the device SDK)
     ///   BUGSEE_E2E_IOS_SIM_ARCH  arm64 (default on an Apple silicon Mac) | x64 | universal: the simulator slice (Unity 2022.1+);
     ///                            iOS 26+ simulators on Apple silicon run arm64 only
@@ -59,6 +62,13 @@ namespace Bugsee.Sample.Editor
         static void Build(BuildTarget target)
         {
             var token = Environment.GetEnvironmentVariable("BUGSEE_APP_TOKEN");
+            if (Environment.GetEnvironmentVariable("BUGSEE_E2E_NO_TOKEN") == "1")
+            {
+                // The package reads BUGSEE_APP_TOKEN from the Editor's environment: clear it so the build is token-less.
+                Environment.SetEnvironmentVariable("BUGSEE_APP_TOKEN", null);
+                token = "e2e-no-token-dummy-launch-token";
+            }
+
             if (string.IsNullOrWhiteSpace(token))
                 throw new InvalidOperationException("[E2EBuild] Set BUGSEE_APP_TOKEN (baked into the build, used for symbol upload).");
 
@@ -68,11 +78,12 @@ namespace Bugsee.Sample.Editor
             var group = ios ? BuildTargetGroup.iOS : BuildTargetGroup.Android;
 
             var minify = Environment.GetEnvironmentVariable("BUGSEE_E2E_MINIFY") == "1";
+            var format = (Environment.GetEnvironmentVariable("BUGSEE_E2E_FORMAT") ?? "apk").ToLowerInvariant();
             var label = (ios ? "ios" : "android") + "-" + (il2cpp ? "il2cpp" : "mono") + "-" + (development ? "dev" : "release")
-                + (minify && !ios ? "-min" : "");
+                + (minify && !ios ? "-min" : "") + (!ios && format != "apk" ? "-" + format : "");
             var output = Environment.GetEnvironmentVariable("BUGSEE_E2E_OUT");
             if (string.IsNullOrEmpty(output))
-                output = ios ? "Builds/E2E/" + label : "Builds/E2E/" + label + ".apk";
+                output = ios || format == "export" ? "Builds/E2E/" + label : "Builds/E2E/" + label + (format == "aab" ? ".aab" : ".apk");
             var outputDir = Path.GetDirectoryName(output.TrimEnd('/'));
             // GetDirectoryName("x.apk") is "", not null, and CreateDirectory("") throws.
             Directory.CreateDirectory(string.IsNullOrEmpty(outputDir) ? "." : outputDir);
@@ -97,6 +108,8 @@ namespace Bugsee.Sample.Editor
             {
                 PlayerSettings.Android.minifyRelease = minify;
                 PlayerSettings.Android.minifyDebug = minify;
+                EditorUserBuildSettings.buildAppBundle = format == "aab";
+                EditorUserBuildSettings.exportAsGoogleAndroidProject = format == "export";
                 // Unity 2021.3 builds ARM64 only with IL2CPP; a Mono build is ARMv7 (32-bit) only, so it will not
                 // install on a 64-bit-only device or emulator image (INSTALL_FAILED_NO_MATCHING_ABIS).
                 PlayerSettings.Android.targetArchitectures = il2cpp

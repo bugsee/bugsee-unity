@@ -51,7 +51,13 @@ namespace Bugsee.Platform.EditorStub
         public void SetUserIdentifier(string userIdentifier) { }
         public string GetUserIdentifier() => null;
         public void ClearUserIdentifier() { }
-        public void SetAttribute(string key, object value) { }
+        public void SetAttribute(string key, object value)
+        {
+            // The same validation the device bridges run, so a bad attribute fails in the Editor too.
+            var decision = AttributePolicy.Evaluate(key, value);
+            if (!decision.Accepted)
+                throw new ArgumentException(decision.Error, nameof(value));
+        }
         public object GetAttribute(string key) => null;
         public void ClearAttribute(string key) { }
         public void ClearAllAttributes() { }

@@ -80,6 +80,17 @@ Residual races after the hard deadline (the native SDKs cannot cancel an operati
 - **Android**: a late `Launch`/`Relaunch` result arriving after the reset is ignored when no stop intent is set (no `Stop` requested and no `Delete` started since), so the managed capture hooks can be out of step with that session until the next lifecycle call. With a stop intent set, a session started by a late result is stopped again.
 - **Android**: after the reset of a delete, a queued `Launch` can run while the native delete is still wiping. A `Delete` started after the reset of a relaunch can overlap a relaunch that completes later still.
 
+### Lifecycle events
+
+`Bugsee.LifecycleEvent` and `ILifecycleEventListener.OnEvent(eventType, data)` behave alike on both platforms. `data` is `null` or a `string` (the snapshot or request id of the report events); the native SDKs send nothing else today. If an SDK ever sends a map it arrives as a `Dictionary<string, object>` on both, with numbers inside it as `long`/`double` on iOS and `int`/`float` on Android; on iOS any other payload type arrives as its description text, and a map nested deeper than the JSON reader allows as raw JSON text. Events the SDK announces before the managed side is listening (for example from a launch the host made natively before any C# call) are held, up to 128, and delivered in order shortly after the wrapper starts listening (on iOS on the main queue after the `Launch` or `Relaunch` call that registered it, on Android on the next main-looper pass), on both iOS and Android. `Relaunch` registers the wrapper the same way `Launch` does. Handlers run on the Unity main thread on iOS and Android alike.
+
+Other platform differences, not aligned:
+
+- Before `Launched`, iOS holds network and breadcrumb events in the wrapper and submits them at launch, while Android hands them straight to the SDK.
+- `IReport.Email` set on a report from `CreateReport` is used on Android; on iOS it is dropped with a warning (the managed upload cannot carry it): use `SetUserIdentifier` there.
+- `IAppearance.ToMap()` returns what the SDK reports on Android; on iOS it lists only the properties set through the wrapper that the native theme applied.
+- `Trace(name, value)` with a collection or other non-primitive value: iOS sends it as JSON, Android as its `ToString()`. Pass a string or a primitive to get the same result on both.
+
 ## Crash & exception capture
 
 | Source | API / option | Severity default |
@@ -132,7 +143,7 @@ Set `BUGSEE_APP_TOKEN` in the environment (opt-in). Optionally `BUGSEE_CLI_PATH`
 
 ### Where `bugsee-cli` comes from (Editor uploads)
 
-This lookup serves every Editor upload on any platform that uses the CLI from the Editor (the Android mapping and symbols, and the IL2CPP linemap upload of a standalone or Android build). A Unity Editor started from the Hub or the Finder does not inherit your shell's `PATH`, so a CLI installed with Homebrew or `install.sh` is often invisible to it. The Editor uploads therefore look, in order, at: `BUGSEE_CLI_PATH`; the Editor's `PATH`; the places the installers use (`/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`, `~/.cargo/bin`, `~/.bugsee/bin`, `%LOCALAPPDATA%\Bugsee\bin`); the package's cache (`~/Library/Caches/Bugsee/cli` on macOS, `$XDG_CACHE_HOME/bugsee/cli` or `~/.cache/bugsee/cli` on Linux, `%LOCALAPPDATA%\Bugsee\cache\cli` on Windows, else `Library/Bugsee/cli` in the project). An installed CLI older than 0.8.0 is passed over.
+This lookup serves every Editor upload on any platform that uses the CLI from the Editor (the Android mapping and symbols, and the IL2CPP linemap upload of a standalone or Android build). A Unity Editor started from the Hub or the Finder does not inherit your shell's `PATH`, so a CLI installed with Homebrew or `install.sh` is often invisible to it. The Editor uploads therefore look, in order, at: `BUGSEE_CLI_PATH`; the Editor's `PATH`; the places the installers use (`/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`, `~/.cargo/bin`, `~/.bugsee/bin`, `%LOCALAPPDATA%\Bugsee\bin`); the package's cache (`~/Library/Caches/Bugsee/cli` on macOS, `$XDG_CACHE_HOME/bugsee/cli` or `~/.cache/bugsee/cli` on Linux, `%LOCALAPPDATA%\Bugsee\cache\cli` on Windows, else `Library/Bugsee/cli` in the project). An installed CLI older than 0.8.1 is passed over (0.8.1 replaces a stored symbol table with DWARF for the same build id without `--force`, which the uploads never pass; the pinned release is downloaded instead when a token is set; only the Android ELF upload needs 0.8.1, but the IL2CPP linemap upload shares the lookup and so the floor: with `BUGSEE_NO_CLI_DOWNLOAD=1` and only a 0.8.0 installed it finds no CLI). A too-old CLI you name with `BUGSEE_CLI_PATH` is used, with a warning that stored symbol tables are not upgraded.
 
 When none is found and a token is set, the pinned release (0.8.1, the Bugsee Gradle plugin's default) is downloaded from `https://download.bugsee.com/cli/v<version>/bugsee-cli-<triple>.tar.xz` (`.zip` on Windows), checked against the SHA-256 pinned in the package for that release (a release you pin with `BUGSEE_CLI_VERSION` is checked against the published `.sha256` only), unpacked into that cache and run once to prove it works. For a release pinned in the package the checksum does not depend on the download host; for any other it comes from the same host as the archive, so it detects corruption, not a compromised host: set `BUGSEE_CLI_PATH` to a binary you vetted if that matters. Credentials in `BUGSEE_CLI_BASE_URL` are not logged. Not verified on Windows (the zip and `.exe` paths are covered by unit tests only). `BUGSEE_NO_CLI_DOWNLOAD=1` turns the download off, `BUGSEE_CLI_VERSION` pins another release and `BUGSEE_CLI_BASE_URL` points at a mirror (https only), as for `install.sh`. If nothing can be found or downloaded the build warns once, naming what was tried, and continues without uploading. The iOS Run Script has its own lookup, below, and never downloads.
 
@@ -142,7 +153,7 @@ The iOS Run Script uploads for **every** Xcode configuration (Debug included, so
 
 | Artifact | When | CLI type |
 |---|---|---|
-| `LineNumberMappings.json` + `MethodMap.tsv` (the package passes `--emit-source-mapping --emit-method-map` to IL2CPP for the build) | Android post-build; iOS at **Xcode build** (every configuration) | `il2cpp-linemap` |
+| `LineNumberMappings.json` + `MethodMap.tsv` (the package passes `--emit-source-mapping --emit-method-map` to IL2CPP for every IL2CPP build, token or not) | Android post-build; iOS at **Xcode build** (every configuration) | `il2cpp-linemap` |
 | Android `symbols.zip` / ELF | Android post-build | `elf` |
 | ProGuard / R8 `mapping.txt` | Android post-build when present | `proguard` |
 | iOS `.dSYM` | Xcode Run Script (`Bugsee Upload Symbols`), every configuration | `dsym` |
@@ -215,21 +226,41 @@ Verified with real IL2CPP arm64 builds (staging token set, `bugsee-cli` 0.8.1, u
 
 Unity 6000.0 early releases (6000.0.1 to 6000.0.44) ship AGP 8.3.0 / Gradle 8.4 per Unity's compatibility page (6000.0.45-60: AGP 8.7.2 / Gradle 8.11, 6000.0.61-78: 8.10.0 / 8.13, 6000.0.79-84: 9.0.0 / 9.1.0, 6000.0.85+: 9.1.1 / 9.3.1); those editors are not installed here, so their layouts are not checked in. The package adds the block, not the plugin, on AGP 8.0 to 8.5 (a log line says which AGP the project pins). The block was run, outside Unity, on a real 2022.3.62f3 Export Project with the AGP swapped in the root and a minified release assembled by standalone Gradle (JDK 17): AGP 8.0.2 / Gradle 8.0.2, 8.3.0 / 8.4 and 8.5.0 / 8.7 all built, the APK's `bugsee_build_id.properties` equalled the MD5-name UUID of `mapping.txt` and every game asset was intact; that, plus the 7.4.2 runs below, is the evidence for the gate (7.4.x and 8.0 to 8.5); it is not a Unity 6000.0.1-44 editor build, which is not installed.
 
-Not verified: a Unity editor on AGP 8.0 to 8.5 end to end, Unity 2021.3 releases with AGP below 7.4, AAB output, build with Gradle configuration cache (the block avoids `Task.project` at execution time but was run without it), and Windows/Linux Editors.
+Not verified: a Unity editor on AGP 8.0 to 8.5 end to end, Unity 2021.3 releases with AGP below 7.4, AAB output (its mapping upload is verified, see above; not the build id asset inside the bundle), build with Gradle configuration cache (the block avoids `Task.project` at execution time but was run without it), and Windows/Linux Editors.
+
+When Minify is on and the upload found no usable mapping (none, or an empty one), the Editor logs one warning (the build is never failed): Java and Kotlin frames lose their line numbers and, for classes R8 may rename, their names in Bugsee (the wrapper and SDK classes are kept by their rules, so on a real device their names stay and only the line numbers go: `UnityWrapperProvider.java:1` instead of `:240`). It lists the folders searched and the manual call, `bugsee-cli debug-files upload <mapping.txt> --type proguard --version <version> --build <build number>` with `BUGSEE_APP_TOKEN` set. For an APK or AAB the mapping's age is not judged (Unity copies Gradle's file with its modification time, and an up-to-date R8 task leaves it unchanged); in an Export Project a `mapping.txt` older than the build was left by an earlier Gradle run (Unity never runs Gradle there), so it is not uploaded and the warning names it. Where the mapping lands (real builds with R8 on, identical on Unity 2021.3.45f1, 2022.3.62f3 and 6000.0.84f1): an **APK** and an **AAB** get `<player>_mapping.txt` beside the output, copied from Unity's Gradle project (`Library/Bee/Android/Prj/<IL2CPP|Mono2x>/Gradle/launcher/build/outputs/mapping/<variant>/mapping.txt`), so both upload as usual (when Gradle wrote none, Unity logs its own "Failed to copy mapping file" error and the package warns too); an **Export Project** has none, because Unity does not run Gradle for it: build the exported project with Gradle and upload `launcher/build/outputs/mapping/<variant>/mapping.txt` yourself (the warning says so on every such build; on AGP 8.6 and later the exported project carries the Bugsee Gradle plugin, which uploads it itself when it has the app token, and a second upload is harmless). With the upload off (no `BUGSEE_APP_TOKEN` in the Editor, or `BUGSEE_NO_SYMBOL_UPLOAD`) a Minify build whose mapping exists gets one log line with the same call; a missing mapping is not reported then, as nothing was going to be uploaded.
 
 Releases built without R8 (Minify off, the Unity default) have no mapping and no Java names to restore. Minify may be turned on with no extra setup: the package appends its keep rules to the generated `unityLibrary/proguard-unity.txt` on every build (see the Player Settings checklist above), so `UnityWrapper` and `UnityManagedException` survive R8 and the SDK launches.
 
 **iOS**
 
 1. Scripting Backend: IL2CPP
-2. Nothing to enable for LineNumberMappings: when `BUGSEE_APP_TOKEN` is set in the environment of the Unity Editor process during the build, the package adds `--emit-source-mapping --emit-method-map` to the IL2CPP arguments for the build (restored afterward, also after a failed build). A token set only for the Xcode Run Script (step 4) is too late: Unity then adds no arguments and the export may lack `MethodMap.tsv`
+2. Nothing to enable for LineNumberMappings: the package adds `--emit-source-mapping --emit-method-map` to the IL2CPP arguments of every IL2CPP build, with or without `BUGSEE_APP_TOKEN` in the Unity Editor's environment (`IL2CPP_ADDITIONAL_ARGS` of the Editor process for the build only; Player Settings are not edited). The export therefore has `LineNumberMappings.json` and `MethodMap.tsv`, and the Xcode Run Script (step 4) uploads them when the token is only in the Xcode or CI environment
 3. Build or archive in Xcode: the Run Script uploads the dSYMs of the configuration being built. Debug has a dSYM only with `DEBUG_INFORMATION_FORMAT = dwarf-with-dsym` (Unity exports Debug as `dwarf`); without one the script prints a warning and uploads no dSYM
 4. Ensure `BUGSEE_APP_TOKEN` is visible to the Xcode Run Script phase
 5. The iOS export sets `DEBUG_INFORMATION_FORMAT=dwarf-with-dsym` on every configuration of Unity-iPhone and UnityFramework, so Debug builds have a dSYM too. `dsymutil` on UnityFramework adds time to each Debug build; to keep Unity's own setting, tick **Bugsee → iOS → Keep Xcode Debug Info Format (skip dSYM force)** or set `BUGSEE_NO_DSYM_FORCE` in the Editor's environment (CI)
 
+### Uploading the mapping from a later CI job
+
+The build writes the mapping next to the generated C++ even without a token. Keep it as a build artifact and upload it after the build:
+
+| Platform | Where the files are |
+|---|---|
+| Android | `<output>_BackUpThisFolder_ButDontShipItWithYourGame/il2cppOutput/Symbols/` (keep this folder; the Editor's `Library/Bee` copy is overwritten by the next build) |
+| iOS, Unity 2022.3 and 6000 | `<Xcode export>/Il2CppOutputProject/Source/il2cppOutput/Symbols/` |
+| iOS, Unity 2021.3 | `<Xcode export>/Classes/Native/Symbols/` |
+
+```sh
+bugsee-cli debug-files upload <Symbols>/LineNumberMappings.json \
+  --type il2cpp-linemap --version <CFBundleShortVersionString/versionName> --build <build number> \
+  --uuid <module UUIDs>
+```
+
+`MethodMap.tsv` and `il2cppFileRoot.txt` next to the JSON are sent with it. The UUIDs are those of the IL2CPP module: for Android the GNU build-id of each `libil2cpp.so` (one per ABI, comma separated; `llvm-readelf -n` from the NDK on the APK's `lib/<abi>/libil2cpp.so`, or the copy in `symbols.zip`), for iOS the Mach-O UUID of `UnityFramework` from the Xcode build (`dwarfdump --uuid` on the built `UnityFramework.framework/UnityFramework` or its dSYM; the export itself has no binary). Version and build must match the build's. Upload the matching native symbols (`elf` / `dsym`) as well. On iOS, the injected Run Script does all of this on its own when `BUGSEE_APP_TOKEN` is in the Xcode environment, so a manual upload is only for builds without it.
+
 ### Script Debugging vs dSYM
 
-- **Script Debugging** / IL2CPP stacktrace information controls managed stack quality. LineNumberMappings.json and MethodMap.tsv come from the IL2CPP arguments the package adds for the build when the upload is on (not from Script Debugging); set `BUGSEE_NO_IL2CPP_MAPPING` to turn that and the upload off, or `BUGSEE_IL2CPP_MAPPING` to upload a file you made yourself (Player Settings are then left alone). Adding or removing the token changes the arguments, which makes IL2CPP regenerate its cache once.
+- **Script Debugging** / IL2CPP stacktrace information controls managed stack quality. LineNumberMappings.json and MethodMap.tsv come from the IL2CPP arguments the package adds for every IL2CPP build (not from Script Debugging), with or without `BUGSEE_APP_TOKEN`: the files are written so that a later CI job can upload them; the upload needs the token. Set `BUGSEE_NO_IL2CPP_MAPPING` to turn the emission and the upload off, or `BUGSEE_IL2CPP_MAPPING` to upload a file you made yourself (the arguments are still added for the build). The arguments are passed through the Editor process's `IL2CPP_ADDITIONAL_ARGS` environment variable for the build only (Player Settings and `ProjectSettings.asset` are not touched). They add `//<source_info:...>` comments, with absolute source paths, to the generated C++ (the player binary is unchanged but its build-id differs from a build without them) and a few MB of mapping per build (`MethodMap.tsv` is about 190 bytes per method); the first build after upgrading, and every toggle of `BUGSEE_NO_IL2CPP_MAPPING`, recompiles all generated C++ once. Set `BUGSEE_NO_IL2CPP_MAPPING` if you hand the generated C++ or an Xcode export to others. Unity 2022.3 and 6000 also add `--emit-source-mapping` themselves when Cloud Diagnostics crash reporting is on; the package does not add a flag your Additional IL2CPP Arguments or `IL2CPP_ADDITIONAL_ARGS` already has.
 - **dSYM / ELF** carry native line programs used for the primary LNM remap (native PC → C++ file/line → C#).
 - You need **both** the linemap upload and native symbols with line info for viewer C# file/line on native fatals.
 
@@ -265,7 +296,7 @@ Device/CI proof remains manual.
 ### Milestone S2 — Android C# file/line
 
 1. IL2CPP Android build; Create symbols.zip / **FULL** native debug symbols.
-2. NDK enabled (`bugsee-android-ndk:7.4.1` + Gradle `ndk { enabled = true }` on Unity 6+).
+2. NDK enabled (`bugsee-android-ndk:7.4.2` + Gradle `ndk { enabled = true }` on Unity 6+).
 3. Post-build uploads `elf` + `il2cpp-linemap` (multi-ABI UUIDs).
 4. Native fatal on device; viewer shows **C# file/line**.
 
@@ -301,7 +332,7 @@ A `RectTransform` corner from `GetWorldCorners` in a screen-space overlay canvas
 
 ## Native dependencies
 
-- **Android:** Maven `com.bugsee:bugsee-android:7.4.1` + `com.bugsee:bugsee-android-ndk:7.4.1`, declared in the generated Gradle project by `Editor/BugseeAndroidMavenDependencies.cs` (Gradle plugin `4.0.8`, patched into the generated project when it pins AGP 8.6+). Native symbols for upload come from Unity's `symbols.zip` (Player Settings > Publishing Settings > Create symbols.zip). Unity 6 defaults it to Disabled and Public holds symbol tables only; native/IL2CPP file:line symbolication needs Debugging (about ten times larger, mind Google Play's limits). The build warns when a Bugsee app token is set and the level is not Debugging; `Bugsee > Android > Use Full Native Symbols (Debugging) For Symbol Upload` (or `BUGSEE_ANDROID_FULL_SYMBOLS=1`) builds with Debugging and restores the setting. On 2021.3 release builds also get `debugSymbolLevel 'FULL'`. Core publishes no transitives; NDK is a separate artifact and must be declared. Fragment secure-view overloads are typed as `Object`, so Unity JNI does not need `androidx.fragment`.
+- **Android:** Maven `com.bugsee:bugsee-android:7.4.2` + `com.bugsee:bugsee-android-ndk:7.4.2`, declared in the generated Gradle project by `Editor/BugseeAndroidMavenDependencies.cs` (Gradle plugin `4.0.8`, patched into the generated project when it pins AGP 8.6+). Native symbols for upload come from Unity's `symbols.zip` (Player Settings > Publishing Settings > Create symbols.zip). Unity 6 defaults it to Disabled and Public holds symbol tables only; native/IL2CPP file:line symbolication needs Debugging (about ten times larger, mind Google Play's limits). The build warns when a Bugsee app token is set and the level is not Debugging; `Bugsee > Android > Use Full Native Symbols (Debugging) For Symbol Upload` (or `BUGSEE_ANDROID_FULL_SYMBOLS=1`) builds with Debugging and restores the setting. On 2021.3 release builds also get `debugSymbolLevel 'FULL'`. Core publishes no transitives; NDK is a separate artifact and must be declared. Fragment secure-view overloads are typed as `Object`, so Unity JNI does not need `androidx.fragment`.
 - **iOS:** SPM-only. Xcode resolves [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta7` (iOS 15+). C bridge: `Plugins/iOS/BugseeUnityBridge.mm` + `BugseeUnityCallbacks.mm`.
 
 ### iOS bridge status

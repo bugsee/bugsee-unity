@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Threading;
 using AOT;
 using Bugsee.Contracts.Appearance;
 using Bugsee.Contracts.Exchange;
@@ -29,11 +30,11 @@ namespace Bugsee.Platform.IOS
         delegate void DeleteNativeCallback(int token, int wiped);
         delegate void LaunchStartedNativeCallback(int token, int success);
 
-        ulong _inFlightUploadToken;
+        // Written on the main thread, read and cleared on the SDK queue: always through Interlocked.
+        long _inFlightUploadToken; // the upload token as a long: Interlocked has no ulong overloads in Unity
         ulong _managedReportUploadFence;
         int _reportUploadGeneration;
 
-        bool _blackout;
         IosAppearance _appearance;
         IosReport _openReport;
         IosLiveReport _openReportHandle;
@@ -144,6 +145,7 @@ namespace Bugsee.Platform.IOS
 
         void RelaunchNow(IDictionary<string, object> options, Action<bool> started)
         {
+            EnsureWrapperRegistered();
             WarnOnceIfExceptionsNotFiled();
             DeleteCollectedDataLaunchGeneration.BumpForLaunch();
             _networkLaunchBuffer.BeginNewLaunchCycle();
@@ -429,16 +431,15 @@ namespace Bugsee.Platform.IOS
         public void StartBlackout()
         {
             _bugsee_start_blackout();
-            _blackout = true;
         }
 
         public void EndBlackout()
         {
             _bugsee_end_blackout();
-            _blackout = false;
         }
 
-        public bool IsBlackout() => _blackout;
+        // Read from the SDK, as on Android, so no copy of its state can drift from it.
+        public bool IsBlackout() => _bugsee_is_blackout() != 0;
 
         public void ChannelLog(string message, LogLevel level)
         {
@@ -511,7 +512,7 @@ namespace Bugsee.Platform.IOS
         {
             _reportUploadGeneration++;
             _managedReportUploadFence++;
-            _inFlightUploadToken = 0;
+            Interlocked.Exchange(ref _inFlightUploadToken, 0L);
             // Native fence first: an upload applying on the SDK queue must already read as cancelled when its
             // snapshot files go away, or a report stripped of those attachments is uploaded.
             _bugsee_invalidate_managed_report_uploads();
@@ -582,27 +583,36 @@ namespace Bugsee.Platform.IOS
             _openReport = null;
             _openReportHandle = null;
             _uploadCompletionBridge = this;
-            _inFlightUploadToken = uploadToken;
+            Interlocked.Exchange(ref _inFlightUploadToken, (long)uploadToken);
             _bugsee_upload_managed_report(json, uploadToken, uploadFence, OnManagedReportCreateCompletion);
         }
 
         [MonoPInvokeCallback(typeof(ManagedReportUploadNativeCallback))]
         static void OnManagedReportCreateCompletion(int succeeded, ulong uploadToken)
         {
-            // Instance is resolved through the static bridge reference set at upload time.
-            if (_uploadCompletionBridge == null)
-                return;
-            _uploadCompletionBridge.HandleManagedReportCreateCompletion(succeeded != 0, uploadToken);
+            // Runs on the SDK queue: an exception must never unwind into native code.
+            try
+            {
+                // Instance is resolved through the static bridge reference set at upload time.
+                var bridge = _uploadCompletionBridge;
+                if (bridge == null)
+                    return;
+                bridge.HandleManagedReportCreateCompletion(succeeded != 0, uploadToken);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
         }
 
-        static IOSBridge _uploadCompletionBridge;
+        static volatile IOSBridge _uploadCompletionBridge;
 
         void HandleManagedReportCreateCompletion(bool succeeded, ulong uploadToken)
         {
             ReleaseUploadSnapshotReport(uploadToken);
-            if (uploadToken != _inFlightUploadToken)
+            // Clears the token only when it is still this upload's; a newer upload or a cancel already replaced it.
+            if (Interlocked.CompareExchange(ref _inFlightUploadToken, 0L, (long)uploadToken) != (long)uploadToken)
                 return;
-            _inFlightUploadToken = 0;
             if (!succeeded)
                 Debug.LogError("[Bugsee] CreateReport failed.");
         }
@@ -872,10 +882,6 @@ namespace Bugsee.Platform.IOS
 
         static string ToJsonValue(object value) => JsonWire.Value(value);
 
-        static string ToJsonLiteral(object value) => JsonWire.Literal(value);
-
-        static string JsonString(string s) => JsonWire.String(s);
-
         [DllImport("__Internal")] static extern void _bugsee_launch(
             string appToken, string optionsJson, int startedToken, LaunchStartedNativeCallback started);
         [DllImport("__Internal")] static extern void _bugsee_relaunch(
@@ -885,6 +891,7 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern int _bugsee_exceptions_filed();
         [DllImport("__Internal")] static extern void _bugsee_start_blackout();
         [DllImport("__Internal")] static extern void _bugsee_end_blackout();
+        [DllImport("__Internal")] static extern int _bugsee_is_blackout();
         [DllImport("__Internal")] static extern void _bugsee_log(string message, int level);
         [DllImport("__Internal")] static extern void _bugsee_channel_log(string message, int level, int source);
         [DllImport("__Internal")] static extern void _bugsee_channel_network(string eventJson, int requiresFiltering);
@@ -894,7 +901,6 @@ namespace Bugsee.Platform.IOS
             int iosLevel,
             double timestampUnixSeconds);
         [DllImport("__Internal")] static extern void _bugsee_delete_collected_data(int token, DeleteNativeCallback completion);
-        [DllImport("__Internal")] static extern void _bugsee_cancel_managed_report_upload(ulong uploadId);
         [DllImport("__Internal")] static extern void _bugsee_invalidate_managed_report_uploads();
         [DllImport("__Internal")] static extern void _bugsee_upload_managed_report(
             string reportJson,
@@ -903,7 +909,7 @@ namespace Bugsee.Platform.IOS
             ManagedReportUploadNativeCallback callback);
         [DllImport("__Internal")] static extern void _bugsee_trace(string name, string valueJson);
         [DllImport("__Internal")] static extern void _bugsee_event(string name, string paramsJson);
-        [DllImport("__Internal")] static extern void _bugsee_logException(string name, string reason, bool handled, string optionsJson);
+        [DllImport("__Internal")] static extern void _bugsee_logException(string name, string reason, [MarshalAs(UnmanagedType.U1)] bool handled, string optionsJson);
         [DllImport("__Internal")] static extern void _bugsee_test_crash();
         [DllImport("__Internal")] static extern int _bugsee_exception_options_dropped();
         [DllImport("__Internal")] static extern void _bugsee_show_report(string summary, string description, int severity, string labelsJson);
@@ -917,7 +923,6 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_set_email(string email);
         [DllImport("__Internal")] static extern IntPtr _bugsee_get_email();
         [DllImport("__Internal")] static extern void _bugsee_clear_email();
-        [DllImport("__Internal")] static extern IntPtr _bugsee_get_device_id();
         [DllImport("__Internal")] static extern void _bugsee_set_secure_buffer(int display, int[] packed, int packedLength);
         [DllImport("__Internal")] static extern float _bugsee_screen_scale();
         [DllImport("__Internal")] static extern void _bugsee_capture_view_hierarchy();
