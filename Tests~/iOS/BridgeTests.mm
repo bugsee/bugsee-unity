@@ -14,6 +14,14 @@ const char *_bugsee_test_copy_wrapper_build(void);
 int _bugsee_test_wrapper_installed(void);
 const char *_bugsee_test_apply_breadcrumb_result(const char *startDataJson, const char *resultJson);
 const char *_bugsee_test_copy_context_value(const char *key);
+typedef void (*BugseeDataRequestFn)(int64_t requestId, const char *dataType);
+void _bugsee_register_data_request_callback(BugseeDataRequestFn callback);
+void _bugsee_complete_data_request(int64_t requestId, const char *json);
+int _bugsee_test_request_data(const char *type);
+int _bugsee_test_data_reply_count(void);
+const char *_bugsee_test_copy_data_reply(void);
+float _bugsee_pixels_per_point(int unityPixelWidth);
+float _bugsee_screen_scale(void);
 const char *_bugsee_test_apply_report_result(const char *startAttributesJson, const char *resultJson);
 const char *_bugsee_test_report_json_with_unserializable_attributes(const char *startAttributesJson);
 void _bugsee_set_attribute(const char *key, const char *valueJson);
@@ -105,6 +113,22 @@ static void OnStopped(int token)
     gStoppedToken = token;
 }
 
+// Stands in for C#'s data request callback: records the ids and types it is asked, answers inline when told to.
+static int64_t gDataRequestIds[8];
+static char gDataRequestTypes[8][16];
+static int gDataRequestCalls;
+static const char *gDataRequestInlineAnswer;
+
+static void OnDataRequest(int64_t requestId, const char *dataType)
+{
+    if (gDataRequestCalls < 8) {
+        gDataRequestIds[gDataRequestCalls] = requestId;
+        strncpy(gDataRequestTypes[gDataRequestCalls], dataType ? dataType : "", 15);
+    }
+    gDataRequestCalls++;
+    if (gDataRequestInlineAnswer) _bugsee_complete_data_request(requestId, gDataRequestInlineAnswer);
+}
+
 // Spins the main run loop until the condition holds or the time is up.
 static int waitFor(int (^condition)(void), double seconds)
 {
@@ -122,6 +146,15 @@ static void expect(int condition, const char *message)
         exit(1);
     }
     printf("ok %s\n", message);
+}
+
+// True when the last data reply was nil (the copy is freed, so a check does not leak it).
+static int dataReplyIsNil(void)
+{
+    const char *reply = _bugsee_test_copy_data_reply();
+    int isNil = reply == NULL;
+    free((void *)reply);
+    return isNil;
 }
 
 static int same(const char *value, const char *expected)
@@ -323,6 +356,41 @@ int main(void)
     setlocale(LC_ALL, "C");
     [defaults removeObjectForKey:@"AppleLocale"];
     [defaults removeObjectForKey:@"AppleLanguages"];
+
+    // requestData: only "vh" reaches managed code, every request is answered once, and nothing hangs the SDK's budget.
+    expect(_bugsee_test_request_data("vh") == 1 && dataReplyIsNil(),
+           "vh is answered nil before managed code has registered");
+    _bugsee_register_data_request_callback(OnDataRequest);
+    expect(_bugsee_test_request_data("other") == 1 && gDataRequestCalls == 0 && dataReplyIsNil(),
+           "an unknown type is answered nil without asking managed code");
+    gDataRequestInlineAnswer = "{\"class_name\":\"UnityPlayer\"}";
+    expect(_bugsee_test_request_data("vh") == 1 && gDataRequestCalls == 1 && same(gDataRequestTypes[0], "vh"),
+           "vh is handed to managed code and answered inside the request");
+    value = _bugsee_test_copy_data_reply();
+    expect(same(value, "{\"class_name\":\"UnityPlayer\"}"), "the managed answer reaches the SDK byte for byte");
+    free((void *)value);
+    _bugsee_complete_data_request(gDataRequestIds[0], "{\"late\":true}");
+    expect(_bugsee_test_data_reply_count() == 1, "a second answer to the same request is ignored");
+    gDataRequestInlineAnswer = NULL;
+    expect(_bugsee_test_request_data("vh") == 0 && gDataRequestCalls == 2, "an answer made later is waited for");
+    _bugsee_complete_data_request(gDataRequestIds[1], "{\"later\":true}");
+    value = _bugsee_test_copy_data_reply();
+    expect(_bugsee_test_data_reply_count() == 1 && same(value, "{\"later\":true}"), "the later answer arrives once with its text");
+    free((void *)value);
+    _bugsee_complete_data_request(gDataRequestIds[1], "{\"again\":true}");
+    expect(_bugsee_test_data_reply_count() == 1, "the id is spent after its answer");
+    expect(_bugsee_test_request_data("vh") == 0, "a request waits for its answer");
+    _bugsee_complete_data_request(gDataRequestIds[2], NULL);
+    expect(_bugsee_test_data_reply_count() == 1 && dataReplyIsNil(), "null from managed code is answered as nil");
+    _bugsee_complete_data_request(987654, "{}");
+    // The hierarchy's unit: Unity pixels per point is Unity's width over the screen's width in points, not UIScreen.scale.
+    CGFloat pointsWide = [UIScreen mainScreen].bounds.size.width;
+    float perPoint = _bugsee_pixels_per_point((int)(pointsWide * 2.0));
+    expect(perPoint > 1.99f && perPoint < 2.01f, "pixels per point follows Unity's width over the screen width in points");
+    expect(_bugsee_pixels_per_point((int)(pointsWide * 2.608)) > 2.6f, "a render width below the screen scale is not rounded to it");
+    expect(_bugsee_pixels_per_point(0) == _bugsee_screen_scale() && _bugsee_pixels_per_point(-5) == _bugsee_screen_scale(),
+           "an unusable width falls back to the screen scale");
+    _bugsee_register_data_request_callback(NULL);
 
     // Lifecycle against the real SDK: answers come back with the caller's token.
     _bugsee_launch("00000000-0000-0000-0000-000000000000", "{\"max_recording_time\":60}", 41, OnStarted);
