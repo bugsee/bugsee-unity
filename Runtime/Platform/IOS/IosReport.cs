@@ -19,7 +19,6 @@ namespace Bugsee.Platform.IOS
         public string email;
         public int severity;
         public string[] labels;
-        public IosKv[] attributes;
     }
 
     [Serializable]
@@ -37,29 +36,44 @@ namespace Bugsee.Platform.IOS
         readonly IosReportDto _dto;
         readonly Dictionary<string, object> _attributes = new Dictionary<string, object>();
         readonly HashSet<string> _removedAttributes = new HashSet<string>();
+        // Names the handler set: only these go back, so attributes it never touched keep their native values and kinds.
+        readonly HashSet<string> _changedAttributes = new HashSet<string>();
         readonly List<string> _labels = new List<string>();
         readonly List<IosAttachment> _attachments = new List<IosAttachment>();
-        readonly bool _hadAttributeArray;
-        bool _attributesOverlayDirty;
         bool _attributesClearAll;
         bool _labelsDirty;
         bool _attachmentsDirty;
         bool _attachmentsReplaceAll;
 
-        public IosReport(IosReportDto dto)
+        public IosReport(IosReportDto dto) : this(dto, null)
+        {
+        }
+
+        /// <param name="attributes">The report's attributes as native sent them (typed, nested values kept), or null.</param>
+        public IosReport(IosReportDto dto, IDictionary<string, object> attributes)
         {
             _dto = dto ?? new IosReportDto();
-            _hadAttributeArray = _dto.attributes != null;
             if (_dto.labels != null)
                 _labels.AddRange(_dto.labels);
-            if (_dto.attributes != null)
+            if (attributes != null)
             {
-                foreach (var p in _dto.attributes)
+                foreach (var p in attributes)
                 {
-                    if (p == null || string.IsNullOrEmpty(p.key)) continue;
-                    _attributes[p.key] = p.value;
+                    if (string.IsNullOrEmpty(p.Key)) continue;
+                    _attributes[p.Key] = p.Value;
                 }
             }
+        }
+
+        /// <summary>The <c>attributes</c> object of the native report JSON with value kinds intact; empty when
+        /// absent, null when the JSON cannot be read (malformed, or nested past the depth limit), so the caller can say so.</summary>
+        internal static Dictionary<string, object> ReadAttributes(string json)
+        {
+            var root = JsonRead.Object(json);
+            if (root == null) return null;
+            if (root.TryGetValue("attributes", out var value) && value is Dictionary<string, object> map)
+                return map;
+            return new Dictionary<string, object>();
         }
 
         public string Id => _dto.id;
@@ -106,23 +120,23 @@ namespace Bugsee.Platform.IOS
             if (string.IsNullOrEmpty(name)) return;
             _attributes[name] = value;
             _removedAttributes.Remove(name);
-            _attributesOverlayDirty = true;
+            _changedAttributes.Add(name);
         }
 
         public void RemoveAttribute(string name)
         {
             if (name == null) return;
             _attributes.Remove(name);
+            _changedAttributes.Remove(name);
             _removedAttributes.Add(name);
-            _attributesOverlayDirty = true;
         }
 
         public void ClearAllAttributes()
         {
             _attributes.Clear();
             _removedAttributes.Clear();
+            _changedAttributes.Clear();
             _attributesClearAll = true;
-            _attributesOverlayDirty = false;
         }
 
         public IReadOnlyList<string> Labels => _labels;
@@ -248,44 +262,41 @@ namespace Bugsee.Platform.IOS
                 sb.Append(']');
             }
 
-            // Omit attributes when normalize failed to load them and user never
-            // touched the map — otherwise ApplyReportDict would wipe native attrs.
-            var emitAttributes = _hadAttributeArray || _attributesClearAll || _attributesOverlayDirty
-                || _attributes.Count > 0 || _removedAttributes.Count > 0;
-            if (emitAttributes)
+            // Attributes go back as a change set: the names the handler set (kind kept) and the names it removed.
+            // Native keeps every attribute the handler did not touch, with its own value kind. Only
+            // ClearAllAttributes replaces the whole set.
+            if (!_attributesClearAll && _removedAttributes.Count > 0)
             {
-                if (!_hadAttributeArray && _removedAttributes.Count > 0)
+                sb.Append(",\"attributeRemovals\":[");
+                var firstRemoval = true;
+                foreach (var name in _removedAttributes)
                 {
-                    sb.Append(",\"attributeRemovals\":[");
-                    var firstRemoval = true;
-                    foreach (var name in _removedAttributes)
-                    {
-                        if (!firstRemoval) sb.Append(',');
-                        firstRemoval = false;
-                        IosJsonStringEncoding.AppendQuoted(sb, name);
-                    }
-                    sb.Append(']');
+                    if (!firstRemoval) sb.Append(',');
+                    firstRemoval = false;
+                    IosJsonStringEncoding.AppendQuoted(sb, name);
                 }
-
-                if (_attributes.Count > 0 || _attributesClearAll || _hadAttributeArray)
-                {
-                    sb.Append(",\"attributes\":{");
-                    var first = true;
-                    foreach (var kv in _attributes)
-                    {
-                        if (kv.Key == null) continue;
-                        if (!first) sb.Append(',');
-                        first = false;
-                        IosJsonStringEncoding.AppendQuoted(sb, kv.Key);
-                        sb.Append(':');
-                        AppendValue(sb, kv.Value);
-                    }
-                    sb.Append('}');
-                }
-
-                if (_attributesClearAll || _hadAttributeArray)
-                    sb.Append(",\"attributesReplaceAll\":true");
+                sb.Append(']');
             }
+
+            if (_attributesClearAll || _changedAttributes.Count > 0)
+            {
+                sb.Append(",\"attributes\":{");
+                var first = true;
+                foreach (var kv in _attributes)
+                {
+                    if (kv.Key == null) continue;
+                    if (!_attributesClearAll && !_changedAttributes.Contains(kv.Key)) continue;
+                    if (!first) sb.Append(',');
+                    first = false;
+                    IosJsonStringEncoding.AppendQuoted(sb, kv.Key);
+                    sb.Append(':');
+                    AppendValue(sb, kv.Value);
+                }
+                sb.Append('}');
+            }
+
+            if (_attributesClearAll)
+                sb.Append(",\"attributesReplaceAll\":true");
 
             if (_attachmentsDirty)
             {
@@ -314,31 +325,9 @@ namespace Bugsee.Platform.IOS
         static void AppendRawString(StringBuilder sb, string value) =>
             IosJsonStringEncoding.AppendQuoted(sb, value);
 
-        static void AppendValue(StringBuilder sb, object value)
-        {
-            if (value == null) { sb.Append("null"); return; }
-            if (value is bool b) { sb.Append(b ? "true" : "false"); return; }
-            if (value is float f)
-            {
-                if (float.IsNaN(f) || float.IsInfinity(f)) { sb.Append("null"); return; }
-                sb.Append(f.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                return;
-            }
-            if (value is double d)
-            {
-                if (double.IsNaN(d) || double.IsInfinity(d)) { sb.Append("null"); return; }
-                sb.Append(d.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                return;
-            }
-            if (value is byte || value is sbyte || value is short || value is ushort
-                || value is int || value is uint || value is long || value is ulong
-                || value is decimal)
-            {
-                sb.Append(Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture));
-                return;
-            }
-            IosJsonStringEncoding.AppendQuoted(sb, Convert.ToString(value));
-        }
+        // The same value wire as Bugsee.SetAttribute: a whole-number double keeps its ".0" (native would read 2 as an
+        // integer), "R" digits, invariant culture, enums by value, containers as JSON, NaN/Infinity as null.
+        static void AppendValue(StringBuilder sb, object value) => sb.Append(AttributeWire.ToJson(value));
     }
 
     static class IosJsonStringEncoding

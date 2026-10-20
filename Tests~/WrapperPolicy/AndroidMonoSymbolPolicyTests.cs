@@ -25,6 +25,38 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Warns_once_about_missing_file_line_for_release_mono()
+        {
+            bool warned = false;
+            var text = AndroidMonoSymbolPolicy.TakeManagedLinesWarning("Mono2x", false, ref warned);
+            Assert.That(text, Does.Contain("IL2CPP").And.Contain("Development Build").And.Contain("IL offsets")
+                .And.Contain("not for store builds").And.Not.Contain("Script Debugging"));
+            Assert.That(warned, Is.True);
+            Assert.That(AndroidMonoSymbolPolicy.TakeManagedLinesWarning("Mono2x", false, ref warned), Is.Null);
+        }
+
+        [TestCase("Mono2x", true)]
+        [TestCase("IL2CPP", false)]
+        [TestCase("IL2CPP", true)]
+        [TestCase(null, false)]
+        public void No_file_line_warning_for_development_mono_or_other_backends(string backend, bool development)
+        {
+            bool warned = false;
+            Assert.That(AndroidMonoSymbolPolicy.TakeManagedLinesWarning(backend, development, ref warned), Is.Null);
+            Assert.That(warned, Is.False);
+        }
+
+        [Test]
+        public void Editor_reads_the_development_flag_from_the_build_report()
+        {
+            var dir = TestContext.CurrentContext.TestDirectory;
+            while (!File.Exists(Path.Combine(dir, "package.json"))) dir = Directory.GetParent(dir).FullName;
+            var text = File.ReadAllText(Path.Combine(dir, "Editor", "BugseeAndroidMonoWarning.cs"));
+            Assert.That(text, Does.Contain("report.summary.options & BuildOptions.Development"));
+            Assert.That(text, Does.Contain("TakeManagedLinesWarning"));
+        }
+
+        [Test]
         public void Never_warns_for_il2cpp_and_leaves_the_flag_alone()
         {
             bool warned = false;

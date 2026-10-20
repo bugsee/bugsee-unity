@@ -16,16 +16,6 @@
 #define BUGSEE_IOS_SDK 0
 #endif
 
-// bugsee-cocoa up to 7.0.0-beta6 has BugseeExceptionLoggingOptions and +logException:reason:options:completion:.
-// 7.0.0-beta7 removed both: domain and skipFrames are arguments; labels, the video and the merging rules have no
-// replacement on a logged exception, and the flag form of the delete changed with them.
-// Remove this switch and its #if branches when the pin moves past beta6.
-#if __has_include(<Bugsee/BugseeExceptionLoggingOptions.h>) || __has_include("Bugsee/BugseeExceptionLoggingOptions.h")
-#define BUGSEE_IOS_LEGACY_EXCEPTION_API 1
-#else
-#define BUGSEE_IOS_LEGACY_EXCEPTION_API 0
-#endif
-
 #if BUGSEE_IOS_SDK
 
 static id BugseeDeserializeJson(const char *string)
@@ -65,28 +55,11 @@ typedef void (*BugseeManagedReportCreateCallback)(int succeeded, uint64_t upload
 // Written on the Unity thread, read on the SDK's completion queue: guard with one lock.
 static NSObject *gManagedReportUploadLock = [NSObject new];
 static uint64_t gManagedReportUploadFence;
-static NSMutableSet<NSNumber *> *gCancelledManagedReportUploadIds;
 
 static BOOL BugseeManagedReportUploadStillActive(uint64_t uploadId, uint64_t uploadFence)
 {
     @synchronized (gManagedReportUploadLock) {
-        if (uploadId == 0 || uploadFence != gManagedReportUploadFence) {
-            return NO;
-        }
-        if (!gCancelledManagedReportUploadIds) {
-            return YES;
-        }
-        return ![gCancelledManagedReportUploadIds containsObject:@(uploadId)];
-    }
-}
-
-static void BugseeBridgeSetAttachmentFileNameIfNeeded(id attachment, NSString *displayName, NSString *fileName)
-{
-    if (!attachment || fileName.length == 0 || [fileName isEqualToString:displayName]) {
-        return;
-    }
-    if ([attachment conformsToProtocol:@protocol(BGSAttachmentContract)]) {
-        ((id<BGSAttachmentContract>)attachment).fileName = fileName;
+        return uploadId != 0 && uploadFence == gManagedReportUploadFence;
     }
 }
 
@@ -326,6 +299,13 @@ void _bugsee_end_blackout(void)
     [Bugsee endBlackout];
 }
 
+// The SDK's own blackout state, not a managed shadow of it. A plain BOOL read, like the status above:
+// callable from any thread.
+int _bugsee_is_blackout(void)
+{
+    return [Bugsee isBlackout] ? 1 : 0;
+}
+
 void _bugsee_log(const char *message, int level)
 {
     [Bugsee log:BugseeNSString(message) level:(BugseeLogLevel)level];
@@ -352,58 +332,6 @@ void _bugsee_event(const char *name, const char *paramsJson)
     [Bugsee event:BugseeNSString(name)];
 }
 
-#if BUGSEE_IOS_LEGACY_EXCEPTION_API
-
-static NSArray<NSString *> *BugseeStringsIn(id value)
-{
-    if (![value isKindOfClass:[NSArray class]]) {
-        return nil;
-    }
-    NSMutableArray<NSString *> *clean = [NSMutableArray array];
-    for (id item in (NSArray *)value) {
-        if ([item isKindOfClass:[NSString class]]) {
-            [clean addObject:item];
-        }
-    }
-    return clean;
-}
-
-// Honoured keys: labels (strings), includeVideo (bool, default true), mergingRules (map, the SDK's own keys) and
-// skipFrames (number, as on Android). The domain is owned by the wrapper (the exception name), so a caller-supplied one is ignored, as on Android.
-static BugseeExceptionLoggingOptions *BugseeExceptionOptionsFrom(const char *optionsJson)
-{
-    id parsed = BugseeDeserializeJson(optionsJson);
-    if (![parsed isKindOfClass:[NSDictionary class]]) {
-        return nil;
-    }
-    NSDictionary *d = parsed;
-    BugseeExceptionLoggingOptions *options = [BugseeExceptionLoggingOptions new];
-    // A fresh options object has includeVideo off; nil options keep the video, so only an explicit false drops it.
-    options.includeVideo = YES;
-    NSArray<NSString *> *labels = BugseeStringsIn(d[@"labels"]);
-    if (labels) {
-        options.labels = labels;
-    }
-    id includeVideo = d[@"includeVideo"];
-    if ([includeVideo isKindOfClass:[NSNumber class]]) {
-        options.includeVideo = [includeVideo boolValue];
-    }
-    id rules = d[@"mergingRules"];
-    NSMutableDictionary *mergingRules = [rules isKindOfClass:[NSDictionary class]]
-        ? [rules mutableCopy] : [NSMutableDictionary dictionary];
-    // Android's top-level skipFrames is the SDK's skip-frames merging rule here.
-    id skipFrames = d[@"skipFrames"];
-    if ([skipFrames isKindOfClass:[NSNumber class]]) {
-        mergingRules[BugseeMergingRulesSkipFramesKey] = skipFrames;
-    }
-    if (mergingRules.count > 0) {
-        options.mergingRules = mergingRules;
-    }
-    return options;
-}
-
-#else
-
 // Honoured key: skipFrames (number, as on Android). labels, includeVideo and mergingRules have no counterpart in the
 // SDK any more: a logged exception takes no labels (a report handler cannot tell which report is the exception's,
 // so none are attached rather than risk a wrong report), always carries the live capture and has no merging rules
@@ -424,9 +352,7 @@ static NSInteger BugseeExceptionSkipFrames(NSDictionary *options)
     return [skipFrames integerValue];
 }
 
-#endif
-
-#if BUGSEE_UNITY_TESTS && !BUGSEE_IOS_LEGACY_EXCEPTION_API
+#if BUGSEE_UNITY_TESTS
 static int gDroppedOptionsWarningCount = 0;
 #endif
 
@@ -435,9 +361,6 @@ void _bugsee_logException(const char *name, const char *reason, bool handled, co
     NSString *finalName = BugseeNSString(name) ?: @"UnityManagedException";
     NSString *finalReason = BugseeNSString(reason) ?: @"";
     if (handled) {
-#if BUGSEE_IOS_LEGACY_EXCEPTION_API
-        [Bugsee logException:finalName reason:finalReason options:BugseeExceptionOptionsFrom(optionsJson) completion:nil];
-#else
         NSDictionary *options = BugseeExceptionOptionsDict(optionsJson);
         if (options[@"labels"] || options[@"includeVideo"] || options[@"mergingRules"]) {
             static dispatch_once_t droppedOnce;
@@ -453,7 +376,6 @@ void _bugsee_logException(const char *name, const char *reason, bool handled, co
                       domain:finalName
                   skipFrames:BugseeExceptionSkipFrames(options)
                   completion:nil];
-#endif
     } else {
         // The SDK has no options on the unhandled path.
         [Bugsee logUnhandledException:finalName reason:finalReason completion:nil];
@@ -462,29 +384,20 @@ void _bugsee_logException(const char *name, const char *reason, bool handled, co
 
 #if BUGSEE_UNITY_TESTS
 int _bugsee_test_simulator_warning_count(void) { return gSimulatorWarningCount; }
-#if !BUGSEE_IOS_LEGACY_EXCEPTION_API
 int _bugsee_test_dropped_options_warning_count(void) { return gDroppedOptionsWarningCount; }
-#endif
 const char *_bugsee_test_exception_options(const char *optionsJson)
 {
-#if BUGSEE_IOS_LEGACY_EXCEPTION_API
-    BugseeExceptionLoggingOptions *o = BugseeExceptionOptionsFrom(optionsJson);
-    if (!o) return NULL;
-    NSString *summary = [NSString stringWithFormat:@"labels=%@;video=%d;rules=%@",
-                         [o.labels componentsJoinedByString:@","], o.includeVideo ? 1 : 0, o.mergingRules];
-#else
     NSDictionary *d = BugseeExceptionOptionsDict(optionsJson);
     if (!d) return NULL;
     NSString *summary = [NSString stringWithFormat:@"skipFrames=%ld", (long)BugseeExceptionSkipFrames(d)];
-#endif
     return strdup(summary.UTF8String);
 }
 #endif
 
-// 1 when LogException's labels, includeVideo and mergingRules options have no counterpart in the SDK (7.0.0-beta7 and later).
+// 1: LogException's labels, includeVideo and mergingRules options have no counterpart in the SDK (7.0.0-beta7 and later).
 int _bugsee_exception_options_dropped(void)
 {
-    return BUGSEE_IOS_LEGACY_EXCEPTION_API ? 0 : 1;
+    return 1;
 }
 
 void _bugsee_test_crash(void)
@@ -524,6 +437,28 @@ static char *BugseeCopyUTF8(NSString *string)
     return strdup(utf8);
 }
 
+// An omitted severity (0 on the wire, BugseeSeverityLevel starts at 1) is the SDK default, the
+// ReportingDefaultBugPriority option; +getLaunchOptions merges the SDK defaults under the launch options.
+static BugseeSeverityLevel BugseeDefaultBugSeverity(void)
+{
+    id value = [Bugsee getLaunchOptions][BugseeOptionReportingDefaultBugPriority];
+    NSInteger level = [value respondsToSelector:@selector(integerValue)] ? [value integerValue] : 0;
+    return (level >= BugseeSeverityLow && level <= BugseeSeverityBlocker) ? (BugseeSeverityLevel)level : BugseeSeverityHigh;
+}
+
+#if BUGSEE_UNITY_TESTS
+// The tests record which SDK overload a report entry point chose and the severity it passed (0: none).
+static const char *gLastReportOverload = NULL;
+static int gLastReportSeverity = 0;
+#define BUGSEE_NOTE_REPORT_CALL(overload, severityPassed) \
+    do { gLastReportOverload = (overload); gLastReportSeverity = (int)(severityPassed); } while (0)
+int _bugsee_test_default_bug_severity(void) { return (int)BugseeDefaultBugSeverity(); }
+const char *_bugsee_test_last_report_overload(void) { return gLastReportOverload; }
+int _bugsee_test_last_report_severity(void) { return gLastReportSeverity; }
+#else
+#define BUGSEE_NOTE_REPORT_CALL(overload, severityPassed) ((void)0)
+#endif
+
 void _bugsee_show_report(const char *summary, const char *description, int severity, const char *labelsJson)
 {
     NSString *summaryStr = summary ? [NSString stringWithUTF8String:summary] : nil;
@@ -531,13 +466,20 @@ void _bugsee_show_report(const char *summary, const char *description, int sever
     NSString *labelsStr = labelsJson ? [NSString stringWithUTF8String:labelsJson] : nil;
     BugseeRunOnMain(^{
         NSArray<NSString *> *labels = BugseeLabelsFromJson(labelsStr.UTF8String);
-        if (summaryStr) {
-            [Bugsee showReportDialogWithSummary:summaryStr
-                                    description:descriptionStr ?: @""
-                                       severity:(BugseeSeverityLevel)severity
-                                         labels:labels];
-        } else {
+        BOOL hasSeverity = severity > 0;
+        if (summaryStr.length == 0 && descriptionStr.length == 0 && labels.count == 0 && !hasSeverity) {
+            BUGSEE_NOTE_REPORT_CALL("showReportDialog", 0);
             [Bugsee showReportDialog];
+        } else if (!hasSeverity && labels.count == 0) {
+            BUGSEE_NOTE_REPORT_CALL("showReportDialogWithSummary:description:", 0);
+            [Bugsee showReportDialogWithSummary:summaryStr ?: @"" description:descriptionStr ?: @""];
+        } else {
+            BUGSEE_NOTE_REPORT_CALL("showReportDialogWithSummary:description:severity:labels:",
+                                    hasSeverity ? (BugseeSeverityLevel)severity : BugseeDefaultBugSeverity());
+            [Bugsee showReportDialogWithSummary:summaryStr ?: @""
+                                    description:descriptionStr ?: @""
+                                       severity:hasSeverity ? (BugseeSeverityLevel)severity : BugseeDefaultBugSeverity()
+                                         labels:labels];
         }
     });
 }
@@ -545,9 +487,18 @@ void _bugsee_show_report(const char *summary, const char *description, int sever
 void _bugsee_upload(const char *summary, const char *description, int severity, const char *labelsJson)
 {
     NSArray<NSString *> *labels = BugseeLabelsFromJson(labelsJson);
-    [Bugsee uploadWithSummary:BugseeNSString(summary) ?: @""
-                  description:BugseeNSString(description) ?: @""
-                     severity:(BugseeSeverityLevel)severity
+    NSString *summaryStr = BugseeNSString(summary) ?: @"";
+    NSString *descriptionStr = BugseeNSString(description) ?: @"";
+    if (severity <= 0 && labels.count == 0) {
+        BUGSEE_NOTE_REPORT_CALL("uploadWithSummary:description:", 0);
+        [Bugsee uploadWithSummary:summaryStr description:descriptionStr];
+        return;
+    }
+    BUGSEE_NOTE_REPORT_CALL("uploadWithSummary:description:severity:labels:",
+                            severity > 0 ? (BugseeSeverityLevel)severity : BugseeDefaultBugSeverity());
+    [Bugsee uploadWithSummary:summaryStr
+                  description:descriptionStr
+                     severity:severity > 0 ? (BugseeSeverityLevel)severity : BugseeDefaultBugSeverity()
                        labels:labels];
 }
 
@@ -797,30 +748,6 @@ void _bugsee_clear_email(void)
     [Bugsee clearUserIdentifier];
 }
 
-char *_bugsee_get_device_id(void)
-{
-    // 7.x dropped getDeviceId from the public facade.
-    return NULL;
-}
-
-void _bugsee_add_secure_rect(float x, float y, float w, float h)
-{
-    (void)x;
-    (void)y;
-    (void)w;
-    (void)h;
-}
-
-void _bugsee_remove_secure_rect(float x, float y, float w, float h)
-{
-    (void)x;
-    (void)y;
-    (void)w;
-    (void)h;
-}
-
-void _bugsee_remove_all_secure_rects(void) {}
-
 float _bugsee_screen_scale(void)
 {
     return (float)[UIScreen mainScreen].scale;
@@ -983,12 +910,8 @@ void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completio
                     completion(token, success ? 1 : 0);
                 }
             };
-#if BUGSEE_IOS_LEGACY_EXCEPTION_API
-            [Bugsee deleteCollectedDataOnDevice:YES completion:done];
-#else
             // The flag form keeps the report bundles waiting for upload; this one deletes everything Bugsee collected.
             [Bugsee deleteCollectedDataOnDevice:done];
-#endif
         };
         // Only a running SDK is stopped: on a stopped one the stop's block may land after a launch that follows
         // this call on the main thread, and the wipe would then be skipped.
@@ -997,7 +920,10 @@ void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completio
         if (status == BugseeStatusStopping) {
             // A stop is already running (the managed side gave up waiting for it): a second [Bugsee stop:] could
             // land on a launch made after that, so wait for the stop that is running instead.
+            // The block keeps itself alive across the delayed retries on purpose and drops the reference on its last pass.
             __block void (^waitForStopped)(int) = nil;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-retain-cycles"
             waitForStopped = ^(int remainingTries) {
                 if (instance.status == BugseeStatusStopping && remainingTries > 0) {
                     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(100 * NSEC_PER_MSEC)), dispatch_get_main_queue(), ^{
@@ -1012,6 +938,7 @@ void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completio
                 }
                 waitForStopped = nil;
             };
+#pragma clang diagnostic pop
             waitForStopped(100);
         } else if (status != BugseeStatusStopped) {
             [Bugsee stop:^{
@@ -1023,21 +950,10 @@ void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completio
     });
 }
 
-void _bugsee_cancel_managed_report_upload(uint64_t uploadId)
-{
-    @synchronized (gManagedReportUploadLock) {
-        if (!gCancelledManagedReportUploadIds) {
-            gCancelledManagedReportUploadIds = [NSMutableSet new];
-        }
-        [gCancelledManagedReportUploadIds addObject:@(uploadId)];
-    }
-}
-
 void _bugsee_invalidate_managed_report_uploads(void)
 {
     @synchronized (gManagedReportUploadLock) {
         gManagedReportUploadFence++;
-        [gCancelledManagedReportUploadIds removeAllObjects];
     }
 }
 
@@ -1116,6 +1032,7 @@ void _bugsee_stop(int token, BugseeStopCompletionFn completion) { if (completion
 int _bugsee_get_status(void) { return 0; }
 void _bugsee_start_blackout(void) {}
 void _bugsee_end_blackout(void) {}
+int _bugsee_is_blackout(void) { return 0; }
 void _bugsee_log(const char *message, int level) { (void)message; (void)level; }
 void _bugsee_trace(const char *name, const char *valueJson) { (void)name; (void)valueJson; }
 void _bugsee_event(const char *name, const char *paramsJson) { (void)name; (void)paramsJson; }
@@ -1143,10 +1060,6 @@ void _bugsee_clear_all_attributes(void) {}
 void _bugsee_set_email(const char *email) { (void)email; }
 char *_bugsee_get_email(void) { return NULL; }
 void _bugsee_clear_email(void) {}
-char *_bugsee_get_device_id(void) { return NULL; }
-void _bugsee_add_secure_rect(float x, float y, float w, float h) { (void)x; (void)y; (void)w; (void)h; }
-void _bugsee_remove_secure_rect(float x, float y, float w, float h) { (void)x; (void)y; (void)w; (void)h; }
-void _bugsee_remove_all_secure_rects(void) {}
 float _bugsee_screen_scale(void) { return 1.f; }
 void _bugsee_set_secure_buffer(int display, int *packed, int packedLength)
 {
@@ -1164,7 +1077,6 @@ char *_bugsee_appearance_get_string(const char *propertyName) { (void)propertyNa
 void _bugsee_free(char *ptr) { (void)ptr; }
 typedef void (*BugseeDeleteCompletionFn)(int token, int wiped);
 void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completion) { if (completion) completion(token, 0); }
-void _bugsee_cancel_managed_report_upload(uint64_t uploadId) { (void)uploadId; }
 void _bugsee_invalidate_managed_report_uploads(void) {}
 void _bugsee_upload_managed_report(const char *reportJson,
                                    uint64_t uploadId,

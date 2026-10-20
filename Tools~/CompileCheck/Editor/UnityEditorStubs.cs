@@ -33,6 +33,8 @@ namespace UnityEditor
         public static class Android
         {
             public static int bundleVersionCode;
+            public static bool minifyRelease;
+            public static bool minifyDebug;
         }
 
         public static class iOS
