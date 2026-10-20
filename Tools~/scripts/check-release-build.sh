@@ -30,6 +30,9 @@ if [[ "${ARG}" == "--dev" ]]; then
   exit 0
 fi
 
+if [[ -n "${ARG}" ]] && ! git -C "${ROOT_DIR}" diff --quiet HEAD; then
+  fail "uncommitted changes: the tag lands on HEAD, so check what is committed (commit first)"
+fi
 [[ "${CS}" != dev ]] || fail "the build id is the 'dev' placeholder; run Tools~/scripts/stamp-wrapper-build.sh and commit before tagging"
 [[ "${CS}" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]] || fail "'${CS}' is not a valid build id"
 

@@ -244,6 +244,7 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Check_refuses_a_tag_that_is_not_the_package_version()
         {
             Script("stamp-wrapper-build.sh", out _);
+            Commit("stamp");
             var output = Script("check-release-build.sh", out var exit, "v9.9.9");
             Assert.That(exit, Is.Not.EqualTo(0));
             Assert.That(output, Does.Contain("package.json"));
@@ -325,6 +326,19 @@ namespace Bugsee.WrapperPolicy.Tests
             Commit("bump version");
             var output = Script("check-release-build.sh", out var exit, "v1.2.4");
             Assert.That(exit, Is.EqualTo(0), output);
+        }
+
+        [Test]
+        public void Check_with_a_tag_refuses_uncommitted_changes()
+        {
+            Script("stamp-wrapper-build.sh", out _);
+            Commit("stamp");
+            File.WriteAllText(Path.Combine(_root, "package.json"), "{\n  \"name\": \"com.bugsee.unity\",\n  \"version\": \"1.2.4\"\n}\n");
+            File.WriteAllText(Path.Combine(_root, Cs), ReadCs().Replace("Version = \"1.2.3\"", "Version = \"1.2.4\""));
+            File.WriteAllText(Path.Combine(_root, Java), ReadJava().Replace("VERSION = \"1.2.3\"", "VERSION = \"1.2.4\""));
+            var output = Script("check-release-build.sh", out var exit, "v1.2.4");
+            Assert.That(exit, Is.Not.EqualTo(0), output);
+            Assert.That(output, Does.Contain("uncommitted"));
         }
 
         [Test]
