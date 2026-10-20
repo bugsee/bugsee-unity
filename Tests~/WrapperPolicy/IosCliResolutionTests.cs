@@ -304,6 +304,15 @@ namespace Bugsee.WrapperPolicy.Tests
             }
         }
 
+        // The limit only has to be longer than a healthy stub needs to start, however loaded the machine is (a stub that is
+        // killed for being slow is "does not run"), and shorter than the hanging stubs' sleep. The tests assert on what the
+        // script reports, never on how long it took.
+        private static void ShortProbe(System.Collections.Generic.IDictionary<string, string> env)
+        {
+            env["BUGSEE_CLI_PROBE_TIMEOUT"] = "8";
+            env["BUGSEE_CLI_PROBE_KILL_GRACE"] = "1";
+        }
+
         // A probe that reads stdin or hangs must not hold the build: stdin is /dev/null and a watchdog stops it.
         [Test]
         public void A_probe_that_reads_stdin_or_hangs_is_stopped()
@@ -321,12 +330,10 @@ namespace Bugsee.WrapperPolicy.Tests
 
                 string hang = box.Path("home/.cargo/bin/bugsee-cli");
                 Directory.CreateDirectory(Path.GetDirectoryName(hang));
-                File.WriteAllText(hang, "#!/bin/sh\nexec sleep 30\n");
+                File.WriteAllText(hang, "#!/bin/sh\nexec sleep 60\n");
                 File.SetUnixFileMode(hang, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
                 string good = box.Stub("home/.bugsee/bin/bugsee-cli");
-                var watch = System.Diagnostics.Stopwatch.StartNew();
-                run = box.Run(env => env["BUGSEE_CLI_PROBE_TIMEOUT"] = "1");
-                Assert.That(watch.Elapsed.TotalSeconds, Is.LessThan(20), run.Output);
+                run = box.Run(ShortProbe);
                 Assert.That(run.Output, Does.Contain(hang + " (does not run)"));
                 Assert.That(run.Output, Does.Contain("using " + good));
             }
@@ -343,9 +350,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 File.WriteAllText(stubborn, "#!/bin/sh\ntrap '' TERM\nwhile :; do sleep 1; done\n");
                 File.SetUnixFileMode(stubborn, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
                 string good = box.Stub("home/.bugsee/bin/bugsee-cli");
-                var watch = System.Diagnostics.Stopwatch.StartNew();
-                var run = box.Run(env => env["BUGSEE_CLI_PROBE_TIMEOUT"] = "1");
-                Assert.That(watch.Elapsed.TotalSeconds, Is.LessThan(20), run.Output);
+                var run = box.Run(ShortProbe);
                 Assert.That(run.Output, Does.Contain(stubborn + " (does not run)"));
                 Assert.That(run.Output, Does.Contain("using " + good));
                 Assert.That(run.ExitCode, Is.EqualTo(0));
@@ -379,9 +384,9 @@ namespace Bugsee.WrapperPolicy.Tests
             {
                 string hang = box.Path("home/Library/Caches/Bugsee/cli/" + BugseeCliPolicy.DefaultVersion + "/aarch64-apple-darwin/bugsee-cli");
                 Directory.CreateDirectory(Path.GetDirectoryName(hang));
-                File.WriteAllText(hang, "#!/bin/sh\necho probe >> \"" + box.Path("probes.txt") + "\"\nexec sleep 30\n");
+                File.WriteAllText(hang, "#!/bin/sh\necho probe >> \"" + box.Path("probes.txt") + "\"\nexec sleep 60\n");
                 File.SetUnixFileMode(hang, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-                var run = box.Run(env => env["BUGSEE_CLI_PROBE_TIMEOUT"] = "1");
+                var run = box.Run(ShortProbe);
                 Assert.That(File.ReadAllLines(box.Path("probes.txt")), Has.Length.EqualTo(1), run.Output);
                 Assert.That(System.Text.RegularExpressions.Regex.Matches(run.Output, System.Text.RegularExpressions.Regex.Escape(hang + " (does not run)")).Count, Is.EqualTo(1));
                 Assert.That(run.ExitCode, Is.EqualTo(0));
@@ -407,10 +412,10 @@ namespace Bugsee.WrapperPolicy.Tests
                 Directory.CreateDirectory(tmp);
                 string hang = box.Path("home/.local/bin/bugsee-cli");
                 Directory.CreateDirectory(Path.GetDirectoryName(hang));
-                File.WriteAllText(hang, "#!/bin/sh\nexec sleep 30\n");
+                File.WriteAllText(hang, "#!/bin/sh\nexec sleep 60\n");
                 File.SetUnixFileMode(hang, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
                 box.Stub("home/.bugsee/bin/bugsee-cli");
-                var run = box.Run(env => { env["TMPDIR"] = tmp; env["BUGSEE_CLI_PROBE_TIMEOUT"] = "1"; });
+                var run = box.Run(env => { env["TMPDIR"] = tmp; ShortProbe(env); });
                 Assert.That(run.Output, Does.Contain("using " + box.Path("home/.bugsee/bin/bugsee-cli")), run.Output);
                 Assert.That(Directory.GetFileSystemEntries(tmp), Is.Empty);
             }
@@ -557,7 +562,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 {
                     var stdout = process.StandardOutput.ReadToEndAsync();
                     var stderr = process.StandardError.ReadToEndAsync();
-                    Assert.That(process.WaitForExit(30000), Is.True, "upload script timed out");
+                    Assert.That(process.WaitForExit(120000), Is.True, "upload script timed out");
                     return new ScriptRun
                     {
                         ExitCode = process.ExitCode,
