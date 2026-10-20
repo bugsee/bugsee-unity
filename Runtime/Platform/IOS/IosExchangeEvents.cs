@@ -55,11 +55,29 @@ namespace Bugsee.Platform.IOS
         readonly IosNetworkDto _dto;
         Dictionary<string, string> _headers;
 
+        // What native handed over, to tell a changed header map from an untouched one (Headers hands out a mutable map).
+        readonly IosNetworkFields _original;
+        // Fields a setter was called on: the result carries exactly these, whatever value they hold.
+        IosNetworkField _touched;
+
         public IosNetworkEvent(IosNetworkDto dto)
         {
             _dto = dto ?? new IosNetworkDto();
             _headers = FromKv(_dto.headers);
+            _original = Fields();
         }
+
+        IosNetworkFields Fields() => new IosNetworkFields
+        {
+            Url = _dto.url,
+            Body = _dto.body,
+            Size = _dto.size,
+            ResponseCode = _dto.responseCode,
+            StatusText = _dto.statusText,
+            ErrorShortMessage = _dto.errorShortMessage,
+            ErrorDescription = _dto.errorDescription,
+            Headers = _headers == null ? null : new Dictionary<string, string>(_headers),
+        };
 
         public string Id => _dto.id;
         public string Mechanism => _dto.mechanism;
@@ -68,43 +86,43 @@ namespace Bugsee.Platform.IOS
         public string Url
         {
             get => _dto.url;
-            set => _dto.url = value;
+            set { _dto.url = value; _touched |= IosNetworkField.Url; }
         }
 
         public string Body
         {
             get => _dto.body;
-            set => _dto.body = value;
+            set { _dto.body = value; _touched |= IosNetworkField.Body; }
         }
 
         public long Size
         {
             get => _dto.size;
-            set => _dto.size = value;
+            set { _dto.size = value; _touched |= IosNetworkField.Size; }
         }
 
         public int ResponseCode
         {
             get => _dto.responseCode;
-            set => _dto.responseCode = value;
+            set { _dto.responseCode = value; _touched |= IosNetworkField.ResponseCode; }
         }
 
         public string StatusText
         {
             get => _dto.statusText;
-            set => _dto.statusText = value;
+            set { _dto.statusText = value; _touched |= IosNetworkField.StatusText; }
         }
 
         public string ErrorShortMessage
         {
             get => _dto.errorShortMessage;
-            set => _dto.errorShortMessage = value;
+            set { _dto.errorShortMessage = value; _touched |= IosNetworkField.ErrorShortMessage; }
         }
 
         public string ErrorDescription
         {
             get => _dto.errorDescription;
-            set => _dto.errorDescription = value;
+            set { _dto.errorDescription = value; _touched |= IosNetworkField.ErrorDescription; }
         }
 
         public IDictionary<string, string> Headers
@@ -112,6 +130,7 @@ namespace Bugsee.Platform.IOS
             get => _headers ?? (_headers = new Dictionary<string, string>());
             set
             {
+                _touched |= IosNetworkField.Headers;
                 _headers = value != null
                     ? new Dictionary<string, string>(value)
                     : new Dictionary<string, string>();
@@ -123,11 +142,23 @@ namespace Bugsee.Platform.IOS
 
         public NetworkEventStage Stage => ParseStage(_dto.stage);
 
+        // Fields only, no JsonUtility: it writes a null string as "" and cannot omit one, which gave every filtered
+        // event an empty error, body and url. Only the fields the filter set go back (a body native could not read
+        // as text arrives as "", so a changed value cannot be told from an untouched one by comparing); headers also
+        // when the map handed out was edited in place. They go out as an object map, as native reads them.
         public string ToResultJson()
         {
-            _dto.headers = ToKv(_headers);
-            return JsonUtility.ToJson(_dto);
+            var touched = _touched;
+            if (!IosNetworkResultJson.SameHeaders(_original.Headers, _headers)) touched |= IosNetworkField.Headers;
+            return IosNetworkResultJson.ForFilter(Fields(), touched, _dto.stage);
         }
+
+        /// <summary>
+        /// This event as the filter's replacement for the event it was handed: every field is written (see
+        /// <see cref="IosNetworkResultJson.ForReplacement"/>).
+        /// </summary>
+        internal string ToReplacementJson(string nativeStage) =>
+            IosNetworkResultJson.ForReplacement(Fields(), _dto.method, _dto.mechanism, nativeStage);
 
         /// <summary>
         /// Serializes for the wrapper channel. The SDK types events by its own strings
@@ -135,21 +166,9 @@ namespace Bugsee.Platform.IOS
         /// not by <see cref="NetworkEventStage"/> names. The timestamp is the event's own time when it has
         /// one, else <paramref name="timestampMs"/> (Unix milliseconds, the unit the SDK uses).
         /// </summary>
-        internal string ToChannelJson(string nativeStage, long timestampMs)
-        {
-            _dto.headers = ToKv(_headers);
-            var stage = _dto.stage;
-            var stamp = _dto.timestampMs;
-            _dto.stage = nativeStage;
-            // An event minted earlier (and held in the launch buffer) keeps the time it happened.
-            if (_dto.timestampMs <= 0 && timestampMs > 0) _dto.timestampMs = timestampMs;
-            try { return JsonUtility.ToJson(_dto); }
-            finally
-            {
-                _dto.stage = stage;
-                _dto.timestampMs = stamp;
-            }
-        }
+        internal string ToChannelJson(string nativeStage, long timestampMs) =>
+            IosNetworkResultJson.ForNewEvent(Fields(), _dto.id, _dto.method, _dto.mechanism, nativeStage,
+                _dto.timestampMs > 0 ? _dto.timestampMs : timestampMs); // an event held in the launch buffer keeps the time it happened
 
         /// <summary>
         /// SDK event type for a stage, or null when iOS has no equivalent (redirect, timings-only,

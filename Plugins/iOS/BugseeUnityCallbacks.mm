@@ -180,18 +180,20 @@ static void BugseeUnityApplyNetworkDict(BugseeNetworkEvent *event, NSDictionary 
     NSMutableDictionary *error = event.error ? [event.error mutableCopy] : [NSMutableDictionary dictionary];
     BOOL touchedError = NO;
     id shortMsg = d[@"errorShortMessage"];
-    if ([shortMsg isKindOfClass:[NSString class]]) {
+    // An empty string removes the key like null: "no error name" must not leave a non-nil error behind.
+    if ([shortMsg isKindOfClass:[NSString class]] && [(NSString *)shortMsg length] > 0) {
         error[@"name"] = shortMsg;
         touchedError = YES;
-    } else if (shortMsg == [NSNull null]) {
+    } else if (shortMsg == [NSNull null] || [shortMsg isKindOfClass:[NSString class]]) {
         [error removeObjectForKey:@"name"];
+        [error removeObjectForKey:@"reason"]; // read back as the name when there is no name: a cleared name leaves neither
         touchedError = YES;
     }
     id desc = d[@"errorDescription"];
-    if ([desc isKindOfClass:[NSString class]]) {
+    if ([desc isKindOfClass:[NSString class]] && [(NSString *)desc length] > 0) {
         error[@"description"] = desc;
         touchedError = YES;
-    } else if (desc == [NSNull null]) {
+    } else if (desc == [NSNull null] || [desc isKindOfClass:[NSString class]]) {
         [error removeObjectForKey:@"description"];
         touchedError = YES;
     }
@@ -953,6 +955,25 @@ const char *_bugsee_test_apply_report_attachments(const char *json)
     BugseeUnityAttachmentRecorder *recorder = [BugseeUnityAttachmentRecorder new];
     BugseeUnityApplyReportDict((id<BGSReportContract>)recorder, d);
     return strdup([recorder.calls componentsJoinedByString:@"|"].UTF8String);
+}
+
+// Builds a real SDK network event from startJson, applies a filter result the way _bugsee_complete_filter does and
+// returns the event as JSON: url, body (text or null), error (object or null), headers. Caller frees.
+const char *_bugsee_test_apply_network_result(const char *startJson, const char *resultJson)
+{
+    BugseeNetworkEvent *event = [BugseeNetworkEvent new];
+    BugseeUnityApplyNetworkDict(event, BugseeUnityParseJson(startJson));
+    BugseeUnityApplyNetworkDict(event, BugseeUnityParseJson(resultJson));
+    NSMutableDictionary *d = [NSMutableDictionary dictionary];
+    d[@"url"] = event.url ?: [NSNull null];
+    NSString *body = event.body ? [[NSString alloc] initWithData:event.body encoding:NSUTF8StringEncoding] : nil;
+    d[@"body"] = event.body ? (body ?: @"<undecodable>") : [NSNull null];
+    d[@"error"] = [event.error isKindOfClass:[NSDictionary class]] ? event.error : [NSNull null];
+    d[@"headers"] = event.headers ?: [NSNull null];
+    d[@"responseCode"] = @(event.responseCode);
+    NSData *json = [NSJSONSerialization dataWithJSONObject:d options:NSJSONWritingSortedKeys error:nil];
+    NSString *text = json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] : nil;
+    return strdup((text ?: @"unserializable").UTF8String);
 }
 
 // Stands in for the SDK's callback of a requestData: counts the answers and keeps the last one.

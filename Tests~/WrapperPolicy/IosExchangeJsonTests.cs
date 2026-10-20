@@ -77,8 +77,9 @@ namespace Bugsee.WrapperPolicy.Tests
 
         static IosNetworkEvent Network(IosNetworkDto dto = null) => new IosNetworkEvent(dto ?? new IosNetworkDto());
 
+        // Issue 131: the filter result carries only what the filter set (JsonUtility would write every null string as "").
         [Test]
-        public void Network_ToResultJson_writes_headers_as_key_value_pairs_and_every_scalar()
+        public void Network_ToResultJson_of_an_untouched_event_is_just_the_stage()
         {
             var ev = Network(new IosNetworkDto
             {
@@ -86,23 +87,59 @@ namespace Bugsee.WrapperPolicy.Tests
                 statusText = "No Content", stage = "complete", timestampMs = 1700000000123,
                 headers = new[] { new IosKv { key = "A", value = "1" } },
             });
+
+            Assert.That(ev.ToResultJson(), Is.EqualTo("{\"stage\":\"complete\"}"));
+        }
+
+        [Test]
+        public void Network_ToResultJson_writes_the_fields_a_setter_was_called_on_and_headers_as_an_object()
+        {
+            var ev = Network(new IosNetworkDto
+            {
+                url = "http://a/b", stage = "complete", headers = new[] { new IosKv { key = "A", value = "1" } },
+            });
             ev.ResponseCode = 200;
+            ev.Body = "";
+            ev.Url = null;
             ev.Headers["B"] = "2";
 
             var json = ev.ToResultJson();
 
-            Assert.That(json, Does.Contain("\"id\":\"7\""));
-            Assert.That(json, Does.Contain("\"url\":\"http://a/b\""));
             Assert.That(json, Does.Contain("\"responseCode\":200"));
-            Assert.That(json, Does.Contain("\"size\":12"));
-            Assert.That(json, Does.Contain("\"timestampMs\":1700000000123"));
-            Assert.That(json, Does.Contain("\"headers\":[{\"key\":\"A\",\"value\":\"1\"},{\"key\":\"B\",\"value\":\"2\"}]"));
+            Assert.That(json, Does.Contain("\"body\":\"\""));
+            Assert.That(json, Does.Contain("\"url\":null"));
+            Assert.That(json, Does.Contain("\"headers\":{\"A\":\"1\",\"B\":\"2\"}"));
+            Assert.That(json, Does.Not.Contain("error"));
+            Assert.That(json, Does.Not.Contain("size"));
         }
 
         [Test]
-        public void Network_ToResultJson_with_no_headers_writes_an_empty_array()
+        public void Network_ToResultJson_notices_a_header_edited_in_place_and_each_setter()
         {
-            Assert.That(Network().ToResultJson(), Does.Contain("\"headers\":[]"));
+            var ev = Network(new IosNetworkDto { headers = new[] { new IosKv { key = "Authorization", value = "x" } } });
+            ev.Headers.Remove("Authorization");
+            Assert.That(ev.ToResultJson(), Does.Contain("\"headers\":{}"));
+
+            ev = Network();
+            ev.Size = 1; ev.StatusText = "s"; ev.ErrorShortMessage = "n"; ev.ErrorDescription = "d";
+            var json = ev.ToResultJson();
+            foreach (var key in new[] { "size", "statusText", "errorShortMessage", "errorDescription" })
+                Assert.That(json, Does.Contain("\"" + key + "\":"), key);
+        }
+
+        [Test]
+        public void Network_ToReplacementJson_writes_every_field_so_nothing_survives_from_the_original()
+        {
+            var ev = Network(new IosNetworkDto { method = "GET", mechanism = "m" });
+            ev.Url = "http://a/clean";
+
+            var json = ev.ToReplacementJson("complete");
+
+            Assert.That(json, Does.Contain("\"url\":\"http://a/clean\""));
+            Assert.That(json, Does.Contain("\"body\":null"));
+            Assert.That(json, Does.Contain("\"errorShortMessage\":null"));
+            Assert.That(json, Does.Contain("\"headers\":{}"));
+            Assert.That(json, Does.Not.Contain("timestampMs"));
         }
 
         [Test]
@@ -115,9 +152,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(json, Does.Contain("\"stage\":\"before\""));
             Assert.That(json, Does.Contain("\"timestampMs\":1234"));
             // The event itself is unchanged: the next serialization starts from the original values.
-            var again = ev.ToResultJson();
-            Assert.That(again, Does.Contain("\"stage\":\"RequestCompleted\""));
-            Assert.That(again, Does.Contain("\"timestampMs\":0"));
+            Assert.That(ev.ToResultJson(), Is.EqualTo("{\"stage\":\"RequestCompleted\"}"));
         }
 
         [Test]
@@ -132,7 +167,7 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void Network_ToChannelJson_does_not_invent_a_time_when_none_is_supplied()
         {
-            Assert.That(Network().ToChannelJson("complete", 0), Does.Contain("\"timestampMs\":0"));
+            Assert.That(Network().ToChannelJson("complete", 0), Does.Not.Contain("timestampMs"));
         }
 
         [TestCase(NetworkEventStage.RequestStarted, "before")]
