@@ -357,6 +357,20 @@ namespace Bugsee.Sample
                         _pendingE2EFire = "X:" + _e2eScenario + "-" + _e2eRunId;
                     }
                     break;
+                case "actions":
+                    // Drives the action-catalog items the bubbles call (issue #115), once the SDK is launched.
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        if (Bugsee.IsLaunched)
+                            ActionsE2E.Run(this);
+                        else
+                        {
+                            Debug.Log("[Sample] actions FAIL not launched :: status=" + Bugsee.Status);
+                            Debug.Log("[Sample] actions e2e done failures=1");
+                        }
+                    }
+                    break;
                 case "upload":
                     // A plain manual report: tells "no report is ever sent" from "only handled exceptions are not".
                     if (_e2ePhase == 0 && _e2eTimer >= 5f)
@@ -916,6 +930,7 @@ namespace Bugsee.Sample
             }
             catch (Exception ex)
             {
+                Debug.LogException(ex);
                 SetStatus("Relaunch failed: " + ex.Message);
             }
         }
