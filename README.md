@@ -52,6 +52,8 @@ log warns when its version differs from the one this package pins.
 
 See `Tools~/versions.env` for pinned versions and paths.
 
+The script also vendors the option manifests the native SDKs publish for the pinned versions (`Tools~/scripts/update-options-manifest.sh`, into `Tests~/WrapperPolicy/Fixtures/options-manifest/`). After a bump, run the WrapperPolicy tests: `OptionsManifestTests` fails for a new, removed or changed native option until the wrapper exposes it or lists it as not exposed (with the issue that tracks it). If a pin has no published manifest yet, the script warns and the test stays red until `update-options-manifest.sh` succeeds (`ANDROID_MANIFEST_FILE` / `IOS_MANIFEST_FILE` take a manifest from a local SDK build).
+
 ## Crashes & symbols
 
 See [Documentation~/index.md](Documentation~/index.md) for:
