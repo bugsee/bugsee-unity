@@ -545,7 +545,7 @@ int main(void)
         expect(r != NULL && same(r, "{\"level\":3,\"text\":\"\"}"), "an empty log message applies as empty");
         free((void *)r);
         r = _bugsee_test_apply_log_result("orig", 3, "{\"message\":null}");
-        expect(r != NULL && same(r, "{\"level\":3,\"text\":null}"), "a null log message clears the text");
+        expect(r != NULL && same(r, "{\"level\":3,\"text\":\"\"}"), "a null log message applies as empty");
         free((void *)r);
         r = _bugsee_test_apply_breadcrumb_fields("c", "m", "t", 2, "{}");
         expect(r != NULL && same(r, "{\"category\":\"c\",\"level\":2,\"message\":\"m\",\"type\":\"t\"}"),
@@ -556,8 +556,8 @@ int main(void)
                "a breadcrumb result with only a level leaves the strings as the SDK stored them (it stores nil as empty)");
         free((void *)r);
         r = _bugsee_test_apply_breadcrumb_fields("c", "m", "t", 2, "{\"category\":\"\",\"message\":null}");
-        expect(r != NULL && same(r, "{\"category\":\"\",\"level\":2,\"message\":null,\"type\":\"t\"}"),
-               "a breadcrumb result sets an empty string, clears a null one and keeps the rest");
+        expect(r != NULL && same(r, "{\"category\":\"\",\"level\":2,\"message\":\"\",\"type\":\"t\"}"),
+               "a breadcrumb result applies empty and null strings as empty and keeps the rest");
         free((void *)r);
     }
     // A report handler result reaches the SDK report as a change set: typed values stay typed, attributes the

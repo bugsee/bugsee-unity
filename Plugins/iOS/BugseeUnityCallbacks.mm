@@ -210,14 +210,14 @@ static NSDictionary *BugseeUnityLogToDict(BugseeLogEvent *event)
     };
 }
 
-// Only the keys present are applied; a JSON null clears a string (the filter assigned null), and an absent key
-// leaves the SDK's own value alone.
+// Only the keys present are applied; a JSON null applies as an empty string (the SDK treats nil and empty alike:
+// an empty log text drops the line), and an absent key leaves the SDK's own value alone.
 static void BugseeUnityApplyLogDict(BugseeLogEvent *event, NSDictionary *d)
 {
     if (![d isKindOfClass:[NSDictionary class]] || !event) return;
     id msg = d[@"message"];
     if ([msg isKindOfClass:[NSString class]]) event.text = msg;
-    else if (msg == [NSNull null]) event.text = nil;
+    else if (msg == [NSNull null]) event.text = @"";
     id level = d[@"level"];
     if ([level respondsToSelector:@selector(intValue)]) event.level = (BugseeLogLevel)[level intValue];
 }
@@ -234,19 +234,20 @@ static NSDictionary *BugseeUnityBreadcrumbToDict(id<BGSBreadcrumb> crumb)
     return d;
 }
 
-// Only the keys present are applied; a JSON null clears a string (the filter assigned null).
+// Only the keys present are applied; a JSON null applies as an empty string (the SDK's properties are non-null and
+// its factory maps nil to empty).
 static void BugseeUnityApplyBreadcrumbDict(id<BGSBreadcrumb> crumb, NSDictionary *d)
 {
     if (![d isKindOfClass:[NSDictionary class]] || !crumb) return;
     id cat = d[@"category"];
     if ([cat isKindOfClass:[NSString class]]) crumb.category = cat;
-    else if (cat == [NSNull null]) crumb.category = nil;
+    else if (cat == [NSNull null]) crumb.category = @"";
     id msg = d[@"message"];
     if ([msg isKindOfClass:[NSString class]]) crumb.message = msg;
-    else if (msg == [NSNull null]) crumb.message = nil;
+    else if (msg == [NSNull null]) crumb.message = @"";
     id type = d[@"type"];
     if ([type isKindOfClass:[NSString class]]) crumb.type = type;
-    else if (type == [NSNull null]) crumb.type = nil;
+    else if (type == [NSNull null]) crumb.type = @"";
     id level = d[@"level"]; if ([level respondsToSelector:@selector(integerValue)]) crumb.level = [level integerValue];
     id data = d[@"data"]; if ([data isKindOfClass:[NSDictionary class]]) crumb.data = data;
 }

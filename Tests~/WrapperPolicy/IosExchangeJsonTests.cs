@@ -327,5 +327,16 @@ namespace Bugsee.WrapperPolicy.Tests
             var src = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "Runtime/Platform/IOS/IosExchangeEvents.cs"));
             Assert.That(src, Does.Not.Contain("JsonUtility.ToJson(_dto)"));
         }
+
+        [Test]
+        public void Replacement_results_write_every_field()
+        {
+            var log = new IosLogEvent(new IosLogDto { message = "m", level = 3 });
+            Assert.That(log.ToReplacementJson(), Is.EqualTo("{\"message\":\"m\",\"level\":3}"));
+
+            var crumb = new IosBreadcrumb(new IosBreadcrumbDto { category = "c", type = "t", level = 2 }, null);
+            Assert.That(crumb.ToReplacementJson(), Is.EqualTo(
+                "{\"category\":\"c\",\"message\":null,\"type\":\"t\",\"level\":2}"));
+        }
     }
 }

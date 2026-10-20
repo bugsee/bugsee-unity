@@ -257,6 +257,9 @@ namespace Bugsee.Platform.IOS
 
         // Only the fields the filter set: JsonUtility would write every untouched null string as "".
         public string ToResultJson() => IosEventResultJson.ForLog(_dto.message, _dto.level, _touched);
+
+        // An event returned in place of the one handed in is applied onto the original: every field goes back.
+        internal string ToReplacementJson() => IosEventResultJson.ForLog(_dto.message, _dto.level, IosEventResultJson.AllLog);
     }
 
     sealed class IosBreadcrumb : IBreadcrumb
@@ -324,10 +327,15 @@ namespace Bugsee.Platform.IOS
 
         // Only the fields the filter set go back (JsonUtility would write every untouched null string as ""), and a
         // touched data as a real JSON object (nested values and scalar kinds kept).
-        public string ToResultJson() =>
+        public string ToResultJson() => Json(_touched, _dataTouched);
+
+        // An event returned in place of the one handed in is applied onto the original: every field goes back.
+        internal string ToReplacementJson() => Json(IosEventResultJson.AllBreadcrumb, true);
+
+        string Json(IosBreadcrumbField fields, bool withData) =>
             IosBridgeJson.AppendObjectField(
-                IosEventResultJson.ForBreadcrumb(_dto.category, _dto.message, _dto.type, _dto.level, _touched),
-                "data", _dataTouched ? _data : null);
+                IosEventResultJson.ForBreadcrumb(_dto.category, _dto.message, _dto.type, _dto.level, fields),
+                "data", withData ? _data : null);
     }
 
     /// <summary>

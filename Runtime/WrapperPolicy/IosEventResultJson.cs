@@ -26,12 +26,17 @@ namespace Bugsee.WrapperPolicy
 
     /// <summary>
     /// The JSON a log event or breadcrumb filter result hands to native (<c>_bugsee_complete_filter</c>). Native applies
-    /// only the keys present, and a JSON null clears a string. Unity's JsonUtility writes a null string as "" and cannot
+    /// only the keys present, and a JSON null applies as an empty string (the SDK does not tell nil from empty: an empty log
+    /// message drops the line, an empty breadcrumb category, type or message ends up omitted). Unity's JsonUtility writes a null string as "" and cannot
     /// omit a field, so serializing the whole event applied an empty category, message and type to every filtered
-    /// event. Only the fields the filter assigned go back, whatever value they hold (null and "" stay distinct).
+    /// event. Only the fields the filter assigned go back, whatever value they hold.
     /// </summary>
     public static class IosEventResultJson
     {
+        /// <summary>Every field of a log event and of a breadcrumb: for an event the filter returned in place of the one it was handed.</summary>
+        public const IosLogField AllLog = IosLogField.Message | IosLogField.Level;
+        public const IosBreadcrumbField AllBreadcrumb = IosBreadcrumbField.Category | IosBreadcrumbField.Message | IosBreadcrumbField.Type | IosBreadcrumbField.Level;
+
         public static string ForLog(string message, int level, IosLogField touched)
         {
             var w = new Writer();
