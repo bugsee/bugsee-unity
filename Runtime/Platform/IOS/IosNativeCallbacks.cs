@@ -221,9 +221,9 @@ namespace Bugsee.Platform.IOS
                 return;
             }
 
-            var dto = JsonUtility.FromJson<IosBreadcrumbDto>(
-                IosJsonNormalize.NormalizeBreadcrumb(json ?? "{}"));
-            var managed = new IosBreadcrumb(dto);
+            // data is read separately: JsonUtility cannot hold nested values or keep a scalar's kind.
+            var dto = JsonUtility.FromJson<IosBreadcrumbDto>(json ?? "{}");
+            var managed = new IosBreadcrumb(dto, IosBridgeJson.ReadObjectField(json, "data"));
             var result = filter(managed);
             if (result == null)
             {
@@ -232,7 +232,7 @@ namespace Bugsee.Platform.IOS
             }
 
             var ios = result as IosBreadcrumb ?? managed;
-            _bugsee_complete_filter(requestId, 1, ToNativeMapJson(ios.ToResultJson(), "data"));
+            _bugsee_complete_filter(requestId, 1, ios.ToResultJson());
         }
 
         [MonoPInvokeCallback(typeof(ReportCb))]
@@ -298,27 +298,8 @@ namespace Bugsee.Platform.IOS
         [MonoPInvokeCallback(typeof(LifecycleCb))]
         static void OnLifecycle(string eventType, string dataJson)
         {
-            object data = null;
-            if (!string.IsNullOrEmpty(dataJson))
-            {
-                // Prefer a simple string payload when wrapped as {"value":"..."}.
-                if (dataJson.IndexOf("\"value\"", StringComparison.Ordinal) >= 0)
-                {
-                    try
-                    {
-                        var box = JsonUtility.FromJson<StringBox>(dataJson);
-                        data = box != null ? box.value : dataJson;
-                    }
-                    catch
-                    {
-                        data = dataJson;
-                    }
-                }
-                else
-                {
-                    data = dataJson;
-                }
-            }
+            // A string arrives as a JSON string literal, a dictionary as a JSON object: the same types as Android.
+            object data = LifecyclePayload.Decode(dataJson);
 
             MainThreadDispatcher.Run(() =>
             {
@@ -328,131 +309,10 @@ namespace Bugsee.Platform.IOS
         }
 
         /// <summary>
-        /// JsonUtility emits kv arrays; native Apply* expects object maps for headers/data.
+        /// JsonUtility emits kv arrays; native Apply* expects object maps for headers.
         /// </summary>
-        internal static string ToNativeMapJson(string json, string field)
-        {
-            if (string.IsNullOrEmpty(json)) return "{}";
-            var key = "\"" + field + "\":";
-            var idx = json.IndexOf(key, StringComparison.Ordinal);
-            if (idx < 0) return json;
-            var start = idx + key.Length;
-            while (start < json.Length && char.IsWhiteSpace(json[start])) start++;
-            if (start >= json.Length || json[start] != '[') return json;
-
-            var end = start;
-            var depth = 0;
-            var inString = false;
-            for (var i = start; i < json.Length; i++)
-            {
-                var c = json[i];
-                if (inString)
-                {
-                    if (c == '\\' && i + 1 < json.Length) { i++; continue; }
-                    if (c == '"') inString = false;
-                    continue;
-                }
-                if (c == '"') { inString = true; continue; }
-                if (c == '[') depth++;
-                else if (c == ']')
-                {
-                    depth--;
-                    if (depth == 0) { end = i; break; }
-                }
-            }
-            if (end <= start) return json;
-
-            var arrayJson = json.Substring(start, end - start + 1);
-            var map = ArrayToObject(arrayJson);
-            // Parse miss on non-empty array → keep original (avoid wiping native maps).
-            if (map == null) return json;
-            return json.Substring(0, start) + map + json.Substring(end + 1);
-        }
-
-        /// <returns>Object JSON, or null when parse failed for a non-empty array.</returns>
-        static string ArrayToObject(string arrayJson)
-        {
-            // Expect [{"key":"a","value":"b"}, ...]
-            if (string.IsNullOrEmpty(arrayJson) || arrayJson == "[]") return "{}";
-            var parts = new System.Collections.Generic.List<string>();
-            var i = 1;
-            while (i < arrayJson.Length - 1)
-            {
-                while (i < arrayJson.Length && (char.IsWhiteSpace(arrayJson[i]) || arrayJson[i] == ',')) i++;
-                if (i >= arrayJson.Length - 1) break;
-                if (arrayJson[i] != '{') return null;
-                var objEnd = FindMatchingBrace(arrayJson, i);
-                if (objEnd < 0) return null;
-                var obj = arrayJson.Substring(i, objEnd - i + 1);
-                var k = ExtractStringField(obj, "key");
-                var v = ExtractStringField(obj, "value");
-                if (k != null)
-                {
-                    parts.Add(JsonWire.String(k) + ":" + (v == null ? "null" : JsonWire.String(v)));
-                }
-                i = objEnd + 1;
-            }
-            // Leftover non-whitespace after the loop → incomplete parse.
-            while (i < arrayJson.Length - 1 && char.IsWhiteSpace(arrayJson[i])) i++;
-            if (i < arrayJson.Length - 1) return null;
-            if (parts.Count == 0) return null;
-            return "{" + string.Join(",", parts.ToArray()) + "}";
-        }
-
-        static int FindMatchingBrace(string s, int openIdx)
-        {
-            var depth = 0;
-            var inString = false;
-            for (var i = openIdx; i < s.Length; i++)
-            {
-                var c = s[i];
-                if (inString)
-                {
-                    if (c == '\\' && i + 1 < s.Length) { i++; continue; }
-                    if (c == '"') inString = false;
-                    continue;
-                }
-                if (c == '"') { inString = true; continue; }
-                if (c == '{') depth++;
-                else if (c == '}')
-                {
-                    depth--;
-                    if (depth == 0) return i;
-                }
-            }
-            return -1;
-        }
-
-        static string ExtractStringField(string obj, string field)
-        {
-            var key = "\"" + field + "\":";
-            var idx = obj.IndexOf(key, StringComparison.Ordinal);
-            if (idx < 0) return null;
-            var i = idx + key.Length;
-            while (i < obj.Length && char.IsWhiteSpace(obj[i])) i++;
-            if (i >= obj.Length) return null;
-            if (obj.Substring(i).StartsWith("null", StringComparison.Ordinal)) return null;
-            if (obj[i] != '"') return null;
-            var end = i + 1;
-            while (end < obj.Length)
-            {
-                if (obj[end] == '\\' && end + 1 < obj.Length) { end += 2; continue; }
-                if (obj[end] == '"') break;
-                end++;
-            }
-            if (end >= obj.Length) return null;
-            return obj.Substring(i + 1, end - i - 1)
-                .Replace("\\\"", "\"")
-                .Replace("\\\\", "\\")
-                .Replace("\\n", "\n")
-                .Replace("\\r", "\r");
-        }
-
-        [Serializable]
-        sealed class StringBox
-        {
-            public string value;
-        }
+        internal static string ToNativeMapJson(string json, string field) =>
+            IosBridgeJson.ToNativeMapJson(json, field);
 
         delegate void FilterCb(long requestId, int kind, string json);
         delegate void ReportCb(long requestId, int phase, int isTerminating, string json);
