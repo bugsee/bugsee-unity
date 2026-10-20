@@ -979,14 +979,14 @@ namespace Bugsee.Sample
                 DetectAndReportExitNotResponding = true,
                 DetectAndReportExitLowMemory = true,
                 PerformanceMonitoring = ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") != "apmoff",
-                PerformanceSampleRate = ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "apmleak" || ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "apmpool" || (ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") ?? "").StartsWith("apmthr") ? 0f : 1f,
-                Debug = true
+                PerformanceSampleRate = ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "apmleak" || ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "apmpool" || (ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") ?? "").StartsWith("apmthr") ? 0f : 1f
             };
+            options.SetCustomOption(InternalOptionKeys.Debug, true); // Android only: the iOS SDK has no $$DEBUG
             LaunchPresets.Apply(preset, options);
             if (TryReadBugPriority(out var bugPriority))
                 options.ReportingDefaultBugPriority = bugPriority;
             if (!string.IsNullOrWhiteSpace(endpointOverride))
-                options.Endpoint = endpointOverride.Trim();
+                options.SetCustomOption(InternalOptionKeys.Endpoint, endpointOverride.Trim());
             if (ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "options")
                 AddGatingProbeOptions(options);
             return options;
@@ -1004,14 +1004,13 @@ namespace Bugsee.Sample
                 CaptureManagedExceptions = true,
                 // "bugsee_unobserved" = 0 turns off reporting of unobserved task exceptions (scenario "unobserved").
                 CaptureUnobservedTaskExceptions = ReadE2EValue("bugsee_unobserved", "BUGSEE_E2E_UNOBSERVED") != "0",
-                DetectAndReportHang = true,
-                Debug = true
+                DetectAndReportHang = true
             };
             LaunchPresets.Apply(preset, options);
             if (TryReadBugPriority(out var bugPriority))
                 options.ReportingDefaultBugPriority = bugPriority;
             if (!string.IsNullOrWhiteSpace(endpointOverride))
-                options.Endpoint = endpointOverride.Trim();
+                options.SetCustomOption(InternalOptionKeys.Endpoint, endpointOverride.Trim());
             var crashHandler = Environment.GetEnvironmentVariable("BUGSEE_E2E_CRASH_HANDLER");
             if (int.TryParse(crashHandler, out var handlerType)) // any integer goes to the SDK as given, also an invalid one
                 options.CrashHandlerType = (CrashHandlerType)handlerType;

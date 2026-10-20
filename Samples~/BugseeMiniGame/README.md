@@ -108,6 +108,8 @@ used for symbol upload), `BUGSEE_ENDPOINT` (API host without `/v2`), `BUGSEE_E2E
 `BUGSEE_E2E_DEV` (`1` default | `0`), `BUGSEE_E2E_MINIFY`, `BUGSEE_E2E_OUT`, `BUGSEE_E2E_FORMAT` (Android: `apk` default | `aab` | `export`, a Gradle project), `BUGSEE_E2E_LAUNCH_TOKEN` (launch with a token other than the build's, to see the token-mismatch warning), `BUGSEE_E2E_NO_TOKEN` = 1 (build as a CI without the token: a dummy launch token and no symbol upload), and for iOS `BUGSEE_E2E_IOS_SIM`,
 `BUGSEE_E2E_IOS_SIM_ARCH`, `BUGSEE_E2E_APPEND`, `BUGSEE_E2E_SETTING_DEV`. A build modifies the tracked `ProjectSettings`.
 
+The sample sets the SDK-internal `$$ENDPOINT` launch option (from `BUGSEE_ENDPOINT`; both platforms) and `$$DEBUG` (Android only; the iOS SDK has no such option) with `SetCustomOption` and the raw keys in `InternalOptionKeys`: the native manifests mark them hidden, so the package has no typed `Endpoint`/`Debug` option (#108).
+
 ## Build Android
 
 1. Switch platform to Android.
