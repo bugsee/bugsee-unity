@@ -625,7 +625,8 @@ namespace Bugsee.Sample
                     {
                         int.TryParse(ReadE2EValue("bugsee_secure_scale", "BUGSEE_SECURE_SCALE"), out int scaleDown);
                         float.TryParse(ReadE2EValue("bugsee_secure_rotate_s", "BUGSEE_SECURE_ROTATE_S"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float rotateAfter);
-                        SecureRectE2E.Run(this, scaleDown, rotateAfter);
+                        SecureRectE2E.ReAdd = ReadE2EValue("bugsee_secure_readd", "BUGSEE_SECURE_READD") == "1";
+                        SecureRectE2E.Run(this, scaleDown, rotateAfter, ReadE2EValue("bugsee_secure_res", "BUGSEE_SECURE_RES"));
                     }
                     break;
                 case 'C':

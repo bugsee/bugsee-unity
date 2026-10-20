@@ -92,6 +92,7 @@ namespace Bugsee.WrapperPolicy
     /// <summary>
     /// Secure rectangles the app gave in Unity screen space. They are kept as given, with the screen size they were given
     /// for, and converted again whenever the view they convert through changes (resolution, the surface moving in its window).
+    /// Adding the same rectangle twice counts twice: it is hidden until it was removed as often as it was added.
     /// </summary>
     public sealed class SecureRectScreenOwners
     {
@@ -101,6 +102,7 @@ namespace Bugsee.WrapperPolicy
         {
             public float XMin, YMin, XMax, YMax;
             public int DisplayId;
+            public int Count;
             // Unity's screen size when it was added: the rectangle means that fraction of the screen from then on.
             public int AddedScreenWidth, AddedScreenHeight;
         }
@@ -109,11 +111,11 @@ namespace Bugsee.WrapperPolicy
         readonly Dictionary<string, Entry> _entries = new Dictionary<string, Entry>();
         readonly Dictionary<int, SecureRectView> _appliedViews = new Dictionary<int, SecureRectView>();
 
+        // + 0f turns -0 into +0, so equal rectangles have one key.
+        static string Fmt(float v) => (v + 0f).ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+
         static string OwnerId(float xMin, float yMin, float xMax, float yMax, int displayId) =>
-            OwnerIdPrefix + displayId + ":" + xMin.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
-            + "," + yMin.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
-            + "," + xMax.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
-            + "," + yMax.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+            OwnerIdPrefix + displayId + ":" + Fmt(xMin) + "," + Fmt(yMin) + "," + Fmt(xMax) + "," + Fmt(yMax);
 
         public bool HasEntries { get { lock (_sync) return _entries.Count > 0; } }
 
@@ -122,9 +124,21 @@ namespace Bugsee.WrapperPolicy
             lock (_sync)
             {
                 string id = OwnerId(xMin, yMin, xMax, yMax, displayId);
-                _entries[id] = new Entry { XMin = xMin, YMin = yMin, XMax = xMax, YMax = yMax, DisplayId = displayId, AddedScreenWidth = view.ScreenWidth, AddedScreenHeight = view.ScreenHeight };
+                int count = _entries.TryGetValue(id, out var existing) ? existing.Count : 0;
+                var entry = new Entry
+                {
+                    XMin = xMin, YMin = yMin, XMax = xMax, YMax = yMax, DisplayId = displayId, Count = count + 1,
+                    AddedScreenWidth = count > 0 ? existing.AddedScreenWidth : view.ScreenWidth,
+                    AddedScreenHeight = count > 0 ? existing.AddedScreenHeight : view.ScreenHeight,
+                };
+                _entries[id] = entry;
+                // A view that is not the one the other rectangles were converted with converts all of them: otherwise they
+                // would keep the old conversion and the next refresh would see nothing to do.
+                if (_appliedViews.TryGetValue(displayId, out var applied) && !applied.Equals(view))
+                    ApplyDisplay(displayId, view, registry);
+                else
+                    Apply(id, entry, view, registry);
                 _appliedViews[displayId] = view;
-                Apply(id, _entries[id], view, registry);
             }
         }
 
@@ -133,7 +147,14 @@ namespace Bugsee.WrapperPolicy
             lock (_sync)
             {
                 string id = OwnerId(xMin, yMin, xMax, yMax, displayId);
-                if (!_entries.Remove(id)) return false;
+                if (!_entries.TryGetValue(id, out var entry)) return false;
+                if (entry.Count > 1)
+                {
+                    entry.Count--;
+                    _entries[id] = entry;
+                    return true;
+                }
+                _entries.Remove(id);
                 registry.RemoveOwner(id);
                 return true;
             }
@@ -144,9 +165,7 @@ namespace Bugsee.WrapperPolicy
         {
             lock (_sync)
             {
-                var displays = new List<int>();
-                foreach (var e in _entries.Values)
-                    if (!displays.Contains(e.DisplayId)) displays.Add(e.DisplayId);
+                var displays = DisplaysLocked();
                 registry.RemoveOwnersWithPrefix(OwnerIdPrefix);
                 _entries.Clear();
                 _appliedViews.Clear();
@@ -163,34 +182,37 @@ namespace Bugsee.WrapperPolicy
             lock (_sync)
             {
                 if (_appliedViews.TryGetValue(displayId, out var applied) && applied.Equals(view)) return false;
-                bool any = false;
-                foreach (var pair in _entries)
-                {
-                    if (pair.Value.DisplayId != displayId) continue;
-                    Apply(pair.Key, pair.Value, view, registry);
-                    any = true;
-                }
+                ApplyDisplay(displayId, view, registry);
                 _appliedViews[displayId] = view;
-                return any;
+                return true;
             }
         }
 
         public List<int> Displays()
         {
-            lock (_sync)
-            {
-                var displays = new List<int>();
-                foreach (var e in _entries.Values)
-                    if (!displays.Contains(e.DisplayId)) displays.Add(e.DisplayId);
-                return displays;
-            }
+            lock (_sync) return DisplaysLocked();
+        }
+
+        List<int> DisplaysLocked()
+        {
+            var displays = new List<int>();
+            foreach (var e in _entries.Values)
+                if (!displays.Contains(e.DisplayId)) displays.Add(e.DisplayId);
+            return displays;
+        }
+
+        void ApplyDisplay(int displayId, SecureRectView view, SecureRectRegistry registry)
+        {
+            foreach (var pair in _entries)
+                if (pair.Value.DisplayId == displayId) Apply(pair.Key, pair.Value, view, registry);
         }
 
         static void Apply(string id, Entry e, SecureRectView view, SecureRectRegistry registry)
         {
-            // Off screen or an unknown view registers nothing; the rectangle returns when a later view shows it.
             // The rectangle is in the pixels of the screen it was added on; against a new screen size it keeps its fraction of
-            // the screen (Resolution Scaling, same aspect). A different aspect (rotation) needs the app to add it again.
+            // the screen (Resolution Scaling, same aspect). Content that is anchored rather than laid out by fractions, or a
+            // different aspect (rotation), needs the app to remove the rectangle and add it again.
+            // Off screen or an unknown view registers nothing.
             var asAdded = new SecureRectView(e.AddedScreenWidth, e.AddedScreenHeight, view.Left, view.Top, view.Width, view.Height);
             if (SecureRectSpace.TryToNative(e.XMin, e.YMin, e.XMax, e.YMax, asAdded, out int l, out int t, out int r, out int b))
                 registry.Set(id, e.DisplayId, l, t, r, b);

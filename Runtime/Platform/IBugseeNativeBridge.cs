@@ -72,10 +72,10 @@ namespace Bugsee.Platform
 
         /// <summary>
         /// Where Unity's surface sits, in the native pixels secure rectangles are registered in (top-left origin), given
-        /// Unity's own screen size. False when it cannot be read; the caller then assumes the surface fills the screen.
-        /// Main thread only.
+        /// Unity's own screen size. False when it cannot be read. <paramref name="settled"/> is false when the numbers were read but
+        /// disagree with Unity's screen (a view caught mid-rotation): the caller keeps the last settled surface. Main thread only.
         /// </summary>
-        bool TryGetSecureRectViewRegion(int screenWidth, int screenHeight, out int left, out int top, out int width, out int height);
+        bool TryGetSecureRectViewRegion(int screenWidth, int screenHeight, out int left, out int top, out int width, out int height, out bool settled);
 
         void CaptureViewHierarchy();
         void ResetVideoCapturePermission();

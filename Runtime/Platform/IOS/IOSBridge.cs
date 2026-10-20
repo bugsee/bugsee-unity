@@ -756,20 +756,23 @@ namespace Bugsee.Platform.IOS
 
         public float GetSecureRectSnapshotScale() => _bugsee_screen_scale();
 
-        // Unity's view fills the screen on iOS. Registered pixels are points times the screen scale (the snapshot divides
-        // by the scale again), so the surface is the screen's size in points, times the scale: Unity's own width over
-        // pixels-per-point stays right when the render resolution is reduced or the device renders at nativeScale.
-        public bool TryGetSecureRectViewRegion(int screenWidth, int screenHeight, out int left, out int top, out int width, out int height)
+        // Unity's own view in its window, in points, times the screen scale (registered pixels are divided by the scale again by
+        // the snapshot): under iPad Split View, Slide Over or Stage Manager it is not the screen. A size that does not have the
+        // orientation of Unity's screen (landscape against portrait) is a view caught mid-rotation, as UIKit and Unity update at
+        // different moments: not settled. The aspect itself is not compared: a render size of another aspect is stretched.
+        public bool TryGetSecureRectViewRegion(int screenWidth, int screenHeight, out int left, out int top, out int width, out int height, out bool settled)
         {
-            left = top = 0;
-            width = height = 0;
-            float perPoint = _bugsee_pixels_per_point(screenWidth);
+            left = top = width = height = 0;
+            settled = false;
             float scale = _bugsee_screen_scale();
-            if (perPoint <= 0f || scale <= 0f || screenWidth <= 0 || screenHeight <= 0) return false;
-            width = Mathf.RoundToInt(screenWidth * scale / perPoint);
-            height = Mathf.RoundToInt(screenHeight * scale / perPoint);
-            // UIScreen's bounds turn a moment before or after Unity's size does: a mismatch is a view caught mid-rotation.
-            return FramePushPolicy.IsPlausibleUnityView(width, height, screenWidth, screenHeight);
+            var rect = new float[4];
+            if (scale <= 0f || screenWidth <= 0 || screenHeight <= 0 || _bugsee_unity_view_region(rect) == 0) return false;
+            left = Mathf.RoundToInt(rect[0] * scale);
+            top = Mathf.RoundToInt(rect[1] * scale);
+            width = Mathf.RoundToInt(rect[2] * scale);
+            height = Mathf.RoundToInt(rect[3] * scale);
+            settled = width == height || screenWidth == screenHeight || (width > height) == (screenWidth > screenHeight);
+            return width > 0 && height > 0;
         }
 
         public void CaptureViewHierarchy() => _bugsee_capture_view_hierarchy();
@@ -942,7 +945,7 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_set_email(string email);
         [DllImport("__Internal")] static extern IntPtr _bugsee_get_email();
         [DllImport("__Internal")] static extern void _bugsee_clear_email();
-        [DllImport("__Internal")] static extern float _bugsee_pixels_per_point(int unityPixelWidth);
+        [DllImport("__Internal")] static extern int _bugsee_unity_view_region(float[] outRect);
         [DllImport("__Internal")] static extern void _bugsee_set_secure_buffer(int display, int[] packed, int packedLength);
         [DllImport("__Internal")] static extern float _bugsee_screen_scale();
         [DllImport("__Internal")] static extern void _bugsee_capture_view_hierarchy();

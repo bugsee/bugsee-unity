@@ -9,7 +9,7 @@ namespace Bugsee.Sample
     /// rectangle with Bugsee.AddSecureScreenRectangle, and logs, tagged "[SECURERECT]", Unity's screen size, the orientation, the
     /// rectangle the wrapper registered in native pixels and where the Unity surface sits, again whenever any of them changes.
     /// Compare with a screenshot of the device: the box and the native rectangle must cover the same pixels (scaled by the
-    /// surface over the screenshot). "bugsee_secure_scale" / "BUGSEE_SECURE_SCALE" = N renders at 1/N resolution first; "bugsee_secure_rotate_s" / "BUGSEE_SECURE_ROTATE_S" = S rotates after S seconds.
+    /// surface over the screenshot). "bugsee_secure_scale" / "BUGSEE_SECURE_SCALE" = N renders at 1/N resolution first; "bugsee_secure_rotate_s" / "BUGSEE_SECURE_ROTATE_S" = S rotates after S seconds; "bugsee_secure_res" / "BUGSEE_SECURE_RES" = WxH renders at that size (another aspect than the display); "bugsee_secure_readd" / "BUGSEE_SECURE_READD" = 1 then removes and adds the rectangle again right after the rotation.
     /// </summary>
     public sealed class SecureRectE2E : MonoBehaviour
     {
@@ -18,13 +18,22 @@ namespace Bugsee.Sample
         string _last;
         float _next;
         bool _added;
+        public static bool ReAdd;
 
-        public static void Run(MonoBehaviour host, int scaleDown, float rotateAfterSeconds = 0f)
+        public static void Run(MonoBehaviour host, int scaleDown, float rotateAfterSeconds = 0f, string resolution = null)
         {
             var go = new GameObject("SecureRectE2E");
             DontDestroyOnLoad(go);
             var e2e = go.AddComponent<SecureRectE2E>();
-            if (scaleDown > 1)
+            // "WxH": a render size with another aspect than the display (the surface stretches it).
+            var parts = (resolution ?? "").Split('x');
+            if (parts.Length == 2 && int.TryParse(parts[0], out int rw) && int.TryParse(parts[1], out int rh))
+            {
+                Debug.Log("[SECURERECT] SetResolution " + rw + "x" + rh + " (from " + Screen.width + "x" + Screen.height + ")");
+                Screen.SetResolution(rw, rh, true);
+                scaleDown = 2; // wait for it before registering
+            }
+            else if (scaleDown > 1)
             {
                 int w = Screen.width / scaleDown, h = Screen.height / scaleDown;
                 Debug.Log("[SECURERECT] SetResolution " + w + "x" + h + " (from " + Screen.width + "x" + Screen.height + ")");
@@ -42,7 +51,8 @@ namespace Bugsee.Sample
             _green.Apply();
         }
 
-        // Fractions of the screen so the box means the same thing in any size and orientation.
+        // The box is laid out by fractions of the screen, the one layout the wrapper follows without being told. Content
+        // anchored in pixels needs a Remove + Add after a rotation (readd mode below).
         Rect Box() => new Rect(Screen.width * 0.1f, Screen.height * 0.15f, Screen.width * 0.5f, Screen.height * 0.2f);
 
         void Register()
@@ -57,8 +67,7 @@ namespace Bugsee.Sample
 
         void OnGUI()
         {
-            // The box follows the screen like the registered rectangle does (re-added in Log when the screen changes).
-            GUI.depth = -2000;
+                GUI.depth = -2000;
             var r = Box();
             GUI.DrawTexture(new Rect(r.xMin, Screen.height - r.yMax, r.width, r.height), _green);
         }
@@ -72,6 +81,15 @@ namespace Bugsee.Sample
             bool toPortrait = Screen.width > Screen.height;
             Screen.orientation = toPortrait ? ScreenOrientation.Portrait : ScreenOrientation.LandscapeLeft;
             Debug.Log("[SECURERECT] rotated to " + (toPortrait ? "portrait" : "landscape"));
+            if (!ReAdd) yield break;
+            // Remove the rectangle and add the new one in the very frame Unity's size changes (possibly before the surface does).
+            int w = Screen.width, h = Screen.height;
+            float until = Time.unscaledTime + 5f;
+            while (Screen.width == w && Screen.height == h && Time.unscaledTime < until) yield return null;
+            Bugsee.RemoveSecureScreenRectangle(_unityRect);
+            _unityRect = Box();
+            Bugsee.AddSecureScreenRectangle(_unityRect);
+            Debug.Log("[SECURERECT] re-added right after rotation unityRect=" + _unityRect);
         }
         string _lastBox;
 
@@ -124,8 +142,7 @@ namespace Bugsee.Sample
                 + " nativeRects=" + rects;
             if (now == _last) return;
             _last = now;
-            // Unity rect of the box at this size, to compare with nativeRects (top-left origin). The box is laid out by fractions of
-            // the screen and the wrapper keeps the rectangle's fraction too, so they match after a rotation without adding again.
+            // Unity rect of the box at this size, to compare with nativeRects (top-left origin).
             Debug.Log("[SECURERECT] " + now + " boxUnity=" + Box());
         }
     }

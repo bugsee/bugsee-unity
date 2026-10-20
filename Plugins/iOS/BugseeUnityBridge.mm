@@ -779,6 +779,47 @@ float _bugsee_pixels_per_point(int unityPixelWidth)
     return (float)[UIScreen mainScreen].scale;
 }
 
+static UIWindow *BugseeUnityKeyWindow(void)
+{
+    UIApplication *app = [UIApplication sharedApplication];
+    for (UIScene *scene in app.connectedScenes) {
+        if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+        if (scene.activationState != UISceneActivationStateForegroundActive) continue;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows)
+            if (window.isKeyWindow) return window;
+    }
+    return app.windows.firstObject;
+}
+
+static UIView *BugseeUnityFindView(UIView *view, int depth)
+{
+    if ([NSStringFromClass([view class]) hasPrefix:@"UnityView"]) return view;
+    if (depth > 6) return nil;
+    for (UIView *child in view.subviews) {
+        UIView *found = BugseeUnityFindView(child, depth + 1);
+        if (found) return found;
+    }
+    return nil;
+}
+
+// Where Unity's own view sits in its window, in points with a top-left origin (x, y, width, height into outRect). Differs from
+// UIScreen.bounds under iPad Split View, Slide Over and Stage Manager. Returns 0 when there is no window or view.
+int _bugsee_unity_view_region(float *outRect)
+{
+    if (!outRect) return 0;
+    UIWindow *window = BugseeUnityKeyWindow();
+    if (!window) return 0;
+    UIView *view = BugseeUnityFindView(window.rootViewController.view ?: window, 0) ?: window.rootViewController.view;
+    if (!view) return 0;
+    CGRect r = [view convertRect:view.bounds toView:nil];
+    if (r.size.width <= 0 || r.size.height <= 0) return 0;
+    outRect[0] = (float)r.origin.x;
+    outRect[1] = (float)r.origin.y;
+    outRect[2] = (float)r.size.width;
+    outRect[3] = (float)r.size.height;
+    return 1;
+}
+
 void _bugsee_capture_view_hierarchy(void)
 {
     [Bugsee captureViewHierarchy];
@@ -1088,6 +1129,7 @@ char *_bugsee_get_email(void) { return NULL; }
 void _bugsee_clear_email(void) {}
 float _bugsee_screen_scale(void) { return 1.f; }
 float _bugsee_pixels_per_point(int unityPixelWidth) { (void)unityPixelWidth; return 1.f; }
+int _bugsee_unity_view_region(float *outRect) { (void)outRect; return 0; }
 void _bugsee_set_secure_buffer(int display, int *packed, int packedLength)
 {
     (void)display;

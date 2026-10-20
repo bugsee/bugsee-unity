@@ -451,71 +451,15 @@ namespace Bugsee.Platform.Android
 
         public float GetSecureRectSnapshotScale() => 1f;
 
-        const int AndroidContentViewId = 16908290; // android.R.id.content
+        readonly SecureRectSurfaceProbe _surfaceProbe = new SecureRectSurfaceProbe();
 
-        // Unity's surface is the first SurfaceView under the activity's content view. Its size is the display size in window
-        // pixels (Resolution Scaling only shrinks its buffer, so Screen.width is smaller), and its position is the offset
-        // secure rectangles need. Called at most a few times a second, and only while a screen-space rectangle exists.
-        public bool TryGetSecureRectViewRegion(int screenWidth, int screenHeight, out int left, out int top, out int width, out int height)
+        // Unity's surface on the screen, read with cached JNI handles (cheap enough for every frame). Resolution Scaling or a
+        // stretched buffer keep the surface at display size while Screen shrinks, so the aspect is not checked: a rotation
+        // in flight shows for a frame or two, until Unity's size and the view agree again.
+        public bool TryGetSecureRectViewRegion(int screenWidth, int screenHeight, out int left, out int top, out int width, out int height, out bool settled)
         {
-            left = top = width = height = 0;
-            IntPtr playerClass = IntPtr.Zero, activity = IntPtr.Zero, content = IntPtr.Zero, surface = IntPtr.Zero;
-            IntPtr surfaceClass = IntPtr.Zero, groupClass = IntPtr.Zero, viewClass = IntPtr.Zero, locArray = IntPtr.Zero;
-            try
-            {
-                playerClass = AndroidJNI.FindClass("com/unity3d/player/UnityPlayer");
-                IntPtr field = AndroidJNI.GetStaticFieldID(playerClass, "currentActivity", "Landroid/app/Activity;");
-                activity = AndroidJNI.GetStaticObjectField(playerClass, field);
-                if (activity == IntPtr.Zero) return false;
-                IntPtr findById = AndroidJNI.GetMethodID(AndroidJNI.GetObjectClass(activity), "findViewById", "(I)Landroid/view/View;");
-                content = AndroidJNI.CallObjectMethod(activity, findById, new[] { new jvalue { i = AndroidContentViewId } });
-                if (content == IntPtr.Zero) return false;
-                surfaceClass = AndroidJNI.FindClass("android/view/SurfaceView");
-                groupClass = AndroidJNI.FindClass("android/view/ViewGroup");
-                viewClass = AndroidJNI.FindClass("android/view/View");
-                surface = FindSurfaceView(content, surfaceClass, groupClass, 0);
-                if (surface == IntPtr.Zero) return false;
-                locArray = AndroidJNI.ToIntArray(new int[2]);
-                IntPtr getLoc = AndroidJNI.GetMethodID(viewClass, "getLocationInWindow", "([I)V");
-                AndroidJNI.CallVoidMethod(surface, getLoc, new[] { new jvalue { l = locArray } });
-                left = AndroidJNI.GetIntArrayElement(locArray, 0);
-                top = AndroidJNI.GetIntArrayElement(locArray, 1);
-                width = AndroidJNI.CallIntMethod(surface, AndroidJNI.GetMethodID(viewClass, "getWidth", "()I"), new jvalue[0]);
-                height = AndroidJNI.CallIntMethod(surface, AndroidJNI.GetMethodID(viewClass, "getHeight", "()I"), new jvalue[0]);
-                // Not Unity's surface (a plugin's SurfaceView, or a view caught mid-rotation): unknown.
-                return FramePushPolicy.IsPlausibleUnityView(width, height, screenWidth, screenHeight);
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-            finally
-            {
-                foreach (IntPtr r in new[] { playerClass, activity, content, surface, surfaceClass, groupClass, viewClass, locArray })
-                    if (r != IntPtr.Zero) AndroidJNI.DeleteLocalRef(r);
-                AndroidJNI.ExceptionClear();
-            }
-        }
-
-        // Depth-first, the first SurfaceView under the content view. Returns a new local ref, or zero.
-        static IntPtr FindSurfaceView(IntPtr view, IntPtr surfaceClass, IntPtr groupClass, int depth)
-        {
-            if (AndroidJNI.IsInstanceOf(view, surfaceClass)) return AndroidJNI.NewLocalRef(view);
-            if (depth > 6 || !AndroidJNI.IsInstanceOf(view, groupClass)) return IntPtr.Zero;
-            IntPtr viewGroup = AndroidJNI.GetObjectClass(view);
-            IntPtr getCount = AndroidJNI.GetMethodID(viewGroup, "getChildCount", "()I");
-            IntPtr getAt = AndroidJNI.GetMethodID(viewGroup, "getChildAt", "(I)Landroid/view/View;");
-            AndroidJNI.DeleteLocalRef(viewGroup);
-            int count = AndroidJNI.CallIntMethod(view, getCount, new jvalue[0]);
-            for (int i = 0; i < count; i++)
-            {
-                IntPtr child = AndroidJNI.CallObjectMethod(view, getAt, new[] { new jvalue { i = i } });
-                if (child == IntPtr.Zero) continue;
-                IntPtr found = FindSurfaceView(child, surfaceClass, groupClass, depth + 1);
-                AndroidJNI.DeleteLocalRef(child);
-                if (found != IntPtr.Zero) return found;
-            }
-            return IntPtr.Zero;
+            settled = true;
+            return _surfaceProbe.TryRead(screenWidth, screenHeight, out left, out top, out width, out height);
         }
 
         public void CaptureViewHierarchy() => _bugsee.CallStatic("captureViewHierarchy");

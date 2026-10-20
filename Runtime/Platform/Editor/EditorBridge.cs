@@ -65,8 +65,9 @@ namespace Bugsee.Platform.EditorStub
 
         public float GetSecureRectSnapshotScale() => 1f;
 
-        public bool TryGetSecureRectViewRegion(int screenWidth, int screenHeight, out int left, out int top, out int width, out int height)
+        public bool TryGetSecureRectViewRegion(int screenWidth, int screenHeight, out int left, out int top, out int width, out int height, out bool settled)
         {
+            settled = true;
             left = top = 0;
             width = screenWidth;
             height = screenHeight;
