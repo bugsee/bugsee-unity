@@ -76,6 +76,8 @@ namespace Bugsee.Editor
         /// not the Build Settings checkbox, which a script that builds with explicit options leaves alone).</param>
         internal static void Run(BuildTarget target, string pathToBuiltProject, bool development)
         {
+            // tvOS exports are not covered (nor are the other iOS steps here): an Append export there could list a phase twice
+            // as well; delete the export folder or export with Replace.
             if (target != BuildTarget.iOS)
             {
                 return;

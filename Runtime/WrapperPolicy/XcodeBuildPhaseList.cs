@@ -10,42 +10,49 @@ namespace Bugsee.WrapperPolicy
     /// </summary>
     public static class XcodeBuildPhaseList
     {
-        static readonly Regex PhaseList = new Regex("buildPhases = \\((?<body>[^)]*)\\);");
         static readonly Regex Entry = new Regex("^\\s*(?<id>[0-9A-Fa-f]+)\\b");
 
         /// <summary>
-        /// Drops the second and later mentions of a build phase in a target's <c>buildPhases</c> list. Unity's "Append"
-        /// export (BuildOptions.AcceptExternalModificationsToPlayer) after the IL2CPP arguments changed lists the
-        /// GameAssembly target's "Run Script" phase twice (seen on 2022.3 without any Bugsee package); xcodebuild then
-        /// fails the archive with "Unexpected duplicate tasks". The phase object stays once, so nothing else changes.
+        /// Drops the second and later mentions of a build phase in a target's <c>buildPhases</c> list (the first one keeps
+        /// its place). Unity's "Append" export (BuildOptions.AcceptExternalModificationsToPlayer) after the IL2CPP arguments
+        /// changed lists the GameAssembly target's "Run Script" phase twice, the same id again (seen on 2022.3 without any
+        /// Bugsee package); xcodebuild then fails the archive with "Unexpected duplicate tasks". The phase object stays
+        /// once, so nothing else changes. Known limit: only a repeated id is removed; if Unity ever created a second phase
+        /// with a new id, it is not recognised. Other lists (files, children) are left alone.
         /// </summary>
         public static string RemoveDuplicates(string pbxproj, out int removed)
         {
             if (pbxproj == null) throw new ArgumentNullException(nameof(pbxproj));
 
             int count = 0;
-            string result = PhaseList.Replace(pbxproj, m =>
+            var result = new StringBuilder(pbxproj.Length);
+            HashSet<string> seen = null;
+            foreach (string line in SplitKeepingEnds(pbxproj))
             {
-                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                var kept = new StringBuilder();
-                bool changed = false;
-                foreach (string line in SplitKeepingEnds(m.Groups["body"].Value))
+                string trimmed = line.Trim();
+                if (seen == null)
+                {
+                    if (trimmed.StartsWith("buildPhases = (", StringComparison.Ordinal)) seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                }
+                else if (trimmed == ");")
+                {
+                    seen = null;
+                }
+                else
                 {
                     Match e = Entry.Match(line);
                     if (e.Success && !seen.Add(e.Groups["id"].Value))
                     {
-                        changed = true;
                         count++;
                         continue;
                     }
-
-                    kept.Append(line);
                 }
 
-                return changed ? "buildPhases = (" + kept + ");" : m.Value;
-            });
+                result.Append(line);
+            }
+
             removed = count;
-            return result;
+            return count == 0 ? pbxproj : result.ToString();
         }
 
         static IEnumerable<string> SplitKeepingEnds(string text)
