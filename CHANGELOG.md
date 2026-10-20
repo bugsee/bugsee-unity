@@ -62,7 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Bugsee.Notify(title, body, severity, fields, urgent)` (Android and iOS): relays a lightweight notification to the app's messaging integrations without creating a report. An empty title is ignored with a warning.
 - `Bugsee.StartTransaction(name, operation, attributes)` and `ISpan` (`StartChild`, `SetName`, `SetDescription`, `SetAttribute`, `SetStatus`, `Finish`, `Dispose`) for APM on Android and iOS. A span is a managed wrapper over a native handle that is released when the span finishes (children still live are finished as `Cancelled` first); there is no global `StartSpan`/`GetActiveSpan`.
 - Initial UPM package scaffold (`com.bugsee.unity`).
-- Android native SDK from Maven Central (`com.bugsee:bugsee-android:7.4.1` + `bugsee-android-ndk:7.4.1`), declared in the generated Gradle project at build time. Installing is just adding the package: no EDM4U, no OpenUPM scoped registry, no resolve step, no custom Gradle templates. A Bugsee dependency the project already declares (EDM4U, custom template, local AAR) is kept, and a different version is reported. Core AAR publishes no transitives; NDK is declared explicitly.
+- Android native SDK from Maven Central (`com.bugsee:bugsee-android:7.4.2` + `bugsee-android-ndk:7.4.2`), declared in the generated Gradle project at build time. Installing is just adding the package: no EDM4U, no OpenUPM scoped registry, no resolve step, no custom Gradle templates. A Bugsee dependency the project already declares (EDM4U, custom template, local AAR) is kept, and a different version is reported. Core AAR publishes no transitives; NDK is declared explicitly.
 - Android Gradle plugin `4.0.8` (NDK enabled on Unity 6+ launcher templates).
 - iOS SPM-only native SDK: Xcode resolves [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta7` + `Plugins/iOS/BugseeUnityBridge.mm` P/Invoke bridge (7.x selectors; iOS 15 deployment target).
 - ExceptionPipeline managed capture (`CaptureManagedExceptions`) with UnityManagedException JSON-in-reason.
@@ -90,7 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Behaviour changes to be aware of. 0.1.0 is not released, so these correct earlier unreleased work.
 
-- Native SDKs: Android `bugsee-android` / `bugsee-android-ndk` 7.4.1 and iOS `bugsee/spm` 7.0.0-beta7.
+- Native SDKs: Android `bugsee-android` / `bugsee-android-ndk` 7.4.2 and iOS `bugsee/spm` 7.0.0-beta7.
 - Android `DeleteCollectedDataOnDevice` now stops the SDK whenever it is not stopped and also deletes finished
   report bundles, **including reports that were not uploaded yet**. Before, it kept all finished bundles
   (the native two-argument overload does not delete them) and could delete before the SDK had stopped.
