@@ -128,7 +128,7 @@ runs scenarios on one Android device.
 
 | Scenario | What it does |
 |----------|--------------|
-| `interactions`, `actions`, `filters`, `presets` | self-checking (`PASS`/`FAIL` lines), described below |
+| `interactions`, `actions`, `filters`, `presets`, `lifecycle` | self-checking (`PASS`/`FAIL` lines), described below |
 | `sig` (default), `handled`, `unhandled`, `pipeline`, `upload`, `labels`, `logerror` | send handled / unhandled exceptions, a pipeline exception, a plain `Upload`, a handled exception with labels, or a Unity `LogError`, to see that a report arrives (`sig` sends three, to check the grouping signature) |
 | `crash`, `native`, `abort`, `fatal`, `java`, `hang` | kill the process (or block the main thread) for the crash matrix; one per run |
 | `sigraise` | raise SIGSEGV (iOS only; does nothing on Android) |
@@ -213,6 +213,15 @@ What this does not prove: on iOS the readback shows the SDK stored the host opti
 checked as such: with `CaptureBreadcrumbs` a breadcrumb reaches the breadcrumb filter and without it none does; with `CaptureNetwork`
 a network event reaches the network filter and without it none does. The effect of the other options is not observable from the sample.
 It logs `[Sample] presets PASS|FAIL ...` lines ending in `presets e2e done failures=N`.
+
+### Lifecycle check (`lifecycle` e2e scenario, Android)
+
+`BUGSEE_E2E_SCENARIO=lifecycle` (issue #176) runs Launch/Relaunch/Stop sequences once the SDK is launched. Part 1 calls the native
+`Bugsee.relaunch/stop/launch` directly and logs what the SDK itself answers (`[Sample] lifecycle RAW ...`): a refused relaunch, two
+relaunches in a row, `stop()` during a relaunch, `launch()` during a relaunch's stop, and `stop()` in a relaunch's launch half. The
+same scenario in a build that pins another Android SDK version shows what a release changed; PASS/FAIL is judged only when the build
+pins SDK 7.4.2. Part 2 runs the same sequences through the public facade (the wrapper's lifecycle machine) and logs
+`[Sample] lifecycle PASS|FAIL ...`, ending in `lifecycle e2e done failures=N`. It does nothing on iOS.
 
 ### Filter check (`filters` e2e scenario)
 

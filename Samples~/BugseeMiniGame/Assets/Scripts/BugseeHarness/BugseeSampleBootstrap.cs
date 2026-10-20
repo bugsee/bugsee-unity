@@ -379,6 +379,14 @@ namespace Bugsee.Sample
                         StartCoroutine(PresetsE2E.Run(this));
                     }
                     break;
+                case "lifecycle":
+                    // Android relaunch/stop/launch sequences: the SDK's own answers, then the facade's (issue #176).
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        StartCoroutine(LifecycleE2E.Run(this));
+                    }
+                    break;
                 case "actions":
                     // Drives the action-catalog items the bubbles call (issue #115), once the SDK is launched.
                     if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
