@@ -60,8 +60,19 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>True for the values <see cref="Bounded"/> writes as a JSON object or array.</summary>
-        public static bool IsContainer(object value) =>
-            value is IDictionary || (value is ICollection && !(value is string) && !(value is byte[]));
+        public static bool IsContainer(object value)
+        {
+            if (value == null || value is string || value is byte[]) return false;
+            if (value is IDictionary || value is ICollection || value is IDictionary<string, object>) return true;
+            foreach (var face in value.GetType().GetInterfaces())
+            {
+                if (!face.IsGenericType) continue;
+                var def = face.GetGenericTypeDefinition();
+                if (def == typeof(ICollection<>) || def == typeof(IReadOnlyCollection<>)) return true;
+            }
+
+            return false;
+        }
 
         sealed class BoundState
         {
@@ -90,7 +101,7 @@ namespace Bugsee.WrapperPolicy
             state.Path.Add(value);
             try
             {
-                var map = value as IDictionary;
+                var map = value as IDictionary ?? (value is IDictionary<string, object> typed ? new TypedMap(typed) : null);
                 var sb = new StringBuilder(map != null ? "{" : "[");
                 var closer = map != null ? '}' : ']';
                 var first = true;
@@ -103,14 +114,51 @@ namespace Bugsee.WrapperPolicy
                     var prefix = (first ? "" : ",")
                         + (map != null ? String(Convert.ToString(de.Key, CultureInfo.InvariantCulture)) + ":" : "");
                     int room = budget - sb.Length - prefix.Length - 1;
+                    var before = state.Truncated;
                     var text = room > 0 ? BoundedValue(item, depth + 1, room, state) : null;
-                    if (text == null) { state.Truncated = true; break; }
+                    if (text == null || text.Length > room) { state.Truncated = true; break; }
                     sb.Append(prefix).Append(text);
                     first = false;
+                    // A shortened child ends this level too, so what is written stays a prefix of the data.
+                    if (!before && state.Truncated) break;
                 }
                 return sb.Append(closer).ToString();
             }
             finally { state.Path.RemoveAt(state.Path.Count - 1); }
+        }
+
+        // Adapts IDictionary<string, object> (which is not the non-generic IDictionary) to the walk above.
+        sealed class TypedMap : IDictionary
+        {
+            readonly IDictionary<string, object> _map;
+            public TypedMap(IDictionary<string, object> map) { _map = map; }
+            public IDictionaryEnumerator GetEnumerator() => new Walker(_map);
+            IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+            public int Count => _map.Count;
+            public bool IsReadOnly => true;
+            public bool IsFixedSize => true;
+            public bool IsSynchronized => false;
+            public object SyncRoot => this;
+            public ICollection Keys => throw new NotSupportedException();
+            public ICollection Values => throw new NotSupportedException();
+            public object this[object key] { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+            public bool Contains(object key) => throw new NotSupportedException();
+            public void Add(object key, object value) => throw new NotSupportedException();
+            public void Clear() => throw new NotSupportedException();
+            public void Remove(object key) => throw new NotSupportedException();
+            public void CopyTo(Array array, int index) => throw new NotSupportedException();
+
+            sealed class Walker : IDictionaryEnumerator
+            {
+                readonly IEnumerator<KeyValuePair<string, object>> _e;
+                public Walker(IDictionary<string, object> map) { _e = map.GetEnumerator(); }
+                public bool MoveNext() => _e.MoveNext();
+                public void Reset() => throw new NotSupportedException();
+                public object Current => Entry;
+                public DictionaryEntry Entry => new DictionaryEntry(_e.Current.Key, _e.Current.Value);
+                public object Key => _e.Current.Key;
+                public object Value => _e.Current.Value;
+            }
         }
 
         static string Fit(string text, int budget) => text.Length <= budget ? text : null;

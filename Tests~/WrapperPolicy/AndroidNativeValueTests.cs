@@ -108,6 +108,53 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(AttributeWire.ToNative(new List<object> { Huge.Max, Bits.B }), Is.EqualTo("[18446744073709551615,4]"));
         }
 
+        sealed class TypedOnly : IDictionary<string, object>
+        {
+            readonly Dictionary<string, object> _d = new Dictionary<string, object> { { "k", 1 } };
+            public object this[string key] { get => _d[key]; set => _d[key] = value; }
+            public ICollection<string> Keys => _d.Keys;
+            public ICollection<object> Values => _d.Values;
+            public int Count => _d.Count;
+            public bool IsReadOnly => false;
+            public void Add(string key, object value) => _d.Add(key, value);
+            public void Add(KeyValuePair<string, object> item) => _d.Add(item.Key, item.Value);
+            public void Clear() => _d.Clear();
+            public bool Contains(KeyValuePair<string, object> item) => _d.ContainsKey(item.Key);
+            public bool ContainsKey(string key) => _d.ContainsKey(key);
+            public void CopyTo(KeyValuePair<string, object>[] array, int arrayIndex) { }
+            public IEnumerator<KeyValuePair<string, object>> GetEnumerator() => _d.GetEnumerator();
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => _d.GetEnumerator();
+            public bool Remove(string key) => _d.Remove(key);
+            public bool Remove(KeyValuePair<string, object> item) => _d.Remove(item.Key);
+            public bool TryGetValue(string key, out object value) => _d.TryGetValue(key, out value);
+        }
+
+        [Test]
+        public void Sets_and_generic_only_dictionaries_are_containers()
+        {
+            Assert.That(AttributeWire.ToNative(new HashSet<object> { 1 }), Is.EqualTo("[1]"));
+            Assert.That(AttributeWire.ToNative(new TypedOnly()), Is.EqualTo("{\"k\":1}"));
+            Assert.That(AttributeWire.ToNative(new List<object> { new TypedOnly() }), Is.EqualTo("[{\"k\":1}]"));
+        }
+
+        [Test]
+        public void The_cap_is_exact_for_nested_values_and_a_cut_ends_every_level()
+        {
+            var data = new List<object>();
+            for (int i = 0; i < 40; i++) data.Add(new List<object> { "xxxxxxxx", 1 });
+            for (int cap = 3; cap < 200; cap++)
+            {
+                var json = JsonWire.Bounded(data, cap, out _);
+                Assert.That(IsValidJson(json), Is.True, json);
+                Assert.That(json.Length, Is.LessThanOrEqualTo(Math.Max(cap, 2)), json);
+            }
+            // The cut one inner list holds ends the outer list: later short siblings are not kept.
+            var mixed = new List<object> { new List<object> { "aaaaaaaaaaaa", "b" }, 7 };
+            var cut = JsonWire.Bounded(mixed, 12, out var truncated);
+            Assert.That(truncated, Is.True);
+            Assert.That(cut, Does.Not.Contain("7"));
+        }
+
         private sealed class Walker : System.Collections.IEnumerable
         {
             public bool Walked;
