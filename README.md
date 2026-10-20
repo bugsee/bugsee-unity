@@ -32,14 +32,14 @@ log warns when its version differs from the one this package pins.
 
 | Platform | Integration | Current pin |
 |---|---|---|
-| **Android** | Maven Central, declared in the generated Gradle project by `BugseeAndroidMavenDependencies` | `bugsee-android:7.4.1` + `bugsee-android-ndk:7.4.1` |
+| **Android** | Maven Central, declared in the generated Gradle project by `BugseeAndroidMavenDependencies` | `bugsee-android:7.4.2` + `bugsee-android-ndk:7.4.2` |
 | **iOS** | Swift Package Manager + `Plugins/iOS/BugseeUnityBridge.mm` | [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta7` |
 
 **Android stack**
 
 | Piece | Status |
 |---|---|
-| `bugsee-android` | **7.4.1**, added to `unityLibrary/build.gradle` at build time (no Maven transitives) |
+| `bugsee-android` | **7.4.2**, added to `unityLibrary/build.gradle` at build time (no Maven transitives) |
 | `bugsee-android-ndk` | Same version, declared alongside (native fatal capture for IL2CPP primary LNM) |
 | `mavenCentral()` | Added to the generated project repositories only if Unity's layout lacks it |
 | Gradle plugin `4.0.8` | Patched into the generated Gradle project by `BugseeAndroidGradleSetup` when it pins AGP 8.6+ (Unity 6; `ndk { enabled = true }`; for an Export Project the block also reads `BUGSEE_APP_TOKEN` from the environment of the later Gradle build, see [Export Project](Documentation~/index.md#export-project-android)), in Groovy or Kotlin DSL files, see [Gradle file layouts](Documentation~/index.md#gradle-file-layouts). On Unity 2021.3 / 2022.3 (AGP 7.4.2) and Unity 6000.0.1-44 (AGP 8.3.0) it cannot run; the build-id asset is added instead and symbols are uploaded by the Editor with `bugsee-cli` found or downloaded automatically, see [Documentation~/index.md](Documentation~/index.md#unity-20213-and-20223-no-bugsee-gradle-plugin) |
@@ -52,13 +52,16 @@ log warns when its version differs from the one this package pins.
 
 See `Tools~/versions.env` for pinned versions and paths.
 
+The script also vendors the option manifests the native SDKs publish for the pinned versions (`Tools~/scripts/update-options-manifest.sh`, into `Tests~/WrapperPolicy/Fixtures/options-manifest/`). After a bump, run the WrapperPolicy tests: `OptionsManifestTests` fails for a new, removed or changed native option until the wrapper exposes it or lists it as not exposed (with the issue that tracks it). If a pin has no published manifest yet, the script warns and the test stays red until `update-options-manifest.sh` succeeds (`ANDROID_MANIFEST_FILE` / `IOS_MANIFEST_FILE` take a manifest from a local SDK build).
+Two branches that bump different pins, or one that bumps a pin while another adds the manifests, conflict only through `Tools~/versions.env` and the vendored files: whichever merges second runs `update-native-sdks.sh` again (the CHANGELOG line that names the manifest versions is a pin in `native-pins.txt` and is rewritten with the rest), otherwise `Vendored_manifests_are_verbatim_copies_of_the_pinned_versions` is red on main.
+
 ## Crashes & symbols
 
 See [Documentation~/index.md](Documentation~/index.md) for:
 
 - ExceptionPipeline vs `DetectAndReportCrash`
 - Hang / ANR / OOM launch options
-- `BUGSEE_APP_TOKEN` Editor uploads (`il2cpp-linemap`, `elf`, `proguard`)
+- `BUGSEE_APP_TOKEN` Editor uploads (`il2cpp-linemap`, `elf`, `proguard`); the IL2CPP mapping files are written without it, for a later CI upload
 - iOS archive-time dSYM + linemap Run Script
 - Create symbols.zip / FULL native debug symbols vs SYMBOL_TABLE
 
