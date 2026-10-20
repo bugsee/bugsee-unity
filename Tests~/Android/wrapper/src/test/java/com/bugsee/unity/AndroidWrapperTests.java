@@ -334,6 +334,21 @@ public class AndroidWrapperTests {
         assertTrue(proxies.contains("com.bugsee.library.contracts.common.DataRequestProvider"));
     }
 
+    @Test
+    public void loggedExceptionsTellTheWrapperTheUnityThreadIsBlocked() throws Exception {
+        // The SDK files a logged exception on the calling thread and waits for the managed hierarchy reply there; the wrapper must be
+        // told so it answers none at once. Both SDK calls sit between the enter and the exit, and the exit is in a finally.
+        String bridge = new String(
+                Files.readAllBytes(repoFile("Runtime/Platform/Android/AndroidBridge.cs")),
+                StandardCharsets.UTF_8);
+        int enter = bridge.indexOf("ManagedViewRequests.EnterBlockingNativeCall()");
+        int handled = bridge.indexOf("\"logException\", throwable");
+        int unhandled = bridge.indexOf("\"logUnhandledException\", throwable");
+        int exit = bridge.indexOf("ManagedViewRequests.ExitBlockingNativeCall()");
+        assertTrue(enter > 0 && enter < handled && handled < exit && enter < unhandled && unhandled < exit);
+        assertTrue(bridge.substring(bridge.lastIndexOf("finally", exit), exit).contains("finally"));
+    }
+
     static String classPool(String relative) throws Exception {
         byte[] bytes = Files.readAllBytes(findUnderBuild(relative));
         return new String(bytes, StandardCharsets.ISO_8859_1);

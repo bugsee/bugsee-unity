@@ -318,13 +318,26 @@ namespace Bugsee.Platform.Android
                 {
                     map.Call<AndroidJavaObject>("put", "moduleUUID", payload.moduleUUID);
                 }
-                if (handled)
+                // The SDK files the report on this thread and, for the managed view hierarchy, waits for a reply that only this
+                // thread could give (Unity's main thread, now inside this call). Telling the wrapper lets it answer "none" at once
+                // instead of making the SDK time out and the game stall. Only when this is Unity's thread: from any other the reply
+                // can still be made.
+                var onUnityThread = MainThreadDispatcher.IsMainThread;
+                if (onUnityThread) ManagedViewRequests.EnterBlockingNativeCall();
+                try
                 {
-                    _bugsee.CallStatic("logException", throwable, map);
+                    if (handled)
+                    {
+                        _bugsee.CallStatic("logException", throwable, map);
+                    }
+                    else
+                    {
+                        _bugsee.CallStatic("logUnhandledException", throwable, map);
+                    }
                 }
-                else
+                finally
                 {
-                    _bugsee.CallStatic("logUnhandledException", throwable, map);
+                    if (onUnityThread) ManagedViewRequests.ExitBlockingNativeCall();
                 }
             }
         }

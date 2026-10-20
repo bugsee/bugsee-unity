@@ -159,7 +159,7 @@ Runtime/
 Always register (Flutter-style), regardless of whether the app subscribed yet:
 
 1. **`Bugsee.setWrapper(unityWrapperImpl)`** — identity, `requestData`, secure rects, wrapper report hooks, `onLifecycleEvent`
-   `requestData` answers one flow, `"vh"` (managed view hierarchy): the SDK asks on the native main thread, C# reads the scene on Unity's thread (`Runtime/Internal/ManagedViewHierarchy.cs`, pure serialization and privacy in `WrapperPolicy/ManagedViewTree.cs`) and replies within the SDK's 500 ms budget; every other type, and a request before C# is ready, is answered `null`.
+   `requestData` answers one flow, `"vh"` (managed view hierarchy): the SDK asks on its main thread, C# reads the scene on Unity's thread (`Runtime/Internal/ManagedViewHierarchy.cs`; serialization, privacy and the request rules in `WrapperPolicy/ManagedViewTree.cs`) and replies within the SDK's 500 ms budget. Every other type, a request before C# is ready, and a request made while Unity's main thread is blocked in a synchronous SDK call (logged exceptions) are answered `null`.
 2. `setNetworkEventFilter` / `setLogEventFilter` / `setBreadcrumbFilter` → C# (passthrough if no subscribers)
 3. `setReportHandler` → app `IReportHandler` / events (wrapper runs first inside SDK)
 4. `setLifecycleEventsListener` → forward **all** 7.0 `LifecycleEvents` (+ feedback lifecycle strings when present)

@@ -16,7 +16,13 @@ namespace Bugsee.WrapperPolicy
         public string Components;
         public bool HasBounds;
         public float X, Y, Width, Height;
+        /// <summary>The walk stopped at this node: some of its children (or deeper levels) were left out. Written as the viewer's node-level <c>truncated</c>.</summary>
+        public bool Truncated;
         public readonly List<ManagedViewNode> Children = new List<ManagedViewNode>();
+
+        // Filled once by the writer, bottom-up: the node's own box or the union of its children's.
+        internal bool ResolvedHas;
+        internal float RX, RY, RW, RH;
     }
 
     /// <summary>
@@ -94,17 +100,17 @@ namespace Bugsee.WrapperPolicy
         /// <param name="secureRects">[left, top, right, bottom, ...] in the same pixels (SecureRectRegistry.CopyRects).</param>
         /// <param name="secureCount">How many rectangles of <paramref name="secureRects"/> are in use.</param>
         /// <param name="pixelsPerNativeUnit">1 on Android (the native tree is in pixels), the screen scale on iOS (points).</param>
-        /// <param name="truncated">Marks the root: the tree is incomplete because the walk hit its budget.</param>
         public static string Write(
-            ManagedViewNode root, int[] secureRects, int secureCount, float pixelsPerNativeUnit, bool truncated)
+            ManagedViewNode root, int[] secureRects, int secureCount, float pixelsPerNativeUnit)
         {
             if (root == null) return null;
             if (!(pixelsPerNativeUnit > 0f) || float.IsInfinity(pixelsPerNativeUnit)) pixelsPerNativeUnit = 1f;
             if (secureRects == null) secureCount = 0;
             else if (secureCount * 4 > secureRects.Length) secureCount = secureRects.Length / 4;
 
+            Resolve(root, 1);
             var sb = new StringBuilder(4096);
-            WriteNode(sb, root, secureRects, secureCount, pixelsPerNativeUnit, truncated, 1);
+            WriteNode(sb, root, secureRects, secureCount, pixelsPerNativeUnit, 1);
             return sb.ToString();
         }
 
@@ -114,15 +120,18 @@ namespace Bugsee.WrapperPolicy
         /// </summary>
         public static bool TryResolveBounds(ManagedViewNode node, out float x, out float y, out float w, out float h)
         {
-            return TryResolveBounds(node, 1, out x, out y, out w, out h);
+            Resolve(node, 1);
+            x = node.RX; y = node.RY; w = node.RW; h = node.RH;
+            return node.ResolvedHas;
         }
 
-        static bool TryResolveBounds(ManagedViewNode node, int depth, out float x, out float y, out float w, out float h)
+        // Post-order, once per node: a walk of n nodes costs n, not n times the depth.
+        static void Resolve(ManagedViewNode node, int depth)
         {
             if (node.HasBounds)
             {
-                x = node.X; y = node.Y; w = node.Width; h = node.Height;
-                return true;
+                node.ResolvedHas = true;
+                node.RX = node.X; node.RY = node.Y; node.RW = node.Width; node.RH = node.Height;
             }
 
             var found = false;
@@ -132,29 +141,28 @@ namespace Bugsee.WrapperPolicy
                 for (var i = 0; i < node.Children.Count; i++)
                 {
                     var child = node.Children[i];
-                    if (child == null || !TryResolveBounds(child, depth + 1, out var cx, out var cy, out var cw, out var ch)) continue;
-                    if (!found)
-                    {
-                        minX = cx; minY = cy; maxX = cx + cw; maxY = cy + ch;
-                        found = true;
-                        continue;
-                    }
-
+                    if (child == null) continue;
+                    Resolve(child, depth + 1);
+                    if (node.HasBounds || !child.ResolvedHas) continue;
+                    var cx = child.RX; var cy = child.RY; var cr = cx + child.RW; var cb = cy + child.RH;
+                    if (!found) { minX = cx; minY = cy; maxX = cr; maxY = cb; found = true; continue; }
                     if (cx < minX) minX = cx;
                     if (cy < minY) minY = cy;
-                    if (cx + cw > maxX) maxX = cx + cw;
-                    if (cy + ch > maxY) maxY = cy + ch;
+                    if (cr > maxX) maxX = cr;
+                    if (cb > maxY) maxY = cb;
                 }
             }
 
-            x = minX; y = minY; w = maxX - minX; h = maxY - minY;
-            return found;
+            if (node.HasBounds) return;
+            node.ResolvedHas = found;
+            node.RX = minX; node.RY = minY; node.RW = maxX - minX; node.RH = maxY - minY;
         }
 
         static void WriteNode(
-            StringBuilder sb, ManagedViewNode node, int[] rects, int rectCount, float scale, bool truncated, int depth)
+            StringBuilder sb, ManagedViewNode node, int[] rects, int rectCount, float scale, int depth)
         {
-            var hasBounds = TryResolveBounds(node, out var x, out var y, out var w, out var h);
+            var hasBounds = node.ResolvedHas;
+            float x = node.RX, y = node.RY, w = node.RW, h = node.RH;
             // Geometry that cannot be placed cannot be proven clear of a secure rectangle, so with any registered it counts as covered.
             var isProtected = rectCount > 0 && (!hasBounds || Overlaps(rects, rectCount, x, y, w, h));
 
@@ -176,22 +184,22 @@ namespace Bugsee.WrapperPolicy
 
             sb.Append(']');
 
-            var options = new StringBuilder();
-            if (!isProtected && !string.IsNullOrEmpty(node.Name))
-                options.Append("\"name\":").Append(JsonWire.String(node.Name));
-            if (!isProtected && !string.IsNullOrEmpty(node.Components))
+            var withName = !isProtected && !string.IsNullOrEmpty(node.Name);
+            var withComponents = !isProtected && !string.IsNullOrEmpty(node.Components);
+            if (withName || withComponents)
             {
-                if (options.Length > 0) options.Append(',');
-                options.Append("\"components\":").Append(JsonWire.String(node.Components));
+                sb.Append(",\"options\":{");
+                if (withName) sb.Append("\"name\":").Append(JsonWire.String(node.Name));
+                if (withComponents)
+                {
+                    if (withName) sb.Append(',');
+                    sb.Append("\"components\":").Append(JsonWire.String(node.Components));
+                }
+
+                sb.Append('}');
             }
 
-            if (truncated)
-            {
-                if (options.Length > 0) options.Append(',');
-                options.Append("\"unity_truncated\":true");
-            }
-
-            if (options.Length > 0) sb.Append(",\"options\":{").Append(options).Append('}');
+            if (node.Truncated) sb.Append(",\"truncated\":true");
 
             if (depth < MaxWriteDepth && node.Children.Count > 0)
             {
@@ -202,7 +210,7 @@ namespace Bugsee.WrapperPolicy
                     if (child == null) continue;
                     sb.Append(first ? ",\"subitems\":[" : ",");
                     first = false;
-                    WriteNode(sb, child, rects, rectCount, scale, false, depth + 1);
+                    WriteNode(sb, child, rects, rectCount, scale, depth + 1);
                 }
 
                 if (!first) sb.Append(']');
@@ -227,6 +235,81 @@ namespace Bugsee.WrapperPolicy
             if (float.IsNaN(value) || float.IsInfinity(value)) value = 0f;
             var text = Math.Round(value, 2).ToString("0.##", CultureInfo.InvariantCulture);
             sb.Append(text == "-0" ? "0" : text);
+        }
+    }
+
+    /// <summary>Turns a projected screen box (Unity pixels, origin bottom left) into the node box (origin top left).</summary>
+    public static class ManagedViewGeometry
+    {
+        /// <summary>
+        /// False when the box is not a number (a projection through a degenerate matrix gives NaN, and NaN compares false with
+        /// everything). Otherwise the box is clamped to one display of margin on every side, so a sky dome or ground plane keeps
+        /// its place in the tree without reporting a box thousands of screens wide, and the Y axis is flipped.
+        /// </summary>
+        public static bool TryBox(
+            float minX, float minY, float maxX, float maxY, float screenWidth, float screenHeight,
+            out float x, out float y, out float width, out float height)
+        {
+            x = y = width = height = 0f;
+            if (float.IsNaN(minX) || float.IsNaN(minY) || float.IsNaN(maxX) || float.IsNaN(maxY)) return false;
+            if (!(screenWidth > 0f) || !(screenHeight > 0f)) return false;
+            minX = Clamp(minX, -screenWidth, 2f * screenWidth);
+            maxX = Clamp(maxX, -screenWidth, 2f * screenWidth);
+            minY = Clamp(minY, -screenHeight, 2f * screenHeight);
+            maxY = Clamp(maxY, -screenHeight, 2f * screenHeight);
+            if (maxX < minX || maxY < minY) return false;
+            x = minX;
+            y = screenHeight - maxY;
+            width = maxX - minX;
+            height = maxY - minY;
+            return true;
+        }
+
+        static float Clamp(float v, float lo, float hi) => v < lo ? lo : (v > hi ? hi : v);
+    }
+
+    /// <summary>
+    /// When the wrapper may answer a <c>vh</c> request, and the one-reply rule. The SDK holds a report for the reply, so a
+    /// request must never wait on a thread the SDK itself is blocking, and a reply must never be given twice.
+    /// </summary>
+    public static class ManagedViewRequests
+    {
+        /// <summary>The SDK gives up 500 ms after the request; a walk that starts later than this cannot be used.</summary>
+        public const long MaxQueueDelayMs = 250;
+        /// <summary>The walk and the JSON writing share this much time.</summary>
+        public const long MaxBuildMs = 120;
+
+        static int _blockingNativeCalls;
+
+        /// <summary>
+        /// True while Unity's main thread is inside a native call that the SDK completes synchronously (a logged exception):
+        /// the SDK then waits for the reply on that very thread, which would be waiting for the main thread. It is answered null
+        /// at once instead, and the report carries the native tree only.
+        /// </summary>
+        public static bool IsMainThreadInBlockingNativeCall => System.Threading.Volatile.Read(ref _blockingNativeCalls) > 0;
+
+        /// <summary>Call on Unity's main thread before such a native call; pair with <see cref="ExitBlockingNativeCall"/> in a finally.</summary>
+        public static void EnterBlockingNativeCall() => System.Threading.Interlocked.Increment(ref _blockingNativeCalls);
+
+        public static void ExitBlockingNativeCall() => System.Threading.Interlocked.Decrement(ref _blockingNativeCalls);
+
+        /// <summary>True when the request waited too long for the main thread for its answer to still count.</summary>
+        public static bool IsStale(long askedAtMs, long nowMs) => nowMs - askedAtMs > MaxQueueDelayMs;
+
+        /// <summary>The first call of <see cref="Reply"/> reaches <paramref name="reply"/>; later ones are ignored.</summary>
+        public sealed class Once
+        {
+            readonly Action<string> _reply;
+            int _done;
+
+            public Once(Action<string> reply) { _reply = reply; }
+
+            public bool Reply(string json)
+            {
+                if (_reply == null || System.Threading.Interlocked.Exchange(ref _done, 1) != 0) return false;
+                _reply(json);
+                return true;
+            }
         }
     }
 }

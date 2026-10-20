@@ -325,6 +325,10 @@ namespace Bugsee.Platform.IOS
             });
         }
 
+        // The native tree is in points. Unity renders at the screen's native scale, which on a Plus, mini or Display Zoom device
+        // (or with a reduced render resolution) is not UIScreen.scale, so the ratio is taken from Unity's own width.
+        static float UnityPixelsPerPoint() => _bugsee_pixels_per_point(Screen.width);
+
         // requestData from the SDK. Only "vh" gets an answer from managed code; the native side answers every other type itself.
         // The SDK asks on the main thread, which is Unity's, so the scene is read and answered inside this call.
         [MonoPInvokeCallback(typeof(DataRequestCb))]
@@ -332,7 +336,7 @@ namespace Bugsee.Platform.IOS
         {
             try
             {
-                ManagedViewHierarchy.Handle(dataType, _bugsee_screen_scale(), json => _bugsee_complete_data_request(requestId, json));
+                ManagedViewHierarchy.Handle(dataType, UnityPixelsPerPoint, json => _bugsee_complete_data_request(requestId, json));
             }
             catch (Exception ex)
             {
@@ -483,7 +487,7 @@ namespace Bugsee.Platform.IOS
         static extern void _bugsee_complete_data_request(long requestId, string json);
 
         [DllImport("__Internal")]
-        static extern float _bugsee_screen_scale();
+        static extern float _bugsee_pixels_per_point(int unityPixelWidth);
 
         [DllImport("__Internal")]
         static extern void _bugsee_ensure_wrapper(string version, string build);

@@ -197,7 +197,7 @@ namespace Bugsee.Platform.Android
             if (callback == null) return;
             try
             {
-                ManagedViewHierarchy.Handle(dataType, 1f, json => Reply(callback, json));
+                ManagedViewHierarchy.Handle(dataType, () => 1f, json => Reply(callback, json));
             }
             catch (Exception ex)
             {

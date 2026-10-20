@@ -19,6 +19,8 @@ void _bugsee_complete_data_request(int64_t requestId, const char *json);
 int _bugsee_test_request_data(const char *type);
 int _bugsee_test_data_reply_count(void);
 const char *_bugsee_test_copy_data_reply(void);
+float _bugsee_pixels_per_point(int unityPixelWidth);
+float _bugsee_screen_scale(void);
 void _bugsee_set_attribute(const char *key, const char *valueJson);
 char *_bugsee_get_attribute(const char *key);
 void _bugsee_clear_attribute(const char *key);
@@ -120,6 +122,15 @@ static void expect(int condition, const char *message)
         exit(1);
     }
     printf("ok %s\n", message);
+}
+
+// True when the last data reply was nil (the copy is freed, so a check does not leak it).
+static int dataReplyIsNil(void)
+{
+    const char *reply = _bugsee_test_copy_data_reply();
+    int isNil = reply == NULL;
+    free((void *)reply);
+    return isNil;
 }
 
 static int same(const char *value, const char *expected)
@@ -325,10 +336,10 @@ int main(void)
     [defaults removeObjectForKey:@"AppleLanguages"];
 
     // requestData: only "vh" reaches managed code, every request is answered once, and nothing hangs the SDK's budget.
-    expect(_bugsee_test_request_data("vh") == 1 && _bugsee_test_copy_data_reply() == NULL,
+    expect(_bugsee_test_request_data("vh") == 1 && dataReplyIsNil(),
            "vh is answered nil before managed code has registered");
     _bugsee_register_data_request_callback(OnDataRequest);
-    expect(_bugsee_test_request_data("other") == 1 && gDataRequestCalls == 0 && _bugsee_test_copy_data_reply() == NULL,
+    expect(_bugsee_test_request_data("other") == 1 && gDataRequestCalls == 0 && dataReplyIsNil(),
            "an unknown type is answered nil without asking managed code");
     gDataRequestInlineAnswer = "{\"class_name\":\"UnityPlayer\"}";
     expect(_bugsee_test_request_data("vh") == 1 && gDataRequestCalls == 1 && same(gDataRequestTypes[0], "vh"),
@@ -348,8 +359,15 @@ int main(void)
     expect(_bugsee_test_data_reply_count() == 1, "the id is spent after its answer");
     expect(_bugsee_test_request_data("vh") == 0, "a request waits for its answer");
     _bugsee_complete_data_request(gDataRequestIds[2], NULL);
-    expect(_bugsee_test_data_reply_count() == 1 && _bugsee_test_copy_data_reply() == NULL, "null from managed code is answered as nil");
+    expect(_bugsee_test_data_reply_count() == 1 && dataReplyIsNil(), "null from managed code is answered as nil");
     _bugsee_complete_data_request(987654, "{}");
+    // The hierarchy's unit: Unity pixels per point is Unity's width over the screen's width in points, not UIScreen.scale.
+    CGFloat pointsWide = [UIScreen mainScreen].bounds.size.width;
+    float perPoint = _bugsee_pixels_per_point((int)(pointsWide * 2.0));
+    expect(perPoint > 1.99f && perPoint < 2.01f, "pixels per point follows Unity's width over the screen width in points");
+    expect(_bugsee_pixels_per_point((int)(pointsWide * 2.608)) > 2.6f, "a render width below the screen scale is not rounded to it");
+    expect(_bugsee_pixels_per_point(0) == _bugsee_screen_scale() && _bugsee_pixels_per_point(-5) == _bugsee_screen_scale(),
+           "an unusable width falls back to the screen scale");
     _bugsee_register_data_request_callback(NULL);
 
     // Lifecycle against the real SDK: answers come back with the caller's token.
