@@ -86,6 +86,7 @@ namespace Bugsee.Platform.Android
             MainThreadDispatcher.Run(() =>
             {
                 ManagedExceptionPayload.EnsureBuildIdentity();
+                ManagedExceptionPayload.WarmModuleUuid();
                 EnsureWrapperRegistered();
                 InstallDefaultListeners();
                 Lifecycle.Launch(appToken, options, completion);
