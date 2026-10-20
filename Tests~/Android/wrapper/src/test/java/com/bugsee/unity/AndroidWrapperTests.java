@@ -45,7 +45,11 @@ public class AndroidWrapperTests {
         assertEquals(UnityWrapperIdentity.VERSION, wrapper.getWrapperVersion());
         assertNotEquals("unknown", wrapper.getWrapperVersion());
         // The contract says null for "no build"; the literal "unknown" would be reported as one.
-        assertEquals(UnityWrapper.normalizeBuild(UnityWrapperIdentity.BUILD), wrapper.getWrapperBuild());
+        if (UnityWrapperIdentity.BUILD.equals("dev") || UnityWrapperIdentity.BUILD.length() == 0) {
+            assertNull(wrapper.getWrapperBuild());
+        } else {
+            assertEquals(UnityWrapperIdentity.BUILD, wrapper.getWrapperBuild());
+        }
         // "dev" is the placeholder of every checkout and release, not a build id.
         assertNull(UnityWrapper.normalizeBuild("dev"));
         assertNull(UnityWrapper.normalizeBuild(""));
