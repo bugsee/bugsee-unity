@@ -74,9 +74,15 @@ final class UnityWrapper implements BugseeWrapper {
 
     @Override
     public String getWrapperBuild() {
-        // The contract says null when there is no build; "unknown" would be reported as one.
-        String build = UnityWrapperIdentity.BUILD;
-        return build == null || build.length() == 0 ? null : build;
+        return normalizeBuild(UnityWrapperIdentity.BUILD);
+    }
+
+    /**
+     * The contract says null when there is no build; "unknown" would be reported as one, and so would the
+     * "dev" placeholder a checkout (and every release, until a build id is stamped) carries.
+     */
+    static String normalizeBuild(String build) {
+        return build == null || build.length() == 0 || build.equals("dev") ? null : build;
     }
 
     @Override

@@ -166,6 +166,15 @@ int main(void)
     value = _bugsee_test_copy_wrapper_build();
     expect(same(value, "ci"), "ensure wrapper stores the build");
     free((void *)value);
+    // "dev" (the placeholder of every checkout and release), empty and NULL are no build, not a build id.
+    const char *noBuild[] = { "dev", "", NULL };
+    for (int i = 0; i < 3; i++) {
+        _bugsee_ensure_wrapper("9.9.9", "ci");
+        _bugsee_ensure_wrapper("9.9.9", noBuild[i]);
+        value = _bugsee_test_copy_wrapper_build();
+        expect(value == NULL, "a placeholder build is no build");
+        free((void *)value);
+    }
 
     // A scalar attribute must not throw from NSJSONSerialization (top-level non-container), and
     // reads back tagged with its kind: s string, b bool, i integer, d floating point, j container.

@@ -40,7 +40,7 @@ static NSMutableDictionary<NSNumber *, NSMutableDictionary *> *gPending;
 static int64_t gNextRequestId = 1;
 static NSObject *gLock;
 static NSString *gWrapperVersion = @"0.1.0";
-static NSString *gWrapperBuild = @"dev";
+static NSString *gWrapperBuild = nil;
 static NSDictionary<NSString *, NSString *> *gWrapperContext = nil;
 
 @class BugseeUnityWrapper;
@@ -436,7 +436,7 @@ static void BugseeUnityDeliverLifecycle(BugseeUnityLifecycleCb cb, NSString *eve
 
 - (NSString *)wrapperType { return @"unity"; }
 - (NSString *)wrapperVersion { return gWrapperVersion ?: @"unknown"; }
-- (NSString *)wrapperBuild { return gWrapperBuild ?: @"unknown"; }
+- (NSString *)wrapperBuild { return gWrapperBuild; }
 - (NSDictionary<NSString *, NSString *> *)context { return gWrapperContext ?: @{}; }
 
 - (void)requestDataWithType:(NSString *)dataType callback:(id<BGSDataRequestResultCallback>)callback
@@ -661,7 +661,10 @@ void _bugsee_channel_breadcrumb(const char *category, const char *message, int i
 void _bugsee_ensure_wrapper(const char *version, const char *build)
 {
     if (version) gWrapperVersion = [NSString stringWithUTF8String:version];
-    if (build) gWrapperBuild = [NSString stringWithUTF8String:build];
+    // No build (NULL, empty or the "dev" placeholder) is nil: the contract's wrapperBuild is nullable, and
+    // "unknown" or "dev" would be reported as a real build id.
+    NSString *buildString = build ? [NSString stringWithUTF8String:build] : nil;
+    gWrapperBuild = (buildString.length == 0 || [buildString isEqualToString:@"dev"]) ? nil : buildString;
     if (!gWrapper) {
         gWrapper = [BugseeUnityWrapper new];
     }

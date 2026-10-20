@@ -17,6 +17,15 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(IosHostPolicy.CaptureFrameRate(target, refresh), Is.EqualTo(expected));
         }
 
+        [TestCase(null, null)]
+        [TestCase("", null)]
+        [TestCase("dev", null)]
+        [TestCase("a1b2c3d", "a1b2c3d")]
+        public void The_dev_placeholder_is_not_a_wrapper_build(string build, string expected)
+        {
+            Assert.That(IosHostPolicy.WrapperBuild(build), Is.EqualTo(expected));
+        }
+
         [Test]
         public void Only_a_map_with_a_type_is_a_usable_wrapper_info()
         {
