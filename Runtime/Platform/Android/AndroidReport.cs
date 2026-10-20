@@ -135,6 +135,7 @@ namespace Bugsee.Platform.Android
                     foreach (var label in labels)
                         javaList.Call<bool>("add", label);
                 }
+                if (Closed) return; // the handler's turn can end while the caller's sequence is enumerated
                 _report.Call("setLabels", javaList);
             }
         }
