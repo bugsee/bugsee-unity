@@ -124,6 +124,22 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void A_copy_of_an_old_source_is_not_stale()
+        {
+            var root = NewDir();
+            try
+            {
+                var src = Path.Combine(root, "old.txt");
+                File.WriteAllText(src, "x");
+                File.SetLastWriteTimeUtc(src, DateTime.UtcNow.AddDays(-3));
+                var dest = AttachmentSnapshot.TryCopy(src, new[] { root }, null);
+                AttachmentSnapshot.CleanStale(new[] { root }, TimeSpan.FromDays(1));
+                Assert.That(File.Exists(dest), Is.True);
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
+        [Test]
         public void Both_reports_snapshot_through_AttachmentSnapshot_and_the_bootstrap_runs_before_the_scene()
         {
             foreach (var f in new[] { "Runtime/Platform/Android/AndroidReport.cs", "Runtime/Platform/IOS/IosReport.cs" })

@@ -103,6 +103,8 @@ namespace Bugsee.WrapperPolicy
                 {
                     var dest = Path.Combine(EnsureDirectory(root), Guid.NewGuid().ToString("N") + ext);
                     File.Copy(sourcePath, dest, true);
+                    // File.Copy can carry the source's timestamp over; stamp the copy so CleanStale measures the snapshot's age.
+                    try { File.SetLastWriteTimeUtc(dest, DateTime.UtcNow); } catch (Exception) { }
                     return dest;
                 }
                 catch (Exception ex)
