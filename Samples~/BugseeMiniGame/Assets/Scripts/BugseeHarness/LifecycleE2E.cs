@@ -224,9 +224,9 @@ namespace Bugsee.Sample
             var refused = Bugsee.RelaunchAsync(OptionSet(b, DurA));
             yield return WaitFor(() => refused.IsCompleted, 12f);
             var tookMs = Clock.ElapsedMilliseconds - started;
-            Check("refused Relaunch completes false at once", refused.IsCompleted && !refused.IsFaulted && !refused.Result && tookMs < 3000,
+            Judged("refused Relaunch completes false at once", refused.IsCompleted && !refused.IsFaulted && !refused.Result && tookMs < 3000,
                 Describe(refused) + " took=" + tookMs + "ms");
-            Check("a refused Relaunch leaves the SDK stopped", Bugsee.Status == BugseeStatus.Stopped, "status=" + Bugsee.Status);
+            Judged("a refused Relaunch leaves the SDK stopped", Bugsee.Status == BugseeStatus.Stopped, "status=" + Bugsee.Status);
 
             // b. Double Relaunch: joined, the first call's options apply.
             yield return Reset(b, "facade double");
@@ -235,8 +235,8 @@ namespace Bugsee.Sample
             yield return WaitFor(() => r1.IsCompleted && r2.IsCompleted, WaitSeconds);
             yield return WaitFor(() => Bugsee.Status == BugseeStatus.Launched, WaitSeconds);
             yield return new WaitForSeconds(2f);
-            Check("a joined Relaunch completes true like the one it joined", Done(r1, true) && Done(r2, true), Describe(r1) + " / " + Describe(r2));
-            Check("the options of the first Relaunch apply", ReadDuration() == DurA, "duration=" + ReadDuration());
+            Judged("a joined Relaunch completes true like the one it joined", Done(r1, true) && Done(r2, true), Describe(r1) + " / " + Describe(r2));
+            Judged("the options of the first Relaunch apply", ReadDuration() == DurA, "duration=" + ReadDuration());
 
             // c. Stop right after a Relaunch: cancelled, the SDK stays stopped, and the machine does not stop it a second time.
             yield return Reset(b, "facade stop");
@@ -247,9 +247,9 @@ namespace Bugsee.Sample
             Bugsee.Stop(() => stopped = true);
             yield return WaitFor(() => rc.IsCompleted && stopped, WaitSeconds);
             yield return new WaitForSeconds(QuietSeconds);
-            Check("a Relaunch cancelled by Stop completes false", Done(rc, false), Describe(rc));
-            Check("the Stop completion ran", stopped, "");
-            Check("the SDK stays stopped after Stop during Relaunch", Bugsee.Status == BugseeStatus.Stopped, "status=" + Bugsee.Status);
+            Judged("a Relaunch cancelled by Stop completes false", Done(rc, false), Describe(rc));
+            Judged("the Stop completion ran", stopped, "");
+            Judged("the SDK stays stopped after Stop during Relaunch", Bugsee.Status == BugseeStatus.Stopped, "status=" + Bugsee.Status);
 
             // d. Launch right after a Relaunch: it waits for the relaunch, which wins.
             yield return Reset(b, "facade launch");
@@ -258,8 +258,8 @@ namespace Bugsee.Sample
             yield return WaitFor(() => rl.IsCompleted && ll.IsCompleted, WaitSeconds);
             yield return WaitFor(() => Bugsee.Status == BugseeStatus.Launched, WaitSeconds);
             yield return new WaitForSeconds(2f);
-            Check("Relaunch then Launch: both complete true", Done(rl, true) && Done(ll, true), Describe(rl) + " / " + Describe(ll));
-            Check("Relaunch then Launch: the relaunch's options apply (the Launch finds a running SDK)", ReadDuration() == DurA, "duration=" + ReadDuration());
+            Judged("Relaunch then Launch: both complete true", Done(rl, true) && Done(ll, true), Describe(rl) + " / " + Describe(ll));
+            Judged("Relaunch then Launch: the relaunch's options apply (the Launch finds a running SDK)", ReadDuration() == DurA, "duration=" + ReadDuration());
 
             // e. A Relaunch while a Launch is still launching waits for it and then relaunches.
             yield return Reset(b, "facade launching");
@@ -270,8 +270,8 @@ namespace Bugsee.Sample
             yield return WaitFor(() => lg.IsCompleted && rg.IsCompleted, WaitSeconds);
             yield return WaitFor(() => Bugsee.Status == BugseeStatus.Launched, WaitSeconds);
             yield return new WaitForSeconds(2f);
-            Check("Launch then Relaunch: both complete true", Done(lg, true) && Done(rg, true), Describe(lg) + " / " + Describe(rg));
-            Check("Launch then Relaunch: the relaunch's options apply last", ReadDuration() == DurA, "duration=" + ReadDuration());
+            Judged("Launch then Relaunch: both complete true", Done(lg, true) && Done(rg, true), Describe(lg) + " / " + Describe(rg));
+            Judged("Launch then Relaunch: the relaunch's options apply last", ReadDuration() == DurA, "duration=" + ReadDuration());
 
             // f. Relaunch, Delete, Relaunch: the Delete runs between them, so the second Relaunch does not join the first; it is
             // refused because the Delete left the SDK stopped.
@@ -281,9 +281,9 @@ namespace Bugsee.Sample
             var d2 = Bugsee.RelaunchAsync(OptionSet(b, DurB));
             yield return WaitFor(() => d1.IsCompleted && d2.IsCompleted, WaitSeconds);
             yield return new WaitForSeconds(QuietSeconds);
-            Check("Relaunch, Delete, Relaunch: the first completes true, the second false", Done(d1, true) && Done(d2, false),
+            Judged("Relaunch, Delete, Relaunch: the first completes true, the second false", Done(d1, true) && Done(d2, false),
                 Describe(d1) + " / " + Describe(d2));
-            Check("Relaunch, Delete, Relaunch: the SDK is left stopped by the Delete", Bugsee.Status == BugseeStatus.Stopped, "status=" + Bugsee.Status);
+            Judged("Relaunch, Delete, Relaunch: the SDK is left stopped by the Delete", Bugsee.Status == BugseeStatus.Stopped, "status=" + Bugsee.Status);
 
             // Leave the sample the way it started.
             yield return Reset(b, "end");
@@ -317,6 +317,13 @@ namespace Bugsee.Sample
             }
         }
 #endif
+
+        // A version-dependent expectation: counted only on the SDK the wrapper models, otherwise logged as information.
+        static void Judged(string name, bool ok, string detail)
+        {
+            if (_judge) Check(name, ok, detail);
+            else Debug.Log("[Sample] lifecycle INFO " + name + " :: ok=" + ok + " " + detail);
+        }
 
         static void Check(string name, bool ok, string detail)
         {

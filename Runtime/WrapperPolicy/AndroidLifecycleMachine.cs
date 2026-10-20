@@ -392,6 +392,9 @@ namespace Bugsee.WrapperPolicy
                 if (op.StopEpoch != _stopEpoch)
                 {
                     // Stale: a Stop came after this started (the SDK cancelled it). Never re-install the hooks.
+                    if (running)
+                        _native.Warn("The SDK is running although Bugsee.Stop was requested after its Launch/Relaunch " +
+                                     "started (an SDK older than 7.4.2 launches again after a Stop during a relaunch).");
                 }
                 else if (running)
                 {
