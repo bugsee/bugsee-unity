@@ -17,7 +17,7 @@ namespace Bugsee.Editor
     ///
     /// Failure policy:
     /// - Auto-discovery miss → warn + continue (native symbols still upload).
-    /// - BUGSEE_NO_IL2CPP_MAPPING set → skip silently.
+    /// - BUGSEE_NO_IL2CPP_MAPPING or BUGSEE_NO_SYMBOL_UPLOAD set → skip silently.
     /// - BUGSEE_IL2CPP_MAPPING path set but missing → warn + skip (do not fail build).
     /// - No UUID(s) resolved → warn + skip (do not send an unkeyed blob).
     ///   On iOS this is expected at Unity export; archive-time Run Script uploads instead.
@@ -34,7 +34,8 @@ namespace Bugsee.Editor
             DeleteIosPendingLinemap(report);
             SweepIosIl2CppOutput(report);
 
-            if (Environment.GetEnvironmentVariable("BUGSEE_NO_IL2CPP_MAPPING") != null)
+            if (Environment.GetEnvironmentVariable("BUGSEE_NO_IL2CPP_MAPPING") != null
+                || Environment.GetEnvironmentVariable("BUGSEE_NO_SYMBOL_UPLOAD") != null)
             {
                 return;
             }
@@ -168,6 +169,7 @@ namespace Bugsee.Editor
             try
             {
                 var mayDelete = Environment.GetEnvironmentVariable("BUGSEE_NO_IL2CPP_MAPPING") == null
+                    && Environment.GetEnvironmentVariable("BUGSEE_NO_SYMBOL_UPLOAD") == null
                     && BugseeCliRunner.HasAppToken
                     && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("BUGSEE_IL2CPP_MAPPING"));
                 var projectRoot = Path.GetDirectoryName(Application.dataPath);
