@@ -216,7 +216,7 @@ namespace Bugsee.Sample
                 LastFileAttached = report.AddAttachmentFile(path, "sample-file.txt", "text/plain") != null;
                 if (!LastFileAttached)
                     Debug.Log("[BugseeSample] AddAttachmentFile returned null for " + path + " (exists=" + File.Exists(path) +
-                              "); the SDK copies it under Path.GetTempPath()=" + Path.GetTempPath());
+                              "); the SDK copies it under Application.temporaryCachePath=" + Application.temporaryCachePath);
             }
             else
             {
