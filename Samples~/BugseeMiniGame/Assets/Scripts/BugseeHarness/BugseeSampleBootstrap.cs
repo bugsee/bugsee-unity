@@ -55,6 +55,9 @@ namespace Bugsee.Sample
                 endpointOverride = endpoint.Trim();
         }
 
+        /// <summary>What the sample filters saw and dropped or redacted so far, for the HUD.</summary>
+        public string FilterLine => "flt " + (SampleFilters.NetworkRedactEnabled ? "on " : "off ") + SampleFilters.Summary;
+
         public string StatusLine
         {
             get
@@ -135,6 +138,7 @@ namespace Bugsee.Sample
                     CaptureVideoMode = _framePusherRequested ? VideoMode.DirectBuffers : VideoMode.V2,
                     CaptureVideoFrameRate = FrameRate.High,
                     CaptureLogs = true,
+                    CaptureBreadcrumbs = true,
                     CaptureNetwork = true,
                     ReportingTriggerByShake = true,
                     ReportingTriggerByScreenshot = true,
@@ -198,6 +202,7 @@ namespace Bugsee.Sample
                     // simulator's texture lacks), so a simulator run sets BUGSEE_E2E_VIDEO=0.
                     CaptureVideo = Environment.GetEnvironmentVariable("BUGSEE_E2E_VIDEO") != "0",
                     CaptureLogs = true,
+                    CaptureBreadcrumbs = true,
                     CaptureNetwork = true,
                     ReportingTriggerByShake = true,
                     DetectAndReportCrash = true,
@@ -366,6 +371,14 @@ namespace Bugsee.Sample
                     {
                         _e2ePhase = 99;
                         StartCoroutine(InteractionsE2E.Run(this));
+                    }
+                    break;
+                case "filters":
+                    // Turns the sample filters on and checks each one ran on events the sample sends (issue #117).
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        StartCoroutine(FiltersE2E.Run(this));
                     }
                     break;
                 case "actions":
@@ -954,7 +967,7 @@ namespace Bugsee.Sample
             Bugsee.SetNetworkEventFilter(enabled ? SampleFilters.NetworkFilter : null);
             Bugsee.SetLogEventFilter(enabled ? SampleFilters.LogFilter : null);
             Bugsee.SetBreadcrumbFilter(enabled ? SampleFilters.BreadcrumbFilter : null);
-            SetStatus(enabled ? "Sample filters ON" : "Sample filters OFF");
+            SetStatus((enabled ? "Sample filters ON" : "Sample filters OFF") + " (" + SampleFilters.Summary + ")");
         }
 
         void OnLifecycle(string eventType, object data)
