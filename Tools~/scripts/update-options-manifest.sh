@@ -21,9 +21,17 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "${ROOT_DIR}/Tools~/versions.env"
 
 BASE_URL="${BUGSEE_OPTIONS_MANIFEST_BASE:-https://download.bugsee.com/sdk/options}"
+case "${BASE_URL}" in
+  https://*) ;;
+  *) echo "BUGSEE_OPTIONS_MANIFEST_BASE must be an https URL, got ${BASE_URL}" >&2; exit 1 ;;
+esac
 OUT_DIR="${ROOT_DIR}/Tests~/WrapperPolicy/Fixtures/options-manifest"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "${STAGE}"' EXIT
+
+sha256_of() {
+  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'; else sha256sum "$1" | awk '{print $1}'; fi
+}
 
 fetch() { # <sdk> <version> <local file or empty>
   local sdk="$1" version="$2" local_file="$3" url="${BASE_URL}/$1/$2.json"
@@ -31,8 +39,14 @@ fetch() { # <sdk> <version> <local file or empty>
     cp "${local_file}" "${STAGE}/${sdk}.json"
     url="local build, file $(basename "${local_file}")"
   else
-    curl -fsSL --max-time 60 -o "${STAGE}/${sdk}.json" "${url}" ||
-      { echo "No ${sdk} manifest published for ${version} (${url}). Is the pin a released version?" >&2; exit 1; }
+    local status
+    status="$(curl --proto '=https' --proto-redir '=https' --tlsv1.2 -sSL --connect-timeout 10 --max-time 60 \
+      -o "${STAGE}/${sdk}.json" -w '%{http_code}' "${url}")" ||
+      { echo "Could not reach ${url} (offline or TLS failure); nothing was changed." >&2; exit 1; }
+    if [[ "${status}" != "200" ]]; then
+      echo "No ${sdk} manifest published for ${version}: ${url} answered HTTP ${status}. Is the pin a released version?" >&2
+      exit 1
+    fi
   fi
   python3 -I - "${STAGE}/${sdk}.json" "${sdk}" "${version}" <<'PY'
 import json, sys
@@ -42,8 +56,11 @@ with open(path, encoding="utf-8") as f:
 got = (m.get("manifestVersion"), m.get("sdk"), m.get("sdkVersion"))
 if got != (1, sdk, version):
     sys.exit(f"manifestVersion/sdk/sdkVersion are {got}, expected (1, {sdk!r}, {version!r})")
+if m.get("buildConfiguration") != "release":
+    # Defaults can depend on the build configuration; a published manifest is always release.
+    print(f"WARNING: {sdk} manifest buildConfiguration is {m.get('buildConfiguration')!r}, not 'release': defaults may differ from the shipped SDK", file=sys.stderr)
 PY
-  echo "${sdk}|${version}|${url}|$(shasum -a 256 "${STAGE}/${sdk}.json" | awk '{print $1}')" >> "${STAGE}/sources.txt"
+  echo "${sdk}|${version}|${url}|$(sha256_of "${STAGE}/${sdk}.json")" >> "${STAGE}/sources.txt"
 }
 
 {

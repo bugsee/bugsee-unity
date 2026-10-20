@@ -53,6 +53,7 @@ log warns when its version differs from the one this package pins.
 See `Tools~/versions.env` for pinned versions and paths.
 
 The script also vendors the option manifests the native SDKs publish for the pinned versions (`Tools~/scripts/update-options-manifest.sh`, into `Tests~/WrapperPolicy/Fixtures/options-manifest/`). After a bump, run the WrapperPolicy tests: `OptionsManifestTests` fails for a new, removed or changed native option until the wrapper exposes it or lists it as not exposed (with the issue that tracks it). If a pin has no published manifest yet, the script warns and the test stays red until `update-options-manifest.sh` succeeds (`ANDROID_MANIFEST_FILE` / `IOS_MANIFEST_FILE` take a manifest from a local SDK build).
+Two branches that bump different pins, or one that bumps a pin while another adds the manifests, conflict only through `Tools~/versions.env` and the vendored files: whichever merges second runs `update-native-sdks.sh` again (the CHANGELOG line that names the manifest versions is a pin in `native-pins.txt` and is rewritten with the rest), otherwise `Vendored_manifests_are_verbatim_copies_of_the_pinned_versions` is red on main.
 
 ## Crashes & symbols
 

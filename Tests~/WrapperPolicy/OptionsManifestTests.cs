@@ -74,6 +74,13 @@ namespace Bugsee.WrapperPolicy.Tests
             ["BugseeSeverityLevel:Low"] = "VeryLow",
         };
 
+        // C# enum values the iOS enum lacks, although the shared setter sends them to iOS (manifest enum.name:constant -> decision).
+        // Open question for the maintainers: gate FrameRate.Raw on iOS, or document that iOS ignores or clamps it.
+        static readonly Dictionary<string, string> CsharpEnumValuesIosLacks = new Dictionary<string, string>
+        {
+            ["BugseeFrameRate:Raw"] = "FrameRate.Raw = 4 is Android-only (meaningful for DirectBuffers); BugseeFrameRate has Low, Medium, High; not gated yet",
+        };
+
         static Dictionary<string, string> Keys(string reason, params string[] suffixes)
         {
             var map = new Dictionary<string, string>();
@@ -136,7 +143,7 @@ namespace Bugsee.WrapperPolicy.Tests
                     {
                         var e = o.GetProperty("enum");
                         option.EnumName = e.GetProperty("name").GetString();
-                        option.EnumDefault = o.GetProperty("default").GetString();
+                        option.EnumDefault = o.GetProperty("default").ValueKind == JsonValueKind.Null ? null : o.GetProperty("default").GetString();
                         option.EnumValues = new Dictionary<string, long>();
                         foreach (var v in e.GetProperty("values").EnumerateObject())
                         {
@@ -172,10 +179,11 @@ namespace Bugsee.WrapperPolicy.Tests
         static Dictionary<string, Setter> Setters()
         {
             var map = new Dictionary<string, Setter>();
-            var pattern = new Regex(@"public\s+([\w.]+)\s+(\w+)\s*\{\s*set\s*=>\s*Set\(\s*Options\.(\w+)\s*,");
+            // Expression or block body, qualified or not. A setter written another way is not seen: the "no typed setter" message says so.
+            var pattern = new Regex(@"public\s+([\w.]+)\s+(\w+)\s*\{\s*set\s*(?:=>\s*|\{\s*)Set\(\s*(?:[\w.]*\.)?Options\.(\w+)\s*,");
             foreach (var file in new[] { "BugseeLaunchOptions.cs", "AndroidLaunchOptions.cs", "IOSLaunchOptions.cs" })
                 foreach (Match m in pattern.Matches(File.ReadAllText(RepoFile("Runtime/Contracts/Options/" + file))))
-                    map[m.Groups[3].Value] = new Setter { Type = m.Groups[1].Value, Property = m.Groups[2].Value };
+                    map[m.Groups[3].Value] = new Setter { Type = m.Groups[1].Value.Substring(m.Groups[1].Value.LastIndexOf('.') + 1), Property = m.Groups[2].Value };
             return map;
         }
 
@@ -236,7 +244,8 @@ namespace Bugsee.WrapperPolicy.Tests
                     Assert.That(o.Module, Is.Not.Empty, where);
                     if (o.Type != "enum") continue;
                     Assert.That(o.EnumValues, Is.Not.Null.And.Not.Empty, where + ": enum without values");
-                    Assert.That(o.EnumValues.Keys, Does.Contain(o.EnumDefault), where + ": default is not a constant name of its enum");
+                    if (o.EnumDefault != null) // the spec allows "default": null
+                        Assert.That(o.EnumValues.Keys, Does.Contain(o.EnumDefault), where + ": default is not a constant name of its enum");
                 }
             }
         }
@@ -275,7 +284,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 if (!setters.TryGetValue(kv.Key, out var setter))
                 {
                     if (!NoTypedSetter.ContainsKey(kv.Value))
-                        problems.Add("Options." + kv.Key + " has no typed setter on the launch options. Add one, or list the key in NoTypedSetter with a reason.");
+                        problems.Add("Options." + kv.Key + " has no typed setter on the launch options (a setter not written as `set => Set(Options.X, ...)` or `set { Set(Options.X, ...); }` is not recognised by this test: reformat it or extend the pattern). Add one, or list the key in NoTypedSetter with a reason.");
                     continue;
                 }
                 foreach (var m in manifests)
@@ -310,6 +319,7 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             var setters = Setters();
             var problems = new List<string>();
+            var usedIosGaps = new HashSet<string>();
             foreach (var kv in Constants())
             {
                 if (!setters.TryGetValue(kv.Key, out var setter) || EnumTypeOf(setter.Type) == null) continue;
@@ -336,10 +346,26 @@ namespace Bugsee.WrapperPolicy.Tests
                                 " in C#. Align the name, or list it in IosEnumNameDifferences if iOS names it differently on purpose.");
                     }
                     if (m == Android)
+                    {
                         foreach (var c in csharp.Where(c => !o.EnumValues.ContainsKey(c.Key) || o.EnumValues[c.Key] != c.Value))
                             problems.Add(where + ": C# has " + c.Key + " = " + c.Value + ", which the Android SDK does not define.");
+                    }
+                    else
+                    {
+                        // The shared setter sends every C# value to iOS too (spec: the value maps of a cross-platform key must agree).
+                        foreach (var c in csharp.Where(c => !o.EnumValues.Values.Contains(c.Value)))
+                        {
+                            var key = o.EnumName + ":" + c.Key;
+                            usedIosGaps.Add(key);
+                            if (!CsharpEnumValuesIosLacks.ContainsKey(key))
+                                problems.Add(where + ": C# has " + c.Key + " = " + c.Value + " and the shared setter sends it to iOS, whose enum has no such value. " +
+                                    "Gate it per platform, or list \"" + key + "\" in CsharpEnumValuesIosLacks with the decision.");
+                        }
+                    }
                 }
             }
+            foreach (var key in CsharpEnumValuesIosLacks.Keys.Where(k => !usedIosGaps.Contains(k)))
+                problems.Add("CsharpEnumValuesIosLacks lists " + key + ", but iOS now has that value or C# no longer does: remove the entry.");
             Assert.That(problems, Is.Empty, string.Join("\n", problems));
         }
 
@@ -376,6 +402,25 @@ namespace Bugsee.WrapperPolicy.Tests
             }
         }
 
+        // Spec: a deprecated option is still honoured and listed "so a consumer can warn". The wrapper does not warn yet.
+        static readonly Dictionary<string, string> DeprecatedButExposed = new Dictionary<string, string>
+        {
+            ["com.bugsee.option.capture.webview.domain-allowlist"] = "deprecated on Android since 7.1.2 (no replacement), still honoured; the C# constant is not marked [Obsolete]",
+        };
+
+        [Test]
+        public void Deprecated_native_options_are_not_exposed_unless_listed()
+        {
+            var constants = Constants();
+            var deprecated = new HashSet<string>(Android.Options.Values.Concat(Ios.Options.Values).Where(o => o.Deprecated).Select(o => o.Key));
+            var problems = new List<string>();
+            foreach (var kv in constants.Where(c => deprecated.Contains(c.Value) && !DeprecatedButExposed.ContainsKey(c.Value)))
+                problems.Add("Options." + kv.Key + " (" + kv.Value + ") is deprecated in a manifest. Mark the constant and setter [Obsolete] and list the key in DeprecatedButExposed, or remove it.");
+            foreach (var key in DeprecatedButExposed.Keys.Where(k => !deprecated.Contains(k) || !constants.ContainsValue(k)))
+                problems.Add("DeprecatedButExposed lists " + key + ", which is no longer deprecated in a manifest or has no constant: remove the entry.");
+            Assert.That(problems, Is.Empty, string.Join("\n", problems));
+        }
+
         // Spec, "hidden options are not public surface".
         [Test]
         public void Hidden_native_options_are_not_exposed_unless_listed()
@@ -390,9 +435,11 @@ namespace Bugsee.WrapperPolicy.Tests
                 if (!hidden.Contains(key)) problems.Add("HiddenButExposed lists " + key + ", which is no longer hidden in the manifests: remove the entry.");
                 else if (!constants.ContainsValue(key)) problems.Add("HiddenButExposed lists " + key + " but Options no longer has it: remove the entry.");
             }
-            // A key hidden on one SDK and public on the other must not be an exposed public option by accident.
-            foreach (var key in Android.Options.Values.Where(o => !o.Hidden).Select(o => o.Key).Where(hidden.Contains))
-                problems.Add(key + " is hidden on iOS but public on Android: decide which one the wrapper exposes.");
+            // A key hidden on one SDK and public on the other is a decision for a human, whichever side hides it.
+            foreach (var a in Android.Options.Values)
+                if (Ios.Options.TryGetValue(a.Key, out var i) && a.Hidden != i.Hidden)
+                    problems.Add(a.Key + " is " + (a.Hidden ? "hidden on Android but public on iOS" : "public on Android but hidden on iOS") +
+                        ": decide whether the wrapper exposes it, and say so in HiddenButExposed or the not-exposed lists.");
             Assert.That(problems, Is.Empty, string.Join("\n", problems));
         }
 
@@ -406,10 +453,11 @@ namespace Bugsee.WrapperPolicy.Tests
                 "CaptureCrashHandlerType is iOS-only and must stay a key of the iOS manifest");
             Assert.That(Android.Options.ContainsKey(Bugsee.Contracts.Options.Options.CaptureCrashHandlerType), Is.False,
                 "Android now has capture.crash-handler-type: it is no longer iOS-only, so the platform gate must stop dropping it");
-            var iosOnly = constants.Values.Where(k => Ios.Options.ContainsKey(k) && !Android.Options.ContainsKey(k)).ToList();
-            Assert.That(iosOnly, Is.EqualTo(new[] { Bugsee.Contracts.Options.Options.CaptureCrashHandlerType }),
-                "iOS-only constants changed. A constant only the iOS manifest has must be dropped from the Android launch " +
-                "(OptionPlatformGate.ForAndroid / IosOnly): update the gate and this list together.");
+            var extra = constants.Where(c => Ios.Options.ContainsKey(c.Value) && !Android.Options.ContainsKey(c.Value) &&
+                c.Value != Bugsee.Contracts.Options.Options.CaptureCrashHandlerType).Select(c => "Options." + c.Key + " (" + SuffixOf(c.Value) + ")").ToList();
+            Assert.That(extra, Is.Empty,
+                "These constants are in the iOS manifest but not the Android one (Android " + Android.SdkVersion + " dropped or never had them), so they are iOS-only now: " +
+                string.Join(", ", extra) + ". They must be dropped from the Android launch (OptionPlatformGate.ForAndroid / IosOnly): update the gate and this test together.");
         }
 
         // Defaults the wrapper hardcodes are compared with the manifest of the platform they apply to (spec,
@@ -440,10 +488,10 @@ namespace Bugsee.WrapperPolicy.Tests
 
             // The Android mapper's fallbacks for an int the enum does not know.
             var mapper = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidOptionsMapper.cs"));
-            var seen = 0;
+            var seen = new Dictionary<string, int>();
             foreach (Match m in Regex.Matches(mapper, @"EnumFromInt\(\w+, ""fromIntValue"", [^,]+, \(int\)(\w+)\.(\w+)\)"))
             {
-                seen++;
+                seen[m.Groups[1].Value] = seen.TryGetValue(m.Groups[1].Value, out var n) ? n + 1 : 1;
                 var enumName = m.Groups[1].Value;
                 var option = Android.Options.Values.Where(o => o.EnumName == enumName).ToList();
                 Assert.That(option, Is.Not.Empty, "AndroidOptionsMapper falls back for " + enumName + ", which no Android option uses");
@@ -452,7 +500,11 @@ namespace Bugsee.WrapperPolicy.Tests
                 if (enumName != "IssueSeverity")
                     Assert.That(m.Groups[2].Value, Is.EqualTo(option[0].EnumDefault), "AndroidOptionsMapper fallback for " + enumName + " differs from the SDK default");
             }
-            Assert.That(seen, Is.GreaterThanOrEqualTo(4), "AndroidOptionsMapper's EnumFromInt calls were not found: this test's pattern is stale");
+            // Every call must have been read (a reformatted one would otherwise escape), twice per enum: the key branch and the typed-value branch.
+            Assert.That(Regex.Matches(mapper, "EnumFromInt\\(").Count - 1, Is.EqualTo(seen.Values.Sum()), // minus the method definition
+                "an EnumFromInt call in AndroidOptionsMapper no longer matches this test's pattern: its fallback is unchecked. Keep the form `EnumFromInt(XClass, \"fromIntValue\", value, (int)X.Member)` or update the pattern");
+            foreach (var enumName in new[] { "VideoMode", "VideoQuality", "FrameRate", "IssueSeverity" })
+                Assert.That(seen.TryGetValue(enumName, out var calls) ? calls : 0, Is.EqualTo(2), "AndroidOptionsMapper: expected 2 fallbacks for " + enumName + " (key branch and typed-value branch)");
 
             // IOSLaunchOptions documents the iOS default of the crash handler.
             var documented = Regex.Match(File.ReadAllText(RepoFile("Runtime/Contracts/Options/IOSLaunchOptions.cs")), @"Default when omitted:\s*(?:///\s*)?<c>CrashHandlerType\.(\w+)</c>");
