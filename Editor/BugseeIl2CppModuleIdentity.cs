@@ -48,6 +48,15 @@ namespace Bugsee.Editor
                 }
             }
 
+            // iOS/tvOS: an Xcode export holds no UnityFramework binary yet, it is linked by Xcode afterwards, and the archive
+            // Run Script reads its UUID from the binary it built. A UnityFramework found in the export folder is a leftover
+            // product of an earlier build (Xcode's build folder, a copied framework) whose UUID would key this build's
+            // line map wrongly: report none, and the upload happens in the Run Script, under the right one.
+            if (report.summary.platform == BuildTarget.iOS || report.summary.platform == BuildTarget.tvOS)
+            {
+                return found;
+            }
+
             var candidates = new List<(string path, DateTime mtime, int score)>();
 
             foreach (var root in BuildRoots(report))
@@ -146,7 +155,7 @@ namespace Bugsee.Editor
             {
                 foreach (var path in Directory.EnumerateFiles(root, name, SearchOption.AllDirectories))
                 {
-                    if (IsExcludedPath(path))
+                    if (BuildPathExclusion.IsExcludedPath(path, root))
                     {
                         continue;
                     }
@@ -158,7 +167,7 @@ namespace Bugsee.Editor
             }
             foreach (var dir in Directory.EnumerateDirectories(root, "*.framework", SearchOption.AllDirectories))
             {
-                if (IsExcludedPath(dir))
+                if (BuildPathExclusion.IsExcludedPath(dir, root))
                 {
                     continue;
                 }
@@ -177,15 +186,6 @@ namespace Bugsee.Editor
                 catch { mtime = DateTime.MinValue; }
                 into.Add((binary, mtime, ScorePath(binary, "UnityFramework")));
             }
-        }
-
-        static bool IsExcludedPath(string path)
-        {
-            var norm = path.Replace('\\', '/');
-            return norm.IndexOf("/Library/", StringComparison.OrdinalIgnoreCase) >= 0
-                || norm.IndexOf("/Temp/", StringComparison.OrdinalIgnoreCase) >= 0
-                || norm.IndexOf("/obj/", StringComparison.OrdinalIgnoreCase) >= 0
-                || norm.IndexOf("/Bee/", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         static int ScorePath(string path, string name)
