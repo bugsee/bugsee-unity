@@ -86,6 +86,41 @@ namespace Bugsee.WrapperPolicy
             return Path.Combine(parent, Il2CppBackupFolderName(stem));
         }
 
+        /// <summary>
+        /// What the iOS pending-map pointer holds for <paramref name="mapPath"/>: the path relative to the exported project
+        /// (forward slashes) when the map is inside it, so a copy of the export finds its own map and not the original's;
+        /// the full path for a map elsewhere (one the user named).
+        /// </summary>
+        public static string PendingPointer(string exportRoot, string mapPath)
+        {
+            if (string.IsNullOrEmpty(exportRoot) || string.IsNullOrEmpty(mapPath)) return mapPath;
+            string root = Path.GetFullPath(exportRoot).TrimEnd('/', '\\') + Path.DirectorySeparatorChar;
+            string full = Path.GetFullPath(mapPath);
+            // Outside: absolute, whatever the user wrote (the script resolves a relative pointer against the export).
+            if (!full.StartsWith(root, StringComparison.Ordinal)) return full;
+            return full.Substring(root.Length).Replace('\\', '/');
+        }
+
+        /// <summary>
+        /// Whole seconds since the Unix epoch of a UTC time (rounded down), the unit the iOS upload script compares file
+        /// modification times in.
+        /// </summary>
+        public static long UnixSeconds(DateTime utc)
+        {
+            // BuildSummary.buildStartedAt holds UTC with Kind Unspecified: ToUniversalTime would read it as local time and
+            // shift it by the machine's offset (hours early east of Greenwich, late west of it).
+            DateTime value = utc.Kind == DateTimeKind.Local ? utc.ToUniversalTime() : DateTime.SpecifyKind(utc, DateTimeKind.Utc);
+            return (long)Math.Floor((value - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds);
+        }
+
+        /// <summary>
+        /// True when a file in an exported project was written by the export that began at <paramref name="exportStartUtc"/>
+        /// (not before it, to the second). An "Append" export keeps the project's earlier files, and Unity does not delete the
+        /// line map of an earlier build when this one wrote none.
+        /// </summary>
+        public static bool WrittenByExport(DateTime fileWriteUtc, DateTime exportStartUtc) =>
+            UnixSeconds(fileWriteUtc) >= UnixSeconds(exportStartUtc);
+
         /// <summary>Higher rank wins; modification time only breaks a tie between equally ranked files.</summary>
         public static bool Better(int rank, DateTime mtime, int bestRank, DateTime bestMtime) =>
             rank != bestRank ? rank > bestRank : mtime >= bestMtime;
