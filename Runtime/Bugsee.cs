@@ -67,6 +67,7 @@ namespace Bugsee
                 throw new ArgumentException("appToken is required", nameof(appToken));
 
             MainThreadDispatcher.Ensure();
+            BuildTokenCheck.OnLaunch(appToken);
             options = ApplyCapturePolicy(options, out bool startPusher);
             if (Bridge is ILifecycleResultBridge bridge)
             {
@@ -207,6 +208,7 @@ namespace Bugsee
                 throw new ArgumentException("appToken is required", nameof(appToken));
 
             MainThreadDispatcher.Ensure();
+            BuildTokenCheck.OnLaunch(appToken);
             options = ApplyCapturePolicy(options, out bool startPusher);
             var result = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             if (Bridge is ILifecycleResultBridge bridge)
@@ -359,17 +361,25 @@ namespace Bugsee
 
         public static void TestCrash() => Bridge.TestCrash();
 
+        /// <summary>
+        /// Show the report dialog. An omitted <paramref name="severity"/> lets the SDK pick its default, the
+        /// <c>ReportingDefaultBugPriority</c> launch option (High unless configured).
+        /// </summary>
         public static void ShowReportDialog(
             string summary = "",
             string description = "",
-            IssueSeverity severity = IssueSeverity.High,
+            IssueSeverity? severity = null,
             IList<string> labels = null) =>
             Bridge.ShowReportDialog(summary, description, severity, labels);
 
+        /// <summary>
+        /// Create and upload a report without UI. An omitted <paramref name="severity"/> lets the SDK pick its
+        /// default, the <c>ReportingDefaultBugPriority</c> launch option (High unless configured).
+        /// </summary>
         public static void Upload(
             string summary,
             string description = "",
-            IssueSeverity severity = IssueSeverity.High,
+            IssueSeverity? severity = null,
             IList<string> labels = null) =>
             Bridge.Upload(summary, description, severity, labels);
 

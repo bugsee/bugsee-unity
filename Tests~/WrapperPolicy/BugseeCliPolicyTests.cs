@@ -49,7 +49,8 @@ namespace Bugsee.WrapperPolicy.Tests
         [TestCase("Linux", "x86_64", "x86_64-unknown-linux-gnu")]
         [TestCase("linux", "aarch64", "aarch64-unknown-linux-gnu")]
         [TestCase("windows", "X64", "x86_64-pc-windows-msvc")]
-        [TestCase("windows", "Arm64", null)]
+        [TestCase("windows", "Arm64", "aarch64-pc-windows-msvc")]
+        [TestCase("windows", "X86", null)]
         [TestCase("linux", "X86", null)]
         [TestCase("", "X64", null)]
         public void Host_triple_names_the_published_release(string os, string arch, string expected)
@@ -91,6 +92,16 @@ namespace Bugsee.WrapperPolicy.Tests
         [TestCase("0.8.1", "0.8.0", true)]
         [TestCase("0.8.0", "0.8.0", true)]
         [TestCase("0.7.13", "0.8.0", false)]
+        [TestCase("0.8.0", "0.8.1", false)]
+        [TestCase("0.8.1", "0.8.1", true)]
+        [TestCase("0.8.1-rc.1", "0.8.1", true)]
+        [TestCase("0.8.0-rc.1", "0.8.1", false)]
+        [TestCase("0.9.0", "0.8.1", true)]
+        [TestCase("1.0.0", "0.8.1", true)]
+        [TestCase("0.8", "0.8.1", false)]
+        [TestCase("garbage", "0.8.1", false)]
+        [TestCase("", "0.8.1", false)]
+        [TestCase(null, "0.8.1", false)]
         [TestCase("0.10.0", "0.8.1", true)]
         [TestCase("1.0", "0.8.1", true)]
         [TestCase("0.8.0-rc.1", "0.8.0", true)]
@@ -152,6 +163,50 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void The_floor_is_the_release_that_upgrades_symbol_tables_without_force()
+        {
+            Assert.That(BugseeCliPolicy.MinVersion, Is.EqualTo("0.8.1"));
+            Assert.That(BugseeCliPolicy.IosMinVersion, Is.EqualTo("0.8.0"));
+            Assert.That(BugseeCliPolicy.VersionAtLeast(BugseeCliPolicy.DefaultVersion, BugseeCliPolicy.MinVersion), Is.True);
+        }
+
+        [Test]
+        public void An_installed_0_8_0_is_passed_over_and_the_pinned_release_is_downloaded()
+        {
+            var host = new Host();
+            host.Files["/opt/homebrew/bin/bugsee-cli"] = "0.8.0";
+            host.OnFetch = version => "/tmp/stage/bugsee-cli";
+            host.OnInstall = (staged, dir, version) =>
+            {
+                string path = dir + "/" + version + "/aarch64-apple-darwin/bugsee-cli";
+                host.Files[path] = version;
+                return path;
+            };
+
+            var r = BugseeCliPolicy.Resolve(Mac(), host.Probe());
+
+            Assert.That(r.Notes[0], Does.Contain("0.8.0").And.Contain("older than 0.8.1"));
+            Assert.That(r.Source, Is.EqualTo(CliSource.Downloaded));
+            Assert.That(r.Path, Is.EqualTo("/Users/dev/Library/Caches/Bugsee/cli/0.8.1/aarch64-apple-darwin/bugsee-cli"));
+            Assert.That(host.Downloads, Is.EqualTo(new[] { "0.8.1" }));
+        }
+
+        [Test]
+        public void With_the_run_script_floor_an_installed_0_8_0_is_found_without_a_download()
+        {
+            // What the Editor bakes into the Run Script (BugseeCliLocator.FindInstalled): no download, the iOS floor.
+            var host = new Host();
+            host.Files["/opt/homebrew/bin/bugsee-cli"] = "0.8.0";
+            var s = Mac(download: false);
+            s.MinVersion = BugseeCliPolicy.IosMinVersion;
+
+            var r = BugseeCliPolicy.Resolve(s, host.Probe());
+
+            Assert.That(r.Path, Is.EqualTo("/opt/homebrew/bin/bugsee-cli"));
+            Assert.That(host.Downloads, Is.Empty);
+        }
+
+        [Test]
         public void Explicit_path_wins_over_everything_and_skips_the_version_gate()
         {
             var host = new Host();
@@ -164,7 +219,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
             Assert.That(r.Path, Is.EqualTo("/custom/bugsee-cli"));
             Assert.That(r.Source, Is.EqualTo(CliSource.Explicit));
-            Assert.That(r.Notes.Single(), Does.Contain("older than 0.8.0"));
+            Assert.That(r.Notes.Single(), Does.Contain("older than " + BugseeCliPolicy.MinVersion).And.Contain("used because you set it"));
         }
 
         [Test]
@@ -196,7 +251,7 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void The_default_release_has_a_pinned_hash_for_every_published_host_and_other_versions_none()
         {
-            foreach (var triple in new[] { "aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-pc-windows-msvc" })
+            foreach (var triple in new[] { "aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc" })
             {
                 Assert.That(BugseeCliPolicy.KnownSha256(BugseeCliPolicy.DefaultVersion, triple), Has.Length.EqualTo(64), triple);
                 Assert.That(BugseeCliPolicy.ParseSha256Sidecar(BugseeCliPolicy.KnownSha256(BugseeCliPolicy.DefaultVersion, triple)), Is.Not.Null);

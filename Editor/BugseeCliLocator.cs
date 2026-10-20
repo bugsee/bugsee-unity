@@ -68,7 +68,9 @@ namespace Bugsee.Editor
                 // Routine when something was found after all (a shim that does not run, an old install passed over).
                 foreach (string note in _resolved.Notes)
                 {
-                    Debug.Log("[Bugsee] " + note);
+                    // A too-old BUGSEE_CLI_PATH is used anyway: that is worth a warning, the rest is routine.
+                    if (_resolved.Source == CliSource.Explicit) Debug.LogWarning("[Bugsee] " + note);
+                    else Debug.Log("[Bugsee] " + note);
                 }
             }
 
@@ -90,6 +92,9 @@ namespace Bugsee.Editor
             {
                 CliSettings settings = ReadSettings(quiet: true);
                 settings.DownloadAllowed = false;
+                // The Run Script has its own, lower floor (it uploads no ELF files): a 0.8.0 the Editor passes over for
+                // its own uploads is still worth baking, since Xcode's minimal PATH would not find it.
+                settings.MinVersion = BugseeCliPolicy.IosMinVersion;
                 var resolution = BugseeCliPolicy.Resolve(settings, new CliProbe { FileExists = File.Exists, QueryVersion = QueryVersion });
                 return resolution.Found ? resolution.Path : null;
             }
@@ -111,7 +116,7 @@ namespace Bugsee.Editor
             if (!_notFoundReported)
             {
                 _notFoundReported = true;
-                Debug.LogWarning(BugseeCliPolicy.NotFoundMessage(resolution));
+                Debug.LogWarning(BugseeCliPolicy.NotFoundMessage(resolution, IsWindows));
             }
 
             return true;

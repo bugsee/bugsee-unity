@@ -231,6 +231,56 @@ namespace Bugsee.WrapperPolicy.Tests
             }
         }
 
+        [Test]
+        public void The_pending_pointer_is_relative_inside_the_export_and_absolute_outside()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "exp");
+            var inside = Path.Combine(root, "Il2CppOutputProject", "Source", "il2cppOutput", "Symbols", "LineNumberMappings.json");
+            Assert.That(BuildArtifactChoice.PendingPointer(root, inside),
+                Is.EqualTo("Il2CppOutputProject/Source/il2cppOutput/Symbols/LineNumberMappings.json"));
+            Assert.That(BuildArtifactChoice.PendingPointer(root + Path.DirectorySeparatorChar, inside),
+                Is.EqualTo("Il2CppOutputProject/Source/il2cppOutput/Symbols/LineNumberMappings.json"));
+            var mine = Path.Combine(Path.GetTempPath(), "mine", "LineNumberMappings.json");
+            Assert.That(BuildArtifactChoice.PendingPointer(root, mine), Is.EqualTo(mine));
+            // A relative path the user gave is made absolute: the script resolves a relative pointer against the export.
+            var relative = BuildArtifactChoice.PendingPointer(root, Path.Combine("rel", "x.json"));
+            Assert.That(Path.IsPathRooted(relative), Is.True);
+            Assert.That(relative, Does.EndWith(Path.Combine("rel", "x.json")));
+            // A sibling folder that shares the prefix is not inside.
+            var sibling = Path.Combine(Path.GetTempPath(), "exp2", "LineNumberMappings.json");
+            Assert.That(BuildArtifactChoice.PendingPointer(root, sibling), Is.EqualTo(sibling));
+        }
+
+        [Test]
+        public void Unix_seconds_are_whole_seconds_since_the_epoch_in_utc()
+        {
+            Assert.That(BuildArtifactChoice.UnixSeconds(new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)), Is.EqualTo(0));
+            Assert.That(BuildArtifactChoice.UnixSeconds(new DateTime(2027, 1, 15, 8, 0, 0, 999, DateTimeKind.Utc)), Is.EqualTo(1_800_000_000));
+        }
+
+        // BuildSummary.buildStartedAt is UTC with Kind Unspecified (a real export on a UTC+5 machine stamped the script
+        // five hours early when it was converted as local time).
+        [Test]
+        public void A_time_of_unspecified_kind_is_read_as_utc_whatever_the_machines_offset()
+        {
+            var unspecified = new DateTime(2027, 1, 15, 8, 0, 0, DateTimeKind.Unspecified);
+            Assert.That(BuildArtifactChoice.UnixSeconds(unspecified), Is.EqualTo(1_800_000_000));
+            Assert.That(BuildArtifactChoice.UnixSeconds(DateTime.SpecifyKind(unspecified, DateTimeKind.Utc)), Is.EqualTo(1_800_000_000));
+            var local = DateTime.SpecifyKind(unspecified, DateTimeKind.Local);
+            Assert.That(BuildArtifactChoice.UnixSeconds(local), Is.EqualTo(new DateTimeOffset(local).ToUnixTimeSeconds()));
+        }
+
+        // Compared to the second, as the Run Script compares them: a map written in the second the export began counts.
+        [Test]
+        public void A_file_is_this_exports_only_if_written_at_or_after_its_start()
+        {
+            var start = new DateTime(2027, 1, 15, 8, 0, 0, 700, DateTimeKind.Utc);
+            Assert.That(BuildArtifactChoice.WrittenByExport(start.AddHours(-1), start), Is.False);
+            Assert.That(BuildArtifactChoice.WrittenByExport(start.AddSeconds(-1), start), Is.False);
+            Assert.That(BuildArtifactChoice.WrittenByExport(new DateTime(2027, 1, 15, 8, 0, 0, 100, DateTimeKind.Utc), start), Is.True);
+            Assert.That(BuildArtifactChoice.WrittenByExport(start.AddMinutes(3), start), Is.True);
+        }
+
         static string[] Under(string root, string name) =>
             root != null && Directory.Exists(root) ? Directory.GetFiles(root, name, SearchOption.AllDirectories) : new string[0];
 

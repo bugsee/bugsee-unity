@@ -59,6 +59,7 @@ namespace Bugsee.Contracts.Options
             set => Set(Options.WifiOnlyUpload, value);
         }
 
+        /// <summary>Android only: the iOS launch drops this key (the iOS SDK has no such option).</summary>
         public int ReportHandlerCallbackTimeout
         {
             set => Set(Options.ReportHandlerCallbackTimeout, value);
@@ -290,6 +291,7 @@ namespace Bugsee.Contracts.Options
             set => Set(Options.PerformanceAdaptiveSampling, value);
         }
 
+        /// <summary>Android only: the iOS launch drops this key (the iOS SDK has no such option).</summary>
         public string PerformanceUploadMode
         {
             set => Set(Options.PerformanceUploadMode, value);

@@ -2,22 +2,36 @@ namespace Bugsee.WrapperPolicy
 {
     /// <summary>
     /// The shell script behind the iOS "Bugsee Upload Symbols" Run Script phase (dSYMs + il2cpp-linemap). It never
-    /// fails the build: every CLI error is swallowed.
+    /// fails the build: every CLI error is reported as an Xcode <c>warning:</c> line and nothing more.
     /// </summary>
     public static class IosArchiveUploadScript
     {
         /// <summary>The script text, written to BugseeScripts/upload-symbols.sh in the exported Xcode project.</summary>
         public static string Build() => Build(null);
 
+        public static string Build(string resolvedCliPath) => Build(resolvedCliPath, 0);
+
         /// <summary>
         /// The script text with <paramref name="resolvedCliPath"/> (the CLI the Editor found at export time, if any)
         /// baked in as a candidate: Xcode build phases run with a minimal PATH, so the script cannot rely on finding
         /// the CLI the way the Editor did.
         /// </summary>
-        public static string Build(string resolvedCliPath)
+        /// <param name="exportStartEpoch">
+        /// When the Unity export began, in seconds since the Unix epoch (0: unknown). A line map inside the exported project
+        /// that is older than this was left there by an earlier export (an "Append" export keeps the project's files) and is
+        /// not uploaded.
+        /// </param>
+        public static string Build(string resolvedCliPath, long exportStartEpoch)
         {
             string text = Script.Replace("\r\n", "\n");
             text = text.Replace("PINNED_VERSION=''\n", "PINNED_VERSION='" + BugseeCliPolicy.DefaultVersion + "'\n");
+            text = text.Replace("MIN_VERSION=''\n", "MIN_VERSION='" + BugseeCliPolicy.IosMinVersion + "'\n");
+            if (exportStartEpoch > 0)
+            {
+                text = text.Replace("EXPORT_START=''\n",
+                    "EXPORT_START='" + exportStartEpoch.ToString(System.Globalization.CultureInfo.InvariantCulture) + "'\n");
+            }
+
             // Only an absolute POSIX path: a Windows or Linux host exporting an iOS project has nothing usable to bake.
             if (string.IsNullOrEmpty(resolvedCliPath) || resolvedCliPath[0] != '/'
                 || resolvedCliPath.IndexOfAny(new[] { '\n', '\r', '\0' }) >= 0)
@@ -43,25 +57,33 @@ namespace Bugsee.WrapperPolicy
         // UnityFramework: say so rather than finish as if the crash symbols were uploaded.
         const string Script = @"#!/bin/sh
 set -e
+# Xcode fails an archive that prints an error: line, wherever it sits in the line (bugsee-cli prints error: on every
+# failure), even when the script exits 0: every error: from the CLI or a path in a message becomes ""error -"" (any case).
+defang() {
+  # C locale: BSD sed fails on bytes that are not valid UTF-8, which set -e must not turn into an aborted upload loop.
+  LC_ALL=C sed 's/[Ee][Rr][Rr][Oo][Rr]:/error -/g' || true
+}
 # Bugsee archive-time symbol upload (dSYMs + il2cpp-linemap).
-# Never fail the Archive — swallow CLI errors.
+# Never fail the Archive: problems are reported as warning: lines (Xcode's issue navigator), never error:.
 if [ ""${CONFIGURATION}"" = ""Debug"" ] && [ ""${BUGSEE_SKIP_UPLOAD_ON_DEBUG}"" = ""1"" ]; then
   echo ""Bugsee: skip symbol upload for Debug (BUGSEE_SKIP_UPLOAD_ON_DEBUG=1).""
   exit 0
 fi
 if [ -z ""${BUGSEE_APP_TOKEN}"" ]; then
-  echo ""Bugsee: BUGSEE_APP_TOKEN unset — skip archive symbol upload.""
+  PREFIX=warning:; [ -z ""${ACTION}"" ] || [ ""${ACTION}"" = install ] || PREFIX=note:
+  printf '%s\n' ""${PREFIX} Bugsee: BUGSEE_APP_TOKEN unset — dSYMs and the il2cpp line map are NOT uploaded (the build continues). Xcode's GUI does not see your shell's environment: set it in your CI / Xcode Cloud environment, or add a user-defined build setting named BUGSEE_APP_TOKEN to the Unity-iPhone target (a Unity Replace export regenerates the project, so add it again after each export).""
   exit 0
 fi
 
 # --- resolve bugsee-cli: Xcode runs build phases with a minimal PATH, so a bare lookup often misses an installed CLI.
 # Same order as the Editor's lookup: BUGSEE_CLI_PATH, then (in the script only) the CLI the Editor found at export time,
 # PATH, /opt/homebrew/bin, /usr/local/bin, ~/.local/bin, ~/.cargo/bin, ~/.bugsee/bin, then the package's download cache.
-# BUGSEE_CLI_PATH and the baked path are used as given. A discovered candidate must run, print a version and be 0.8.0 or
+# BUGSEE_CLI_PATH and the baked path are used as given. A discovered candidate must run, print a version and be MIN_VERSION or
 # newer (a pre-release such as 0.8.0-beta.1 counts, as in the Editor). Never downloads. (BUGSEE_CLI_SYSTEM_DIRS replaces the two system directories and
 # BUGSEE_CLI_PROBE_TIMEOUT the 15 s limit of a --version probe; tests.)
 BAKED_CLI=''
 PINNED_VERSION=''
+MIN_VERSION=''
 CLI=""""
 TRIED=""""
 note() {
@@ -117,16 +139,25 @@ $1
     note ""$1 (does not run)""
     return 0
   }
-  # The first token that starts with a digit, its numeric prefix (0.8.0-beta.1 is 0.8.0), leading zeros dropped.
-  CANDIDATE_TOKEN=$(printf '%s\n' ""${CANDIDATE_OUT}"" | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]/) { print $i; exit } }')
-  CANDIDATE_VER=$(printf '%s\n' ""${CANDIDATE_TOKEN}"" | sed -n 's/^\([0-9][0-9]*\)\.\{0,1\}\([0-9]*\).*/\1 \2/p' | sed 's/ 0*\([0-9]\)/ \1/; s/^0*\([0-9]\)/\1/')
-  if [ -z ""${CANDIDATE_VER}"" ]; then
+  # The first token that starts with a digit; major.minor.patch of its numeric prefix (0.8.1-beta.1 is 0.8.1, a missing part is 0,
+  # leading zeros are numbers not octal) against MIN_VERSION, which the package bakes in from BugseeCliPolicy.IosMinVersion.
+  CANDIDATE_TOKEN=$(printf '%s\n' ""${CANDIDATE_OUT}"" | /usr/bin/awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]/) { print $i; exit } }')
+  CANDIDATE_CMP=$(printf '%s\n' ""${CANDIDATE_TOKEN}"" | /usr/bin/awk -v min=""${MIN_VERSION}"" '{
+    if (!match($0, /^[0-9]+(\.[0-9]+)?(\.[0-9]+)?/)) exit
+    split(substr($0, RSTART, RLENGTH), a, ""."")
+    split(min, b, ""."")
+    for (i = 1; i <= 3; i++) {
+      x = a[i] + 0; y = b[i] + 0
+      if (x != y) { print (x > y) ? ""ok"" : ""old""; exit }
+    }
+    print ""ok""
+  }')
+  if [ -z ""${CANDIDATE_CMP}"" ]; then
     note ""$1 (no version in --version output)""
     return 0
   fi
-  set -- ""$1"" ${CANDIDATE_VER}
-  if [ ""$2"" -eq 0 ] && [ ""${3:-0}"" -lt 8 ]; then
-    note ""$1 (version ${CANDIDATE_TOKEN}, older than 0.8.0)""
+  if [ ""${CANDIDATE_CMP}"" = old ]; then
+    note ""$1 (version ${CANDIDATE_TOKEN}, older than ${MIN_VERSION})""
     return 0
   fi
   CLI=""$1""
@@ -181,23 +212,55 @@ if [ -n ""${HOME}"" ]; then
   done
 fi
 if [ -z ""${CLI}"" ]; then
-  printf '%s\n' ""warning: Bugsee: bugsee-cli was not found, so symbols are NOT uploaded (the build continues). Looked at:${TRIED}""
+  printf '%s\n' ""warning: Bugsee: bugsee-cli was not found, so symbols are NOT uploaded (the build continues). Looked at:${TRIED}"" | defang
   echo ""Bugsee: install it (curl --proto '=https' --tlsv1.2 -sSfL https://download.bugsee.com/cli/install.sh | sh) or set BUGSEE_CLI_PATH.""
   exit 0
 fi
-[ -z ""${TRIED}"" ] || printf '%s\n' ""Bugsee: passed over:${TRIED}""
-printf '%s\n' ""Bugsee: using ${CLI}""
+[ -z ""${TRIED}"" ] || printf '%s\n' ""Bugsee: passed over:${TRIED}"" | defang
+printf '%s\n' ""Bugsee: using ${CLI}"" | defang
 VERSION=""${BUGSEE_VERSION:-${MARKETING_VERSION}}""
 BUILD=""${BUGSEE_BUILD:-${CURRENT_PROJECT_VERSION}}""
+FAILED=0
+# Says why a CLI exit code is a failure (the bugsee-cli exit-code contract); the build is never failed.
+cli_failure() {
+  case ""$1"" in
+    1) WHY=""bugsee-cli hit an unexpected error"" ;;
+    2) WHY=""bugsee-cli rejected its arguments (a bugsee-cli older or newer than this package expects?)"" ;;
+    10) WHY=""the file to upload was not found"" ;;
+    11) WHY=""the file to upload is not a usable symbol file"" ;;
+    20) WHY=""bugsee-cli found its configuration invalid"" ;;
+    21) WHY=""the server rejected the app token: check BUGSEE_APP_TOKEN"" ;;
+    30) WHY=""the Bugsee server returned an error"" ;;
+    31) WHY=""the Bugsee server could not be reached (network)"" ;;
+    126|127) WHY=""bugsee-cli could not be run"" ;;
+    *) WHY=""bugsee-cli failed"" ;;
+  esac
+}
 upload() {
-  ""$@"" || echo ""Bugsee: upload command failed (archive continues): $*""
+  RC_DIR=""${TMPDIR:-/tmp}""
+  [ -d ""${RC_DIR}"" ] && [ -w ""${RC_DIR}"" ] || RC_DIR=/tmp
+  RC_FILE=$(mktemp ""${RC_DIR}/bugsee-upload-rc.XXXXXX"" 2>/dev/null) || RC_FILE=""${RC_DIR}/bugsee-upload-rc.$$""
+  # The exit code goes through a file, written on success too: a pipe would hand back sed's, and a code that could not
+  # be recorded counts as a failure. stdout and stderr both pass through defang.
+  { ""$@"" 2>&1 && echo 0 >""${RC_FILE}"" || echo $? >""${RC_FILE}""; } 2>/dev/null | defang
+  UPLOAD_RC=$(cat ""${RC_FILE}"" 2>/dev/null) || UPLOAD_RC=1
+  rm -f ""${RC_FILE}""
+  case ""${UPLOAD_RC}"" in ''|*[!0-9]*) UPLOAD_RC=1 ;; esac
+  if [ ""${UPLOAD_RC}"" -ne 0 ]; then
+    FAILED=1
+    cli_failure ""${UPLOAD_RC}""
+    SAFE_NAME=$(printf '%s' ""${LAST_UPLOAD}"" | tr '\n\r' '  ' | defang)
+    printf '%s\n'  ""warning: Bugsee: symbol upload failed (exit ${UPLOAD_RC}): ${WHY}. Not uploaded: ${SAFE_NAME} (the build continues).""
+  fi
+  return 0
 }
 
 # --- dSYMs: the app, UnityFramework and the embedded xcframeworks' (Bugsee.framework.dSYM) ---
 if [ -n ""${DWARF_DSYM_FOLDER_PATH}"" ] && [ -d ""${DWARF_DSYM_FOLDER_PATH}"" ]; then
   for DSYM in ""${DWARF_DSYM_FOLDER_PATH}""/*.dSYM; do
     [ -d ""${DSYM}"" ] || continue
-    echo ""Bugsee: uploading dSYM ${DSYM}""
+    echo ""Bugsee: uploading dSYM ${DSYM}"" | defang
+    LAST_UPLOAD=""${DSYM}""
     upload ""${CLI}"" debug-files upload ""${DSYM}"" --type dsym --version ""${VERSION}"" --build ""${BUILD}""
   done
 fi
@@ -215,21 +278,110 @@ if [ ! -d ""${DWARF_DSYM_FOLDER_PATH}/Bugsee.framework.dSYM"" ]; then
     [ -n ""${SDK_DSYM}"" ] && break
   done
   if [ -n ""${SDK_DSYM}"" ]; then
-    echo ""Bugsee: uploading SDK dSYM ${SDK_DSYM}""
+    echo ""Bugsee: uploading SDK dSYM ${SDK_DSYM}"" | defang
+    LAST_UPLOAD=""${SDK_DSYM}""
     upload ""${CLI}"" debug-files upload ""${SDK_DSYM}"" --type dsym --version ""${VERSION}"" --build ""${BUILD}""
   fi
 fi
 if [ ! -d ""${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}"" ] && [ ! -d ""${DWARF_DSYM_FOLDER_PATH}/UnityFramework.framework.dSYM"" ]; then
-  echo ""warning: Bugsee: no dSYM for ${CONFIGURATION} in ${DWARF_DSYM_FOLDER_PATH}; set DEBUG_INFORMATION_FORMAT=dwarf-with-dsym to symbolicate its crashes.""
+  echo ""warning: Bugsee: no dSYM for ${CONFIGURATION} in ${DWARF_DSYM_FOLDER_PATH}; set DEBUG_INFORMATION_FORMAT=dwarf-with-dsym to symbolicate its crashes."" | defang
 fi
 
 # --- il2cpp-linemap (UUID from UnityFramework binary / dSYM) ---
+# The map must be this export's. An ""Append"" export keeps the earlier export's files, and Unity leaves an old
+# LineNumberMappings.json in place when the new build wrote none: it would be uploaded under the new UnityFramework's UUID.
+# The Editor brings the current map's time up to date at export (an unchanged Append export does not copy it again), so a
+# map inside the project that is more than two minutes older than the export (EXPORT_START, baked in when the Editor
+# exports; the slack covers a file server's clock) is skipped.
+# Tried in order: the pending pointer, the maps under Il2CppOutputProject, any other under the project. A path outside the
+# project (BUGSEE_IL2CPP_MAPPING at export time) is the user's own file and is used as given.
+EXPORT_START=''
+STALE_MAPS=""""
+# Inside the project by resolved path (a pointer through a symlink such as /tmp -> /private/tmp is inside too).
+in_project() {
+  REAL_DIR=$(cd -P ""$(dirname ""$1"")"" 2>/dev/null && pwd -P) || return 1
+  REAL_PROJECT=$(cd -P ""${PROJECT_DIR}"" 2>/dev/null && pwd -P) || return 1
+  case ""${REAL_DIR}/"" in
+    ""${REAL_PROJECT}""/*) return 0 ;;
+  esac
+  return 1
+}
+map_is_current() {
+  [ -f ""$1"" ] || return 1
+  in_project ""$1"" || return 0
+  [ -n ""${EXPORT_START}"" ] || return 0
+  MAP_TIME=$(stat -c %Y ""$1"" 2>/dev/null) || MAP_TIME=$(stat -f %m ""$1"" 2>/dev/null) || MAP_TIME=""""
+  case ""${MAP_TIME}"" in
+    """"|*[!0-9]*) ;;
+    *) [ $((MAP_TIME + 120)) -ge ""${EXPORT_START}"" ] && return 0 ;;
+  esac
+  case ""${STALE_MAPS} "" in
+    *"" $1 ""*) ;;
+    *) STALE_MAPS=""${STALE_MAPS} $1"" ;;
+  esac
+  return 1
+}
+find_current_map() {
+  [ -d ""$1"" ] || return 0
+  FOUND_MAPS=$(find ""$1"" -name LineNumberMappings.json 2>/dev/null || true)
+  OLD_IFS=""${IFS}""
+  IFS='
+'
+  set -f
+  for CANDIDATE in ${FOUND_MAPS}; do
+    IFS=""${OLD_IFS}""
+    if map_is_current ""${CANDIDATE}""; then
+      LINEMAP=""${CANDIDATE}""
+      break
+    fi
+  done
+  set +f
+  IFS=""${OLD_IFS}""
+  return 0
+}
 LINEMAP=""""
 if [ -f ""${PROJECT_DIR}/BugseePendingIl2CppLinemap.txt"" ]; then
-  LINEMAP=$(head -n1 ""${PROJECT_DIR}/BugseePendingIl2CppLinemap.txt"")
+  PENDING=$(head -n1 ""${PROJECT_DIR}/BugseePendingIl2CppLinemap.txt"")
+  # A map inside the export is named relative to it, so a copy of the export finds its own; only a user's own is absolute.
+  case ""${PENDING}"" in
+    /*) ;;
+    *) PENDING=""${PROJECT_DIR}/${PENDING}"" ;;
+  esac
+  if map_is_current ""${PENDING}""; then
+    LINEMAP=""${PENDING}""
+  fi
 fi
-if [ -z ""${LINEMAP}"" ] || [ ! -f ""${LINEMAP}"" ]; then
-  LINEMAP=$(find ""${PROJECT_DIR}"" -name LineNumberMappings.json 2>/dev/null | head -n1 || true)
+[ -n ""${LINEMAP}"" ] || find_current_map ""${PROJECT_DIR}/Il2CppOutputProject""
+[ -n ""${LINEMAP}"" ] || find_current_map ""${PROJECT_DIR}""
+# bugsee-cli packs the MethodMap.tsv and il2cppFileRoot.txt beside the map. One of them that is older than the export is an
+# earlier build's (this build did not write it): upload the map from a temporary folder holding only the current files.
+STAGE=""""
+ORIG_LINEMAP=""${LINEMAP}""
+if [ -n ""${LINEMAP}"" ] && [ -n ""${EXPORT_START}"" ] && in_project ""${LINEMAP}""; then
+  MAP_DIR=$(dirname ""${LINEMAP}"")
+  OLD_SIBLINGS=""""
+  for SIBLING in MethodMap.tsv il2cppFileRoot.txt; do
+    if [ -f ""${MAP_DIR}/${SIBLING}"" ] && ! map_is_current ""${MAP_DIR}/${SIBLING}""; then
+      OLD_SIBLINGS=""${OLD_SIBLINGS} ${SIBLING}""
+    fi
+  done
+  if [ -n ""${OLD_SIBLINGS}"" ]; then
+    STAGE=$(mktemp -d ""${TMPDIR:-/tmp}/bugsee-linemap.XXXXXX"" 2>/dev/null) || STAGE=""""
+    if [ -n ""${STAGE}"" ] && cp ""${LINEMAP}"" ""${STAGE}/LineNumberMappings.json""; then
+      for SIBLING in MethodMap.tsv il2cppFileRoot.txt; do
+        case ""${OLD_SIBLINGS} "" in
+          *"" ${SIBLING} ""*) ;;
+          *) [ ! -f ""${MAP_DIR}/${SIBLING}"" ] || cp ""${MAP_DIR}/${SIBLING}"" ""${STAGE}/${SIBLING}"" || true ;;
+        esac
+      done
+      echo ""Bugsee: not uploading the earlier build's${OLD_SIBLINGS} beside ${LINEMAP}"" | defang
+      LINEMAP=""${STAGE}/LineNumberMappings.json""
+    else
+      # Uploading in place would send the earlier build's files with the map.
+      echo ""Bugsee: could not stage the line map without the earlier build's${OLD_SIBLINGS}; not uploading it"" | defang
+      LINEMAP=""""
+    fi
+  fi
 fi
 UUID=""${BUGSEE_IL2CPP_UUIDS:-}""
 if [ -z ""${UUID}"" ]; then
@@ -247,11 +399,14 @@ if [ -z ""${UUID}"" ]; then
   fi
 fi
 if [ -n ""${LINEMAP}"" ] && [ -f ""${LINEMAP}"" ] && [ -n ""${UUID}"" ]; then
-  echo ""Bugsee: uploading il2cpp-linemap ${LINEMAP} uuid=${UUID}""
+  echo ""Bugsee: uploading il2cpp-linemap ${LINEMAP} uuid=${UUID}"" | defang
+  LAST_UPLOAD=""${ORIG_LINEMAP}""
   upload ""${CLI}"" debug-files upload ""${LINEMAP}"" --type il2cpp-linemap --version ""${VERSION}"" --build ""${BUILD}"" --uuid ""${UUID}""
 else
-  echo ""Bugsee: skip il2cpp-linemap (map='${LINEMAP}' uuid='${UUID}')""
+  echo ""Bugsee: skip il2cpp-linemap (map='${LINEMAP}' uuid='${UUID}')${STALE_MAPS:+, older than this export:${STALE_MAPS}}"" | defang
 fi
+[ -z ""${STAGE}"" ] || rm -rf ""${STAGE}""
+[ ""${FAILED}"" -eq 0 ] || printf '%s\n' ""warning: Bugsee: some symbols were NOT uploaded; crashes from this build may stay unsymbolicated (see the warnings above).""
 exit 0
 ";
     }
