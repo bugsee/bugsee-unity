@@ -393,6 +393,14 @@ namespace Bugsee.Sample
                         }
                     }
                     break;
+                case "trace":
+                    // Trace with container values (issue #147), once the SDK is launched.
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        TraceE2E.Run();
+                    }
+                    break;
                 case "upload":
                     // A plain manual report: tells "no report is ever sent" from "only handled exceptions are not".
                     if (_e2ePhase == 0 && _e2eTimer >= 5f)

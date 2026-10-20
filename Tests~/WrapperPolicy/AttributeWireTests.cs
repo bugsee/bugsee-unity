@@ -1,4 +1,8 @@
+using System;
+using System.Collections.Generic;
 using System.Globalization;
+using System.Text.Json;
+using System.Threading;
 using NUnit.Framework;
 
 namespace Bugsee.WrapperPolicy.Tests
@@ -100,6 +104,88 @@ namespace Bugsee.WrapperPolicy.Tests
             {
                 CultureInfo.CurrentCulture = saved;
             }
+        }
+
+        enum Level : short { Low = 3 }
+
+        static List<object> Items(int count, string item)
+        {
+            var list = new List<object>();
+            for (var i = 0; i < count; i++) list.Add(item);
+            return list;
+        }
+
+        [Test]
+        public void Trace_container_is_the_json_android_receives_as_text()
+        {
+            var map = new Dictionary<string, object> { { "k", 1 }, { "n", new List<object> { true, null, "x" } }, { "skip", null } };
+            Assert.That(AttributeWire.ToTraceJson(map), Is.EqualTo("{\"k\":1,\"n\":[true,null,\"x\"]}"));
+            Assert.That(AttributeWire.ToNative(map), Is.EqualTo(AttributeWire.ToTraceJson(map)));
+            Assert.That(AttributeWire.ToNative(new[] { 1, 2 }), Is.EqualTo(AttributeWire.ToTraceJson(new[] { 1, 2 })));
+        }
+
+        [Test]
+        public void Trace_container_is_the_same_bounded_valid_json_on_both_platforms_at_the_cap()
+        {
+            // Each item is 11 units (quotes and a comma), so the cap falls on an item edge or inside one.
+            foreach (var count in new[] { 100, 743, 744, 745, 5000 })
+            {
+                var list = Items(count, "abcdefgh");
+                var ios = AttributeWire.ToTraceJson(list);
+                Assert.That(AttributeWire.ToNative(list), Is.EqualTo(ios), "count " + count);
+                Assert.That(ios.Length, Is.LessThanOrEqualTo(AttributeWire.MaxContainerJsonLength));
+                var items = JsonDocument.Parse(ios).RootElement; // valid JSON, never cut mid-token
+                Assert.That(items.GetArrayLength(), Is.EqualTo(Math.Min(count, 744)), "count " + count);
+            }
+        }
+
+        [Test]
+        public void Trace_container_with_an_emoji_at_the_cap_is_never_a_lone_surrogate()
+        {
+            for (var pad = 8170; pad < 8195; pad++)
+            {
+                var list = new List<object> { new string('a', pad), "\U0001F600\U0001F600\U0001F600" };
+                var ios = AttributeWire.ToTraceJson(list);
+                Assert.That(AttributeWire.ToNative(list), Is.EqualTo(ios), "pad " + pad);
+                Assert.That(ios.Length, Is.LessThanOrEqualTo(AttributeWire.MaxContainerJsonLength));
+                JsonDocument.Parse(ios);
+                for (var i = 0; i < ios.Length; i++)
+                {
+                    if (char.IsHighSurrogate(ios[i])) Assert.That(char.IsLowSurrogate(ios[++i]), "pad " + pad);
+                    else Assert.That(char.IsLowSurrogate(ios[i]), Is.False, "pad " + pad);
+                }
+            }
+        }
+
+        [Test]
+        public void Trace_scalars_match_android_values()
+        {
+            Assert.That(AttributeWire.ToTraceJson(null), Is.EqualTo("null"));
+            Assert.That(AttributeWire.ToTraceJson("a\"b"), Is.EqualTo("\"a\\\"b\""));
+            Assert.That(AttributeWire.ToTraceJson(true), Is.EqualTo("true"));
+            Assert.That(AttributeWire.ToTraceJson(5), Is.EqualTo("5"));
+            Assert.That(AttributeWire.ToTraceJson(1.0f), Is.EqualTo("1.0"));
+            Assert.That(AttributeWire.ToNative(1.0f), Is.EqualTo(1.0).And.TypeOf<double>());
+            Assert.That(AttributeWire.ToTraceJson(Level.Low), Is.EqualTo("3"));
+            Assert.That(AttributeWire.ToNative(Level.Low), Is.EqualTo(3));
+            Assert.That(AttributeWire.ToTraceJson(new byte[] { 1, 255 }), Is.EqualTo("\"Af8=\""));
+            Assert.That(AttributeWire.ToNative(new byte[] { 1, 255 }), Is.EqualTo("Af8="));
+            var when = new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+            Assert.That(AttributeWire.ToTraceJson(when), Is.EqualTo("\"2020-01-02T03:04:05.0000000Z\""));
+            Assert.That(AttributeWire.ToNative(when), Is.EqualTo("2020-01-02T03:04:05.0000000Z"));
+        }
+
+        [Test]
+        public void Trace_json_does_not_depend_on_culture()
+        {
+            var saved = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                Assert.That(AttributeWire.ToTraceJson(new List<object> { 1.5 }), Is.EqualTo("[1.5]"));
+                Assert.That(AttributeWire.ToTraceJson(1.5f), Is.EqualTo("1.5"));
+            }
+            finally { Thread.CurrentThread.CurrentCulture = saved; }
         }
     }
 }

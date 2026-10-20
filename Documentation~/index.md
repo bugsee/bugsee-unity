@@ -89,7 +89,7 @@ Other platform differences, not aligned:
 - Before `Launched`, iOS holds network and breadcrumb events in the wrapper and submits them at launch, while Android hands them straight to the SDK.
 - `IReport.Email` set on a report from `CreateReport` is used on Android; on iOS it is dropped with a warning (the managed upload cannot carry it): use `SetUserIdentifier` there.
 - `IAppearance.ToMap()` returns what the SDK reports on Android; on iOS it lists only the properties set through the wrapper that the native theme applied.
-- `Trace(name, value)` with a collection: iOS sends a JSON structure, Android a JSON string (valid JSON, at most 8192 characters), no longer the type name. Other non-primitive values go as culture-invariant text on Android, and `IosNativeCallbacks` still uses `ToString()` for some values (#143).
+- `Trace(name, value)`: both platforms send a map, list or array as the same JSON (see "Trace values"); the iOS SDK receives it as a structure (a dictionary or array), the Android SDK as a string. `IosNativeCallbacks` still uses `ToString()` for some values (#143).
 
 ## Crash & exception capture
 
@@ -419,6 +419,13 @@ The script builds the xcframework as the beta release does (`scripts/build_new.s
 ### Attributes
 
 `SetAttribute` accepts a string (up to 1024 UTF-16 units), a bool or a number within the signed 64-bit range; anything else throws `ArgumentException`. `GetAttribute` returns the kind that was set: `string`, `bool`, an integer or a `double`. The numeric width is not promised (both platforms return `long` for an integer and `double` for floating point), and a 1.0 set as floating point stays floating. A map, list or array set from managed code in a report handler (`IReport.SetAttribute`) is stored by the Android SDK as JSON text (valid JSON of at most 8192 characters; entries that do not fit are dropped whole) and reads back as that string, while iOS stores it as a native structure and the handler's report keeps the managed container; a container set natively reads as a `Dictionary` on Android and as JSON text on iOS. On iOS the bridge returns the value as a type tag and payload (`s:`, `b:`, `i:`, `d:`, `j:`; see `AttributeWire`); the SDK stores the plain value, so reports show it unwrapped.
+
+### Trace values
+
+`Bugsee.Trace(name, value)` sends a value in these forms on both platforms:
+
+- A map (`IDictionary`), list or array (`ICollection`) is written as JSON of at most 8192 UTF-16 units (invariant culture; a map entry whose value is `null` is left out, a `null` list element is `null`; a collection that contains itself writes `null` where it repeats). A container that does not fit keeps its leading entries whole and drops the rest, so the text is always valid JSON and is never cut inside an entry or an emoji. The iOS SDK receives that JSON as a dictionary or array; the Android SDK receives the same text as a string. Android used to record the type name (`System.Collections.Generic.Dictionary`2[...]`).
+- A string, bool, int or long is sent as is; a float or double stays floating (`1.0f` is `1.0`, never the integer 1). An enum is its integer value, a `DateTime` or `DateTimeOffset` its ISO 8601 text, a `byte[]` its base64 text, and any other type its culture-invariant text. Other enumerables that are not collections (a Unity `Transform`, for example) are sent as text, not iterated.
 
 ### Launch options and notifications
 
