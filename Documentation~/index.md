@@ -407,6 +407,8 @@ The script builds the xcframework as the beta release does (`scripts/build_new.s
 
 `Bugsee.Notify(title, body = null, severity = IssueSeverity.Medium, fields = null, urgent = false)` relays a lightweight notification to the app's messaging integrations without creating a report (no video, logs or events). It is stored offline and sent in batches; `urgent` asks for immediate delivery. A call with an empty title, or before the SDK is launched, is ignored by the native SDK (the title case also logs a Unity warning). `fields` are extra string pairs; entries with a null key or value are dropped. The severity is always sent, so the native default for the shorter overloads is not used.
 
+`Bugsee.ShowReportDialog(summary, description, severity, labels)` and `Bugsee.Upload(summary, description, severity, labels)` take an optional `IssueSeverity? severity` (default `null`). Leave it out and the SDK picks its default, the `ReportingDefaultBugPriority` launch option (High when it is not set), on both platforms; an explicit severity is used as given. Code that passed `IssueSeverity.High` explicitly is unchanged. The parameter type changed from `IssueSeverity` to `IssueSeverity?` call sites compile as before (source compatible), but it is a binary-incompatible change: a precompiled assembly built against the old signature must be recompiled, and a delegate bound to these methods or an implementation of `IBugseeNativeBridge` must take `IssueSeverity?`. An explicit `(IssueSeverity)0` is not a severity and counts as omitted.
+
 ### Performance transactions and spans (APM)
 
 ```csharp
