@@ -336,7 +336,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
             var crumb = new IosBreadcrumb(new IosBreadcrumbDto { category = "c", type = "t", level = 2 }, null);
             Assert.That(crumb.ToReplacementJson(), Is.EqualTo(
-                "{\"category\":\"c\",\"message\":null,\"type\":\"t\",\"level\":2}"));
+                "{\"category\":\"c\",\"message\":null,\"type\":\"t\",\"level\":2,\"data\":{}}"));
         }
     }
 }

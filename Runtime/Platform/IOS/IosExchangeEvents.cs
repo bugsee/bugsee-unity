@@ -327,15 +327,20 @@ namespace Bugsee.Platform.IOS
 
         // Only the fields the filter set go back (JsonUtility would write every untouched null string as ""), and a
         // touched data as a real JSON object (nested values and scalar kinds kept).
-        public string ToResultJson() => Json(_touched, _dataTouched);
+        public string ToResultJson() => Json(_touched, _dataTouched ? _data : null);
 
         // An event returned in place of the one handed in is applied onto the original: every field goes back.
-        internal string ToReplacementJson() => Json(IosEventResultJson.AllBreadcrumb, true);
+        internal string ToReplacementJson()
+        {
+            // data is part of every field too: a replacement without data must not keep the original's.
+            if (_data == null) _data = new Dictionary<string, object>();
+            return Json(IosEventResultJson.AllBreadcrumb, _data);
+        }
 
-        string Json(IosBreadcrumbField fields, bool withData) =>
+        string Json(IosBreadcrumbField fields, IDictionary<string, object> data) =>
             IosBridgeJson.AppendObjectField(
                 IosEventResultJson.ForBreadcrumb(_dto.category, _dto.message, _dto.type, _dto.level, fields),
-                "data", withData ? _data : null);
+                "data", data);
     }
 
     /// <summary>
