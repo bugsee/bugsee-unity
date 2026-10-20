@@ -569,7 +569,7 @@ namespace Bugsee.Sample
         public static bool LogDropDebugEnabled;
         public static bool BreadcrumbDropEnabled;
 
-        /// <summary>The last log line the filter dropped (for a check's detail; not logged from the filter).</summary>
+        /// <summary>The level and length of the last log line the filter dropped (for a check's detail; the text is not kept, so it cannot be echoed into the log).</summary>
         public static volatile string LastLogDropped;
 
         /// <summary>
@@ -638,7 +638,7 @@ namespace Bugsee.Sample
             if (LogDropDebugEnabled && e.Level >= LogLevel.Debug)
             {
                 Interlocked.Increment(ref _logDropped);
-                LastLogDropped = e.Level + ": " + e.Message;
+                LastLogDropped = e.Level + " (" + (e.Message?.Length ?? 0) + " chars)";
                 var logMarker = LogMarker;
                 if (logMarker != null && e.Message != null && e.Message.Contains(logMarker))
                     Interlocked.Increment(ref _logMarkerDropped);
