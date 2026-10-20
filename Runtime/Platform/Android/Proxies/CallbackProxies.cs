@@ -145,8 +145,10 @@ namespace Bugsee.Platform.Android
             // The SDK waits for the handler at most ReportHandlerCallbackTimeout, then carries on with the report
             // unchanged. While the Unity loop is paused (app in the background) this hop sits in the queue, so a
             // handler that would only start after that is skipped and a reply after it is only acknowledged.
+            var gate = new ReportEditGate();
             var guard = new LateReplyGuard(BudgetMillis(), LateReplyGuard.StopwatchMillis, _ =>
             {
+                gate.Close(); // whatever the handler kept can no longer change the report
                 try { completion?.Call("run"); }
                 finally { try { completion?.Dispose(); } catch (Exception) { } }
             });
@@ -173,7 +175,7 @@ namespace Bugsee.Platform.Android
 
                 try
                 {
-                    var wrapped = new AndroidReport(report);
+                    var wrapped = new AndroidReport(report, gate);
                     Action done = late ? (() => { }) : (Action)guard.Done;
                     if (before) handler.OnBeforeReportCreated(wrapped, false, done);
                     else handler.OnAfterReportCreated(wrapped, false, done);

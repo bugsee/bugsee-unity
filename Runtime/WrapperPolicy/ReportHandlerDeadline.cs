@@ -134,6 +134,19 @@ namespace Bugsee.WrapperPolicy
 namespace Bugsee.WrapperPolicy
 {
     /// <summary>
+    /// Whether a report handed to a handler may still be edited. It is closed when the handler's completion runs
+    /// (answered, skipped, abandoned), so a handler that kept the report cannot change it after the SDK moved on.
+    /// </summary>
+    public sealed class ReportEditGate
+    {
+        volatile bool _closed;
+
+        public bool IsOpen => !_closed;
+
+        public void Close() => _closed = true;
+    }
+
+    /// <summary>
     /// The window in which an Android filter's reply is still wanted. The SDK's log filter drops the event after 10 s and
     /// reuses its callback object for the next event; the SDK does not tell a late reply from the next event's own, so
     /// a reply after the window would complete the wrong event with this one's data. Past the window the wrapper does

@@ -234,5 +234,39 @@ namespace Bugsee.WrapperPolicy.Tests
                 "Android SDK " + version + " is pinned. Re-check the log filter timeout (10 s) that FilterReplyWindow.LogFilterSdkTimeoutMs "
                 + "mirrors, and whether the network filter now has one, then add the version to VerifiedAndroidSdkVersions.");
         }
+
+        [Test]
+        public void A_report_edit_gate_stays_closed_once_closed()
+        {
+            var gate = new ReportEditGate();
+            Assert.That(gate.IsOpen, Is.True);
+            gate.Close();
+            gate.Close();
+            Assert.That(gate.IsOpen, Is.False);
+        }
+
+        [Test]
+        public void The_android_report_wrappers_check_the_gate_before_every_edit()
+        {
+            var dir = TestContext.CurrentContext.TestDirectory;
+            while (!string.IsNullOrEmpty(dir) && !System.IO.File.Exists(System.IO.Path.Combine(dir, "package.json")))
+                dir = System.IO.Directory.GetParent(dir)?.FullName;
+            var source = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "Runtime", "Platform", "Android", "AndroidReport.cs"));
+            var start = source.IndexOf("sealed class AndroidReport : IReport", StringComparison.Ordinal);
+            var end = source.IndexOf("/// <summary>Upload generation fence", StringComparison.Ordinal);
+            var wrappers = source.Substring(start, end - start);
+
+            foreach (var setter in new[] { "\"setSummary\"", "\"setDescription\"", "\"setEmail\"", "\"setSeverity\"", "\"setAttribute\"",
+                         "\"removeAttribute\"", "\"clearAllAttributes\"", "\"addLabel\"", "\"clearLabels\"", "\"setLabels\"",
+                         "\"addAttachment\"", "\"clearAttachments\"", "\"openStream\"", "\"setName\"" })
+            {
+                var at = wrappers.IndexOf(setter, StringComparison.Ordinal);
+                Assert.That(at, Is.GreaterThanOrEqualTo(0), setter);
+                var lineStart = wrappers.LastIndexOf('\n', at);
+                // The call sits behind a Closed check on its own line or within the few lines above it.
+                var window = wrappers.Substring(Math.Max(0, lineStart - 400), Math.Min(400, lineStart) + 200);
+                Assert.That(window, Does.Contain("Closed"), "the edit " + setter + " must not run once the gate is closed");
+            }
+        }
     }
 }
