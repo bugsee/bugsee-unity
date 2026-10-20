@@ -36,6 +36,9 @@ char *_bugsee_appearance_get_string(const char *propertyName);
 typedef void (*BugseeLaunchStartedFn)(int token, int success);
 void _bugsee_launch(const char *appToken, const char *optionsJson, int startedToken, BugseeLaunchStartedFn started);
 void _bugsee_relaunch(const char *optionsJson, int startedToken, BugseeLaunchStartedFn started);
+typedef void (*BugseeLifecycleFn)(const char *eventType, const char *dataJson);
+void _bugsee_test_emit_lifecycle(const char *eventType, const char *payloadJson);
+void _bugsee_register_unity_callbacks(void *filterCb, void *reportCb, BugseeLifecycleFn lifecycleCb);
 typedef void (*BugseeStopCompletionFn)(int token);
 void _bugsee_stop(int token, BugseeStopCompletionFn completion);
 typedef void (*BugseeDeleteCompletionFn)(int token, int wiped);
@@ -58,6 +61,24 @@ static void OnStarted(int token, int success)
     (void)success;
     gStartedToken = token;
     gStartedCount++;
+}
+
+static NSMutableArray<NSString *> *gLifecycleEvents;
+
+static void OnLifecycle(const char *eventType, const char *dataJson)
+{
+    // Real SDK events (from the launch above) also arrive here, on a worker thread: keep only this test's.
+    if (strncmp(eventType, "e.", 2) != 0) return;
+    @synchronized (gLifecycleEvents) {
+        [gLifecycleEvents addObject:[NSString stringWithFormat:@"%s|%s", eventType, dataJson ? dataJson : "(null)"]];
+    }
+}
+
+static NSArray<NSString *> *lifecycleEvents(void)
+{
+    @synchronized (gLifecycleEvents) {
+        return [gLifecycleEvents copy];
+    }
 }
 
 static int gDeletedToken;
@@ -281,6 +302,28 @@ int main(void)
     _bugsee_launch("00000000-0000-0000-0000-000000000000", "{\"max_recording_time\":60}", 41, OnStarted);
     expect(waitFor(^{ return gStartedCount == 1 ? 1 : 0; }, 5) && gStartedToken == 41,
            "launch reports the SDK's started answer with its token");
+    // The wrapper is installed in +load, so lifecycle events can arrive before the managed callback is
+    // registered: they are held and replayed, in order and with their payloads, on registration. (The launch
+    // above cannot announce Launching here: the SDK defers a launch until the app is active.)
+    gLifecycleEvents = [NSMutableArray array];
+    _bugsee_test_emit_lifecycle("e.early1", NULL);
+    _bugsee_test_emit_lifecycle("e.early2", "\"snap-1\"");
+    _bugsee_test_emit_lifecycle("e.early3", "{\"value\":\"x\"}");
+    expect(lifecycleEvents().count == 0, "events before the callback registered are held, not delivered");
+    _bugsee_register_unity_callbacks(NULL, NULL, OnLifecycle);
+    expect(lifecycleEvents().count == 0, "registering does not replay inside the registering call");
+    // Arrives while the replay is pending: it queues behind the held events instead of overtaking them.
+    _bugsee_test_emit_lifecycle("e.live", "\"snap-2\"");
+    expect(waitFor(^{ return lifecycleEvents().count == 4 ? 1 : 0; }, 5)
+               && [lifecycleEvents()[0] isEqualToString:@"e.early1|(null)"]
+               && [lifecycleEvents()[1] isEqualToString:@"e.early2|\"snap-1\""]
+               && [lifecycleEvents()[2] isEqualToString:@"e.early3|{\"value\":\"x\"}"]
+               && [lifecycleEvents()[3] isEqualToString:@"e.live|\"snap-2\""],
+           "held events replay after the registering call, in order (no payload, a string literal, a dictionary as an object), before a later event");
+    _bugsee_register_unity_callbacks(NULL, NULL, OnLifecycle);
+    _bugsee_test_emit_lifecycle("e.live2", NULL);
+    expect(lifecycleEvents().count == 5 && [lifecycleEvents()[4] isEqualToString:@"e.live2|(null)"],
+           "once replayed, an event goes straight through and registering again replays nothing twice");
     // The effective options are valid JSON holding the host's value merged over the SDK defaults.
     char *launchOptions = _bugsee_get_launch_options();
     id parsedOptions = launchOptions

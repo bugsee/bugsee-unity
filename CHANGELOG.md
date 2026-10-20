@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - Unreleased
 
+### Fixed
+
+- **iOS:** lifecycle events that arrive before the managed callback is registered (for example from a launch the host made natively before any C# call) are held, up to 128, and replayed in order on the main queue after the registering `Launch` or `Relaunch` call, as on Android, instead of being dropped. `Relaunch` now registers the wrapper like `Launch`.
+- **iOS:** a lifecycle payload that is a dictionary reaches `LifecycleEvent` / `ILifecycleEventListener` as a `Dictionary<string, object>`, as on Android, not as raw JSON text; a one-key dictionary is no longer mistaken for a string.
+
 ### Changed
 
 - Removed dead bridge code: the iOS exports `_bugsee_add_secure_rect`, `_bugsee_remove_secure_rect`, `_bugsee_remove_all_secure_rects`, `_bugsee_get_device_id` and `_bugsee_cancel_managed_report_upload` (no-ops or never imported; secure rectangles go through `_bugsee_set_secure_buffer`, upload cancellation through `_bugsee_invalidate_managed_report_uploads`), their two unused C# DllImports, the unused `BugseeBridgeSetAttachmentFileNameIfNeeded` helper, and the `BUGSEE_IOS_LEGACY_EXCEPTION_API` (bugsee-cocoa up to beta6) branches. The delayed-delete retry block no longer trips `-Warc-retain-cycles`. A `BUGSEE_IOS_SDK_LOCAL_PACKAGE` that points at a bugsee-cocoa build older than 7.0.0-beta7 no longer compiles (the bridge uses `logException:reason:domain:skipFrames:`) instead of falling back to the old API. Also removed the unused `ToJsonLiteral` and `JsonString` helpers in `IOSBridge.cs`.

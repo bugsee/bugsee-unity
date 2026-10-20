@@ -80,6 +80,17 @@ Residual races after the hard deadline (the native SDKs cannot cancel an operati
 - **Android**: a late `Launch`/`Relaunch` result arriving after the reset is ignored when no stop intent is set (no `Stop` requested and no `Delete` started since), so the managed capture hooks can be out of step with that session until the next lifecycle call. With a stop intent set, a session started by a late result is stopped again.
 - **Android**: after the reset of a delete, a queued `Launch` can run while the native delete is still wiping. A `Delete` started after the reset of a relaunch can overlap a relaunch that completes later still.
 
+### Lifecycle events
+
+`Bugsee.LifecycleEvent` and `ILifecycleEventListener.OnEvent(eventType, data)` behave alike on both platforms. `data` is `null` or a `string` (the snapshot or request id of the report events); the native SDKs send nothing else today. If an SDK ever sends a map it arrives as a `Dictionary<string, object>` on both, with numbers inside it as `long`/`double` on iOS and `int`/`float` on Android; on iOS any other payload type arrives as its description text, and a map nested deeper than the JSON reader allows as raw JSON text. Events the SDK announces before the managed side is listening (for example from a launch the host made natively before any C# call) are held, up to 128, and delivered in order shortly after the wrapper starts listening (on iOS on the main queue after the `Launch` or `Relaunch` call that registered it, on Android on the next main-looper pass), on both iOS and Android. `Relaunch` registers the wrapper the same way `Launch` does. Handlers run on the Unity main thread on iOS and Android alike.
+
+Other platform differences, not aligned:
+
+- Before `Launched`, iOS holds network and breadcrumb events in the wrapper and submits them at launch, while Android hands them straight to the SDK.
+- `IReport.Email` set on a report from `CreateReport` is used on Android; on iOS it is dropped with a warning (the managed upload cannot carry it): use `SetUserIdentifier` there.
+- `IAppearance.ToMap()` returns what the SDK reports on Android; on iOS it lists only the properties set through the wrapper that the native theme applied.
+- `Trace(name, value)` with a collection or other non-primitive value: iOS sends it as JSON, Android as its `ToString()`. Pass a string or a primitive to get the same result on both.
+
 ## Crash & exception capture
 
 | Source | API / option | Severity default |
