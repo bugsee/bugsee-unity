@@ -275,6 +275,22 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(run.Output, Does.Contain("not uploading the earlier build's MethodMap.tsv"));
         }
 
+        // Staging fails (no writable temporary folder): the map is not sent in place with the earlier build's sibling.
+        [Test]
+        public void Archive_script_uploads_nothing_when_it_cannot_stage_the_map_without_an_old_sibling()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, exportStart: ExportStart, uuids: Uuid,
+                tmpDir: "/nonexistent/bugsee-tmp", plant: root =>
+            {
+                PlantPending(root, PlantMap(root, SymbolsMap, ExportStart + 5));
+                PlantMap(root, "Il2CppOutputProject/Source/il2cppOutput/Symbols/MethodMap.tsv", ExportStart - 3600);
+            });
+
+            Assert.That(Linemaps(run), Is.Empty, run.Output);
+            Assert.That(run.Output, Does.Contain("could not stage the line map"));
+            Assert.That(run.ExitCode, Is.EqualTo(0));
+        }
+
         [Test]
         public void Archive_script_uploads_in_place_when_the_siblings_are_current_or_no_export_time_is_known()
         {
@@ -353,7 +369,7 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         static ScriptRun RunScript(string[] dsymBundles, int cliExitCode = 0, string token = "test-token",
-            string platform = "iphoneos", Action<string> plant = null, long exportStart = 0, string uuids = null)
+            string platform = "iphoneos", Action<string> plant = null, long exportStart = 0, string uuids = null, string tmpDir = null)
         {
             if (!File.Exists("/bin/sh"))
                 Assert.Ignore("needs /bin/sh");
@@ -394,6 +410,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 info.Environment["PLATFORM_NAME"] = platform;
                 info.Environment["PROJECT_DIR"] = projectDir;
                 info.Environment.Remove("BUGSEE_SKIP_UPLOAD_ON_DEBUG");
+                if (tmpDir != null) info.Environment["TMPDIR"] = tmpDir;
                 if (uuids != null) info.Environment["BUGSEE_IL2CPP_UUIDS"] = uuids;
                 else info.Environment.Remove("BUGSEE_IL2CPP_UUIDS");
 

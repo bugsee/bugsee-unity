@@ -335,6 +335,10 @@ if [ -n ""${LINEMAP}"" ] && [ -n ""${EXPORT_START}"" ] && in_project ""${LINEMAP
       done
       echo ""Bugsee: not uploading the earlier build's${OLD_SIBLINGS} beside ${LINEMAP}""
       LINEMAP=""${STAGE}/LineNumberMappings.json""
+    else
+      # Uploading in place would send the earlier build's files with the map.
+      echo ""Bugsee: could not stage the line map without the earlier build's${OLD_SIBLINGS}; not uploading it""
+      LINEMAP=""""
     fi
   fi
 fi
