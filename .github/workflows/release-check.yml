@@ -1,11 +1,11 @@
 name: Release check
 
-# A release is a v* tag. The wrapper reports the build id stamped into the package (Tools~/scripts/stamp-wrapper-build.sh);
+# A release is a v<digit>* tag. The wrapper reports the build id stamped into the package (Tools~/scripts/stamp-wrapper-build.sh);
 # without one it reports no build, so a tag that still carries the `dev` placeholder is a release that cannot be told apart.
 on:
   push:
     tags:
-      - "v*"
+      - "v[0-9]*"
 
 permissions:
   contents: read

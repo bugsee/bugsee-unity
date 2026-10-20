@@ -30,6 +30,21 @@ jobs:
       - name: Test
         run: dotnet test Tests~/WrapperPolicy/Bugsee.WrapperPolicy.Tests.csproj --nologo --configuration Release
 
+  wrapper-build-placeholder:
+    name: Wrapper build id is the dev placeholder
+    # Only a release branch carries a stamped id (Tools~/scripts/stamp-wrapper-build.sh); one merged into main would
+    # make every later build report that release's hash.
+    if: github.event_name == 'push' || github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check
+        run: bash Tools~/scripts/check-release-build.sh --dev
+
   unity-compile:
     name: Unity C# compile check
     runs-on: ubuntu-latest

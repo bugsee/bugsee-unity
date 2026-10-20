@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# Fail unless the wrapper build id is a real, consistent one. Run by the release-check workflow on every v* tag
-# (Tools~/scripts/check-release-build.sh <tag>), and by hand before tagging.
+# Check the wrapper build id.
 #
-# Checks: C# and Java constants agree; they are not the `dev` placeholder; the id has a sane shape; when it
-# looks like a commit hash, that commit is in the checked-out history (CI must fetch it all); and the tag, if
-# given, is v<package.json version>.
+#   check-release-build.sh <tag>   a release: the id is real and describes the tagged code (below)
+#   check-release-build.sh --dev   main: the id is still the `dev` placeholder (a stamped release commit was not merged back)
+#
+# Release checks: C# and Java constants agree; not `dev`; a valid shape; when hash-shaped, that commit is an ANCESTOR of
+# HEAD and HEAD differs from it only in the files a release edits (the two constants, CHANGELOG.md, package.json,
+# Tools~/versions.env), so the id really names the code that was tagged; and the tag is v<package.json version>
+# (a prerelease tag such as v0.1.0-rc1 needs package.json "0.1.0-rc1").
+# Run it before `git push --tags`; the release-check workflow repeats it after the push and can only report.
 set -euo pipefail
 
 ROOT_DIR="${BUGSEE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-TAG="${1:-}"
+ARG="${1:-}"
 
 read_const() { # file, regex prefix
   sed -nE "s/.*${2}\"([^\"]*)\".*/\1/p" "${ROOT_DIR}/$1" | head -n 1
@@ -19,16 +23,32 @@ fail() { echo "release check failed: $*" >&2; exit 1; }
 
 [[ -n "${CS}" && -n "${JAVA}" ]] || fail "could not read the build constants (C# '${CS}', Java '${JAVA}')"
 [[ "${CS}" == "${JAVA}" ]] || fail "C# says '${CS}', Java says '${JAVA}'; stamp both with Tools~/scripts/stamp-wrapper-build.sh"
+
+if [[ "${ARG}" == "--dev" ]]; then
+  [[ "${CS}" == dev ]] || fail "the build id is '${CS}' where main keeps 'dev'; a stamped release commit must not be merged into main"
+  echo "OK: wrapper build is the dev placeholder"
+  exit 0
+fi
+
 [[ "${CS}" != dev ]] || fail "the build id is the 'dev' placeholder; run Tools~/scripts/stamp-wrapper-build.sh and commit before tagging"
 [[ "${CS}" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]] || fail "'${CS}' is not a valid build id"
 
 if [[ "${CS}" =~ ^[0-9a-f]{7,40}$ ]]; then
   git -C "${ROOT_DIR}" cat-file -e "${CS}^{commit}" 2>/dev/null \
-    || fail "build id ${CS} is not a commit in this history (shallow checkout, or stamped from another repository)"
+    || fail "build id ${CS} is not a commit in this repository (shallow checkout, or stamped elsewhere)"
+  git -C "${ROOT_DIR}" merge-base --is-ancestor "${CS}" HEAD \
+    || fail "build id ${CS} is not an ancestor of the tagged commit (it names a commit on another branch)"
+  changed="$(git -C "${ROOT_DIR}" diff --name-only "${CS}" HEAD)"
+  while IFS= read -r file; do
+    case "${file}" in
+      ""|Runtime/BugseePackageVersion.cs|Plugins/Android/UnityWrapperIdentity.java|CHANGELOG.md|package.json|Tools~/versions.env) ;;
+      *) fail "build id ${CS} does not describe this commit: ${file} changed after it (stamp again from the release commit's parent)" ;;
+    esac
+  done <<<"${changed}"
 fi
 
-if [[ -n "${TAG}" ]]; then
+if [[ -n "${ARG}" ]]; then
   VERSION="$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' "${ROOT_DIR}/package.json" | head -n 1)"
-  [[ "${TAG}" == "v${VERSION}" ]] || fail "tag ${TAG} does not match package.json version ${VERSION}"
+  [[ "${ARG}" == "v${VERSION}" ]] || fail "tag ${ARG} does not match package.json version ${VERSION}"
 fi
-echo "OK: wrapper build ${CS}${TAG:+ for ${TAG}}"
+echo "OK: wrapper build ${CS}${ARG:+ for ${ARG}}"
