@@ -13,7 +13,7 @@ namespace Bugsee.Sample
         public const float WorldHalfExtent = 72f;
         public const float HillRadius = 9f;
         /// <summary>Clear grass corridor between dome skirts (center distance = 2*R + gap).</summary>
-        public const float HillSkirtGap = 12f;
+        public const float HillSkirtGap = 6f;
         /// <summary>Unity cylinder half-height used for the summit pad visual (full height = 2× this).</summary>
         public const float SummitPadHalfHeight = 0.04f;
         /// <summary>World-space Y of the pad top above the dome mesh tip.</summary>

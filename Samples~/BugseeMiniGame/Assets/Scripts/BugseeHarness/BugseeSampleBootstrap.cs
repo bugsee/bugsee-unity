@@ -40,6 +40,9 @@ namespace Bugsee.Sample
         public string LastLifecycle => _lastLifecycle;
         public IEnumerable<string> LifecycleLog => _lifecycleLog;
         public BugseeActionCatalog Catalog => _catalog;
+        internal string AppToken => appToken;
+        /// <summary>The options of the last LaunchSdk (null before it or in the Editor): LaunchAsync/RelaunchAsync reuse them.</summary>
+        internal Dictionary<string, object> LastLaunchOptions { get; private set; }
 
         /// <summary>Called from <see cref="MiniGameBootstrap"/> when building the scene at runtime.</summary>
         public void Configure(string token, bool launchOnStart, string endpoint = null)
@@ -143,6 +146,7 @@ namespace Bugsee.Sample
                 };
                 if (!string.IsNullOrWhiteSpace(endpointOverride))
                     options.Endpoint = endpointOverride.Trim();
+                LastLaunchOptions = options;
                 // "bugsee_launch_thread" = 1 launches from a worker thread (checks that a launch from any thread works).
                 if (ReadE2EValue("bugsee_launch_thread", "BUGSEE_LAUNCH_THREAD") == "1")
                 {
@@ -200,6 +204,7 @@ namespace Bugsee.Sample
                 var crashHandler = Environment.GetEnvironmentVariable("BUGSEE_E2E_CRASH_HANDLER");
                 if (int.TryParse(crashHandler, out var handlerType))
                     iosOptions.SetCustomOption("com.bugsee.option.capture.crash-handler-type", handlerType);
+                LastLaunchOptions = iosOptions;
                 Bugsee.Launch(appToken, iosOptions);
 #else
                 // Editor / unsupported: still call Launch (no-op bridge).
@@ -329,6 +334,14 @@ namespace Bugsee.Sample
                     {
                         _e2ePhase = 99;
                         _pendingE2EFire = "X:" + _e2eScenario + "-" + _e2eRunId;
+                    }
+                    break;
+                case "interactions":
+                    // Drives every action of the interaction hills (issue #116), once the SDK is launched.
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        StartCoroutine(InteractionsE2E.Run(this));
                     }
                     break;
                 case "actions":

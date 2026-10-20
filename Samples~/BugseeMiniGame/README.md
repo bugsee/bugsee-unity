@@ -6,7 +6,7 @@ third-person camera, and twofold Bugsee controls:
 
 1. **Floating HUD** (top-right) — Report, Upload, Blackout, Log, Feedback, Identity, Debug…
    (**Blackout** also toggles day ↔ night: sun/shadows ↔ moon/stars/weaker shadows)
-2. **Hilltop actions** — each hill has one Bugsee API; walk onto it and **tap the action bubble**
+2. **Hilltop actions** — each hill groups related Bugsee APIs; walk onto it and **tap the action bubble**
 
 Every action is reachable without passing through any other.
 
@@ -46,13 +46,33 @@ Walk cycle + swaying trees + drifting pollen keep continuous motion visible for 
 
 ### Hilltop actions
 
-Beacons cover nearly the full public facade, including Launch / Relaunch / Stop / Status,
+Beacons cover the public facade, including Launch / Relaunch / Stop / Status,
 ShowReportDialog, Upload, TestCrash, Log / Trace / Event / LogException, Blackout,
 Identity + attributes, secure rectangles, CaptureViewHierarchy, ResetVideoCapturePermission,
 Feedback, Appearance, filters, report handler, and lifecycle listener.
 
-SetSecureRect / SetAttribute / SetUserIdentifier / Appearance open IMGUI forms for input
-(secure LTRB + Random, attribute key/value, user id, and a scrollable color table with pickers).
+| Hill | Bubbles (SDK call) |
+|------|--------------------|
+| Reporting | Report (`ShowReportDialog`), Upload, Report Hdlr, Hierarchy, **Notify** (`Notify`: form with title, body, severity, `key=value` fields, urgent) |
+| Reports | **New Report** (`CreateReport`), **Edit Report** (form: `Description`, `Email`, `Severity`, `SetLabels`/`AddLabel`/`ClearLabels`, `SetAttribute`/`RemoveAttribute`/`ClearAllAttributes`, `AddAttachmentBytes` + `IAttachment.SetData(string)`, `AddAttachmentFile`, `ClearAttachments`), **Send Report** (`Upload(IReport)`), **Discard Report** (`Discard`); one draft at a time |
+| Exchange | **Breadcrumb** (`AddBreadcrumb`: category, message, level), **Network Event** (`GetExchangeFactory` + `AddNetworkEvent`: a started and a completed POST to a `.../password-reset` URL, so the Filters bubble's network redaction applies) |
+| APM | **Start Txn** (`StartTransaction`), **Child Span** (`StartChild`), **Finish Txn** (`Finish`); while a transaction is open, every yellow orb you collect becomes a finished child span |
+| Logging | Log Bundle, Log Levels, Exception, **Log Unhandled** (`LogUnhandledException`), Test Crash |
+| Attributes, Identity | Set / Get / Clear Attr, Clear Attrs; Set User ID, Get ID, Identity, Clear ID |
+| Blackout | Blackout, Pause/Resume (old) |
+| Privacy | Set Secure Rect, **Remove Rect** (`RemoveSecureRectangle` of the rect last added), Clear Rects, Reset Video |
+| Feedback | Feedback, Greeting, FB Listen |
+| Session | Launch, Relaunch, Stop, Status, Lifecycle (listener) |
+| Lifecycle | **Launch Async**, **Relaunch Async**, **Stop Async** (`LaunchAsync`/`RelaunchAsync`/`StopAsync`; the status line shows the result), **Launch Options** (`GetLaunchOptions`, all keys in the log), **Delete Data** (`DeleteCollectedDataOnDevice` behind a confirm; the SDK stays stopped until you launch it again) |
+| Appearance | Appearance (colors), **Texts** (`Appearance.SetString`/`GetString` for the report placeholders; an empty field restores the default), Filters |
+
+SetSecureRect / SetAttribute / SetUserIdentifier / Appearance and the new Breadcrumb / Edit Report / Notify / Texts bubbles
+open IMGUI forms for input (they block game input while open); Delete Data opens a confirm dialog.
+There are 13 hills now: the hill skirt gap was reduced so the layout still places every one (a warning is logged if it ever
+cannot).
+
+Not reachable from the sample: `OptionsBuilder` / `Options.*` (a launch-options preset is tracked separately) and
+`IReport.Summary` beyond the report handler.
 
 ## Platforms
 
@@ -75,6 +95,18 @@ SetSecureRect / SetAttribute / SetUserIdentifier / Appearance open IMGUI forms f
 Each build declares `bugsee-android:7.4.1` + `bugsee-android-ndk:7.4.1` in the generated
 `unityLibrary/build.gradle` (core publishes no transitives; NDK is explicit); no custom Gradle templates are needed (the sample ships none; the package copies Unity's own default templates, so it builds on Unity 2021.3 and Unity 6).
 Gradle plugin `4.0.8` is applied on Unity 6+ launcher templates (`ndk { enabled = true }`).
+
+### Interaction check (`interactions` e2e scenario)
+
+`BUGSEE_E2E_SCENARIO=interactions` waits for the SDK to launch, then runs every action of the hills above through the same
+`BugseeActionCatalog.Run` item a bubble calls (and the same `BugseeInteractions` method a form's apply button calls), reads the
+effect back, and logs `[Sample] interactions PASS|FAIL <name> :: <detail>` lines ending in `interactions e2e done failures=N`.
+It covers the report draft (every field and attachment reads back, upload and discard), Notify, Breadcrumb, network events,
+the APM transaction with a child span and orb-pickup spans, `LogUnhandledException`, `RemoveSecureRectangle`, the Appearance
+strings, `GetLaunchOptions`, and the async lifecycle (`StopAsync`, `LaunchAsync`, `RelaunchAsync`, then a confirmed Delete Data
+and a final launch), and ends with the SDK launched. It does not tap bubbles or type into the forms: it checks that the
+bubbles' forms open and calls what their apply buttons call. Staging does not show these uploads right away; read the
+`[Sample] interactions` lines in the device log.
 
 ### Action check (`actions` e2e scenario)
 

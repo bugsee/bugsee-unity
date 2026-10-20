@@ -43,7 +43,25 @@ namespace Bugsee.Sample
         ObsoletePauseResume,
         Launch,
         Relaunch,
-        Stop
+        Stop,
+        Breadcrumb,
+        NetworkEvent,
+        ReportCreate,
+        ReportEdit,
+        ReportUpload,
+        ReportDiscard,
+        Notify,
+        ApmStart,
+        ApmSpan,
+        ApmFinish,
+        LaunchAsync,
+        RelaunchAsync,
+        StopAsync,
+        LaunchOptions,
+        DeleteData,
+        LogUnhandled,
+        RemoveSecureRect,
+        AppearanceTexts
     }
 
     /// <summary>Centralizes Bugsee facade calls so HUD and stations stay in sync.</summary>
@@ -68,14 +86,22 @@ namespace Bugsee.Sample
         public BugseeActionCatalog(BugseeSampleBootstrap bootstrap)
         {
             _bootstrap = bootstrap;
+            Interactions = new BugseeInteractions(bootstrap);
             Instance = this;
         }
+
+        /// <summary>Report drafts, Notify, APM, async lifecycle and the other actions of the later hills.</summary>
+        public BugseeInteractions Interactions { get; }
 
         internal static void ClearInstance(BugseeActionCatalog catalog)
         {
             if (ReferenceEquals(Instance, catalog))
                 Instance = null;
         }
+
+        /// <summary>The last rect Set Secure Rect added and Remove Rect has not removed yet.</summary>
+        public bool SecureRectActive => _secureRectActive;
+        public RectInt SecureRect => _secureRect;
 
         public string LastStatus => _bootstrap != null ? _bootstrap.LastStatus : "";
 
@@ -316,6 +342,86 @@ namespace Bugsee.Sample
                         Bugsee.Stop(() => _bootstrap.SetStatus("Stopped"));
                         break;
 
+                    case BugseeDemoAction.Breadcrumb:
+                        BugseeActionForms.Ensure(_bootstrap).ShowBreadcrumb();
+                        break;
+
+                    case BugseeDemoAction.NetworkEvent:
+                        Interactions.AddNetworkEvents();
+                        break;
+
+                    case BugseeDemoAction.ReportCreate:
+                        Interactions.CreateDraft();
+                        break;
+
+                    case BugseeDemoAction.ReportEdit:
+                        BugseeActionForms.Ensure(_bootstrap).ShowReportDraft();
+                        break;
+
+                    case BugseeDemoAction.ReportUpload:
+                        Interactions.UploadDraft();
+                        break;
+
+                    case BugseeDemoAction.ReportDiscard:
+                        Interactions.DiscardDraft();
+                        break;
+
+                    case BugseeDemoAction.Notify:
+                        BugseeActionForms.Ensure(_bootstrap).ShowNotify();
+                        break;
+
+                    case BugseeDemoAction.ApmStart:
+                        Interactions.StartTransaction();
+                        break;
+
+                    case BugseeDemoAction.ApmSpan:
+                        Interactions.StartSpan();
+                        break;
+
+                    case BugseeDemoAction.ApmFinish:
+                        Interactions.FinishTransaction();
+                        break;
+
+                    case BugseeDemoAction.LaunchAsync:
+                        Interactions.LaunchAsync();
+                        break;
+
+                    case BugseeDemoAction.RelaunchAsync:
+                        Interactions.RelaunchAsync();
+                        break;
+
+                    case BugseeDemoAction.StopAsync:
+                        Interactions.StopAsync();
+                        break;
+
+                    case BugseeDemoAction.LaunchOptions:
+                        Interactions.GetLaunchOptions();
+                        break;
+
+                    case BugseeDemoAction.DeleteData:
+                        Interactions.RequestDeleteData();
+                        break;
+
+                    case BugseeDemoAction.LogUnhandled:
+                        Interactions.LogUnhandled();
+                        break;
+
+                    case BugseeDemoAction.RemoveSecureRect:
+                        if (!_secureRectActive)
+                        {
+                            _bootstrap.SetStatus("RemoveSecureRectangle: no rect added by Set Secure Rect");
+                            break;
+                        }
+                        Bugsee.RemoveSecureRectangle(_secureRect);
+                        _secureRectActive = false;
+                        _bootstrap.SetStatus(string.Format("RemoveSecureRectangle LTRB=({0},{1},{2},{3})",
+                            _secureRect.xMin, _secureRect.yMin, _secureRect.xMax, _secureRect.yMax));
+                        break;
+
+                    case BugseeDemoAction.AppearanceTexts:
+                        BugseeActionForms.Ensure(_bootstrap).ShowTexts();
+                        break;
+
                     default:
                         _bootstrap.SetStatus("Unknown action: " + action);
                         break;
@@ -363,6 +469,24 @@ namespace Bugsee.Sample
                 case BugseeDemoAction.Launch: return "Launch";
                 case BugseeDemoAction.Relaunch: return "Relaunch";
                 case BugseeDemoAction.Stop: return "Stop";
+                case BugseeDemoAction.Breadcrumb: return "Breadcrumb";
+                case BugseeDemoAction.NetworkEvent: return "Network Event";
+                case BugseeDemoAction.ReportCreate: return "New Report";
+                case BugseeDemoAction.ReportEdit: return "Edit Report";
+                case BugseeDemoAction.ReportUpload: return "Send Report";
+                case BugseeDemoAction.ReportDiscard: return "Discard Report";
+                case BugseeDemoAction.Notify: return "Notify";
+                case BugseeDemoAction.ApmStart: return "Start Txn";
+                case BugseeDemoAction.ApmSpan: return "Child Span";
+                case BugseeDemoAction.ApmFinish: return "Finish Txn";
+                case BugseeDemoAction.LaunchAsync: return "Launch Async";
+                case BugseeDemoAction.RelaunchAsync: return "Relaunch Async";
+                case BugseeDemoAction.StopAsync: return "Stop Async";
+                case BugseeDemoAction.LaunchOptions: return "Launch Options";
+                case BugseeDemoAction.DeleteData: return "Delete Data";
+                case BugseeDemoAction.LogUnhandled: return "Log Unhandled";
+                case BugseeDemoAction.RemoveSecureRect: return "Remove Rect";
+                case BugseeDemoAction.AppearanceTexts: return "Texts";
                 default: return action.ToString();
             }
         }

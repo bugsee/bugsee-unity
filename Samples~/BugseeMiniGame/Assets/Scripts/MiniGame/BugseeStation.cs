@@ -215,7 +215,29 @@ namespace Bugsee.Sample
                 BugseeDemoAction.ShowReportDialog,
                 BugseeDemoAction.Upload,
                 BugseeDemoAction.ToggleReportHandler,
-                BugseeDemoAction.CaptureViewHierarchy),
+                BugseeDemoAction.CaptureViewHierarchy,
+                BugseeDemoAction.Notify),
+
+            new BugseeActionGroup(
+                "Reports",
+                new Color(0.8f, 0.25f, 0.5f),
+                BugseeDemoAction.ReportCreate,
+                BugseeDemoAction.ReportEdit,
+                BugseeDemoAction.ReportUpload,
+                BugseeDemoAction.ReportDiscard),
+
+            new BugseeActionGroup(
+                "Exchange",
+                new Color(0.95f, 0.55f, 0.2f),
+                BugseeDemoAction.Breadcrumb,
+                BugseeDemoAction.NetworkEvent),
+
+            new BugseeActionGroup(
+                "APM",
+                new Color(0.55f, 0.85f, 0.3f),
+                BugseeDemoAction.ApmStart,
+                BugseeDemoAction.ApmSpan,
+                BugseeDemoAction.ApmFinish),
 
             new BugseeActionGroup(
                 "Blackout",
@@ -229,6 +251,7 @@ namespace Bugsee.Sample
                 BugseeDemoAction.LogBundle,
                 BugseeDemoAction.LogAllLevels,
                 BugseeDemoAction.LogException,
+                BugseeDemoAction.LogUnhandled,
                 BugseeDemoAction.TestCrash),
 
             new BugseeActionGroup(
@@ -251,6 +274,7 @@ namespace Bugsee.Sample
                 "Privacy",
                 new Color(0.55f, 0.4f, 0.9f),
                 BugseeDemoAction.SetSecureRect,
+                BugseeDemoAction.RemoveSecureRect,
                 BugseeDemoAction.ClearSecureRects,
                 BugseeDemoAction.ResetVideoPermission),
 
@@ -271,9 +295,19 @@ namespace Bugsee.Sample
                 BugseeDemoAction.ToggleLifecycleListener),
 
             new BugseeActionGroup(
+                "Lifecycle",
+                new Color(0.25f, 0.6f, 0.55f),
+                BugseeDemoAction.LaunchAsync,
+                BugseeDemoAction.RelaunchAsync,
+                BugseeDemoAction.StopAsync,
+                BugseeDemoAction.LaunchOptions,
+                BugseeDemoAction.DeleteData),
+
+            new BugseeActionGroup(
                 "Appearance",
                 new Color(0.85f, 0.45f, 0.65f),
                 BugseeDemoAction.Appearance,
+                BugseeDemoAction.AppearanceTexts,
                 BugseeDemoAction.ToggleFilters)
         };
 
@@ -299,6 +333,8 @@ namespace Bugsee.Sample
         public void SpawnAtSummits(IReadOnlyList<Vector3> summits)
         {
             int n = Mathf.Min(summits.Count, Groups.Length);
+            if (n < Groups.Length)
+                Debug.LogWarning("[Sample] only " + summits.Count + " hill summits for " + Groups.Length + " action groups: the rest are unreachable");
             for (int i = 0; i < n; i++)
                 SpawnGroup(Groups[i], summits[i]);
         }
