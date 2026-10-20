@@ -167,6 +167,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(source, Does.Contain("XcodeShellScriptPhase.SetInputs(File.ReadAllText(projectPath), phaseName, DsymInputPaths)"));
             Assert.That(source, Does.Contain("$(DWARF_DSYM_FOLDER_PATH)/$(DWARF_DSYM_FILE_NAME)/Contents/Resources/DWARF/$(EXECUTABLE_NAME)"));
             Assert.That(source, Does.Contain("$(DWARF_DSYM_FOLDER_PATH)/UnityFramework.framework.dSYM/Contents/Resources/DWARF/UnityFramework"));
+            Assert.That(source, Does.Contain("$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)"));
             int strip = source.IndexOf("phaseName, null)");
             int add = source.IndexOf("project.AddShellScriptBuildPhase(target, phaseName");
             Assert.That(strip, Is.GreaterThan(0));

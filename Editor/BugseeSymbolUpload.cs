@@ -522,6 +522,8 @@ namespace Bugsee.Editor
         {
             "$(DWARF_DSYM_FOLDER_PATH)/$(DWARF_DSYM_FILE_NAME)/Contents/Resources/DWARF/$(EXECUTABLE_NAME)",
             "$(DWARF_DSYM_FOLDER_PATH)/UnityFramework.framework.dSYM/Contents/Resources/DWARF/UnityFramework",
+            // The processed Info.plist the script reads the version and build number from: orders the phase after that step.
+            "$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
         };
 
         static void InjectArchiveUploadScript(string pathToBuiltProject)

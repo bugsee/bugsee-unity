@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **iOS:** the Run Script no longer passes empty `--version` / `--build` to `bugsee-cli debug-files upload` when the export has no `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` (a Unity export sets neither): the values come from `BUGSEE_VERSION` / `BUGSEE_BUILD`, then those build settings, then the built app's Info.plist (`CFBundleShortVersionString` / `CFBundleVersion`, the Player Settings' version and build number), and a flag with no value is left out. Fixes #162.
+- **iOS:** the Run Script no longer passes empty `--version` / `--build` to `bugsee-cli debug-files upload` when the export has no `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` (a Unity export sets neither): the values come from `BUGSEE_VERSION` / `BUGSEE_BUILD`, then the built app's Info.plist (`CFBundleShortVersionString` / `CFBundleVersion`, the Player Settings' version and build number, which is what the SDK reports), then those build settings (a difference from the plist is noted), and a flag with no value is left out. Fixes #162.
 - **iOS:** lifecycle events that arrive before the managed callback is registered (for example from a launch the host made natively before any C# call) are held, up to 128, and replayed in order on the main queue after the registering `Launch` or `Relaunch` call, as on Android, instead of being dropped. `Relaunch` now registers the wrapper like `Launch`.
 - **iOS:** a lifecycle payload that is a dictionary reaches `LifecycleEvent` / `ILifecycleEventListener` as a `Dictionary<string, object>`, as on Android, not as raw JSON text; a one-key dictionary is no longer mistaken for a string.
 

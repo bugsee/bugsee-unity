@@ -218,22 +218,34 @@ if [ -z ""${CLI}"" ]; then
 fi
 [ -z ""${TRIED}"" ] || printf '%s\n' ""Bugsee: passed over:${TRIED}"" | defang
 printf '%s\n' ""Bugsee: using ${CLI}"" | defang
-# Version and build: BUGSEE_VERSION / BUGSEE_BUILD, then the build settings, then the built app's Info.plist (a Unity export
-# sets no MARKETING_VERSION / CURRENT_PROJECT_VERSION: the Player Settings' version and build number live in the plist).
-# A value that is still empty (or an unexpanded $(...) reference) is left out: the flags are then not passed at all.
+# Version and build: BUGSEE_VERSION / BUGSEE_BUILD, then the built app's Info.plist, then MARKETING_VERSION /
+# CURRENT_PROJECT_VERSION. The plist comes first because it is what the SDK reports at run time (Unity writes the Player
+# Settings' version and build number into it as literals, and a Unity export sets no build settings for them); a build
+# setting that is not in the plist would key the upload to a version the app never reports, so a difference is noted.
+# A value that is still empty (or an unexpanded $(...) reference) is left out: the flag is then not passed at all.
 plist_value() {
-  PLIST_FILE=""${TARGET_BUILD_DIR:-${BUILT_PRODUCTS_DIR}}/${INFOPLIST_PATH}""
-  [ -n ""${INFOPLIST_PATH}"" ] && [ -f ""${PLIST_FILE}"" ] || return 0
+  PLIST_DIR=""${TARGET_BUILD_DIR:-${BUILT_PRODUCTS_DIR}}""
+  [ -n ""${PLIST_DIR}"" ] && [ -n ""${INFOPLIST_PATH}"" ] || return 0
+  PLIST_FILE=""${PLIST_DIR}/${INFOPLIST_PATH}""
+  [ -f ""${PLIST_FILE}"" ] || return 0
   PLIST_VAL=$(/usr/libexec/PlistBuddy -c ""Print :$1"" ""${PLIST_FILE}"" 2>/dev/null) || PLIST_VAL=""""
   case ""${PLIST_VAL}"" in
-    '$('*|*'${'*) PLIST_VAL="""" ;;
+    *'$('*|*'${'*) PLIST_VAL="""" ;;
   esac
   printf '%s' ""${PLIST_VAL}""
 }
-VERSION=""${BUGSEE_VERSION:-${MARKETING_VERSION}}""
-BUILD=""${BUGSEE_BUILD:-${CURRENT_PROJECT_VERSION}}""
-[ -n ""${VERSION}"" ] || VERSION=$(plist_value CFBundleShortVersionString)
-[ -n ""${BUILD}"" ] || BUILD=$(plist_value CFBundleVersion)
+VERSION=""${BUGSEE_VERSION}""
+BUILD=""${BUGSEE_BUILD}""
+PLIST_VERSION=$(plist_value CFBundleShortVersionString)
+PLIST_BUILD=$(plist_value CFBundleVersion)
+[ -n ""${VERSION}"" ] || VERSION=""${PLIST_VERSION}""
+[ -n ""${BUILD}"" ] || BUILD=""${PLIST_BUILD}""
+[ -z ""${PLIST_VERSION}"" ] || [ -z ""${MARKETING_VERSION}"" ] || [ ""${PLIST_VERSION}"" = ""${MARKETING_VERSION}"" ] ||
+  echo ""Bugsee: MARKETING_VERSION (${MARKETING_VERSION}) differs from the app's Info.plist (${PLIST_VERSION}), which the SDK reports: not using it.""
+[ -z ""${PLIST_BUILD}"" ] || [ -z ""${CURRENT_PROJECT_VERSION}"" ] || [ ""${PLIST_BUILD}"" = ""${CURRENT_PROJECT_VERSION}"" ] ||
+  echo ""Bugsee: CURRENT_PROJECT_VERSION (${CURRENT_PROJECT_VERSION}) differs from the app's Info.plist (${PLIST_BUILD}), which the SDK reports: not using it.""
+[ -n ""${VERSION}"" ] || VERSION=""${MARKETING_VERSION}""
+[ -n ""${BUILD}"" ] || BUILD=""${CURRENT_PROJECT_VERSION}""
 [ -n ""${VERSION}"" ] || echo ""Bugsee: no app version found (set BUGSEE_VERSION): uploading without --version.""
 [ -n ""${BUILD}"" ] || echo ""Bugsee: no app build number found (set BUGSEE_BUILD): uploading without --build.""
 FAILED=0
