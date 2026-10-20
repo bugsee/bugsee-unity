@@ -43,6 +43,12 @@ namespace Bugsee.WrapperPolicy
         // UnityFramework: say so rather than finish as if the crash symbols were uploaded.
         const string Script = @"#!/bin/sh
 set -e
+# Xcode fails an archive that prints an error: line, wherever it sits in the line (bugsee-cli prints error: on every
+# failure), even when the script exits 0: every error: from the CLI or a path in a message becomes ""error -"" (any case).
+defang() {
+  # C locale: BSD sed fails on bytes that are not valid UTF-8, which set -e must not turn into an aborted upload loop.
+  LC_ALL=C sed 's/[Ee][Rr][Rr][Oo][Rr]:/error -/g' || true
+}
 # Bugsee archive-time symbol upload (dSYMs + il2cpp-linemap).
 # Never fail the Archive: problems are reported as warning: lines (Xcode's issue navigator), never error:.
 if [ ""${CONFIGURATION}"" = ""Debug"" ] && [ ""${BUGSEE_SKIP_UPLOAD_ON_DEBUG}"" = ""1"" ]; then
@@ -182,12 +188,12 @@ if [ -n ""${HOME}"" ]; then
   done
 fi
 if [ -z ""${CLI}"" ]; then
-  printf '%s\n' ""warning: Bugsee: bugsee-cli was not found, so symbols are NOT uploaded (the build continues). Looked at:${TRIED}""
+  printf '%s\n' ""warning: Bugsee: bugsee-cli was not found, so symbols are NOT uploaded (the build continues). Looked at:${TRIED}"" | defang
   echo ""Bugsee: install it (curl --proto '=https' --tlsv1.2 -sSfL https://download.bugsee.com/cli/install.sh | sh) or set BUGSEE_CLI_PATH.""
   exit 0
 fi
-[ -z ""${TRIED}"" ] || printf '%s\n' ""Bugsee: passed over:${TRIED}""
-printf '%s\n' ""Bugsee: using ${CLI}""
+[ -z ""${TRIED}"" ] || printf '%s\n' ""Bugsee: passed over:${TRIED}"" | defang
+printf '%s\n' ""Bugsee: using ${CLI}"" | defang
 VERSION=""${BUGSEE_VERSION:-${MARKETING_VERSION}}""
 BUILD=""${BUGSEE_BUILD:-${CURRENT_PROJECT_VERSION}}""
 FAILED=0
@@ -206,17 +212,10 @@ cli_failure() {
     *) WHY=""bugsee-cli failed"" ;;
   esac
 }
-# Xcode fails an archive that prints an error: line, wherever it sits in the line (bugsee-cli prints error: on every
-# failure), even when the script exits 0: every error: from the CLI or a file name becomes ""error -"" (any case).
-defang() {
-  # C locale: BSD sed fails on bytes that are not valid UTF-8, which set -e must not turn into an aborted upload loop.
-  LC_ALL=C sed 's/[Ee][Rr][Rr][Oo][Rr]:/error -/g' || true
-}
 upload() {
   RC_DIR=""${TMPDIR:-/tmp}""
   [ -d ""${RC_DIR}"" ] && [ -w ""${RC_DIR}"" ] || RC_DIR=/tmp
-  RC_FILE=""${RC_DIR}/bugsee-upload-rc.$$""
-  rm -f ""${RC_FILE}""
+  RC_FILE=$(mktemp ""${RC_DIR}/bugsee-upload-rc.XXXXXX"" 2>/dev/null) || RC_FILE=""${RC_DIR}/bugsee-upload-rc.$$""
   # The exit code goes through a file, written on success too: a pipe would hand back sed's, and a code that could not
   # be recorded counts as a failure. stdout and stderr both pass through defang.
   { ""$@"" 2>&1 && echo 0 >""${RC_FILE}"" || echo $? >""${RC_FILE}""; } 2>/dev/null | defang
@@ -261,7 +260,7 @@ if [ ! -d ""${DWARF_DSYM_FOLDER_PATH}/Bugsee.framework.dSYM"" ]; then
   fi
 fi
 if [ ! -d ""${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}"" ] && [ ! -d ""${DWARF_DSYM_FOLDER_PATH}/UnityFramework.framework.dSYM"" ]; then
-  echo ""warning: Bugsee: no dSYM for ${CONFIGURATION} in ${DWARF_DSYM_FOLDER_PATH}; set DEBUG_INFORMATION_FORMAT=dwarf-with-dsym to symbolicate its crashes.""
+  echo ""warning: Bugsee: no dSYM for ${CONFIGURATION} in ${DWARF_DSYM_FOLDER_PATH}; set DEBUG_INFORMATION_FORMAT=dwarf-with-dsym to symbolicate its crashes."" | defang
 fi
 
 # --- il2cpp-linemap (UUID from UnityFramework binary / dSYM) ---
@@ -292,7 +291,7 @@ if [ -n ""${LINEMAP}"" ] && [ -f ""${LINEMAP}"" ] && [ -n ""${UUID}"" ]; then
   LAST_UPLOAD=""${LINEMAP}""
   upload ""${CLI}"" debug-files upload ""${LINEMAP}"" --type il2cpp-linemap --version ""${VERSION}"" --build ""${BUILD}"" --uuid ""${UUID}""
 else
-  echo ""Bugsee: skip il2cpp-linemap (map='${LINEMAP}' uuid='${UUID}')""
+  echo ""Bugsee: skip il2cpp-linemap (map='${LINEMAP}' uuid='${UUID}')"" | defang
 fi
 [ ""${FAILED}"" -eq 0 ] || printf '%s\n' ""warning: Bugsee: some symbols were NOT uploaded; crashes from this build may stay unsymbolicated (see the warnings above).""
 exit 0

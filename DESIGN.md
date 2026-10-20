@@ -249,7 +249,7 @@ Alongside `dsym` / `elf` / `proguard` uploads (`BugseeSymbolUpload`).
 - Explicit `BUGSEE_IL2CPP_MAPPING` missing → warn + skip
 - Unresolved UUID → warn + skip (iOS often deferred to archive Run Script)
 - CLI non-zero / timeout → warn + continue
-- No `BUGSEE_APP_TOKEN` → silent skip (opt-in); the iOS Run Script instead prints a `warning:` line (Xcode's issue navigator), as it does for every CLI failure (with the exit code's meaning); it never prints `error:` (which would fail the archive, also when the script exits 0): the CLI prints `error:` on stderr for every failure, so its output is rewritten (`error -`) while the exit code is kept
+- No `BUGSEE_APP_TOKEN` → silent skip (opt-in); the iOS Run Script instead prints a `warning:` line for an archive (a `note:` for other builds) (Xcode's issue navigator), as it does for every CLI failure (with the exit code's meaning); it never prints `error:` (which would fail the archive, also when the script exits 0): the CLI prints `error:` on stderr for every failure, so its output is rewritten (`error -`) while the exit code is kept
 
 Standalone `bugsee-cli` may still exit non-zero when used directly in CI scripts.
 
