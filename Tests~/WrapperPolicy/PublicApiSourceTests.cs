@@ -154,7 +154,8 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(launch, Does.Contain("finally { result.TrySetResult(accepted); }"));
             string relaunch = ExtractMethodBody(facade, "public static Task<bool> RelaunchAsync(Dictionary<string, object> options = null)");
             Assert.That(relaunch, Does.Contain("bridge.Relaunch(options, accepted =>"));
-            Assert.That(relaunch, Does.Contain("try { AfterLaunchResultCounted(accepted, startPusher, options); }"));
+            Assert.That(relaunch, Does.Contain("try { AfterLaunchResultCounted(accepted, startPusher, joined ? null : options); }"));
+            Assert.That(relaunch, Does.Contain("() => joined = true"), "a joined relaunch's ignored options are not kept for the pusher fallback");
             Assert.That(relaunch, Does.Contain("finally { result.TrySetResult(accepted); }"));
             string stop = ExtractMethodBody(facade, "public static Task StopAsync()");
             Assert.That(stop, Does.Contain("bridge.Stop("));
@@ -346,7 +347,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string launchBody = ExtractMethodBody(bridge, "internal void Launch(string appToken, IDictionary<string, object> options, Action<bool> completion)");
             Assert.That(launchBody.IndexOf("MainThreadDispatcher.Run", StringComparison.Ordinal),
                 Is.LessThan(launchBody.IndexOf("ManagedExceptionPayload.EnsureBuildIdentity()", StringComparison.Ordinal)));
-            Assert.That(ExtractMethodBody(bridge, "internal void Relaunch(IDictionary<string, object> options, Action<bool> completion)"),
+            Assert.That(ExtractMethodBody(bridge, "internal void Relaunch(IDictionary<string, object> options, Action<bool> completion, Action joined = null)"),
                 Does.Contain("Lifecycle.Relaunch(options, ok =>").And.Contain("completion?.Invoke(ok);"));
             Assert.That(ExtractMethodBody(bridge, "void Stop(Action completion, Action<bool> finished)"),
                 Does.Contain("Lifecycle.Stop(completion, finished)"));

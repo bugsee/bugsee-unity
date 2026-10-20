@@ -84,8 +84,9 @@ namespace Bugsee
         /// <summary>
         /// Relaunch the SDK with new options. Does not wait for the SDK, and waits for a stop in flight like
         /// <see cref="Launch"/> (the same 5 s main-thread hand-off applies on iOS). Android ignores it with a
-        /// warning unless the SDK is Launched (the SDK refuses it). A Relaunch while one is in flight joins it and its options
-        /// are IGNORED; a Stop before the relaunch has launched cancels it. See <see cref="RelaunchAsync"/> for the result.
+        /// warning unless the SDK is Launched (the SDK refuses it). On Android (SDK 7.4.2) a Relaunch while one is in flight
+        /// joins it and its options are IGNORED, and a Stop before the relaunch has launched cancels it. See
+        /// <see cref="RelaunchAsync"/> for the result.
         /// </summary>
         public static void Relaunch(Dictionary<string, object> options = null)
         {
@@ -93,7 +94,10 @@ namespace Bugsee
             if (Bridge is ILifecycleResultBridge bridge)
             {
                 Interlocked.Increment(ref _pendingLaunches);
-                bridge.Relaunch(options, accepted => AfterLaunchResultCounted(accepted, startPusher, options));
+                // A relaunch that joined one in flight did not apply these options: the pusher state keeps the ones in effect.
+                var joined = false;
+                bridge.Relaunch(options, accepted => AfterLaunchResultCounted(accepted, startPusher, joined ? null : options),
+                    () => joined = true);
             }
             else
             {
@@ -239,11 +243,12 @@ namespace Bugsee
             if (Bridge is ILifecycleResultBridge bridge)
             {
                 Interlocked.Increment(ref _pendingLaunches);
+                var joined = false; // a joined relaunch did not apply these options (Android)
                 bridge.Relaunch(options, accepted =>
                 {
-                    try { AfterLaunchResultCounted(accepted, startPusher, options); }
+                    try { AfterLaunchResultCounted(accepted, startPusher, joined ? null : options); }
                     finally { result.TrySetResult(accepted); }
-                });
+                }, () => joined = true);
             }
             else
             {

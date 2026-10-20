@@ -26,14 +26,29 @@ namespace Bugsee.Sample
         const float WaitSeconds = 40f;
         const float QuietSeconds = 6f; // long enough for a relaunch to finish, or for a never-coming callback to be missed
         static int _failures;
+
+        // The version of the SDK that is really running (its BuildConfig), not the package's pin: a project can declare another.
+        static string RunningSdkVersion()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            try
+            {
+                using (var config = new AndroidJavaClass("com.bugsee.library.BuildConfig"))
+                    return config.GetStatic<string>("VERSION_NAME");
+            }
+            catch (Exception ex) { Debug.Log("[Sample] lifecycle could not read the SDK version: " + ex.Message); }
+#endif
+            return BugseePackageVersion.AndroidSdkVersion;
+        }
         static bool _judge;
         static readonly Stopwatch Clock = Stopwatch.StartNew();
 
         public static IEnumerator Run(BugseeSampleBootstrap b)
         {
             _failures = 0;
-            _judge = BugseePackageVersion.AndroidSdkVersion == "7.4.2";
-            Debug.Log("[Sample] lifecycle e2e start sdk=" + BugseePackageVersion.AndroidSdkVersion + " judged=" + _judge
+            var sdkVersion = RunningSdkVersion();
+            _judge = sdkVersion == "7.4.2";
+            Debug.Log("[Sample] lifecycle e2e start sdk=" + sdkVersion + " (package pin " + BugseePackageVersion.AndroidSdkVersion + ") judged=" + _judge
                 + " launched=" + Bugsee.IsLaunched + " status=" + Bugsee.Status);
 #if UNITY_ANDROID && !UNITY_EDITOR
             var body = Body(b);
@@ -227,6 +242,8 @@ namespace Bugsee.Sample
             yield return Reset(b, "facade stop");
             var rc = Bugsee.RelaunchAsync(OptionSet(b, DurA));
             var stopped = false;
+            // The completion order (relaunch before the Stop completion) is covered by a unit test: the Task's continuation
+            // is asynchronous, so the two cannot be ordered reliably from here.
             Bugsee.Stop(() => stopped = true);
             yield return WaitFor(() => rc.IsCompleted && stopped, WaitSeconds);
             yield return new WaitForSeconds(QuietSeconds);
@@ -255,6 +272,18 @@ namespace Bugsee.Sample
             yield return new WaitForSeconds(2f);
             Check("Launch then Relaunch: both complete true", Done(lg, true) && Done(rg, true), Describe(lg) + " / " + Describe(rg));
             Check("Launch then Relaunch: the relaunch's options apply last", ReadDuration() == DurA, "duration=" + ReadDuration());
+
+            // f. Relaunch, Delete, Relaunch: the Delete runs between them, so the second Relaunch does not join the first; it is
+            // refused because the Delete left the SDK stopped.
+            yield return Reset(b, "facade delete");
+            var d1 = Bugsee.RelaunchAsync(OptionSet(b, DurA));
+            Bugsee.DeleteCollectedDataOnDevice();
+            var d2 = Bugsee.RelaunchAsync(OptionSet(b, DurB));
+            yield return WaitFor(() => d1.IsCompleted && d2.IsCompleted, WaitSeconds);
+            yield return new WaitForSeconds(QuietSeconds);
+            Check("Relaunch, Delete, Relaunch: the first completes true, the second false", Done(d1, true) && Done(d2, false),
+                Describe(d1) + " / " + Describe(d2));
+            Check("Relaunch, Delete, Relaunch: the SDK is left stopped by the Delete", Bugsee.Status == BugseeStatus.Stopped, "status=" + Bugsee.Status);
 
             // Leave the sample the way it started.
             yield return Reset(b, "end");

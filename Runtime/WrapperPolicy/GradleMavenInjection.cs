@@ -1296,7 +1296,10 @@ namespace Bugsee.WrapperPolicy
                 result.Warnings.Add(
                     "The Gradle project already declares " + declaration.Line + ", which differs from the " +
                     version + " this com.bugsee.unity version is built and tested against. The project's " +
-                    "declaration is kept; align it with " + version + " (or remove it and let the package add it).");
+                    "declaration is kept; align it with " + version + " (or remove it and let the package add it). The " +
+                    "wrapper's Launch/Relaunch/Stop handling assumes the lifecycle behaviour of bugsee-android 7.4.2 " +
+                    "or newer (relaunch always calls back, stop cancels a relaunch); an older SDK can leave a " +
+                    "Relaunch unanswered until the 10 s deadline.");
             }
 
             if (hasCore && !hasNdk)

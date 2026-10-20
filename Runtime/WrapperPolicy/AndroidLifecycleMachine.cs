@@ -60,9 +60,13 @@ namespace Bugsee.WrapperPolicy
     ///     may still finish after its caller got false (a Delete then still deletes); its result is applied as usual.
     ///   - Hard, <see cref="HardTimeout"/>: the operation is reset - forgotten, its stop gate released - and the
     ///     queue moves on. A callback after that is ignored (by token). Residual race: a result after the hard reset
-    ///     is ignored, so the managed hooks can be out of step with that session until the next lifecycle call; and a
-    ///     Delete started after the hard reset of a relaunch can overlap a continuation that launch()es later still
-    ///     (the Delete re-checks the status after its stop, but not during the native delete).
+    ///     is ignored, so the managed hooks can be out of step with that session until the next lifecycle call. A
+    ///     Delete started after the hard reset of a relaunch stops the SDK first, and that stop() cancels the
+    ///     abandoned relaunch (7.4.2), so the two overlap only when the status is already Stopped while the relaunch
+    ///     has not launched yet (the Delete re-checks the status after its stop, but not during the native delete).
+    /// - The same cancel applies to a stop the wrapper starts to join one it did not start (status Stopping, for
+    ///   instance a relaunch made from Java, or one abandoned at the hard reset with an operation queued): in 7.4.2
+    ///   stop() during a relaunch's stop cancels that relaunch instead of joining it.
     /// </summary>
     internal sealed class AndroidLifecycleMachine
     {
@@ -135,7 +139,8 @@ namespace Bugsee.WrapperPolicy
             Pump();
         }
 
-        public void Relaunch(IDictionary<string, object> options, Action<bool> completion = null)
+        /// <param name="joined">Runs at once when this request joins a relaunch in flight (its options are ignored).</param>
+        public void Relaunch(IDictionary<string, object> options, Action<bool> completion = null, Action joined = null)
         {
             var tail = _queue.Last?.Value;
             if (tail != null && tail.Kind != Kind.Delete)
@@ -147,10 +152,11 @@ namespace Bugsee.WrapperPolicy
             }
 
             // The SDK joins a relaunch in flight: the joiner gets that relaunch's outcome and its options are ignored.
-            // Not after a Stop (the SDK cancelled that relaunch, nothing can join it) and not in front of a queued
-            // Launch/Relaunch (handled above: those run after the active operation and take these options).
-            if (_active != null && _active.Kind == Kind.Relaunch && _active.StopEpoch == _stopEpoch)
+            // Not after a Stop (the SDK cancelled that relaunch, nothing can join it), and only with nothing queued: a
+            // queued Delete runs after the relaunch and before this request, so joining would skip the request order.
+            if (_active != null && _active.Kind == Kind.Relaunch && _active.StopEpoch == _stopEpoch && _queue.Count == 0)
             {
+                if (joined != null) Run(joined);
                 if (options != null && options.Count > 0)
                     _native.Warn("Bugsee.Relaunch: a relaunch is already in progress, so these options are IGNORED; " +
                                  "the options of the call that started it apply.");

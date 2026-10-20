@@ -36,6 +36,11 @@ namespace Bugsee.WrapperPolicy.Tests
         // Runs inside relaunch() before the SDK checks its status: another thread stopping the SDK in the gap.
         public Action BeforeRelaunchCheck;
         Flow _flow;
+        // The gap between a relaunch's stop and its launch half: FinishStop leaves the continuation to RunContinuation.
+        public bool HoldContinuation;
+        // Errors the machine reports (a throwing callback) are collected instead of thrown.
+        public bool CollectErrors;
+        public readonly List<Exception> Errors = new List<Exception>();
 
         public bool RelaunchInFlight => _flow != null;
 
@@ -96,7 +101,11 @@ namespace Bugsee.WrapperPolicy.Tests
         public readonly List<TimeSpan> ScheduledTicks = new List<TimeSpan>();
         public void ScheduleTick(TimeSpan delay) => ScheduledTicks.Add(Clock() + delay);
         public void Warn(string message) => Warnings.Add(message);
-        public void Error(Exception exception) => throw exception;
+        public void Error(Exception exception)
+        {
+            if (!CollectErrors) throw exception;
+            Errors.Add(exception);
+        }
 
         // The SDK finishes a stop: STOPPED, joiners, then a relaunch's continuation (launch, or its outcome false).
         public void FinishStop()
@@ -105,6 +114,11 @@ namespace Bugsee.WrapperPolicy.Tests
             var joiners = StopJoiners.ToArray();
             StopJoiners.Clear();
             foreach (var j in joiners) j();
+            if (!HoldContinuation) RunContinuation();
+        }
+
+        public void RunContinuation()
+        {
             var flow = _flow;
             if (flow == null || flow.Launching) return;
             if (flow.Cancelled || Current != BugseeStatus.Stopped) { EndFlow(flow, false); return; }
@@ -882,6 +896,114 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(_sdk.Calls, Is.EqualTo(new[] { "stop" }), "joins, does not launch into Stopping");
             _sdk.FinishStop();
             Assert.That(_sdk.Calls, Is.EqualTo(new[] { "stop", "launch:t2" }));
+        }
+
+        // A Delete queued behind a relaunch runs after it and before a later Relaunch, which therefore must not join.
+        [Test]
+        public void Relaunch_after_a_queued_delete_does_not_join_the_relaunch_in_flight()
+        {
+            Launched();
+            bool? first = null, second = null, deleted = null;
+            _machine.Relaunch(OptionsB, ok => first = ok);
+            _machine.DeleteCollectedData(ok => deleted = ok);
+            _machine.Relaunch(OptionsA, ok => second = ok);
+            Assert.That(_sdk.Calls, Is.EqualTo(new[] { "relaunch" }));
+            _sdk.FinishStop();
+            _sdk.FinishLaunch();
+            Assert.That(first, Is.True);
+            Assert.That(second, Is.Null, "waits behind the delete");
+            _sdk.FinishStop(); // the delete's stop
+            _sdk.FinishDelete(true);
+            Assert.That(deleted, Is.True);
+            Assert.That(second, Is.False, "the SDK is stopped after the delete: refused, as before");
+            Assert.That(_sdk.Calls, Is.EqualTo(new[] { "relaunch", "stop", "delete:Stopped" }));
+        }
+
+        [Test]
+        public void A_relaunch_joins_while_the_relaunch_is_launching()
+        {
+            Launched();
+            bool? first = null, second = null;
+            _machine.Relaunch(OptionsB, ok => first = ok);
+            _sdk.FinishStop(); // Launching
+            _machine.Relaunch(OptionsA, ok => second = ok);
+            Assert.That(_sdk.Calls, Is.EqualTo(new[] { "relaunch" }));
+            _sdk.FinishLaunch();
+            Assert.That(first, Is.True);
+            Assert.That(second, Is.True);
+        }
+
+        [Test]
+        public void Stop_in_the_gap_between_the_relaunchs_stop_and_its_launch_cancels_it()
+        {
+            Launched();
+            _sdk.HoldContinuation = true;
+            bool? relaunched = null;
+            var stopped = 0;
+            _machine.Relaunch(OptionsB, ok => relaunched = ok);
+            _sdk.FinishStop(); // Stopped, the launch half has not run
+            Assert.That(_sdk.Current, Is.EqualTo(BugseeStatus.Stopped));
+            _machine.Stop(() => stopped++); // cancels the relaunch; the SDK is stopped, so it answers at once
+            Assert.That(stopped, Is.EqualTo(0), "the machine still waits for the relaunch's result");
+            _sdk.RunContinuation();
+            Assert.That(relaunched, Is.False);
+            Assert.That(stopped, Is.EqualTo(1));
+            Assert.That(_sdk.Current, Is.EqualTo(BugseeStatus.Stopped));
+            Assert.That(_sdk.HooksInstalled, Is.False);
+        }
+
+        // The relaunch is abandoned at the hard reset with a Launch queued behind it: the Launch joins the SDK's stop
+        // (status Stopping), then launches, and the SDK skips the relaunch's launch half (superseded by that launch);
+        // the relaunch's late false is ignored.
+        [Test]
+        public void Hard_reset_of_a_relaunch_lets_the_queued_launch_run_after_the_sdks_stop()
+        {
+            Launched("t1", OptionsA);
+            bool? relaunched = null, launched = null;
+            _machine.Relaunch(OptionsB, ok => relaunched = ok);
+            _machine.Launch("t2", OptionsA, ok => launched = ok);
+            Assert.That(_sdk.Calls, Is.EqualTo(new[] { "relaunch" }));
+            Elapse(AndroidLifecycleMachine.HardTimeout);
+            Assert.That(relaunched, Is.False);
+            Assert.That(_sdk.Calls, Is.EqualTo(new[] { "relaunch", "stop" }), "joins the SDK's stop, no launch into Stopping");
+            _sdk.FinishStop();   // the stop ends: the Launch runs, then the relaunch's launch half finds it launched
+            Assert.That(_sdk.Calls, Does.Contain("launch:t2"));
+            _sdk.FinishLaunch();
+            Assert.That(launched, Is.True);
+            Assert.That(relaunched, Is.False, "answered once");
+            Assert.That(_sdk.RunningToken, Is.EqualTo("t2"));
+            Assert.That(_sdk.HooksInstalled, Is.True);
+        }
+
+        [Test]
+        public void A_throwing_completion_does_not_stop_the_others_or_the_machine()
+        {
+            Launched();
+            _sdk.CollectErrors = true;
+            bool? second = null;
+            _machine.Relaunch(OptionsB, ok => throw new InvalidOperationException("boom"));
+            _machine.Relaunch(null, ok => second = ok); // joins
+            _sdk.FinishStop();
+            _sdk.FinishLaunch();
+            Assert.That(second, Is.True);
+            Assert.That(_sdk.Errors, Has.Count.EqualTo(1));
+            bool? next = null;
+            _machine.Relaunch(OptionsA, ok => next = ok);
+            _sdk.FinishStop();
+            _sdk.FinishLaunch();
+            Assert.That(next, Is.True, "the machine carries on");
+        }
+
+        [Test]
+        public void The_joined_callback_runs_before_the_completion_and_only_for_a_join()
+        {
+            Launched();
+            var order = new List<string>();
+            _machine.Relaunch(OptionsB, ok => order.Add("first"), () => order.Add("first-joined"));
+            _machine.Relaunch(OptionsA, ok => order.Add("second"), () => order.Add("second-joined"));
+            _sdk.FinishStop();
+            _sdk.FinishLaunch();
+            Assert.That(order, Is.EqualTo(new[] { "second-joined", "first", "second" }));
         }
 
         [Test]
