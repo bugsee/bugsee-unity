@@ -1,5 +1,6 @@
 using System;
 using Bugsee.Contracts.Appearance;
+using Bugsee.Contracts.Options;
 using UnityEngine;
 
 namespace Bugsee.Sample
@@ -23,7 +24,12 @@ namespace Bugsee.Sample
             SecureRect,
             Attribute,
             UserIdentifier,
-            Appearance
+            Appearance,
+            Breadcrumb,
+            ReportDraft,
+            Notify,
+            Confirm,
+            Texts
         }
 
         static readonly string[] ReportColorKeys =
@@ -78,9 +84,22 @@ namespace Bugsee.Sample
         string _bottom = "160";
 
         // Attribute / identity.
-        string _attrKey = "sample.key";
+        string _attrKey = BugseeActionCatalog.AttributeKey;
         string _attrValue = "value";
         string _userId = "anteater-explorer";
+
+        // Edit copies of the specs: Cancel drops them, Apply stores them back.
+        BreadcrumbSpec _breadcrumb;
+        ReportDraftSpec _reportDraft;
+        NotifySpec _notify;
+
+        // Confirm dialog.
+        string _confirmTitle;
+        string _confirmMessage;
+        Action _confirmAction;
+
+        // Appearance strings: one draft text per BugseeInteractions.AppearanceTextKeys entry.
+        string[] _textDrafts;
 
         // Appearance editor.
         string _expandedColorKey;
@@ -139,7 +158,10 @@ namespace Bugsee.Sample
 
         public void ShowAttribute(string key = null, string value = null)
         {
-            if (!string.IsNullOrEmpty(key))
+            // Re-opening while the form is already open must not wipe what is being typed.
+            if (_kind != FormKind.Attribute)
+                _attrKey = !string.IsNullOrEmpty(key) ? key : BugseeActionCatalog.AttributeKey;
+            else if (!string.IsNullOrEmpty(key))
                 _attrKey = key;
             if (value != null)
                 _attrValue = value;
@@ -173,11 +195,62 @@ namespace Bugsee.Sample
             Open(FormKind.Appearance);
         }
 
+        BugseeInteractions Interactions => BugseeActionCatalog.Instance?.Interactions;
+
+        public void ShowBreadcrumb()
+        {
+            _breadcrumb = Interactions?.BreadcrumbForm.Clone();
+            Open(FormKind.Breadcrumb);
+        }
+
+        public void ShowReportDraft()
+        {
+            _reportDraft = Interactions?.ReportSpec.Clone();
+            Open(FormKind.ReportDraft);
+        }
+
+        public void ShowNotify()
+        {
+            _notify = Interactions?.NotifyForm.Clone();
+            Open(FormKind.Notify);
+        }
+
+        public void ShowConfirm(string title, string message, Action onConfirm)
+        {
+            _confirmTitle = title;
+            _confirmMessage = message;
+            _confirmAction = onConfirm;
+            Open(FormKind.Confirm);
+        }
+
+        public void ShowTexts()
+        {
+            var keys = BugseeInteractions.AppearanceTextKeys;
+            _textDrafts = new string[keys.Length];
+            for (int i = 0; i < keys.Length; i++)
+            {
+                try { _textDrafts[i] = Bugsee.Appearance.GetString(keys[i]) ?? ""; }
+                catch { _textDrafts[i] = ""; }
+            }
+            Open(FormKind.Texts);
+        }
+
+        /// <summary>What the confirm dialog's button runs (also the e2e scenario's way to confirm).</summary>
+        public void Confirm()
+        {
+            var action = _confirmAction;
+            Close();
+            try { action?.Invoke(); }
+            catch (Exception ex) { Status("Error: " + ex.Message); Debug.LogException(ex); }
+        }
+
         public void Close()
         {
+            _confirmAction = null;
             _kind = FormKind.None;
             _error = null;
             _expandedColorKey = null;
+            GUIUtility.keyboardControl = 0; // release text-field focus so the hill shortcuts work again
         }
 
         void Open(FormKind kind)
@@ -215,6 +288,21 @@ namespace Bugsee.Sample
                     break;
                 case FormKind.Appearance:
                     DrawAppearanceForm();
+                    break;
+                case FormKind.Breadcrumb:
+                    DrawBreadcrumbForm();
+                    break;
+                case FormKind.ReportDraft:
+                    DrawReportDraftForm();
+                    break;
+                case FormKind.Notify:
+                    DrawNotifyForm();
+                    break;
+                case FormKind.Confirm:
+                    DrawConfirmForm();
+                    break;
+                case FormKind.Texts:
+                    DrawTextsForm();
                     break;
             }
         }
@@ -269,6 +357,154 @@ namespace Bugsee.Sample
                 Close();
             GUILayout.EndHorizontal();
             EndModal();
+        }
+
+        void DrawBreadcrumbForm()
+        {
+            var spec = _breadcrumb;
+            if (spec == null) { Close(); return; }
+            BeginModal(360f, 260f, "Add Breadcrumb");
+            RowField("Category", ref spec.Category);
+            RowField("Message", ref spec.Message);
+            if (GUILayout.Button("Level: " + spec.Level, GUILayout.Height(30f)))
+                spec.Level = NextOf(BreadcrumbSpec.Levels, spec.Level);
+            DrawError();
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Add", GUILayout.Height(32f)))
+                Apply(() =>
+                {
+                    Interactions.BreadcrumbForm = spec.Clone();
+                    Interactions.AddBreadcrumb(spec.Category, spec.Message, spec.Level);
+                });
+            if (GUILayout.Button("Cancel", GUILayout.Height(32f)))
+                Close();
+            GUILayout.EndHorizontal();
+            EndModal();
+        }
+
+        void DrawReportDraftForm()
+        {
+            var spec = _reportDraft;
+            if (spec == null) { Close(); return; }
+            float h = Mathf.Min(Screen.height - 40f, 560f);
+            BeginModal(Mathf.Min(400f, Screen.width - 24f), h, "Edit Report" + (Interactions.Draft == null ? " (creates one)" : ""));
+            _scroll = GUILayout.BeginScrollView(_scroll);
+            RowField("Descr.", ref spec.Description);
+            RowField("Email", ref spec.Email);
+            if (GUILayout.Button("Severity: " + spec.Severity, GUILayout.Height(30f)))
+                spec.Severity = NextSeverity(spec.Severity);
+            RowField("Labels", ref spec.Labels);
+            spec.AddExtraLabel = GUILayout.Toggle(spec.AddExtraLabel, "Also AddLabel(\"extra\") (empty labels = ClearLabels)");
+            RowField("Attr key", ref spec.AttrKey);
+            RowField("Attr val", ref spec.AttrValue);
+            spec.ClearAttributesFirst = GUILayout.Toggle(spec.ClearAttributesFirst, "ClearAllAttributes first");
+            spec.RemoveAttr = GUILayout.Toggle(spec.RemoveAttr, "RemoveAttribute(key) instead of set");
+            spec.AttachBytes = GUILayout.Toggle(spec.AttachBytes, "Add bytes attachment (then SetData text)");
+            spec.AttachFile = GUILayout.Toggle(spec.AttachFile, "Add file attachment");
+            spec.ClearAttachmentsFirst = GUILayout.Toggle(spec.ClearAttachmentsFirst, "Clear attachments first");
+            GUILayout.EndScrollView();
+            DrawError();
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Apply", GUILayout.Height(32f)))
+                Apply(() =>
+                {
+                    Interactions.ReportSpec = spec.Clone();
+                    Interactions.ApplyDraft(spec);
+                });
+            if (GUILayout.Button("Cancel", GUILayout.Height(32f)))
+                Close();
+            GUILayout.EndHorizontal();
+            EndModal();
+        }
+
+        void DrawNotifyForm()
+        {
+            var spec = _notify;
+            if (spec == null) { Close(); return; }
+            BeginModal(Mathf.Min(400f, Screen.width - 24f), 320f, "Notify");
+            RowField("Title", ref spec.Title);
+            RowField("Body", ref spec.Body);
+            RowField("Fields", ref spec.Fields);
+            if (GUILayout.Button("Severity: " + spec.Severity, GUILayout.Height(30f)))
+                spec.Severity = NextSeverity(spec.Severity);
+            spec.Urgent = GUILayout.Toggle(spec.Urgent, "Urgent (do not wait for the batch)");
+            DrawError();
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Send", GUILayout.Height(32f)))
+                Apply(() =>
+                {
+                    Interactions.NotifyForm = spec.Clone();
+                    Interactions.SendNotify(spec);
+                });
+            if (GUILayout.Button("Cancel", GUILayout.Height(32f)))
+                Close();
+            GUILayout.EndHorizontal();
+            EndModal();
+        }
+
+        void DrawConfirmForm()
+        {
+            BeginModal(Mathf.Min(380f, Screen.width - 24f), 230f, _confirmTitle);
+            GUILayout.Label(_confirmMessage);
+            GUILayout.FlexibleSpace();
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Delete", GUILayout.Height(32f)))
+                Confirm();
+            if (GUILayout.Button("Cancel", GUILayout.Height(32f)))
+                Close();
+            GUILayout.EndHorizontal();
+            EndModal();
+        }
+
+        void DrawTextsForm()
+        {
+            var keys = BugseeInteractions.AppearanceTextKeys;
+            if (_textDrafts == null || _textDrafts.Length != keys.Length) { Close(); return; }
+            BeginModal(Mathf.Min(420f, Screen.width - 24f), 300f, "Report Texts (Appearance.SetString)");
+            for (int i = 0; i < keys.Length; i++)
+                RowField(ShortColorName(keys[i]).Replace("Placeholder", ""), ref _textDrafts[i]);
+            DrawError();
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Apply", GUILayout.Height(32f)))
+                Apply(() =>
+                {
+                    for (int i = 0; i < keys.Length; i++)
+                        Interactions.SetAppearanceText(keys[i], string.IsNullOrEmpty(_textDrafts[i]) ? null : _textDrafts[i]);
+                });
+            if (GUILayout.Button("Cancel", GUILayout.Height(32f)))
+                Close();
+            GUILayout.EndHorizontal();
+            EndModal();
+        }
+
+        /// <summary>Runs a form's apply step: closes on success, shows the exception in the form otherwise.</summary>
+        void Apply(Action action)
+        {
+            try
+            {
+                action();
+                Close();
+            }
+            catch (Exception ex)
+            {
+                _error = ex.Message;
+            }
+        }
+
+        static string NextOf(string[] values, string current)
+        {
+            var i = Array.IndexOf(values, current);
+            return values[(i + 1) % values.Length];
+        }
+
+        static IssueSeverity NextSeverity(IssueSeverity current)
+        {
+            var all = (IssueSeverity[])Enum.GetValues(typeof(IssueSeverity));
+            return all[(Array.IndexOf(all, current) + 1) % all.Length];
         }
 
         void DrawAppearanceForm()
@@ -457,6 +693,7 @@ namespace Bugsee.Sample
             try
             {
                 Bugsee.SetAttribute(_attrKey.Trim(), _attrValue ?? "");
+                BugseeActionCatalog.AttributeKey = _attrKey.Trim();
                 Status("SetAttribute " + _attrKey.Trim() + "=" + _attrValue);
                 Close();
             }

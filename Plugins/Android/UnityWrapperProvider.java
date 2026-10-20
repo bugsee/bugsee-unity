@@ -2,6 +2,7 @@ package com.bugsee.unity;
 
 import com.bugsee.library.Bugsee;
 import com.bugsee.library.BugseeExtensionInitProviderBase;
+import com.bugsee.library.contracts.common.DataRequestProvider;
 import com.bugsee.library.contracts.common.DataRequestResultCallback;
 import com.bugsee.library.contracts.internal.BugseeWrapper;
 import com.bugsee.library.contracts.internal.BugseeWrapperChannel;
@@ -74,9 +75,15 @@ final class UnityWrapper implements BugseeWrapper {
 
     @Override
     public String getWrapperBuild() {
-        // The contract says null when there is no build; "unknown" would be reported as one.
-        String build = UnityWrapperIdentity.BUILD;
-        return build == null || build.length() == 0 ? null : build;
+        return normalizeBuild(UnityWrapperIdentity.BUILD);
+    }
+
+    /**
+     * The contract says null when there is no build; "unknown" would be reported as one, and so would the
+     * "dev" placeholder a checkout (and every release, until a build id is stamped) carries.
+     */
+    static String normalizeBuild(String build) {
+        return build == null || build.length() == 0 || build.equals("dev") ? null : build;
     }
 
     @Override
@@ -89,9 +96,36 @@ final class UnityWrapper implements BugseeWrapper {
         return map;
     }
 
+    // The one flow the SDK asks for is "vh", the managed view hierarchy (specs: sdk/wrapper-data-requests). It is
+    // asked on the Android main thread and only Unity's own thread can read the scene, so C# registers a provider
+    // that answers later from there; until it does, and for every other type, the answer is "nothing to contribute".
+    // Never throws and never stays silent: the SDK holds the report for the reply up to its budget.
+    private static final String DATA_TYPE_VIEW_HIERARCHY = "vh";
+    private static volatile DataRequestProvider managedDataProvider;
+
+    public static void setManagedDataProvider(DataRequestProvider provider) {
+        managedDataProvider = provider;
+    }
+
+    /** C# cannot pass a null String through JNI overload resolution, so "no data" has its own entry point. */
+    public static void replyNoData(DataRequestResultCallback callback) {
+        if (callback != null) callback.onResult(null);
+    }
+
     @Override
     public void requestData(String dataType, DataRequestResultCallback callback) {
-        if (callback != null) callback.onResult(null);
+        if (callback == null) return;
+        DataRequestProvider provider = DATA_TYPE_VIEW_HIERARCHY.equals(dataType) ? managedDataProvider : null;
+        if (provider == null) {
+            callback.onResult(null);
+            return;
+        }
+        try {
+            provider.requestData(dataType, callback);
+        } catch (Throwable t) {
+            Log.w(TAG, "The managed data provider threw for " + dataType, t);
+            callback.onResult(null);
+        }
     }
 
     // Lifecycle events reach C# through ONE path: this wrapper. The SDK calls onLifecycleEvent for every event
