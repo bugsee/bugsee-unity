@@ -29,6 +29,19 @@ namespace Bugsee.Sample
         public BugseeDemoAction[] Actions = Array.Empty<BugseeDemoAction>();
 
         bool _playerInside;
+        int _selected;
+
+        /// <summary>The action E/Space runs; Q/Tab cycles it.</summary>
+        public int SelectedIndex => HillSelection.Clamp(_selected, Actions != null ? Actions.Length : 0);
+
+        public void SelectNext() => _selected = HillSelection.Next(SelectedIndex, Actions != null ? Actions.Length : 0);
+
+        /// <summary>Runs the selected action (the E/Space path).</summary>
+        public void ActivateSelected()
+        {
+            if (Actions != null && Actions.Length > 0)
+                Activate(Actions[SelectedIndex]);
+        }
         static readonly List<BugseeHillStation> Nearby = new List<BugseeHillStation>();
         readonly List<Transform> _beacons = new List<Transform>();
 
@@ -121,10 +134,14 @@ namespace Bugsee.Sample
                 rend.material.color = Color * pulse + Color.white * (1f - pulse) * 0.15f;
             }
 
-            // E / Space runs the first action while on the hill (bubbles cover the rest).
-            if (_playerInside && (Input.GetKeyDown(KeyCode.E) || Input.GetKeyDown(KeyCode.Space)) &&
-                Actions != null && Actions.Length > 0)
-                Activate(Actions[0]);
+            // Q / Tab cycles the selected action, E / Space runs it (bubbles still work by tap).
+            if (_playerInside && Actions != null && Actions.Length > 0)
+            {
+                if (Input.GetKeyDown(KeyCode.Q) || Input.GetKeyDown(KeyCode.Tab))
+                    SelectNext();
+                if (Input.GetKeyDown(KeyCode.E) || Input.GetKeyDown(KeyCode.Space))
+                    ActivateSelected();
+            }
         }
 
         public void Activate(BugseeDemoAction action)
@@ -165,8 +182,9 @@ namespace Bugsee.Sample
 
             for (int i = 0; i < Actions.Length; i++)
             {
-                GUI.backgroundColor = Color.Lerp(Color, Color.white, 0.4f);
-                var label = BugseeActionCatalog.DisplayName(Actions[i]);
+                bool selected = i == SelectedIndex;
+                GUI.backgroundColor = Color.Lerp(Color, Color.white, selected ? 0.8f : 0.4f);
+                var label = (selected ? "> " : "") + BugseeActionCatalog.DisplayName(Actions[i]);
                 if (GUI.Button(new Rect(x, yGui, w, rowH), label))
                     Activate(Actions[i]);
                 yGui += rowH + 6f;

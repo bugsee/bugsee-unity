@@ -78,7 +78,7 @@ namespace Bugsee.Sample
         string _bottom = "160";
 
         // Attribute / identity.
-        string _attrKey = "sample.key";
+        string _attrKey = BugseeActionCatalog.AttributeKey;
         string _attrValue = "value";
         string _userId = "anteater-explorer";
 
@@ -139,8 +139,7 @@ namespace Bugsee.Sample
 
         public void ShowAttribute(string key = null, string value = null)
         {
-            if (!string.IsNullOrEmpty(key))
-                _attrKey = key;
+            _attrKey = !string.IsNullOrEmpty(key) ? key : BugseeActionCatalog.AttributeKey;
             if (value != null)
                 _attrValue = value;
             Open(FormKind.Attribute);
@@ -457,6 +456,7 @@ namespace Bugsee.Sample
             try
             {
                 Bugsee.SetAttribute(_attrKey.Trim(), _attrValue ?? "");
+                BugseeActionCatalog.AttributeKey = _attrKey.Trim();
                 Status("SetAttribute " + _attrKey.Trim() + "=" + _attrValue);
                 Close();
             }

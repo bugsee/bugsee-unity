@@ -14,7 +14,6 @@ namespace Bugsee.Sample
 
         BugseeSampleBootstrap _bootstrap;
         Vector2 _scroll;
-        string _attrKey = "sample.key";
         bool _confirmCrash;
         bool _reportHandlerOn;
         bool _filtersOn;
@@ -96,17 +95,17 @@ namespace Bugsee.Sample
                 BugseeActionCatalog.Instance?.Run(BugseeDemoAction.SetAttribute);
             GUILayout.BeginHorizontal();
             GUILayout.Label("Key", GUILayout.Width(32f));
-            _attrKey = GUILayout.TextField(_attrKey);
+            BugseeActionCatalog.AttributeKey = GUILayout.TextField(BugseeActionCatalog.AttributeKey);
             GUILayout.EndHorizontal();
             if (GUILayout.Button("GetAttribute"))
             {
-                var v = Bugsee.GetAttribute(_attrKey);
+                var v = Bugsee.GetAttribute(BugseeActionCatalog.AttributeKey);
                 _bootstrap?.SetStatus("GetAttribute => " + v);
             }
             if (GUILayout.Button("ClearAttribute"))
             {
-                Bugsee.ClearAttribute(_attrKey);
-                _bootstrap?.SetStatus("ClearAttribute " + _attrKey);
+                Bugsee.ClearAttribute(BugseeActionCatalog.AttributeKey);
+                _bootstrap?.SetStatus("ClearAttribute " + BugseeActionCatalog.AttributeKey);
             }
 
             Section("Privacy");

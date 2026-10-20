@@ -36,7 +36,8 @@ On first launch you get a short onboarding strip (until you move, or ~8s):
 | WASD / arrows | Move anteater |
 | Left half of screen (drag) | Virtual stick (mobile) |
 | Approach hilltop beacon | Action bubble appears — **tap/click** to run |
-| E / Space | Optional keyboard shortcut while in range |
+| E / Space | Run the selected action of the hill in range (shown as `> name` in the bubble list) |
+| Q / Tab | Select the next action of the hill in range |
 | `` ` `` or F1 | Toggle full debug panel |
 | Yellow orbs | Score + `Bugsee.Event` |
 | Red hazard orbs | `LogException` |

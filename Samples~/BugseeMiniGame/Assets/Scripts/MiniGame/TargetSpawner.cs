@@ -72,8 +72,8 @@ namespace Bugsee.Sample
 
             if (c.IsHazard)
             {
+                // The catalog action sets an honest status (with the counter) itself.
                 BugseeActionCatalog.Instance?.Run(BugseeDemoAction.LogException);
-                _bootstrap.SetStatus("Hazard → LogException");
             }
             else
             {
