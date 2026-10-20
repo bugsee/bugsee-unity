@@ -6,7 +6,7 @@ third-person camera, and twofold Bugsee controls:
 
 1. **Floating HUD** (top-right) — Report, Upload, Blackout, Log, Feedback, Identity, Debug…
    (**Blackout** also toggles day ↔ night: sun/shadows ↔ moon/stars/weaker shadows)
-2. **Hilltop actions** — each hill has one Bugsee API; walk onto it and **tap the action bubble**
+2. **Hilltop actions** — each hill groups related Bugsee APIs; walk onto it and **tap the action bubble**
 
 Every action is reachable without passing through any other.
 
@@ -36,7 +36,8 @@ On first launch you get a short onboarding strip (until you move, or ~8s):
 | WASD / arrows | Move anteater |
 | Left half of screen (drag) | Virtual stick (mobile) |
 | Approach hilltop beacon | Action bubble appears — **tap/click** to run |
-| E / Space | Optional keyboard shortcut while in range |
+| E / Space | Run the selected action of the hill in range (shown as `> name` in the bubble list) |
+| Q / Tab | Select the next action of the hill in range |
 | `` ` `` or F1 | Toggle full debug panel |
 | Yellow orbs | Score + `Bugsee.Event` |
 | Red hazard orbs | `LogException` |
@@ -45,13 +46,34 @@ Walk cycle + swaying trees + drifting pollen keep continuous motion visible for 
 
 ### Hilltop actions
 
-Beacons cover nearly the full public facade, including Launch / Relaunch / Stop / Status,
+Beacons cover the public facade, including Launch / Relaunch / Stop / Status,
 ShowReportDialog, Upload, TestCrash, Log / Trace / Event / LogException, Blackout,
 Identity + attributes, secure rectangles, CaptureViewHierarchy, ResetVideoCapturePermission,
 Feedback, Appearance, filters, report handler, and lifecycle listener.
 
-SetSecureRect / SetAttribute / SetUserIdentifier / Appearance open IMGUI forms for input
-(secure LTRB + Random, attribute key/value, user id, and a scrollable color table with pickers).
+| Hill | Bubbles (SDK call) |
+|------|--------------------|
+| Reporting | Report (`ShowReportDialog`), Upload, Report Hdlr, Hierarchy, **Notify** (`Notify`: form with title, body, severity, `key=value` fields, urgent) |
+| Reports | **New Report** (`CreateReport`), **Edit Report** (form: `Description`, `Email`, `Severity`, `SetLabels`/`AddLabel`/`ClearLabels`, `SetAttribute`/`RemoveAttribute`/`ClearAllAttributes`, `AddAttachmentBytes` + `IAttachment.SetData(string)`, `AddAttachmentFile`, `ClearAttachments`), **Send Report** (`Upload(IReport)`), **Discard Report** (`Discard`); one draft at a time (stopping the SDK or deleting its data closes the SDK's open report, so the sample drops the draft: make a new one) |
+| Exchange | **Breadcrumb** (`AddBreadcrumb`: category, message, level), **Network Event** (`GetExchangeFactory` + `AddNetworkEvent`: a started and a completed POST to a `.../password-reset` URL, the kind of URL the Filters bubble's network filter redacts; the filter counters on the HUD show it ran) |
+| APM | **Start Txn** (`StartTransaction`), **Child Span** (`StartChild`), **Finish Txn** (`Finish`); while a transaction is open, every yellow orb you collect becomes a finished child span |
+| Logging | Log Bundle, Log Levels, Exception, **Log Unhandled** (`LogUnhandledException`), Test Crash |
+| Attributes, Identity | Set / Get / Clear Attr, Clear Attrs; Set User ID, Get ID, Identity, Clear ID |
+| Blackout | Blackout, Pause/Resume (old) |
+| Privacy | Set Secure Rect, **Remove Rect** (`RemoveSecureRectangle` of the rect last added), Clear Rects, Reset Video |
+| Feedback | Feedback, Greeting, FB Listen |
+| Session | Launch, Relaunch, Stop, Status, Lifecycle (listener) |
+| Lifecycle | **Launch Async**, **Relaunch Async**, **Stop Async** (`LaunchAsync`/`RelaunchAsync`/`StopAsync`; the status line shows the result), **Launch Options** (`GetLaunchOptions`, all keys in the log, values of token/endpoint-like keys redacted), **Delete Data** (`DeleteCollectedDataOnDevice` behind a confirm; the SDK stays stopped until you launch it again) |
+| Appearance | Appearance (colors), **Texts** (`Appearance.SetString`/`GetString` for the report placeholders; an empty field restores the default), Filters |
+
+SetSecureRect / SetAttribute / SetUserIdentifier / Appearance and the new Breadcrumb / Edit Report / Notify / Texts bubbles
+open IMGUI forms for input (they block game input while open); Delete Data opens a confirm dialog.
+There are 13 hills now. The field layout used to count how many hills fit on a ring by arc length instead of chord length, so
+a full ring lost its last hill; with the chord count 13 hills place for every world seed (14 would not, at the current gap), and a
+warning is logged if the world ever has fewer summits than hills.
+
+Not reachable from the sample: `OptionsBuilder` / `Options.*` (a launch-options preset is tracked separately) and
+`IReport.Summary` beyond the report handler.
 
 ## Platforms
 
@@ -74,6 +96,43 @@ SetSecureRect / SetAttribute / SetUserIdentifier / Appearance open IMGUI forms f
 Each build declares `bugsee-android:7.4.2` + `bugsee-android-ndk:7.4.2` in the generated
 `unityLibrary/build.gradle` (core publishes no transitives; NDK is explicit); no custom Gradle templates are needed (the sample ships none; the package copies Unity's own default templates, so it builds on Unity 2021.3 and Unity 6).
 Gradle plugin `4.0.8` is applied on Unity 6+ launcher templates (`ndk { enabled = true }`).
+
+### Interaction check (`interactions` e2e scenario)
+
+`BUGSEE_E2E_SCENARIO=interactions` (iOS env var; Android intent extra `bugsee_e2e`, e.g. `am start -n com.bugsee.minigame/com.unity3d.player.UnityPlayerActivity --es bugsee_e2e interactions`) waits for the SDK to launch (up to 60 s, then starts anyway and the checks fail), then runs every action of the hills above through the same
+`BugseeActionCatalog.Run` item a bubble calls (and the same `BugseeInteractions` method a form's apply button calls), reads the
+effect back, and logs `[Sample] interactions PASS|FAIL <name> :: <detail>` lines ending in `interactions e2e done failures=N`.
+It covers the report draft (every field and attachment reads back, upload and discard), Notify, Breadcrumb, network events,
+the APM transaction with a child span and orb-pickup spans, `LogUnhandledException`, `RemoveSecureRectangle`, the Appearance
+strings, `GetLaunchOptions`, and the async lifecycle (`StopAsync`, `LaunchAsync`, `RelaunchAsync`, then a confirmed Delete Data
+and a final launch), and ends with the SDK launched. It does not tap bubbles or type into the forms: it checks that the
+bubbles' forms open and calls what their apply buttons call. Staging does not show these uploads right away; read the
+`[Sample] interactions` lines in the device log.
+
+### Filter check (`filters` e2e scenario)
+
+`BUGSEE_E2E_SCENARIO=filters` (iOS env var, Android intent extra `bugsee_e2e`) waits for the SDK to launch, turns the Filters
+bubble on, and sends what the Network Event and Breadcrumb bubbles send plus, on Android, a Debug line written to logcat. It
+waits for each filter's counter to move: the network filter redacts the `password-reset` URL and the body, the breadcrumb filter
+drops every breadcrumb (the scenario counts its own `e2e` breadcrumbs apart from the SDK's `http` ones), and the log filter drops
+Debug and Verbose lines. `Bugsee.Log` lines skip the log filter on both platforms (the wrapper submits them without filtering), so
+the log filter only sees what the SDK captures itself (the Unity log, logcat on Android); on iOS which Debug lines it drops depends
+on what the SDK logs, so the scenario only requires that it ran there. It then turns the filters off and checks that the SDK calls
+no filter any more (the seen counters stay 0). It logs `[Sample] filters PASS|FAIL ...` lines ending in
+`filters e2e done failures=N`. The sample launches with `CaptureBreadcrumbs = true`: the option is off by default, and without it no
+breadcrumb reaches the breadcrumb filter. The HUD shows the live counters on its `flt on|off nR/S lD/S bD/S` line (redacted or
+dropped / seen, for the network, log and breadcrumb filter); the network and breadcrumb filters also log each redaction or drop.
+
+### Action check (`actions` e2e scenario)
+
+`BUGSEE_E2E_SCENARIO=actions` (iOS env var, Android intent extra `bugsee_e2e`) waits for the SDK to launch, then runs the same
+action-catalog items the bubbles call (Set/Get/Clear Attr, Clear ID, Pause/Resume, Exception) and the hill selection used by
+E/Space, and logs `[Sample] actions PASS|FAIL ...` lines ending in `actions e2e done failures=N`.
+
+Notes: `Pause()`/`Resume()` are obsolete aliases of `StartBlackout()`/`EndBlackout()`, so the Pause/Resume bubble follows
+`IsBlackout` (a blackout started by the Blackout bubble makes the next tap a Resume). The `count` option of the Exception bubble is
+only a marker in the message and options: it does not change report grouping (the signature uses type and stack), and the iOS beta7
+bridge honours only `skipFrames`.
 
 ## Character
 

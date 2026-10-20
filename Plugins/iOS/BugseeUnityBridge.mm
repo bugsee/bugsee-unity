@@ -769,6 +769,16 @@ float _bugsee_screen_scale(void)
     return (float)[UIScreen mainScreen].scale;
 }
 
+// Unity pixels per point of the interface (what the native view tree is measured in): Unity's own width over the screen's width
+// in points, which follows the interface orientation. UIScreen.scale is not it on a device that renders at nativeScale (Plus,
+// mini, Display Zoom) or when the render resolution is reduced. Falls back to the screen scale when either width is unusable.
+float _bugsee_pixels_per_point(int unityPixelWidth)
+{
+    CGFloat points = [UIScreen mainScreen].bounds.size.width;
+    if (unityPixelWidth > 0 && points > 0) return (float)((CGFloat)unityPixelWidth / points);
+    return (float)[UIScreen mainScreen].scale;
+}
+
 void _bugsee_capture_view_hierarchy(void)
 {
     [Bugsee captureViewHierarchy];
@@ -1077,6 +1087,7 @@ void _bugsee_set_email(const char *email) { (void)email; }
 char *_bugsee_get_email(void) { return NULL; }
 void _bugsee_clear_email(void) {}
 float _bugsee_screen_scale(void) { return 1.f; }
+float _bugsee_pixels_per_point(int unityPixelWidth) { (void)unityPixelWidth; return 1.f; }
 void _bugsee_set_secure_buffer(int display, int *packed, int packedLength)
 {
     (void)display;

@@ -28,10 +28,13 @@ typedef void (*BugseeUnityFilterCb)(int64_t requestId, int kind, const char *jso
 // phase: 0=before, 1=after
 typedef void (*BugseeUnityReportCb)(int64_t requestId, int phase, int isTerminating, const char *json);
 typedef void (*BugseeUnityLifecycleCb)(const char *eventType, const char *dataJson);
+// The SDK's requestData channel; the answer comes back through _bugsee_complete_data_request with the same id.
+typedef void (*BugseeUnityDataRequestCb)(int64_t requestId, const char *dataType);
 
 static BugseeUnityFilterCb gFilterCb = NULL;
 static BugseeUnityReportCb gReportCb = NULL;
 static BugseeUnityLifecycleCb gLifecycleCb = NULL;
+static BugseeUnityDataRequestCb gDataRequestCb = NULL;
 static BOOL gNetworkFilterCallbackInstalled = NO;
 static BOOL gLogFilterCallbackInstalled = NO;
 static BOOL gBreadcrumbFilterCallbackInstalled = NO;
@@ -40,7 +43,7 @@ static NSMutableDictionary<NSNumber *, NSMutableDictionary *> *gPending;
 static int64_t gNextRequestId = 1;
 static NSObject *gLock;
 static NSString *gWrapperVersion = @"0.1.0";
-static NSString *gWrapperBuild = @"dev";
+static NSString *gWrapperBuild = nil;
 static NSDictionary<NSString *, NSString *> *gWrapperContext = nil;
 
 @class BugseeUnityWrapper;
@@ -439,12 +442,37 @@ static void BugseeUnityDeliverLifecycle(BugseeUnityLifecycleCb cb, NSString *eve
 
 - (NSString *)wrapperType { return @"unity"; }
 - (NSString *)wrapperVersion { return gWrapperVersion ?: @"unknown"; }
-- (NSString *)wrapperBuild { return gWrapperBuild ?: @"unknown"; }
+- (NSString *)wrapperBuild { return gWrapperBuild; }
 - (NSDictionary<NSString *, NSString *> *)context { return gWrapperContext ?: @{}; }
 
+// The one flow the SDK asks for is "vh", the managed view hierarchy (specs: sdk/wrapper-data-requests). It is asked on
+// the main thread, which is Unity's thread, so C# normally answers inside this call. Every other type, and a request
+// made before C# has registered, is answered with nil: silence would cost the SDK its whole budget.
 - (void)requestDataWithType:(NSString *)dataType callback:(id<BGSDataRequestResultCallback>)callback
 {
-    [callback onResult:nil];
+    BugseeUnityDataRequestCb requestCb = gDataRequestCb;
+    if (!callback) return;
+    if (!requestCb || ![dataType isEqualToString:@"vh"]) {
+        [callback onResult:nil];
+        return;
+    }
+    BugseeUnityEnsureState();
+    int64_t requestId;
+    @synchronized (gLock) {
+        requestId = gNextRequestId++;
+        // An answer that never comes (Unity paused or torn down) must not hold its callback for good.
+        NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+        NSMutableArray<NSNumber *> *stale = [NSMutableArray array];
+        [gPending enumerateKeysAndObjectsUsingBlock:^(NSNumber *key, NSMutableDictionary *entry, BOOL *stop) {
+            NSNumber *at = entry[@"dataRequestAt"];
+            if (at && now - at.doubleValue > 10.0) [stale addObject:key];
+        }];
+        [gPending removeObjectsForKeys:stale];
+        gPending[@(requestId)] = [@{ @"kind": @"data", @"dataRequest": callback, @"dataRequestAt": @(now) } mutableCopy];
+    }
+    char *typeCopy = BugseeUnityCopyUTF8(dataType);
+    requestCb(requestId, typeCopy);
+    free(typeCopy);
 }
 
 - (void)onLifecycleEvent:(NSString *)eventType data:(id)data
@@ -623,6 +651,27 @@ void _bugsee_register_unity_callbacks(BugseeUnityFilterCb filterCb,
     });
 }
 
+void _bugsee_register_data_request_callback(BugseeUnityDataRequestCb dataRequestCb)
+{
+    gDataRequestCb = dataRequestCb;
+}
+
+// Answers a request handed to the data request callback: the JSON, or NULL for "nothing to contribute". The first answer
+// wins; a second one (or one for an id already expired) finds nothing and does nothing.
+void _bugsee_complete_data_request(int64_t requestId, const char *json)
+{
+    BugseeUnityEnsureState();
+    NSMutableDictionary *pending;
+    @synchronized (gLock) {
+        pending = gPending[@(requestId)];
+        if (![pending[@"kind"] isEqualToString:@"data"]) return;
+        [gPending removeObjectForKey:@(requestId)];
+    }
+    id<BGSDataRequestResultCallback> callback = pending[@"dataRequest"];
+    NSString *text = json ? [NSString stringWithUTF8String:json] : nil;
+    [callback onResult:text];
+}
+
 void _bugsee_set_secure_buffer(int display, int *packed, int packedLength)
 {
     if (!packed || packedLength < 2) return;
@@ -707,7 +756,10 @@ void _bugsee_channel_breadcrumb(const char *category, const char *message, int i
 void _bugsee_ensure_wrapper(const char *version, const char *build)
 {
     if (version) gWrapperVersion = [NSString stringWithUTF8String:version];
-    if (build) gWrapperBuild = [NSString stringWithUTF8String:build];
+    // No build (NULL, empty or the "dev" placeholder) is nil: the contract's wrapperBuild is nullable, and
+    // "unknown" or "dev" would be reported as a real build id.
+    NSString *buildString = build ? [NSString stringWithUTF8String:build] : nil;
+    gWrapperBuild = (buildString.length == 0 || [buildString isEqualToString:@"dev"]) ? nil : buildString;
     if (!gWrapper) {
         gWrapper = [BugseeUnityWrapper new];
     }
@@ -903,6 +955,37 @@ const char *_bugsee_test_apply_report_attachments(const char *json)
     return strdup([recorder.calls componentsJoinedByString:@"|"].UTF8String);
 }
 
+// Stands in for the SDK's callback of a requestData: counts the answers and keeps the last one.
+@interface BugseeUnityTestDataCallback : NSObject <BGSDataRequestResultCallback>
+@end
+
+static int gTestDataReplyCount = 0;
+static NSString *gTestDataReply = nil;
+
+@implementation BugseeUnityTestDataCallback
+- (void)onResult:(NSString *)result
+{
+    gTestDataReplyCount++;
+    gTestDataReply = [result copy];
+}
+@end
+
+// Asks the installed wrapper for `type` the way the SDK does. Returns the number of answers that arrived inside the call.
+int _bugsee_test_request_data(const char *type)
+{
+    gTestDataReplyCount = 0;
+    gTestDataReply = nil;
+    [gWrapper requestDataWithType:[NSString stringWithUTF8String:type] callback:[BugseeUnityTestDataCallback new]];
+    return gTestDataReplyCount;
+}
+
+int _bugsee_test_data_reply_count(void) { return gTestDataReplyCount; }
+
+const char *_bugsee_test_copy_data_reply(void)
+{
+    return gTestDataReply ? strdup(gTestDataReply.UTF8String) : NULL;
+}
+
 // Builds a real SDK breadcrumb holding startDataJson as its data, applies a filter result the way
 // _bugsee_complete_filter does, and returns the crumb's data as JSON ("null" when it has none). Caller frees.
 const char *_bugsee_test_apply_breadcrumb_result(const char *startDataJson, const char *resultJson)
@@ -997,6 +1080,8 @@ void _bugsee_set_log_filter_enabled(int enabled) { (void)enabled; }
 void _bugsee_set_breadcrumb_filter_enabled(int enabled) { (void)enabled; }
 void _bugsee_complete_filter(int64_t requestId, int keep, const char *resultJson) { (void)requestId; (void)keep; (void)resultJson; }
 void _bugsee_complete_report(int64_t requestId, const char *resultJson) { (void)requestId; (void)resultJson; }
+void _bugsee_register_data_request_callback(void *callback) { (void)callback; }
+void _bugsee_complete_data_request(int64_t requestId, const char *json) { (void)requestId; (void)json; }
 }
 
 #endif

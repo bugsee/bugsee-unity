@@ -72,12 +72,13 @@ namespace Bugsee.Sample
 
             if (c.IsHazard)
             {
+                // The catalog action sets an honest status (with the counter) itself.
                 BugseeActionCatalog.Instance?.Run(BugseeDemoAction.LogException);
-                _bootstrap.SetStatus("Hazard → LogException");
             }
             else
             {
                 _bootstrap.Score += 1;
+                BugseeActionCatalog.Instance?.Interactions.OnOrbPickup(_bootstrap.Score);
                 Bugsee.Event("field.collect", new Dictionary<string, object>
                 {
                     { "score", _bootstrap.Score }

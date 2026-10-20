@@ -33,6 +33,7 @@ namespace Bugsee.Platform.IOS
             if (_registered) return;
             _registered = true;
             _bugsee_register_unity_callbacks(OnFilter, OnReport, OnLifecycle);
+            _bugsee_register_data_request_callback(OnDataRequest);
         }
 
         public static void EnsureWrapper()
@@ -42,7 +43,7 @@ namespace Bugsee.Platform.IOS
             void Work()
             {
                 PublishHostContext();
-                _bugsee_ensure_wrapper(BugseePackageVersion.Version, BugseePackageVersion.Build);
+                _bugsee_ensure_wrapper(BugseePackageVersion.Version, IosHostPolicy.WrapperBuild(BugseePackageVersion.Build));
             }
 
             if (MainThreadDispatcher.IsMainThread)
@@ -308,6 +309,26 @@ namespace Bugsee.Platform.IOS
             });
         }
 
+        // The native tree is in points. Unity renders at the screen's native scale, which on a Plus, mini or Display Zoom device
+        // (or with a reduced render resolution) is not UIScreen.scale, so the ratio is taken from Unity's own width.
+        static float UnityPixelsPerPoint() => _bugsee_pixels_per_point(Screen.width);
+
+        // requestData from the SDK. Only "vh" gets an answer from managed code; the native side answers every other type itself.
+        // The SDK asks on the main thread, which is Unity's, so the scene is read and answered inside this call.
+        [MonoPInvokeCallback(typeof(DataRequestCb))]
+        static void OnDataRequest(long requestId, string dataType)
+        {
+            try
+            {
+                ManagedViewHierarchy.Handle(dataType, UnityPixelsPerPoint, json => _bugsee_complete_data_request(requestId, json));
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                _bugsee_complete_data_request(requestId, null);
+            }
+        }
+
         /// <summary>
         /// JsonUtility emits kv arrays; native Apply* expects object maps for headers.
         /// </summary>
@@ -317,9 +338,19 @@ namespace Bugsee.Platform.IOS
         delegate void FilterCb(long requestId, int kind, string json);
         delegate void ReportCb(long requestId, int phase, int isTerminating, string json);
         delegate void LifecycleCb(string eventType, string dataJson);
+        delegate void DataRequestCb(long requestId, string dataType);
 
         [DllImport("__Internal")]
         static extern void _bugsee_register_unity_callbacks(FilterCb filterCb, ReportCb reportCb, LifecycleCb lifecycleCb);
+
+        [DllImport("__Internal")]
+        static extern void _bugsee_register_data_request_callback(DataRequestCb dataRequestCb);
+
+        [DllImport("__Internal")]
+        static extern void _bugsee_complete_data_request(long requestId, string json);
+
+        [DllImport("__Internal")]
+        static extern float _bugsee_pixels_per_point(int unityPixelWidth);
 
         [DllImport("__Internal")]
         static extern void _bugsee_ensure_wrapper(string version, string build);

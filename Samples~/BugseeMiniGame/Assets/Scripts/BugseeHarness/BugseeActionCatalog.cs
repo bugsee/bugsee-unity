@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Feedback;
 using Bugsee.Contracts.Lifecycle;
@@ -43,7 +44,25 @@ namespace Bugsee.Sample
         ObsoletePauseResume,
         Launch,
         Relaunch,
-        Stop
+        Stop,
+        Breadcrumb,
+        NetworkEvent,
+        ReportCreate,
+        ReportEdit,
+        ReportUpload,
+        ReportDiscard,
+        Notify,
+        ApmStart,
+        ApmSpan,
+        ApmFinish,
+        LaunchAsync,
+        RelaunchAsync,
+        StopAsync,
+        LaunchOptions,
+        DeleteData,
+        LogUnhandled,
+        RemoveSecureRect,
+        AppearanceTexts
     }
 
     /// <summary>Centralizes Bugsee facade calls so HUD and stations stay in sync.</summary>
@@ -59,18 +78,31 @@ namespace Bugsee.Sample
         bool _lifecycleListenerOn;
         bool _feedbackListenerOn;
         SampleLifecycleListener _lifecycleListener;
+        int _exceptionCount;
+
+        /// <summary>Attribute key used by Set/Get/Clear Attr (form, bubbles, debug panel); the last key set wins.</summary>
+        public const string DefaultAttributeKey = "sample.key";
+        public static string AttributeKey { get; set; } = DefaultAttributeKey;
 
         public BugseeActionCatalog(BugseeSampleBootstrap bootstrap)
         {
             _bootstrap = bootstrap;
+            Interactions = new BugseeInteractions(bootstrap);
             Instance = this;
         }
+
+        /// <summary>Report drafts, Notify, APM, async lifecycle and the other actions of the later hills.</summary>
+        public BugseeInteractions Interactions { get; }
 
         internal static void ClearInstance(BugseeActionCatalog catalog)
         {
             if (ReferenceEquals(Instance, catalog))
                 Instance = null;
         }
+
+        /// <summary>The last rect Set Secure Rect added and Remove Rect has not removed yet.</summary>
+        public bool SecureRectActive => _secureRectActive;
+        public RectInt SecureRect => _secureRect;
 
         public string LastStatus => _bootstrap != null ? _bootstrap.LastStatus : "";
 
@@ -142,19 +174,23 @@ namespace Bugsee.Sample
                         break;
 
                     case BugseeDemoAction.LogException:
+                    {
+                        var n = ++_exceptionCount;
                         try
                         {
-                            throw new InvalidOperationException("Sample exception from fields sample");
+                            throw new InvalidOperationException("Sample exception #" + n + " from fields sample");
                         }
                         catch (Exception ex)
                         {
                             Bugsee.LogException(ex, new Dictionary<string, object>
                             {
-                                { "source", "BugseeActionCatalog" }
+                                { "source", "BugseeActionCatalog" },
+                                { "count", n }
                             });
                         }
-                        _bootstrap.SetStatus("LogException");
+                        _bootstrap.SetStatus("LogException #" + n + " sent");
                         break;
+                    }
 
                     case BugseeDemoAction.TestCrash:
                         _bootstrap.SetStatus("TestCrash (native)");
@@ -197,8 +233,7 @@ namespace Bugsee.Sample
 
                     case BugseeDemoAction.ClearIdentity:
                         Bugsee.ClearUserIdentifier();
-                        Bugsee.ClearAllAttributes();
-                        _bootstrap.SetStatus("Clear identity + attributes");
+                        _bootstrap.SetStatus("ClearUserIdentifier (attributes kept)");
                         break;
 
                     case BugseeDemoAction.ToggleIdentity:
@@ -221,14 +256,14 @@ namespace Bugsee.Sample
 
                     case BugseeDemoAction.GetAttribute:
                     {
-                        var v = Bugsee.GetAttribute("field.note");
-                        _bootstrap.SetStatus("GetAttribute field.note=" + (v ?? "(null)"));
+                        var v = Bugsee.GetAttribute(AttributeKey);
+                        _bootstrap.SetStatus("GetAttribute " + AttributeKey + "=" + (v ?? "(null)"));
                         break;
                     }
 
                     case BugseeDemoAction.ClearAttribute:
-                        Bugsee.ClearAttribute("field.note");
-                        _bootstrap.SetStatus("ClearAttribute field.note");
+                        Bugsee.ClearAttribute(AttributeKey);
+                        _bootstrap.SetStatus("ClearAttribute " + AttributeKey);
                         break;
 
                     case BugseeDemoAction.ClearAllAttributes:
@@ -283,10 +318,16 @@ namespace Bugsee.Sample
 
                     case BugseeDemoAction.ObsoletePauseResume:
 #pragma warning disable CS0618
-                        Bugsee.Pause();
-                        Bugsee.Resume();
+                        // Pause()/Resume() are obsolete aliases of StartBlackout()/EndBlackout(): alternate per tap.
+                        var wasPaused = Bugsee.IsBlackout;
+                        if (wasPaused)
+                            Bugsee.Resume();
+                        else
+                            Bugsee.Pause();
 #pragma warning restore CS0618
-                        _bootstrap.SetStatus("Pause+Resume (obsolete → blackout)");
+                        _bootstrap.SetStatus(wasPaused
+                            ? "Resume() (obsolete) -> resumed"
+                            : "Pause() (obsolete) -> paused; tap again to Resume()");
                         break;
 
                     case BugseeDemoAction.Launch:
@@ -300,6 +341,86 @@ namespace Bugsee.Sample
                     case BugseeDemoAction.Stop:
                         _bootstrap.SetStatus("Stop requested");
                         Bugsee.Stop(() => _bootstrap.SetStatus("Stopped"));
+                        break;
+
+                    case BugseeDemoAction.Breadcrumb:
+                        BugseeActionForms.Ensure(_bootstrap).ShowBreadcrumb();
+                        break;
+
+                    case BugseeDemoAction.NetworkEvent:
+                        Interactions.AddNetworkEvents();
+                        break;
+
+                    case BugseeDemoAction.ReportCreate:
+                        Interactions.CreateDraft();
+                        break;
+
+                    case BugseeDemoAction.ReportEdit:
+                        BugseeActionForms.Ensure(_bootstrap).ShowReportDraft();
+                        break;
+
+                    case BugseeDemoAction.ReportUpload:
+                        Interactions.UploadDraft();
+                        break;
+
+                    case BugseeDemoAction.ReportDiscard:
+                        Interactions.DiscardDraft();
+                        break;
+
+                    case BugseeDemoAction.Notify:
+                        BugseeActionForms.Ensure(_bootstrap).ShowNotify();
+                        break;
+
+                    case BugseeDemoAction.ApmStart:
+                        Interactions.StartTransaction();
+                        break;
+
+                    case BugseeDemoAction.ApmSpan:
+                        Interactions.StartSpan();
+                        break;
+
+                    case BugseeDemoAction.ApmFinish:
+                        Interactions.FinishTransaction();
+                        break;
+
+                    case BugseeDemoAction.LaunchAsync:
+                        Interactions.LaunchAsync();
+                        break;
+
+                    case BugseeDemoAction.RelaunchAsync:
+                        Interactions.RelaunchAsync();
+                        break;
+
+                    case BugseeDemoAction.StopAsync:
+                        Interactions.StopAsync();
+                        break;
+
+                    case BugseeDemoAction.LaunchOptions:
+                        Interactions.GetLaunchOptions();
+                        break;
+
+                    case BugseeDemoAction.DeleteData:
+                        Interactions.RequestDeleteData();
+                        break;
+
+                    case BugseeDemoAction.LogUnhandled:
+                        Interactions.LogUnhandled();
+                        break;
+
+                    case BugseeDemoAction.RemoveSecureRect:
+                        if (!_secureRectActive)
+                        {
+                            _bootstrap.SetStatus("RemoveSecureRectangle: no rect added by Set Secure Rect");
+                            break;
+                        }
+                        Bugsee.RemoveSecureRectangle(_secureRect);
+                        _secureRectActive = false;
+                        _bootstrap.SetStatus(string.Format("RemoveSecureRectangle LTRB=({0},{1},{2},{3})",
+                            _secureRect.xMin, _secureRect.yMin, _secureRect.xMax, _secureRect.yMax));
+                        break;
+
+                    case BugseeDemoAction.AppearanceTexts:
+                        BugseeActionForms.Ensure(_bootstrap).ShowTexts();
                         break;
 
                     default:
@@ -345,13 +466,41 @@ namespace Bugsee.Sample
                 case BugseeDemoAction.ToggleLifecycleListener: return "Lifecycle";
                 case BugseeDemoAction.Appearance: return "Appearance";
                 case BugseeDemoAction.StatusReadout: return "Status";
-                case BugseeDemoAction.ObsoletePauseResume: return "Pause/Resume";
+                case BugseeDemoAction.ObsoletePauseResume: return "Pause/Resume (old)";
                 case BugseeDemoAction.Launch: return "Launch";
                 case BugseeDemoAction.Relaunch: return "Relaunch";
                 case BugseeDemoAction.Stop: return "Stop";
+                case BugseeDemoAction.Breadcrumb: return "Breadcrumb";
+                case BugseeDemoAction.NetworkEvent: return "Network Event";
+                case BugseeDemoAction.ReportCreate: return "New Report";
+                case BugseeDemoAction.ReportEdit: return "Edit Report";
+                case BugseeDemoAction.ReportUpload: return "Send Report";
+                case BugseeDemoAction.ReportDiscard: return "Discard Report";
+                case BugseeDemoAction.Notify: return "Notify";
+                case BugseeDemoAction.ApmStart: return "Start Txn";
+                case BugseeDemoAction.ApmSpan: return "Child Span";
+                case BugseeDemoAction.ApmFinish: return "Finish Txn";
+                case BugseeDemoAction.LaunchAsync: return "Launch Async";
+                case BugseeDemoAction.RelaunchAsync: return "Relaunch Async";
+                case BugseeDemoAction.StopAsync: return "Stop Async";
+                case BugseeDemoAction.LaunchOptions: return "Launch Options";
+                case BugseeDemoAction.DeleteData: return "Delete Data";
+                case BugseeDemoAction.LogUnhandled: return "Log Unhandled";
+                case BugseeDemoAction.RemoveSecureRect: return "Remove Rect";
+                case BugseeDemoAction.AppearanceTexts: return "Texts";
                 default: return action.ToString();
             }
         }
+    }
+
+    /// <summary>Selection rule for the E/Space + Q/Tab keyboard path on a hill.</summary>
+    public static class HillSelection
+    {
+        /// <summary>Next selected index, wrapping; 0 when there are no actions.</summary>
+        public static int Next(int current, int count) => count <= 0 ? 0 : (current + 1) % count;
+
+        /// <summary>The selection clamped into range (the action list can change).</summary>
+        public static int Clamp(int current, int count) => count <= 0 ? 0 : Mathf.Clamp(current, 0, count - 1);
     }
 
     sealed class SampleLifecycleListener : ILifecycleEventListener
@@ -408,36 +557,109 @@ namespace Bugsee.Sample
         }
     }
 
-    /// <summary>Optional filters used by the debug panel / filter totem.</summary>
+    /// <summary>
+    /// Optional filters used by the debug panel / filter totem. Each filter counts what it saw and what it dropped or
+    /// redacted (the HUD shows the totals, <see cref="Summary"/>), and the network and breadcrumb filters log each one.
+    /// The wrapper calls the filters on the main thread; the counters are interlocked anyway. The log filter does not log:
+    /// the SDK captures the Unity log, so a log line written from it would reach it again.
+    /// </summary>
     public static class SampleFilters
     {
         public static bool NetworkRedactEnabled;
         public static bool LogDropDebugEnabled;
         public static bool BreadcrumbDropEnabled;
 
+        /// <summary>The level and length of the last log line the filter dropped (for a check's detail; the text is not kept, so it cannot be echoed into the log).</summary>
+        public static volatile string LastLogDropped;
+
+        /// <summary>
+        /// When set, the drops of a breadcrumb in that category (<see cref="BreadcrumbMarkerDropped"/>) and of a log line containing
+        /// <see cref="LogMarker"/> (<see cref="LogMarkerDropped"/>) are counted apart, so a check can tell its own events from the SDK's.
+        /// </summary>
+        public static volatile string BreadcrumbMarker;
+        public static volatile string LogMarker;
+        static int _breadcrumbMarkerDropped, _logMarkerDropped;
+        public static int BreadcrumbMarkerDropped => Volatile.Read(ref _breadcrumbMarkerDropped);
+        public static int LogMarkerDropped => Volatile.Read(ref _logMarkerDropped);
+
+        static int _networkSeen, _networkRedacted, _logSeen, _logDropped, _breadcrumbSeen, _breadcrumbDropped;
+
+        public static int NetworkSeen => Volatile.Read(ref _networkSeen);
+        public static int NetworkRedacted => Volatile.Read(ref _networkRedacted);
+        public static int LogSeen => Volatile.Read(ref _logSeen);
+        public static int LogDropped => Volatile.Read(ref _logDropped);
+        public static int BreadcrumbSeen => Volatile.Read(ref _breadcrumbSeen);
+        public static int BreadcrumbDropped => Volatile.Read(ref _breadcrumbDropped);
+
+        /// <summary>"n2/2 l1/9 b3/3": redacted or dropped / seen, for the network, log and breadcrumb filter.</summary>
+        public static string Summary =>
+            "n" + NetworkRedacted + "/" + NetworkSeen + " l" + LogDropped + "/" + LogSeen + " b" + BreadcrumbDropped + "/" + BreadcrumbSeen;
+
+        public static void ResetCounters()
+        {
+            Interlocked.Exchange(ref _networkSeen, 0);
+            Interlocked.Exchange(ref _networkRedacted, 0);
+            Interlocked.Exchange(ref _logSeen, 0);
+            Interlocked.Exchange(ref _logDropped, 0);
+            Interlocked.Exchange(ref _breadcrumbSeen, 0);
+            Interlocked.Exchange(ref _breadcrumbDropped, 0);
+            Interlocked.Exchange(ref _breadcrumbMarkerDropped, 0);
+            Interlocked.Exchange(ref _logMarkerDropped, 0);
+        }
+
         public static INetworkEvent NetworkFilter(INetworkEvent e)
         {
             if (e == null) return null;
+            Interlocked.Increment(ref _networkSeen);
             if (!NetworkRedactEnabled) return e;
+            var redacted = false;
             if (!string.IsNullOrEmpty(e.Url) && e.Url.IndexOf("password", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
                 e.Url = "[redacted]";
+                redacted = true;
+            }
             if (!string.IsNullOrEmpty(e.Body))
+            {
                 e.Body = "[redacted-body]";
+                redacted = true;
+            }
+            if (redacted)
+            {
+                var n = Interlocked.Increment(ref _networkRedacted);
+                Debug.Log("[BugseeSample] network filter redacted #" + n + " id=" + e.Id + " stage=" + e.Stage);
+            }
             return e;
         }
 
         public static ILogEvent LogFilter(ILogEvent e)
         {
             if (e == null) return null;
+            Interlocked.Increment(ref _logSeen);
             if (LogDropDebugEnabled && e.Level >= LogLevel.Debug)
+            {
+                Interlocked.Increment(ref _logDropped);
+                LastLogDropped = e.Level + " (" + (e.Message?.Length ?? 0) + " chars)";
+                var logMarker = LogMarker;
+                if (logMarker != null && e.Message != null && e.Message.Contains(logMarker))
+                    Interlocked.Increment(ref _logMarkerDropped);
                 return null;
+            }
             return e;
         }
 
         public static IBreadcrumb BreadcrumbFilter(IBreadcrumb e)
         {
             if (e == null) return null;
-            if (BreadcrumbDropEnabled) return null;
+            Interlocked.Increment(ref _breadcrumbSeen);
+            if (BreadcrumbDropEnabled)
+            {
+                var n = Interlocked.Increment(ref _breadcrumbDropped);
+                var crumbMarker = BreadcrumbMarker;
+                if (crumbMarker != null && e.Category == crumbMarker)
+                    Interlocked.Increment(ref _breadcrumbMarkerDropped);
+                Debug.Log("[BugseeSample] breadcrumb filter dropped #" + n + " category=" + e.Category);
+                return null;
+            }
             return e;
         }
     }

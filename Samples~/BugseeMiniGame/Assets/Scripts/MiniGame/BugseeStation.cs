@@ -29,6 +29,19 @@ namespace Bugsee.Sample
         public BugseeDemoAction[] Actions = Array.Empty<BugseeDemoAction>();
 
         bool _playerInside;
+        int _selected;
+
+        /// <summary>The action E/Space runs; Q/Tab cycles it.</summary>
+        public int SelectedIndex => HillSelection.Clamp(_selected, Actions != null ? Actions.Length : 0);
+
+        public void SelectNext() => _selected = HillSelection.Next(SelectedIndex, Actions != null ? Actions.Length : 0);
+
+        /// <summary>Runs the selected action (the E/Space path).</summary>
+        public void ActivateSelected()
+        {
+            if (Actions != null && Actions.Length > 0)
+                Activate(Actions[SelectedIndex]);
+        }
         static readonly List<BugseeHillStation> Nearby = new List<BugseeHillStation>();
         readonly List<Transform> _beacons = new List<Transform>();
 
@@ -121,10 +134,16 @@ namespace Bugsee.Sample
                 rend.material.color = Color * pulse + Color.white * (1f - pulse) * 0.15f;
             }
 
-            // E / Space runs the first action while on the hill (bubbles cover the rest).
-            if (_playerInside && (Input.GetKeyDown(KeyCode.E) || Input.GetKeyDown(KeyCode.Space)) &&
-                Actions != null && Actions.Length > 0)
-                Activate(Actions[0]);
+            // Q / Tab cycles the selected action, E / Space runs it (bubbles still work by tap).
+            // Not while a form is open or an IMGUI text field has focus: legacy Input still sees typed keys.
+            if (_playerInside && Actions != null && Actions.Length > 0 &&
+                !BugseeActionForms.IsBlockingInput && GUIUtility.keyboardControl == 0)
+            {
+                if (Input.GetKeyDown(KeyCode.Q) || Input.GetKeyDown(KeyCode.Tab))
+                    SelectNext();
+                if (Input.GetKeyDown(KeyCode.E) || Input.GetKeyDown(KeyCode.Space))
+                    ActivateSelected();
+            }
         }
 
         public void Activate(BugseeDemoAction action)
@@ -158,6 +177,9 @@ namespace Bugsee.Sample
             // Publish hit-test rect in screen space (bottom-left origin) for the stick.
             ActionPanelScreenRect = new Rect(x, screen.y - totalH * 0.65f, w, totalH + 8f);
 
+            // A form or confirm is modal: its dimmer does not stop taps reaching the bubbles under it.
+            var prevEnabled = GUI.enabled;
+            GUI.enabled = !BugseeActionForms.IsBlockingInput;
             var prev = GUI.backgroundColor;
             GUI.backgroundColor = Color.Lerp(Color, Color.white, 0.25f);
             GUI.Box(new Rect(x, yGui, w, titleH), Title);
@@ -165,14 +187,19 @@ namespace Bugsee.Sample
 
             for (int i = 0; i < Actions.Length; i++)
             {
-                GUI.backgroundColor = Color.Lerp(Color, Color.white, 0.4f);
-                var label = BugseeActionCatalog.DisplayName(Actions[i]);
+                bool selected = i == SelectedIndex;
+                GUI.backgroundColor = Color.Lerp(Color, Color.white, selected ? 0.8f : 0.4f);
+                var label = (selected ? "> " : "") + BugseeActionCatalog.DisplayName(Actions[i]);
                 if (GUI.Button(new Rect(x, yGui, w, rowH), label))
+                {
+                    _selected = i; // a tapped row becomes the selection too (touch has no Q/Tab)
                     Activate(Actions[i]);
+                }
                 yGui += rowH + 6f;
             }
 
             GUI.backgroundColor = prev;
+            GUI.enabled = prevEnabled;
         }
     }
 
@@ -192,7 +219,29 @@ namespace Bugsee.Sample
                 BugseeDemoAction.ShowReportDialog,
                 BugseeDemoAction.Upload,
                 BugseeDemoAction.ToggleReportHandler,
-                BugseeDemoAction.CaptureViewHierarchy),
+                BugseeDemoAction.CaptureViewHierarchy,
+                BugseeDemoAction.Notify),
+
+            new BugseeActionGroup(
+                "Reports",
+                new Color(0.8f, 0.25f, 0.5f),
+                BugseeDemoAction.ReportCreate,
+                BugseeDemoAction.ReportEdit,
+                BugseeDemoAction.ReportUpload,
+                BugseeDemoAction.ReportDiscard),
+
+            new BugseeActionGroup(
+                "Exchange",
+                new Color(0.95f, 0.55f, 0.2f),
+                BugseeDemoAction.Breadcrumb,
+                BugseeDemoAction.NetworkEvent),
+
+            new BugseeActionGroup(
+                "APM",
+                new Color(0.55f, 0.85f, 0.3f),
+                BugseeDemoAction.ApmStart,
+                BugseeDemoAction.ApmSpan,
+                BugseeDemoAction.ApmFinish),
 
             new BugseeActionGroup(
                 "Blackout",
@@ -206,6 +255,7 @@ namespace Bugsee.Sample
                 BugseeDemoAction.LogBundle,
                 BugseeDemoAction.LogAllLevels,
                 BugseeDemoAction.LogException,
+                BugseeDemoAction.LogUnhandled,
                 BugseeDemoAction.TestCrash),
 
             new BugseeActionGroup(
@@ -228,6 +278,7 @@ namespace Bugsee.Sample
                 "Privacy",
                 new Color(0.55f, 0.4f, 0.9f),
                 BugseeDemoAction.SetSecureRect,
+                BugseeDemoAction.RemoveSecureRect,
                 BugseeDemoAction.ClearSecureRects,
                 BugseeDemoAction.ResetVideoPermission),
 
@@ -248,9 +299,19 @@ namespace Bugsee.Sample
                 BugseeDemoAction.ToggleLifecycleListener),
 
             new BugseeActionGroup(
+                "Lifecycle",
+                new Color(0.25f, 0.6f, 0.55f),
+                BugseeDemoAction.LaunchAsync,
+                BugseeDemoAction.RelaunchAsync,
+                BugseeDemoAction.StopAsync,
+                BugseeDemoAction.LaunchOptions,
+                BugseeDemoAction.DeleteData),
+
+            new BugseeActionGroup(
                 "Appearance",
                 new Color(0.85f, 0.45f, 0.65f),
                 BugseeDemoAction.Appearance,
+                BugseeDemoAction.AppearanceTexts,
                 BugseeDemoAction.ToggleFilters)
         };
 
@@ -276,6 +337,8 @@ namespace Bugsee.Sample
         public void SpawnAtSummits(IReadOnlyList<Vector3> summits)
         {
             int n = Mathf.Min(summits.Count, Groups.Length);
+            if (n < Groups.Length)
+                Debug.LogWarning("[Sample] only " + summits.Count + " hill summits for " + Groups.Length + " action groups: the rest are unreachable");
             for (int i = 0; i < n; i++)
                 SpawnGroup(Groups[i], summits[i]);
         }

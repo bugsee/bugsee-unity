@@ -41,6 +41,10 @@ namespace Bugsee.Sample
         public string LastLifecycle => _lastLifecycle;
         public IEnumerable<string> LifecycleLog => _lifecycleLog;
         public BugseeActionCatalog Catalog => _catalog;
+        internal string AppToken => appToken;
+        /// <summary>The options of the last LaunchSdk (null before it or in the Editor): LaunchAsync/RelaunchAsync reuse them.</summary>
+        /// <summary>What the last LaunchSdk used (null in the Editor): scenarios and the async bubbles launch again the same way (endpoint, video, debug).</summary>
+        internal Dictionary<string, object> LastLaunchOptions { get; private set; }
 
         /// <summary>Called from <see cref="MiniGameBootstrap"/> when building the scene at runtime.</summary>
         public void Configure(string token, bool launchOnStart, string endpoint = null)
@@ -50,6 +54,9 @@ namespace Bugsee.Sample
             if (!string.IsNullOrWhiteSpace(endpoint))
                 endpointOverride = endpoint.Trim();
         }
+
+        /// <summary>What the sample filters saw and dropped or redacted so far, for the HUD.</summary>
+        public string FilterLine => "flt " + (SampleFilters.NetworkRedactEnabled ? "on " : "off ") + SampleFilters.Summary;
 
         public string StatusLine
         {
@@ -87,6 +94,7 @@ namespace Bugsee.Sample
         void OnDestroy()
         {
             Bugsee.LifecycleEvent -= OnLifecycle;
+            _catalog?.Interactions.Dispose();
             if (ReferenceEquals(BugseeActionCatalog.Instance, _catalog))
                 BugseeActionCatalog.ClearInstance(_catalog);
         }
@@ -130,6 +138,7 @@ namespace Bugsee.Sample
                     CaptureVideoMode = _framePusherRequested ? VideoMode.DirectBuffers : VideoMode.V2,
                     CaptureVideoFrameRate = FrameRate.High,
                     CaptureLogs = true,
+                    CaptureBreadcrumbs = true,
                     CaptureNetwork = true,
                     ReportingTriggerByShake = true,
                     ReportingTriggerByScreenshot = true,
@@ -150,7 +159,7 @@ namespace Bugsee.Sample
                     options.Endpoint = endpointOverride.Trim();
                 if (ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "options")
                     AddGatingProbeOptions(options);
-                _launchOptions = options;
+                LastLaunchOptions = options;
                 // "bugsee_launch_thread" = 1 launches from a worker thread (checks that a launch from any thread works).
                 if (ReadE2EValue("bugsee_launch_thread", "BUGSEE_LAUNCH_THREAD") == "1")
                 {
@@ -195,6 +204,7 @@ namespace Bugsee.Sample
                     // simulator's texture lacks), so a simulator run sets BUGSEE_E2E_VIDEO=0.
                     CaptureVideo = Environment.GetEnvironmentVariable("BUGSEE_E2E_VIDEO") != "0",
                     CaptureLogs = true,
+                    CaptureBreadcrumbs = true,
                     CaptureNetwork = true,
                     ReportingTriggerByShake = true,
                     DetectAndReportCrash = true,
@@ -213,7 +223,7 @@ namespace Bugsee.Sample
                     iosOptions.SetCustomOption("com.bugsee.option.capture.crash-handler-type", handlerType);
                 if (Environment.GetEnvironmentVariable("BUGSEE_E2E_SCENARIO") == "options")
                     AddGatingProbeOptions(iosOptions);
-                _launchOptions = iosOptions;
+                LastLaunchOptions = iosOptions;
                 // BUGSEE_E2E_RELAUNCH_FIRST = 1: Relaunch is the first call, with no Launch before it.
                 if (Environment.GetEnvironmentVariable("BUGSEE_E2E_RELAUNCH_FIRST") == "1")
                     Bugsee.Relaunch(iosOptions);
@@ -273,8 +283,6 @@ namespace Bugsee.Sample
         // Drive e2e from Update (not a coroutine). Fires are deferred to a single
         // call site (`PumpPendingE2EFire`) so identical throws share the same
         // Update() IL offset — worker error signatures hash cleaned frame traces.
-        // What the first Launch used, so a scenario that launches again does it the same way (endpoint, video, debug).
-        Dictionary<string, object> _launchOptions;
         string _e2eScenario;
         bool _skipE2EArming;
         string _e2eRunId;
@@ -356,6 +364,36 @@ namespace Bugsee.Sample
                         _pendingE2EFire = "X:" + _e2eScenario + "-" + _e2eRunId;
                     }
                     break;
+                case "interactions":
+                    // Drives every action of the interaction hills (issue #116), once the SDK is launched.
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        StartCoroutine(InteractionsE2E.Run(this));
+                    }
+                    break;
+                case "filters":
+                    // Turns the sample filters on and checks each one ran on events the sample sends (issue #117).
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        StartCoroutine(FiltersE2E.Run(this));
+                    }
+                    break;
+                case "actions":
+                    // Drives the action-catalog items the bubbles call (issue #115), once the SDK is launched.
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        if (Bugsee.IsLaunched)
+                            ActionsE2E.Run(this);
+                        else
+                        {
+                            Debug.Log("[Sample] actions FAIL not launched :: status=" + Bugsee.Status);
+                            Debug.Log("[Sample] actions e2e done failures=1");
+                        }
+                    }
+                    break;
                 case "upload":
                     // A plain manual report: tells "no report is ever sent" from "only handled exceptions are not".
                     if (_e2ePhase == 0 && _e2eTimer >= 5f)
@@ -426,7 +464,7 @@ namespace Bugsee.Sample
                     if (_e2ePhase == 0 && _e2eTimer >= 5f)
                     {
                         _e2ePhase = 99;
-                        _pendingE2EFire = (_e2eScenario == "attach" ? "T:" : "V:") + _e2eRunId;
+                        _pendingE2EFire = (_e2eScenario == "attach" ? "T:" : "N:") + _e2eRunId;
                     }
                     break;
                 case "options":
@@ -571,11 +609,11 @@ namespace Bugsee.Sample
                 case 'T':
                     AttachmentTaskE2E.RunAttach(this, marker);
                     break;
-                case 'V':
+                case 'N':
                     AttachmentTaskE2E.RunUnobserved(this, marker);
                     break;
                 case 'D':
-                    BlackoutE2E.Run(this, appToken, _launchOptions);
+                    BlackoutE2E.Run(this, appToken, LastLaunchOptions);
                     break;
                 case 'C':
                     SetStatus("E2E native TestCrash");
@@ -929,6 +967,7 @@ namespace Bugsee.Sample
             }
             catch (Exception ex)
             {
+                Debug.LogException(ex);
                 SetStatus("Relaunch failed: " + ex.Message);
             }
         }
@@ -941,7 +980,7 @@ namespace Bugsee.Sample
             Bugsee.SetNetworkEventFilter(enabled ? SampleFilters.NetworkFilter : null);
             Bugsee.SetLogEventFilter(enabled ? SampleFilters.LogFilter : null);
             Bugsee.SetBreadcrumbFilter(enabled ? SampleFilters.BreadcrumbFilter : null);
-            SetStatus(enabled ? "Sample filters ON" : "Sample filters OFF");
+            SetStatus((enabled ? "Sample filters ON" : "Sample filters OFF") + " (" + SampleFilters.Summary + ")");
         }
 
         void OnLifecycle(string eventType, object data)

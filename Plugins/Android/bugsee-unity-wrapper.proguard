@@ -8,6 +8,8 @@
     static void clearWrapperChannel();
     static void setSecureBuffer(int, int[]);
     static void attachLifecycleListener(com.bugsee.library.contracts.lifecycle.LifecycleEventListener);
+    static void setManagedDataProvider(com.bugsee.library.contracts.common.DataRequestProvider);
+    static void replyNoData(com.bugsee.library.contracts.common.DataRequestResultCallback);
 }
 # Every method C# calls is public static; keeping them all means a new one cannot be stripped by forgetting to list it.
 -keep class com.bugsee.unity.UnityWrapper {
@@ -35,3 +37,5 @@
 -keep interface com.bugsee.library.contracts.lifecycle.LifecycleEventListener { *; }
 -keep interface com.bugsee.library.contracts.common.Callback1 { *; }
 -keep interface com.bugsee.library.contracts.feedback.FeedbackListener { *; }
+-keep interface com.bugsee.library.contracts.common.DataRequestProvider { *; }
+-keep interface com.bugsee.library.contracts.common.DataRequestResultCallback { *; }
