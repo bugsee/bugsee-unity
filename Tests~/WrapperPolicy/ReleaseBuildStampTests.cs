@@ -328,6 +328,17 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Check_refuses_a_package_version_that_the_wrapper_does_not_report()
+        {
+            Script("stamp-wrapper-build.sh", out _);
+            File.WriteAllText(Path.Combine(_root, "package.json"), "{\n  \"name\": \"com.bugsee.unity\",\n  \"version\": \"1.2.4\"\n}\n");
+            Commit("package only");
+            var output = Script("check-release-build.sh", out var exit, "v1.2.4");
+            Assert.That(exit, Is.Not.EqualTo(0), output);
+            Assert.That(output, Does.Contain("versions disagree"));
+        }
+
+        [Test]
         public void Check_refuses_other_package_json_edits_after_the_stamp()
         {
             Script("stamp-wrapper-build.sh", out _);
