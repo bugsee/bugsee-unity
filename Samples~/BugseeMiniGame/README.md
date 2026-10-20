@@ -79,7 +79,7 @@ open IMGUI forms for input (they block game input while open); Delete Data opens
 All 13 hills place for every world seed (14 would not, at the current gap), and a warning is logged if the world ever has fewer
 summits than hills.
 
-Not reachable from the hills: the synchronous `Bugsee.Relaunch(options)` (only the iOS launch with `BUGSEE_E2E_RELAUNCH_FIRST` = 1 calls it), and these members of the objects the facade returns
+Not reachable from the hills: the synchronous `Bugsee.Relaunch(options)` (no bubble calls it; the `blackout` scenario calls `Relaunch()` on both platforms, and the iOS launch with `BUGSEE_E2E_RELAUNCH_FIRST` = 1 calls it with options), and these members of the objects the facade returns
 (the `interactions` and `apm*` e2e scenarios call some of them, no bubble does):
 `IReport.Summary` and `Type` of a draft (`Summary` only inside the report handler), `IReport.Attributes` and `GetAttribute` of a
 draft (the `interactions` check reads them back), `IAttachment.SetData(byte[])` and the `Name` / `Filename` / `MimeType`
