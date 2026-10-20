@@ -85,7 +85,8 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             var root = RepoRoot();
             var bugsee = File.ReadAllText(Path.Combine(root, "Runtime/Bugsee.cs"));
-            Assert.That(bugsee, Does.Contain("BuildTokenCheck.OnLaunch(appToken);"));
+            // Both launch entry points: Launch and LaunchAsync.
+            Assert.That(System.Text.RegularExpressions.Regex.Matches(bugsee, @"BuildTokenCheck\.OnLaunch\(appToken\);").Count, Is.EqualTo(2));
 
             var editor = File.ReadAllText(Path.Combine(root, "Editor/BugseeBuildTokenFingerprint.cs"));
             // Written at preprocess (a file written after the build is not in the player), removed after it.
