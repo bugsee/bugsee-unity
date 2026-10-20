@@ -16,6 +16,8 @@ namespace Bugsee.Sample.Editor
     /// Environment:
     ///   BUGSEE_APP_TOKEN    required; baked into the build and used for symbol upload
     ///   BUGSEE_ENDPOINT     API host (no /v2); iOS gets /v2 appended
+    ///   BUGSEE_E2E_NO_TOKEN 1: build as a CI without the token in the Editor environment: BUGSEE_APP_TOKEN is not needed
+    ///                       (and is cleared in this process), the build gets a dummy launch token, and no upload runs
     ///   BUGSEE_E2E_BACKEND  il2cpp (default) | mono
     ///   BUGSEE_E2E_DEV      1 (default, Development build) | 0 (Release)
     ///   BUGSEE_E2E_MINIFY   0 (default) | 1: R8 minification on Android (produces mapping.txt)
@@ -59,6 +61,13 @@ namespace Bugsee.Sample.Editor
         static void Build(BuildTarget target)
         {
             var token = Environment.GetEnvironmentVariable("BUGSEE_APP_TOKEN");
+            if (Environment.GetEnvironmentVariable("BUGSEE_E2E_NO_TOKEN") == "1")
+            {
+                // The package reads BUGSEE_APP_TOKEN from the Editor's environment: clear it so the build is token-less.
+                Environment.SetEnvironmentVariable("BUGSEE_APP_TOKEN", null);
+                token = "e2e-no-token-dummy-launch-token";
+            }
+
             if (string.IsNullOrWhiteSpace(token))
                 throw new InvalidOperationException("[E2EBuild] Set BUGSEE_APP_TOKEN (baked into the build, used for symbol upload).");
 
