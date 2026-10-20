@@ -58,6 +58,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
         // Native options with a constant but no typed setter on the launch options (reachable through Set/OptionsBuilder).
         static readonly Dictionary<string, string> NoTypedSetter = new Dictionary<string, string>();
+        // (Keys of NoTypedSetter are checked for staleness in Setter_types_agree_with_the_manifest_types.)
 
         // A wrapper decode fallback (FromIntValue/FromRawValue for an int the enum does not know) that is not the
         // native default. Not a launch default: the value is only used for an unparseable int.
@@ -93,7 +94,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
         sealed class Option
         {
-            public string Key, Type, Module, EnumName, DefaultText;
+            public string Key, Type, Module, EnumName;
             public bool Hidden, Deprecated, StringValued;
             public Dictionary<string, long> EnumValues;
             public string EnumDefault;
@@ -130,14 +131,22 @@ namespace Bugsee.WrapperPolicy.Tests
                 manifest.SdkVersion = root.GetProperty("sdkVersion").GetString();
                 foreach (var o in root.GetProperty("options").EnumerateArray())
                 {
+                    // A field the spec requires but the file lacks must name the SDK and option, not throw out of the Lazy.
+                    JsonElement Required(string name)
+                    {
+                        if (o.TryGetProperty(name, out var value)) return value;
+                        Assert.Fail(sdk + " manifest option " + (o.TryGetProperty("key", out var k) ? k.ToString() : o.ToString()) + " has no \"" + name +
+                            "\" (required by sdk/options/manifest.md). The vendored file is not a valid manifest: " + Update);
+                        return default;
+                    }
+                    Required("default");
                     var option = new Option
                     {
-                        Key = o.GetProperty("key").GetString(),
-                        Type = o.GetProperty("type").GetString(),
-                        Module = o.GetProperty("module").GetString(),
-                        Hidden = o.GetProperty("hidden").GetBoolean(),
+                        Key = Required("key").GetString(),
+                        Type = Required("type").GetString(),
+                        Module = Required("module").GetString(),
+                        Hidden = Required("hidden").GetBoolean(),
                         Deprecated = o.TryGetProperty("deprecated", out _),
-                        DefaultText = o.GetProperty("default").ToString(),
                     };
                     if (option.Type == "enum")
                     {
@@ -277,6 +286,12 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             var setters = Setters();
             var problems = new List<string>();
+            foreach (var key in NoTypedSetter.Keys)
+            {
+                var name = Constants().Where(c => c.Value == key).Select(c => c.Key).FirstOrDefault();
+                if (name == null || setters.ContainsKey(name))
+                    problems.Add("NoTypedSetter lists " + key + ", which has no constant or now has a typed setter: remove the entry.");
+            }
             foreach (var kv in Constants())
             {
                 var manifests = new[] { Android, Ios }.Where(m => m.Options.ContainsKey(kv.Value)).ToList();
@@ -320,6 +335,7 @@ namespace Bugsee.WrapperPolicy.Tests
             var setters = Setters();
             var problems = new List<string>();
             var usedIosGaps = new HashSet<string>();
+            var usedRenames = new HashSet<string>();
             foreach (var kv in Constants())
             {
                 if (!setters.TryGetValue(kv.Key, out var setter) || EnumTypeOf(setter.Type) == null) continue;
@@ -341,6 +357,7 @@ namespace Bugsee.WrapperPolicy.Tests
                         }
                         // iOS names may differ for the same value; Android names are the C# names.
                         var allowedRename = IosEnumNameDifferences.TryGetValue(o.EnumName + ":" + native.Key, out var renamed) && byValue.Contains(renamed);
+                        if (allowedRename && !byValue.Contains(native.Key)) usedRenames.Add(o.EnumName + ":" + native.Key);
                         if (!byValue.Contains(native.Key) && !allowedRename)
                             problems.Add(where + ": value " + native.Value + " is " + native.Key + " in the SDK and " + string.Join("/", byValue) +
                                 " in C#. Align the name, or list it in IosEnumNameDifferences if iOS names it differently on purpose.");
@@ -364,6 +381,8 @@ namespace Bugsee.WrapperPolicy.Tests
                     }
                 }
             }
+            foreach (var key in IosEnumNameDifferences.Keys.Where(k => !usedRenames.Contains(k)))
+                problems.Add("IosEnumNameDifferences lists " + key + ", but iOS no longer names that value differently from C#: remove the entry.");
             foreach (var key in CsharpEnumValuesIosLacks.Keys.Where(k => !usedIosGaps.Contains(k)))
                 problems.Add("CsharpEnumValuesIosLacks lists " + key + ", but iOS now has that value or C# no longer does: remove the entry.");
             Assert.That(problems, Is.Empty, string.Join("\n", problems));
@@ -385,8 +404,9 @@ namespace Bugsee.WrapperPolicy.Tests
             var other = manifest == Android ? Ios : Android;
             var missing = manifest.Options.Values
                 .Where(o => !o.Hidden && !constants.Contains(o.Key) && !notExposed.ContainsKey(o.Key))
-                // An option both SDKs list is judged once, on the Android side (its entry covers iOS too).
-                .Where(o => manifest == Android || !Android.Options.ContainsKey(o.Key) || constants.Contains(o.Key))
+                // An option both SDKs list is judged once, on the Android side if it is public there (its entry covers iOS too),
+                // otherwise on the iOS side (hidden on Android, public on iOS).
+                .Where(o => manifest == Android || !(Android.Options.TryGetValue(o.Key, out var a) && !a.Hidden) || constants.Contains(o.Key))
                 .Select(o => o.Key).OrderBy(k => k, StringComparer.Ordinal).ToList();
             if (missing.Count > 0)
                 problems.Add(manifest.Sdk + " " + manifest.SdkVersion + " has " + Plural(missing.Count, "option") + " the wrapper neither exposes nor " +
@@ -437,9 +457,10 @@ namespace Bugsee.WrapperPolicy.Tests
             }
             // A key hidden on one SDK and public on the other is a decision for a human, whichever side hides it.
             foreach (var a in Android.Options.Values)
-                if (Ios.Options.TryGetValue(a.Key, out var i) && a.Hidden != i.Hidden)
+                if (Ios.Options.TryGetValue(a.Key, out var i) && a.Hidden != i.Hidden &&
+                    !AndroidNotExposed.ContainsKey(a.Key) && !IosNotExposed.ContainsKey(a.Key) && !HiddenButExposed.ContainsKey(a.Key))
                     problems.Add(a.Key + " is " + (a.Hidden ? "hidden on Android but public on iOS" : "public on Android but hidden on iOS") +
-                        ": decide whether the wrapper exposes it, and say so in HiddenButExposed or the not-exposed lists.");
+                        ": decide whether the wrapper exposes it. HiddenButExposed (with a constant) or the not-exposed lists (which also silence this) record the decision.");
             Assert.That(problems, Is.Empty, string.Join("\n", problems));
         }
 
