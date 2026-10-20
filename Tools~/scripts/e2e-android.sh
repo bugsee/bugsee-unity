@@ -3,7 +3,9 @@
 #
 #   Tools~/scripts/e2e-android.sh <adb-serial> <apk> <scenario> [<scenario>...]
 #
-# Scenarios (see BugseeSampleBootstrap): handled unhandled pipeline sig crash native abort fatal java hang
+# Scenarios: any name BugseeSampleBootstrap knows; the list with what each does is the scenario table in
+#   Samples~/BugseeMiniGame/README.md (interactions actions filters presets sig handled unhandled pipeline upload crash native
+#   abort fatal java hang delete apm* shapes none ...). The self-checking ones log `[Sample] <name> PASS|FAIL` lines.
 #   PRESET=minimal|detect|privacy launches every scenario with that launch-option preset (extra bugsee_preset).
 #   `crash` and `java` need the TestCrash-on-main-looper change; `hang` blocks the Android UI thread.
 #
