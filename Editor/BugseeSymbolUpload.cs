@@ -260,11 +260,12 @@ namespace Bugsee.Editor
             };
             if (extraArgs != null)
             {
-                var iconAt = extraArgs.IndexOf("--icon");
-                if (iconAt >= 0 && iconAt + 1 < extraArgs.Count)
+                var notice = AndroidUploadIdentity.IconNotice(extraArgs);
+                if (notice != null)
                 {
-                    Debug.Log($"Bugsee: attaching launcher icon {extraArgs[iconAt + 1]} to the mapping upload.");
+                    Debug.Log(notice);
                 }
+
                 args.AddRange(extraArgs);
             }
 
