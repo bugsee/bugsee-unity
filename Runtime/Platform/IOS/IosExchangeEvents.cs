@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Options;
+using Bugsee.WrapperPolicy;
 using UnityEngine;
 
 namespace Bugsee.Platform.IOS
@@ -47,7 +48,6 @@ namespace Bugsee.Platform.IOS
         public string message;
         public string type;
         public int level;
-        public IosKv[] data;
     }
 
     sealed class IosNetworkEvent : INetworkEvent
@@ -241,19 +241,15 @@ namespace Bugsee.Platform.IOS
     {
         readonly IosBreadcrumbDto _dto;
         Dictionary<string, object> _data;
+        // Data hands out a mutable dictionary, so any access counts as a touch. Until then the result omits `data`
+        // and native keeps its own (exact numbers, nulls, a nil data stay as they were).
+        bool _dataTouched;
 
-        public IosBreadcrumb(IosBreadcrumbDto dto)
+        public IosBreadcrumb(IosBreadcrumbDto dto, IDictionary<string, object> data)
         {
             _dto = dto ?? new IosBreadcrumbDto();
-            _data = new Dictionary<string, object>();
-            if (_dto.data != null)
-            {
-                foreach (var p in _dto.data)
-                {
-                    if (p == null || string.IsNullOrEmpty(p.key)) continue;
-                    _data[p.key] = p.value;
-                }
-            }
+            // null: native data could not be read (malformed or too deep); a filter that reads Data then sees empty.
+            _data = data != null ? new Dictionary<string, object>(data) : null;
         }
 
         public long Timestamp
@@ -288,37 +284,23 @@ namespace Bugsee.Platform.IOS
 
         public IDictionary<string, object> Data
         {
-            get => _data ?? (_data = new Dictionary<string, object>());
+            get
+            {
+                _dataTouched = true;
+                return _data ?? (_data = new Dictionary<string, object>());
+            }
             set
             {
+                _dataTouched = true;
                 _data = value != null
                     ? new Dictionary<string, object>(value)
                     : new Dictionary<string, object>();
             }
         }
 
-        public string ToResultJson()
-        {
-            if (_data == null || _data.Count == 0)
-            {
-                _dto.data = Array.Empty<IosKv>();
-            }
-            else
-            {
-                var list = new List<IosKv>(_data.Count);
-                foreach (var kv in _data)
-                {
-                    if (kv.Key == null) continue;
-                    list.Add(new IosKv
-                    {
-                        key = kv.Key,
-                        value = kv.Value == null ? null : Convert.ToString(kv.Value),
-                    });
-                }
-                _dto.data = list.ToArray();
-            }
-            return JsonUtility.ToJson(_dto);
-        }
+        // A touched data goes back as a real JSON object (nested values and scalar kinds kept), not through JsonUtility.
+        public string ToResultJson() =>
+            IosBridgeJson.AppendObjectField(JsonUtility.ToJson(_dto), "data", _dataTouched ? _data : null);
     }
 
     /// <summary>
@@ -332,18 +314,6 @@ namespace Bugsee.Platform.IOS
             if (string.IsNullOrEmpty(json)) return "{}";
             // Headers arrive as {"a":"b"}; rewrite to [{"key":"a","value":"b"}].
             return RewriteObjectMapField(json, "headers");
-        }
-
-        public static string NormalizeBreadcrumb(string json)
-        {
-            if (string.IsNullOrEmpty(json)) return "{}";
-            return RewriteObjectMapField(json, "data");
-        }
-
-        public static string NormalizeReport(string json)
-        {
-            if (string.IsNullOrEmpty(json)) return "{}";
-            return RewriteObjectMapField(json, "attributes");
         }
 
         static string RewriteObjectMapField(string json, string field)

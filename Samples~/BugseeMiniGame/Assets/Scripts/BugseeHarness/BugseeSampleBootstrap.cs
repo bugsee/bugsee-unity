@@ -143,6 +143,7 @@ namespace Bugsee.Sample
                 };
                 if (!string.IsNullOrWhiteSpace(endpointOverride))
                     options.Endpoint = endpointOverride.Trim();
+                _launchOptions = options;
                 // "bugsee_launch_thread" = 1 launches from a worker thread (checks that a launch from any thread works).
                 if (ReadE2EValue("bugsee_launch_thread", "BUGSEE_LAUNCH_THREAD") == "1")
                 {
@@ -200,7 +201,12 @@ namespace Bugsee.Sample
                 var crashHandler = Environment.GetEnvironmentVariable("BUGSEE_E2E_CRASH_HANDLER");
                 if (int.TryParse(crashHandler, out var handlerType))
                     iosOptions.SetCustomOption("com.bugsee.option.capture.crash-handler-type", handlerType);
-                Bugsee.Launch(appToken, iosOptions);
+                _launchOptions = iosOptions;
+                // BUGSEE_E2E_RELAUNCH_FIRST = 1: Relaunch is the first call, with no Launch before it.
+                if (Environment.GetEnvironmentVariable("BUGSEE_E2E_RELAUNCH_FIRST") == "1")
+                    Bugsee.Relaunch(iosOptions);
+                else
+                    Bugsee.Launch(appToken, iosOptions);
 #else
                 // Editor / unsupported: still call Launch (no-op bridge).
                 Bugsee.Launch(appToken);
@@ -212,7 +218,7 @@ namespace Bugsee.Sample
 
                 // Auto e2e matrix when endpoint override is set (device → local appserver).
                 // Scenarios via Android intent extra "bugsee_e2e" (default: sig).
-                //   handled | unhandled | crash | sig | pipeline | native | abort | fatal | java | hang | upload | none
+                //   handled | unhandled | crash | sig | pipeline | native | abort | fatal | java | hang | upload | blackout | none
                 // Armed when an endpoint override is set or the extra is given explicitly.
                 // Only the launch a running scenario makes itself arms nothing; the next one reads the environment again.
                 var skipArming = _skipE2EArming;
@@ -252,6 +258,8 @@ namespace Bugsee.Sample
         // Drive e2e from Update (not a coroutine). Fires are deferred to a single
         // call site (`PumpPendingE2EFire`) so identical throws share the same
         // Update() IL offset — worker error signatures hash cleaned frame traces.
+        // What the first Launch used, so a scenario that launches again does it the same way (endpoint, video, debug).
+        Dictionary<string, object> _launchOptions;
         string _e2eScenario;
         bool _skipE2EArming;
         string _e2eRunId;
@@ -324,6 +332,8 @@ namespace Bugsee.Sample
                 case "logerror":
                 case "sigraise":
                 case "nullderef":
+                case "attrsnoop":
+                case "attrsedit":
                 case "delete":
                     if (_e2ePhase == 0 && _e2eTimer >= 5f)
                     {
@@ -372,6 +382,13 @@ namespace Bugsee.Sample
                     {
                         _e2ePhase = 99;
                         _pendingE2EFire = "S:shapes";
+                    }
+                    break;
+                case "blackout":
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 99;
+                        _pendingE2EFire = "D:blackout";
                     }
                     break;
                 case "none":
@@ -424,6 +441,9 @@ namespace Bugsee.Sample
                     break;
                 case 'S':
                     ShapesE2E.Run(this);
+                    break;
+                case 'D':
+                    BlackoutE2E.Run(this, appToken, _launchOptions);
                     break;
                 case 'C':
                     SetStatus("E2E native TestCrash");
@@ -480,6 +500,11 @@ namespace Bugsee.Sample
                         { "skipFrames", 1 },
                     });
                 }
+            }
+            else if (marker.StartsWith("attrs"))
+            {
+                // Report-handler attribute kinds (see ReportAttributesE2E).
+                ReportAttributesE2E.Run(this, marker.StartsWith("attrsedit"), _e2eRunId);
             }
             else if (marker.StartsWith("logerror"))
             {
@@ -768,6 +793,7 @@ namespace Bugsee.Sample
         void OnLifecycle(string eventType, object data)
         {
             _lastLifecycle = eventType;
+            Debug.Log("[BugseeSample] lifecycle " + eventType + " data=" + (data == null ? "null" : data.GetType().Name + ":" + data));
             var line = DateTime.Now.ToString("HH:mm:ss") + " " + eventType +
                        (data != null ? " data=" + data : "");
             _lifecycleLog.Enqueue(line);

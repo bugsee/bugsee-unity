@@ -162,4 +162,10 @@ else:
 PY
 fi
 
+# The vendored option manifests of the pinned versions (Tests~/WrapperPolicy/OptionsManifestTests checks them against
+# versions.env). A pin without a published manifest must not undo the bump above: the test then fails until it is vendored.
+if ! "${ROOT_DIR}/Tools~/scripts/update-options-manifest.sh"; then
+  echo "WARNING: option manifests not vendored; OptionsManifestTests fails until Tools~/scripts/update-options-manifest.sh succeeds." >&2
+fi
+
 echo "Done."

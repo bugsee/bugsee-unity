@@ -113,7 +113,12 @@ namespace Bugsee.Editor
             {
                 bool noRepoChange = Environment.GetEnvironmentVariable(EnvNoRepoInjection) != null;
                 string launcherBefore = patchedLauncher;
-                patch = GradlePluginInjection.Apply(root, rootDsl, patchedLauncher, launcherDsl, GradlePluginVersion, !noRepoChange);
+                // An exported project is built later, outside the Editor, so the Editor has no mapping or native libraries to
+                // upload for it: the plugin's own uploads get the token from the environment of that Gradle build. For a build the
+                // Editor runs itself, its own upload (after Gradle, with the full symbols) already covers the same files.
+                patch = GradlePluginInjection.Apply(
+                    root, rootDsl, patchedLauncher, launcherDsl, GradlePluginVersion, !noRepoChange,
+                    gradleUploads: EditorUserBuildSettings.exportAsGoogleAndroidProject);
                 patchedRoot = patch.Root;
                 patchedLauncher = patch.Launcher;
                 applied = patch.Applied;
@@ -198,6 +203,23 @@ namespace Bugsee.Editor
                 Debug.Log(
                     $"[Bugsee] Launcher applies com.bugsee.android.gradle:{GradlePluginVersion}. " +
                     $"Runtime AAR pin {SdkVersion} with NDK enabled.");
+                if (EditorUserBuildSettings.exportAsGoogleAndroidProject)
+                {
+                    if (patch != null && patch.GradleUploadsApplied)
+                    {
+                        Debug.Log(
+                            "[Bugsee] Export Project: the plugin uploads the R8 mapping and the native symbols when this project is built with " +
+                            "BUGSEE_APP_TOKEN set in the environment of that Gradle build (the launcher reads it from there, no token is stored in the project).");
+                    }
+                    else
+                    {
+                        Debug.LogWarning(
+                            "[Bugsee] Export Project: " + launcherPath + " has a bugsee { } block (or declares the plugin) of its own, so the package did not " +
+                            "add the lines that let the plugin upload the mapping and native symbols with BUGSEE_APP_TOKEN from the environment of the Gradle build. " +
+                            "Without them that build uploads nothing. Add inside the block:\n" +
+                            GradlePluginInjection.UploadsInstructions(launcherDsl == GradleMavenInjection.GradleDsl.Kotlin));
+                    }
+                }
             }
             else if (wanted)
             {

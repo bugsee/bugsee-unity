@@ -30,3 +30,7 @@ Recordings/
 # Build-time credentials injected by Editor/E2EBuild (never commit)
 Assets/Resources/BugseeE2E.json
 Assets/Resources/BugseeE2E.json.meta
+
+# An older package version wrote the IL2CPP module UUID here at build time (one build stale); never track it.
+Assets/Resources/BugseeIl2CppModuleUuids.txt
+Assets/Resources/BugseeIl2CppModuleUuids.txt.meta
