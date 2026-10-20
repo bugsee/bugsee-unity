@@ -183,7 +183,7 @@ Manual checklist for a Windows machine (Unity 2021.3.45f1 or 2022.3 LTS with And
 2. With `BUGSEE_NO_CLI_DOWNLOAD=1` and no CLI: expect one warning naming `install.ps1` and the paths tried, and the build to succeed.
 3. Install with `powershell -ExecutionPolicy ByPass -c "irm https://download.bugsee.com/cli/install.ps1 | iex"`, restart the Hub and Editor without touching PATH: the build must find `%LOCALAPPDATA%\Bugsee\bin\bugsee-cli.exe` (`install directory`).
 4. `BUGSEE_CLI_PATH` as `"C:\Program Files\x\bugsee-cli.exe"` with the quotes, and as `C:\Program Files\x\bugsee-cli` without `.exe`: both must resolve in the Editor's own uploads. Then repeat with an Android Export Project and note which CLI the Gradle plugin uses (expected: its own lookup for the two odd forms, your path for a plain full path).
-5. Build into a folder with a space (`C:\Build Output\My Game\game.apk`), then one under a 250-character path, then one under `%TEMP%`: record which uploads are found (the last is expected to be skipped, see above).
+5. Build into a folder with a space (`C:\Build Output\My Game\game.apk`), then one under a 250-character path, then one under `%TEMP%`: record which uploads are found (the last is expected to be found, since only folders named `Library`, `Temp`, `Bee` or `obj` below the scan root are skipped, see above).
 6. Export an iOS project from the Windows Editor: `BugseeScripts/upload-symbols.sh` must contain no `\r` and `BAKED_CLI=''`.
 
 ### Player Settings checklist

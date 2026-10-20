@@ -57,8 +57,19 @@ jobs:
       - name: Test
         shell: pwsh
         run: |
-          dotnet test Tests~/WrapperPolicy/Bugsee.WrapperPolicy.Tests.csproj --nologo --configuration Release --filter 'FullyQualifiedName!~.Ios&FullyQualifiedName!~.LocalPackageCopyTests'
+          dotnet test Tests~/WrapperPolicy/Bugsee.WrapperPolicy.Tests.csproj --nologo --configuration Release --filter 'FullyQualifiedName!~.Ios&FullyQualifiedName!~.LocalPackageCopyTests' --logger "trx;LogFileName=win.trx" --results-directory "$env:RUNNER_TEMP\trx"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      # A skipped test counts as a pass: fail unless the native smoke tests really executed on this host.
+      - name: Check that the Windows smoke tests ran
+        shell: pwsh
+        run: |
+          [xml]$trx = Get-Content "$env:RUNNER_TEMP\trx\win.trx"
+          $ids = @($trx.TestRun.TestDefinitions.UnitTest | Where-Object { $_.TestMethod.className -like '*WindowsNativeSmokeTests' } | ForEach-Object { $_.id })
+          $r = @($trx.TestRun.Results.UnitTestResult | Where-Object { $ids -contains $_.testId })
+          $passed = @($r | Where-Object { $_.outcome -eq 'Passed' }).Count
+          Write-Host "Windows smoke tests passed: $passed of $($r.Count)"
+          if ($passed -lt 12) { Write-Error "Expected at least 12 executed WindowsNativeSmokeTests results, got $passed"; exit 1 }
 
   unity-compile:
     name: Unity C# compile check
