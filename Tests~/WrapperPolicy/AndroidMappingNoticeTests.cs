@@ -124,6 +124,19 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(all, Does.Not.Contain("--token").And.Not.Contain("--app-token").And.Not.Contain("BUGSEE_APP_TOKEN="));
         }
 
+        // Every Editor read of buildStartedAt goes through BuildClock (or UnixSeconds, which also reads it as UTC):
+        // a bare .ToUniversalTime() on it shifts the value by the machine's offset.
+        [Test]
+        public void No_editor_step_calls_ToUniversalTime_on_buildStartedAt()
+        {
+            var dir = TestContext.CurrentContext.TestDirectory;
+            while (!System.IO.File.Exists(System.IO.Path.Combine(dir, "package.json"))) dir = System.IO.Directory.GetParent(dir).FullName;
+            foreach (var file in System.IO.Directory.GetFiles(System.IO.Path.Combine(dir, "Editor"), "*.cs", System.IO.SearchOption.AllDirectories))
+            {
+                Assert.That(System.IO.File.ReadAllText(file), Does.Not.Match(@"buildStartedAt\s*\.\s*ToUniversalTime"), file);
+            }
+        }
+
         // BuildSummary.buildStartedAt: UTC ticks, Kind Unspecified.
         [TestCase(-8)]
         [TestCase(0)]
