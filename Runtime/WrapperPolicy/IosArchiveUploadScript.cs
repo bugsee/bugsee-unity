@@ -2,7 +2,7 @@ namespace Bugsee.WrapperPolicy
 {
     /// <summary>
     /// The shell script behind the iOS "Bugsee Upload Symbols" Run Script phase (dSYMs + il2cpp-linemap). It never
-    /// fails the build: every CLI error is swallowed.
+    /// fails the build: every CLI error is reported as an Xcode <c>warning:</c> line and nothing more.
     /// </summary>
     public static class IosArchiveUploadScript
     {
@@ -44,13 +44,13 @@ namespace Bugsee.WrapperPolicy
         const string Script = @"#!/bin/sh
 set -e
 # Bugsee archive-time symbol upload (dSYMs + il2cpp-linemap).
-# Never fail the Archive — swallow CLI errors.
+# Never fail the Archive: problems are reported as warning: lines (Xcode's issue navigator), never error:.
 if [ ""${CONFIGURATION}"" = ""Debug"" ] && [ ""${BUGSEE_SKIP_UPLOAD_ON_DEBUG}"" = ""1"" ]; then
   echo ""Bugsee: skip symbol upload for Debug (BUGSEE_SKIP_UPLOAD_ON_DEBUG=1).""
   exit 0
 fi
 if [ -z ""${BUGSEE_APP_TOKEN}"" ]; then
-  echo ""Bugsee: BUGSEE_APP_TOKEN unset — skip archive symbol upload.""
+  printf '%s\n' ""warning: Bugsee: BUGSEE_APP_TOKEN unset — dSYMs and the il2cpp line map are NOT uploaded (the build continues). Xcode's GUI does not see your shell's environment: add a user-defined build setting named BUGSEE_APP_TOKEN to the Unity-iPhone target (a gitignored .xcconfig keeps it out of the project), or set it in your CI / Xcode Cloud environment.""
   exit 0
 fi
 
@@ -189,8 +189,31 @@ fi
 printf '%s\n' ""Bugsee: using ${CLI}""
 VERSION=""${BUGSEE_VERSION:-${MARKETING_VERSION}}""
 BUILD=""${BUGSEE_BUILD:-${CURRENT_PROJECT_VERSION}}""
+FAILED=0
+# Says why a CLI exit code is a failure (the bugsee-cli exit-code contract); the build is never failed.
+cli_failure() {
+  case ""$1"" in
+    1) WHY=""bugsee-cli hit an unexpected error"" ;;
+    2) WHY=""bugsee-cli rejected its arguments (a bugsee-cli older or newer than this package expects?)"" ;;
+    10) WHY=""the file to upload was not found"" ;;
+    11) WHY=""the file to upload is not a usable symbol file"" ;;
+    20) WHY=""bugsee-cli found its configuration invalid"" ;;
+    21) WHY=""the server rejected the app token: check BUGSEE_APP_TOKEN"" ;;
+    30) WHY=""the Bugsee server returned an error"" ;;
+    31) WHY=""the Bugsee server could not be reached (network)"" ;;
+    126|127) WHY=""bugsee-cli could not be run"" ;;
+    *) WHY=""bugsee-cli failed"" ;;
+  esac
+}
 upload() {
-  ""$@"" || echo ""Bugsee: upload command failed (archive continues): $*""
+  UPLOAD_RC=0
+  ""$@"" || UPLOAD_RC=$?
+  if [ ""${UPLOAD_RC}"" -ne 0 ]; then
+    FAILED=1
+    cli_failure ""${UPLOAD_RC}""
+    printf '%s\n' ""warning: Bugsee: symbol upload failed (exit ${UPLOAD_RC}): ${WHY}. Not uploaded: ${LAST_UPLOAD} (the build continues).""
+  fi
+  return 0
 }
 
 # --- dSYMs: the app, UnityFramework and the embedded xcframeworks' (Bugsee.framework.dSYM) ---
@@ -198,6 +221,7 @@ if [ -n ""${DWARF_DSYM_FOLDER_PATH}"" ] && [ -d ""${DWARF_DSYM_FOLDER_PATH}"" ];
   for DSYM in ""${DWARF_DSYM_FOLDER_PATH}""/*.dSYM; do
     [ -d ""${DSYM}"" ] || continue
     echo ""Bugsee: uploading dSYM ${DSYM}""
+    LAST_UPLOAD=""${DSYM}""
     upload ""${CLI}"" debug-files upload ""${DSYM}"" --type dsym --version ""${VERSION}"" --build ""${BUILD}""
   done
 fi
@@ -216,6 +240,7 @@ if [ ! -d ""${DWARF_DSYM_FOLDER_PATH}/Bugsee.framework.dSYM"" ]; then
   done
   if [ -n ""${SDK_DSYM}"" ]; then
     echo ""Bugsee: uploading SDK dSYM ${SDK_DSYM}""
+    LAST_UPLOAD=""${SDK_DSYM}""
     upload ""${CLI}"" debug-files upload ""${SDK_DSYM}"" --type dsym --version ""${VERSION}"" --build ""${BUILD}""
   fi
 fi
@@ -248,10 +273,12 @@ if [ -z ""${UUID}"" ]; then
 fi
 if [ -n ""${LINEMAP}"" ] && [ -f ""${LINEMAP}"" ] && [ -n ""${UUID}"" ]; then
   echo ""Bugsee: uploading il2cpp-linemap ${LINEMAP} uuid=${UUID}""
+  LAST_UPLOAD=""${LINEMAP}""
   upload ""${CLI}"" debug-files upload ""${LINEMAP}"" --type il2cpp-linemap --version ""${VERSION}"" --build ""${BUILD}"" --uuid ""${UUID}""
 else
   echo ""Bugsee: skip il2cpp-linemap (map='${LINEMAP}' uuid='${UUID}')""
 fi
+[ ""${FAILED}"" -eq 0 ] || printf '%s\n' ""warning: Bugsee: some symbols were NOT uploaded; crashes from this build may stay unsymbolicated (see the warnings above).""
 exit 0
 ";
     }

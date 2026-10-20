@@ -72,7 +72,48 @@ namespace Bugsee.WrapperPolicy.Tests
             var run = RunScript(new[] { "BugseeMiniGame.app.dSYM", "Bugsee.framework.dSYM" }, cliExitCode: 3);
 
             Assert.That(run.Calls.Count(c => c.Contains("--type dsym")), Is.EqualTo(2), run.Output);
-            Assert.That(run.Output, Does.Contain("Bugsee: upload command failed (archive continues)"));
+            Assert.That(run.Output, Does.Contain("warning: Bugsee: symbol upload failed (exit 3)"));
+            Assert.That(run.ExitCode, Is.EqualTo(0));
+        }
+
+        // The CLI's exit-code contract in words, as warning: lines (Xcode lists those; error: would fail the build).
+        [TestCase(1, "bugsee-cli hit an unexpected error")]
+        [TestCase(2, "rejected its arguments")]
+        [TestCase(21, "the server rejected the app token")]
+        [TestCase(30, "server returned an error")]
+        [TestCase(31, "could not be reached (network)")]
+        [TestCase(127, "bugsee-cli could not be run")]
+        [TestCase(99, "bugsee-cli failed")]
+        public void Archive_script_warns_with_the_reason_for_each_cli_failure(int code, string reason)
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, cliExitCode: code);
+
+            var lines = run.Output.Split('\n').Where(l => l.StartsWith("warning: Bugsee: symbol upload failed (exit " + code + ")")).ToList();
+            Assert.That(lines, Is.Not.Empty, run.Output);
+            Assert.That(lines[0], Does.Contain(reason));
+            Assert.That(lines[0], Does.Contain("BugseeMiniGame.app.dSYM"));
+            Assert.That(run.Output, Does.Contain("warning: Bugsee: some symbols were NOT uploaded"));
+            Assert.That(run.Output, Does.Not.Contain("error:"));
+            Assert.That(run.ExitCode, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void Archive_script_has_no_failure_warning_when_every_upload_succeeds()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" });
+
+            Assert.That(run.Output, Does.Not.Contain("symbol upload failed"));
+            Assert.That(run.Output, Does.Not.Contain("NOT uploaded"));
+            Assert.That(run.ExitCode, Is.EqualTo(0));
+        }
+
+        // No dSYM at all still gets the no-dSYM warning, and the build goes on.
+        [Test]
+        public void Archive_script_warns_and_exits_zero_with_no_dsyms_at_all()
+        {
+            var run = RunScript(new string[0]);
+
+            Assert.That(run.Output, Does.Contain("warning: Bugsee: no dSYM for Debug"));
             Assert.That(run.ExitCode, Is.EqualTo(0));
         }
 
@@ -82,7 +123,9 @@ namespace Bugsee.WrapperPolicy.Tests
             var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, token: "");
 
             Assert.That(run.Calls, Is.Empty);
-            Assert.That(run.Output, Does.Contain("BUGSEE_APP_TOKEN unset"));
+            var warning = run.Output.Split('\n').Single(l => l.Contains("BUGSEE_APP_TOKEN unset"));
+            Assert.That(warning, Does.StartWith("warning: Bugsee: "));
+            Assert.That(warning, Does.Contain("build setting"));
             Assert.That(run.ExitCode, Is.EqualTo(0));
         }
 

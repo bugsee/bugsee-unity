@@ -429,7 +429,7 @@ namespace Bugsee.Editor
             // fails the whole build with "Permission denied" (Debug and Release alike, before the script's own
             // "never fail the build" handling can run). The "||" keeps a failing upload from failing the build.
             const string shellScript =
-                "/bin/sh \"${PROJECT_DIR}/BugseeScripts/upload-symbols.sh\" || echo \"Bugsee: symbol upload script failed (the build continues).\"\n";
+                "/bin/sh \"${PROJECT_DIR}/BugseeScripts/upload-symbols.sh\" || echo \"warning: Bugsee: symbol upload script failed (the build continues).\"\n";
             // An "Append" export keeps the phase an earlier package version added (the bare-path one fails), and
             // AddShellScriptBuildPhase reuses a phase only when its script is identical: update it in place first.
             project.ReadFromString(XcodeShellScriptPhase.RewriteScript(project.WriteToString(), phaseName, shellScript));
@@ -437,7 +437,8 @@ namespace Bugsee.Editor
             project.WriteToFile(projectPath);
             Debug.Log(
                 "[Bugsee] Injected Xcode Run Script 'Bugsee Upload Symbols' for archive-time " +
-                "dSYM + il2cpp-linemap upload (requires BUGSEE_APP_TOKEN in the Xcode/CI env).");
+                "dSYM + il2cpp-linemap upload. The script reads BUGSEE_APP_TOKEN at Xcode build time (environment or a " +
+                "user-defined build setting; it is never written into the project): without it the build prints a warning and uploads nothing.");
         }
     }
 }
