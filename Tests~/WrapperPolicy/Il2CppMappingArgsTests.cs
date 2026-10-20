@@ -32,7 +32,12 @@ namespace Bugsee.WrapperPolicy.Tests
         public void The_editor_step_does_not_look_at_the_token_or_the_explicit_mapping_path()
         {
             var dir = TestContext.CurrentContext.TestDirectory;
-            while (!File.Exists(Path.Combine(dir, "package.json"))) dir = Directory.GetParent(dir).FullName;
+            while (!File.Exists(Path.Combine(dir, "package.json")))
+            {
+                var parent = Directory.GetParent(dir);
+                if (parent == null) Assert.Fail("package.json not found above " + TestContext.CurrentContext.TestDirectory);
+                dir = parent.FullName;
+            }
             var text = File.ReadAllText(Path.Combine(dir, "Editor", "BugseeIl2CppMappingArgs.cs"));
             Assert.That(text, Does.Contain("Il2CppMappingArgs.ShouldEmit("));
             Assert.That(text, Does.Not.Contain("HasAppToken"));

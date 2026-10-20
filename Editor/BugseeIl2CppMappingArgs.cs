@@ -55,11 +55,12 @@ namespace Bugsee.Editor
             Restore();
         }
 
-        static void Restore()
+        /// <returns>false when the earlier value could not be put back (the record is kept for the next attempt).</returns>
+        static bool Restore()
         {
             if (!SessionState.GetBool(AppliedKey, false))
             {
-                return;
+                return true;
             }
 
             string previous = SessionState.GetString(PreviousKey, string.Empty);
@@ -70,10 +71,12 @@ namespace Bugsee.Editor
             catch (Exception ex)
             {
                 Debug.LogWarning("[Bugsee] Could not restore " + EnvName + ": " + ex.Message);
+                return false;
             }
 
             SessionState.EraseBool(AppliedKey);
             SessionState.EraseString(PreviousKey);
+            return true;
         }
 
         static bool Applies(BuildReport report)
@@ -94,7 +97,11 @@ namespace Bugsee.Editor
         public void OnPreprocessBuild(BuildReport report)
         {
             // A value left by an aborted earlier build is put back first (no build of this kind is running yet).
-            Restore();
+            if (!Restore())
+            {
+                return;
+            }
+
             if (!Applies(report))
             {
                 return;
