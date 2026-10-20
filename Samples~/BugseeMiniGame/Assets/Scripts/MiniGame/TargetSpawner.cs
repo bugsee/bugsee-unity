@@ -78,6 +78,7 @@ namespace Bugsee.Sample
             else
             {
                 _bootstrap.Score += 1;
+                BugseeActionCatalog.Instance?.Interactions.OnOrbPickup(_bootstrap.Score);
                 Bugsee.Event("field.collect", new Dictionary<string, object>
                 {
                     { "score", _bootstrap.Score }
