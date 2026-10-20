@@ -92,6 +92,9 @@ namespace Bugsee.Editor
             {
                 CliSettings settings = ReadSettings(quiet: true);
                 settings.DownloadAllowed = false;
+                // The Run Script has its own, lower floor (it uploads no ELF files): a 0.8.0 the Editor passes over for
+                // its own uploads is still worth baking, since Xcode's minimal PATH would not find it.
+                settings.MinVersion = BugseeCliPolicy.IosMinVersion;
                 var resolution = BugseeCliPolicy.Resolve(settings, new CliProbe { FileExists = File.Exists, QueryVersion = QueryVersion });
                 return resolution.Found ? resolution.Path : null;
             }
