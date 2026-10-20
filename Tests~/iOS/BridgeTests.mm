@@ -44,6 +44,8 @@ int _bugsee_test_simulator_warning_count(void);
 int _bugsee_exceptions_filed(void);
 void _bugsee_logException(const char *name, const char *reason, bool handled, const char *optionsJson);
 int _bugsee_exception_options_dropped(void);
+const char *_bugsee_test_apply_report_attachments(const char *json);
+const char *_bugsee_test_apply_extended_attachments(const char *json);
 }
 
 // Same switch as BugseeUnityBridge.mm: bugsee-cocoa up to 7.0.0-beta6 still has the exception logging options.
@@ -371,6 +373,24 @@ int main(void)
     expect(_bugsee_test_simulator_warning_count() == 1, "the simulator warning is logged once across launches");
     expect(_bugsee_exceptions_filed() == 0, "the simulator reports that exceptions are not filed");
     expect(gStartedCount == 2, "a launch without a started callback calls nothing back");
+
+    // Attachments: empty data is valid and a missing MIME type stays unset, on both report paths.
+    const char *attachmentsJson =
+        "{\"attachments\":[{\"name\":\"empty\",\"fileName\":\"empty\",\"dataBase64\":\"\"},"
+        "{\"name\":\"hello\",\"fileName\":\"hello\",\"mimeType\":\"text/plain\",\"dataBase64\":\"aGVsbG8=\"},"
+        "{\"name\":\"nomime\",\"fileName\":\"nomime\",\"dataBase64\":\"aGVsbG8=\"},"
+        "{\"name\":\"blankmime\",\"fileName\":\"blankmime\",\"mimeType\":\"\",\"dataBase64\":\"aGVsbG8=\"},"
+        "{\"name\":\"nodata\",\"fileName\":\"nodata\"}]}";
+    value = _bugsee_test_apply_report_attachments(attachmentsJson);
+    expect(same(value, "data:empty:0:-|data:hello:5:text/plain|data:nomime:5:-|data:blankmime:5:-"),
+           "add-time attachments keep empty data and pass no invented MIME type");
+    free((void *)value);
+    value = _bugsee_test_apply_extended_attachments(attachmentsJson);
+    printf("extended attachments: %s\n", value ? value : "(null)");
+    expect(value != NULL && strncmp(value, "4|empty:0:", 10) == 0,
+           "the extended report keeps an empty attachment and skips one without data");
+    expect(value != NULL && strstr(value, "|nomime:5:-") != NULL, "the extended report sets no MIME type for an attachment without one");
+    free((void *)value);
 
     printf("ios bridge tests passed\n");
     return 0;

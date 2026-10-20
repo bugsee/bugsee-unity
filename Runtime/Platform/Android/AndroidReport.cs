@@ -167,7 +167,7 @@ namespace Bugsee.Platform.Android
 
         public IAttachment AddAttachmentBytes(byte[] data, string name, string mimeType)
         {
-            if (data == null || data.Length == 0)
+            if (data == null)
                 return null;
 
             var attachmentName = string.IsNullOrEmpty(name) ? "attachment" : name;
@@ -374,7 +374,7 @@ namespace Bugsee.Platform.Android
             var att = new AndroidManagedAttachment(string.IsNullOrEmpty(name) ? "attachment" : name, MarkAttachmentsDirty);
             var baseName = System.IO.Path.GetFileName(path);
             att.Filename = string.IsNullOrEmpty(baseName) ? att.Name : baseName;
-            att.MimeType = string.IsNullOrEmpty(mimeType) ? "application/octet-stream" : mimeType;
+            att.MimeType = string.IsNullOrEmpty(mimeType) ? null : mimeType;
             att.SetSnapshotPath(snapshotPath);
             _attachments.Add(att);
             _attachmentsDirty = true;
@@ -401,10 +401,10 @@ namespace Bugsee.Platform.Android
 
         public IAttachment AddAttachmentBytes(byte[] data, string name, string mimeType)
         {
-            if (data == null || data.Length == 0)
+            if (data == null)
                 return null;
             var att = new AndroidManagedAttachment(string.IsNullOrEmpty(name) ? "attachment" : name, MarkAttachmentsDirty);
-            att.MimeType = string.IsNullOrEmpty(mimeType) ? "application/octet-stream" : mimeType;
+            att.MimeType = string.IsNullOrEmpty(mimeType) ? null : mimeType;
             att.SetData(data);
             _attachments.Add(att);
             _attachmentsDirty = true;
@@ -553,16 +553,17 @@ namespace Bugsee.Platform.Android
             else
             {
                 byte[] payload = _bytes;
-                if ((payload == null || payload.Length == 0) && _text != null)
+                if (payload == null && _text != null)
                     payload = Encoding.UTF8.GetBytes(_text);
-                if (payload != null && payload.Length > 0)
+                if (payload != null)
                     attachment = report.AddAttachmentBytes(payload, Name ?? "attachment", MimeType);
             }
 
             if (attachment == null)
                 return;
             attachment.Filename = Filename;
-            attachment.MimeType = MimeType;
+            if (MimeType != null)
+                attachment.MimeType = MimeType;
         }
     }
 }

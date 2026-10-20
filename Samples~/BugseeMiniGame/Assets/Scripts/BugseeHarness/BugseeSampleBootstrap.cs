@@ -134,6 +134,8 @@ namespace Bugsee.Sample
                     ReportingTriggerByScreenshot = true,
                     DetectAndReportCrash = true,
                     CaptureManagedExceptions = true,
+                    // "bugsee_unobserved" = 0 turns off reporting of unobserved task exceptions (scenario "unobserved").
+                    CaptureUnobservedTaskExceptions = ReadE2EValue("bugsee_unobserved", "BUGSEE_E2E_UNOBSERVED") != "0",
                     DetectAndReportHang = true,
                     DetectAndReportExitNotResponding = true,
                     DetectAndReportExitLowMemory = true,
@@ -191,6 +193,7 @@ namespace Bugsee.Sample
                     ReportingTriggerByShake = true,
                     DetectAndReportCrash = true,
                     CaptureManagedExceptions = true,
+                    CaptureUnobservedTaskExceptions = ReadE2EValue("bugsee_unobserved", "BUGSEE_E2E_UNOBSERVED") != "0",
                     DetectAndReportHang = true,
                     Debug = true
                 };
@@ -360,6 +363,14 @@ namespace Bugsee.Sample
                         _pendingE2EFire = "S:shapes";
                     }
                     break;
+                case "attach":
+                case "unobserved":
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 99;
+                        _pendingE2EFire = (_e2eScenario == "attach" ? "T:" : "V:") + _e2eRunId;
+                    }
+                    break;
                 case "none":
                     // Recovery launch: arm nothing, only let the SDK recover and upload what the last run left.
                     break;
@@ -410,6 +421,12 @@ namespace Bugsee.Sample
                     break;
                 case 'S':
                     ShapesE2E.Run(this);
+                    break;
+                case 'T':
+                    AttachmentTaskE2E.RunAttach(this, marker);
+                    break;
+                case 'V':
+                    AttachmentTaskE2E.RunUnobserved(this, marker);
                     break;
                 case 'C':
                     SetStatus("E2E native TestCrash");

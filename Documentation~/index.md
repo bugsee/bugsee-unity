@@ -47,7 +47,7 @@ Bugsee.Launch(appToken, options);
 #endif
 ```
 
-`CaptureManagedExceptions` is independent of `DetectAndReportCrash`. Omit it to keep the default (enabled).
+`CaptureManagedExceptions` is independent of `DetectAndReportCrash`. Omit it to keep the default (enabled). `CaptureUnobservedTaskExceptions` (default enabled, needs `CaptureManagedExceptions`) controls whether `TaskScheduler.UnobservedTaskException` is reported; set it to `false` for apps whose fire-and-forget tasks fault on purpose. Unity raises that event only after the faulted `Task` is garbage-collected, so the handled error arrives late and at a time you do not control.
 
 ## Lifecycle: Launch, Relaunch, Stop, Delete
 
@@ -88,7 +88,7 @@ Residual races after the hard deadline (the native SDKs cannot cancel an operati
 | Manual unhandled | `Bugsee.LogUnhandledException` | fatal |
 | Unity `Debug.LogException` / routed exceptions | ExceptionPipeline | non-fatal (set `TreatUnityLogExceptionsAsFatal`) |
 | `AppDomain.UnhandledException` | ExceptionPipeline | fatal |
-| `UnobservedTaskException` | ExceptionPipeline | non-fatal |
+| `UnobservedTaskException` | ExceptionPipeline (`CaptureUnobservedTaskExceptions`, default on) | non-fatal |
 | Native abort / signal | `DetectAndReportCrash` + native SDK | fatal (next launch) |
 | Android hang | `DetectAndReportHang` | hang report |
 | Android ANR / OOM | `DetectAndReportExitNotResponding` / `DetectAndReportExitLowMemory` | exit reports |

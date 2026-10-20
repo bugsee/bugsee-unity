@@ -101,6 +101,17 @@ namespace Bugsee.Contracts.Options
         }
 
         /// <summary>
+        /// Reports <c>TaskScheduler.UnobservedTaskException</c> as a handled error (needs
+        /// <see cref="CaptureManagedExceptions"/>). Omit for default (enabled). Set false to silence faulted
+        /// fire-and-forget tasks: the event only fires once the Task is garbage-collected, so its timing is not
+        /// predictable.
+        /// </summary>
+        public bool CaptureUnobservedTaskExceptions
+        {
+            set => Set(Options.CaptureUnobservedTaskExceptions, value);
+        }
+
+        /// <summary>
         /// When true, Unity-routed <c>LogType.Exception</c> is reported as unhandled.
         /// </summary>
         public bool TreatUnityLogExceptionsAsFatal

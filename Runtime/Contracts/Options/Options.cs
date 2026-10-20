@@ -94,5 +94,13 @@ namespace Bugsee.Contracts.Options
         /// </summary>
         public const string TreatUnityLogExceptionsAsFatal =
             "com.bugsee.option.unity.treat-log-exceptions-as-fatal";
+
+        /// <summary>
+        /// Unity-only: report <c>TaskScheduler.UnobservedTaskException</c> as a handled error. Raised only after
+        /// the faulted Task is garbage-collected, so it can be late and noisy for fire-and-forget tasks. Needs
+        /// <see cref="CaptureManagedExceptions"/>. Default when omitted: enabled.
+        /// </summary>
+        public const string CaptureUnobservedTaskExceptions =
+            "com.bugsee.option.unity.capture-unobserved-task-exceptions";
     }
 }

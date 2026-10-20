@@ -40,6 +40,8 @@ namespace Bugsee.Contracts.Options
         public OptionsBuilder CaptureLogs(bool enabled) => Set(Options.CaptureLogs, enabled);
         public OptionsBuilder DetectAndReportCrash(bool enabled) => Set(Options.DetectAndReportCrash, enabled);
         public OptionsBuilder CaptureManagedExceptions(bool enabled) => Set(Options.CaptureManagedExceptions, enabled);
+        public OptionsBuilder CaptureUnobservedTaskExceptions(bool enabled) =>
+            Set(Options.CaptureUnobservedTaskExceptions, enabled);
         public OptionsBuilder DetectAndReportHang(bool enabled) => Set(Options.DetectAndReportHang, enabled);
         public OptionsBuilder DetectAndReportExitNotResponding(bool enabled) =>
             Set(Options.DetectAndReportExitNotResponding, enabled);

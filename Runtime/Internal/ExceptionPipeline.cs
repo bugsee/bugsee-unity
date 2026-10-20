@@ -67,7 +67,10 @@ namespace Bugsee.Internal
                 Application.logMessageReceivedThreaded += _instance.OnLogMessageReceivedThreaded;
                 AppDomain.CurrentDomain.UnhandledException += _instance.OnUnhandledException;
 #if !NET_LEGACY
-                TaskScheduler.UnobservedTaskException += _instance.OnUnobservedTaskException;
+                if (GetBoolOption(launchOptions, Options.CaptureUnobservedTaskExceptions, true))
+                {
+                    TaskScheduler.UnobservedTaskException += _instance.OnUnobservedTaskException;
+                }
 #endif
             }
         }
