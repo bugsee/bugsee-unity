@@ -42,7 +42,7 @@ namespace Bugsee.Platform.IOS
             void Work()
             {
                 PublishHostContext();
-                _bugsee_ensure_wrapper(BugseePackageVersion.Version, BugseePackageVersion.Build);
+                _bugsee_ensure_wrapper(BugseePackageVersion.Version, IosHostPolicy.WrapperBuild(BugseePackageVersion.Build));
             }
 
             if (MainThreadDispatcher.IsMainThread)
