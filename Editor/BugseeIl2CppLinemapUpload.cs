@@ -29,6 +29,11 @@ namespace Bugsee.Editor
 
         public void OnPostprocessBuild(BuildReport report)
         {
+            // Before any gate below: an "Append" export keeps the pointer of the earlier export, and it must not outlive
+            // an export that finds no map of its own (it would name the earlier build's, or a folder that is gone).
+            DeleteIosPendingLinemap(report);
+            SweepIosIl2CppOutput(report);
+
             if (Environment.GetEnvironmentVariable("BUGSEE_NO_IL2CPP_MAPPING") != null)
             {
                 return;
@@ -66,7 +71,6 @@ namespace Bugsee.Editor
             }
 
             var uuids = ResolveModuleUuids(report);
-            BugseeBuildIdentity.WriteRuntimeModuleUuidFile(uuids);
 
             if (uuids.Count == 0)
             {
@@ -120,6 +124,69 @@ namespace Bugsee.Editor
             }
         }
 
+        static bool IsIosFamily(BuildReport report) =>
+            report.summary.platform == BuildTarget.iOS || report.summary.platform == BuildTarget.tvOS;
+
+        static void DeleteIosPendingLinemap(BuildReport report)
+        {
+            if (!IsIosFamily(report))
+            {
+                return;
+            }
+
+            try
+            {
+                var outPath = report.summary.outputPath;
+                if (!string.IsNullOrEmpty(outPath))
+                {
+                    File.Delete(Path.Combine(outPath, "BugseePendingIl2CppLinemap.txt"));
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"Bugsee: failed removing the pending iOS linemap pointer of an earlier export: {ex.Message}");
+            }
+        }
+
+        // An "Append" export keeps the earlier export's IL2CPP files, and Unity copies one in only when it changed: this build's
+        // own map is there with the earlier export's time, and one this build did not write is left beside it (a MethodMap.tsv
+        // from a build without --emit-method-map would be uploaded with this build's line map). What decides is the build's
+        // own output in Library: an equal file is current and gets a fresh time, any other older than the export is removed,
+        // and only when Bugsee is handling the map for this build (token set, upload not turned off, no map of the user's own).
+        // Whether the Run Script may apply its age check to the exported map: set by the sweep of the export that is running
+        // (false until it has run), read by BugseeSymbolUpload when it writes the script.
+        internal static bool IosAgeCheckSafe;
+
+        static void SweepIosIl2CppOutput(BuildReport report)
+        {
+            IosAgeCheckSafe = false;
+            if (!IsIosFamily(report))
+            {
+                return;
+            }
+
+            try
+            {
+                var mayDelete = Environment.GetEnvironmentVariable("BUGSEE_NO_IL2CPP_MAPPING") == null
+                    && BugseeCliRunner.HasAppToken
+                    && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("BUGSEE_IL2CPP_MAPPING"));
+                var projectRoot = Path.GetDirectoryName(Application.dataPath);
+                var buildSymbols = IosIl2CppOutputSweep.BuildSymbolsDirectory(
+                    projectRoot, report.summary.platform == BuildTarget.tvOS ? "tvOS" : "iOS");
+                var result = IosIl2CppOutputSweep.Run(
+                    report.summary.outputPath, buildSymbols, report.summary.buildStartedAt, mayDelete);
+                IosAgeCheckSafe = result.AgeCheckSafe;
+                foreach (var action in result.Actions)
+                {
+                    Debug.Log($"Bugsee: IL2CPP output of the iOS export: {action} (compared with this build's own output in Library).");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"Bugsee: could not check the exported IL2CPP map files against this build's: {ex.Message}");
+            }
+        }
+
         static void TryWriteIosPendingLinemap(BuildReport report, string jsonPath)
         {
             try
@@ -130,7 +197,7 @@ namespace Bugsee.Editor
                     return;
                 }
                 var dest = Path.Combine(outPath, "BugseePendingIl2CppLinemap.txt");
-                File.WriteAllText(dest, jsonPath + "\n");
+                File.WriteAllText(dest, BuildArtifactChoice.PendingPointer(outPath, jsonPath) + "\n");
             }
             catch (Exception ex)
             {

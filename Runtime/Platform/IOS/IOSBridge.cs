@@ -67,6 +67,7 @@ namespace Bugsee.Platform.IOS
             if (!MainThreadDispatcher.RunSyncLifecycle(() =>
                 {
                     ManagedExceptionPayload.EnsureBuildIdentity();
+                    ManagedExceptionPayload.WarmModuleUuid();
                     LaunchOrDefer("Launch", () => LaunchNow(appToken, options, started), started);
                 }))
             {
@@ -696,11 +697,11 @@ namespace Bugsee.Platform.IOS
 
         public void TestCrash() => _bugsee_test_crash();
 
-        public void ShowReportDialog(string summary, string description, IssueSeverity severity, IList<string> labels) =>
-            _bugsee_show_report(summary ?? "", description ?? "", (int)severity, ToJsonStringArray(labels));
+        public void ShowReportDialog(string summary, string description, IssueSeverity? severity, IList<string> labels) =>
+            _bugsee_show_report(summary ?? "", description ?? "", IssueSeverityWire.ToWire(severity), ToJsonStringArray(labels));
 
-        public void Upload(string summary, string description, IssueSeverity severity, IList<string> labels) =>
-            _bugsee_upload(summary ?? "", description ?? "", (int)severity, ToJsonStringArray(labels));
+        public void Upload(string summary, string description, IssueSeverity? severity, IList<string> labels) =>
+            _bugsee_upload(summary ?? "", description ?? "", IssueSeverityWire.ToWire(severity), ToJsonStringArray(labels));
 
         public void Notify(string title, string body, IssueSeverity severity, IDictionary<string, string> fields, bool urgent) =>
             _bugsee_notify(title ?? "", NotifyPolicy.Body(body), (int)severity,

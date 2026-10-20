@@ -15,10 +15,17 @@ int _bugsee_test_wrapper_installed(void);
 const char *_bugsee_test_apply_breadcrumb_result(const char *startDataJson, const char *resultJson);
 const char *_bugsee_test_copy_context_value(const char *key);
 const char *_bugsee_test_apply_network_result(const char *startJson, const char *resultJson);
+const char *_bugsee_test_apply_report_result(const char *startAttributesJson, const char *resultJson);
+const char *_bugsee_test_report_json_with_unserializable_attributes(const char *startAttributesJson);
 void _bugsee_set_attribute(const char *key, const char *valueJson);
 char *_bugsee_get_attribute(const char *key);
 void _bugsee_clear_attribute(const char *key);
 char *_bugsee_get_launch_options(void);
+int _bugsee_test_default_bug_severity(void);
+const char *_bugsee_test_last_report_overload(void);
+int _bugsee_test_last_report_severity(void);
+void _bugsee_show_report(const char *summary, const char *description, int severity, const char *labelsJson);
+void _bugsee_upload(const char *summary, const char *description, int severity, const char *labelsJson);
 void _bugsee_notify(const char *title, const char *body, int severity, const char *fieldsJson, int urgent);
 int64_t _bugsee_start_transaction(const char *name, const char *operation, const char *attributesJson);
 int64_t _bugsee_span_start_child(int64_t spanId, const char *operation, const char *description);
@@ -400,6 +407,30 @@ int main(void)
            "launch options come back as a JSON object with the defaults");
     expect([parsedOptions[BugseeMaxRecordingTimeKey] intValue] == 60, "launch options hold the host's value");
     free(launchOptions);
+    // An omitted report severity is the SDK default, High until the host configures ReportingDefaultBugPriority.
+    expect(_bugsee_test_default_bug_severity() == (int)BugseeSeverityHigh, "the default bug severity is High");
+    // Which SDK overload each report entry point reaches (omitted severity is 0): the ones without a severity read
+    // the option inside the SDK; with labels (no such overload) the bridge passes the default itself.
+    _bugsee_show_report("", "", 0, NULL);
+    expect(same(_bugsee_test_last_report_overload(), "showReportDialog"), "an empty dialog uses the plain showReportDialog");
+    _bugsee_show_report("s", "d", 0, NULL);
+    expect(same(_bugsee_test_last_report_overload(), "showReportDialogWithSummary:description:"),
+           "a dialog without severity or labels uses the overload without a severity");
+    _bugsee_show_report("s", "d", 0, "[\"a\"]");
+    expect(same(_bugsee_test_last_report_overload(), "showReportDialogWithSummary:description:severity:labels:")
+           && _bugsee_test_last_report_severity() == (int)BugseeSeverityHigh,
+           "a dialog with labels and no severity passes the default severity");
+    _bugsee_show_report("s", "d", 2, "[\"a\"]");
+    expect(_bugsee_test_last_report_severity() == 2, "an explicit dialog severity is passed as given");
+    _bugsee_upload("s", "d", 0, NULL);
+    expect(same(_bugsee_test_last_report_overload(), "uploadWithSummary:description:"),
+           "an upload without severity or labels uses the overload without a severity");
+    _bugsee_upload("s", "d", 0, "[\"a\"]");
+    expect(same(_bugsee_test_last_report_overload(), "uploadWithSummary:description:severity:labels:")
+           && _bugsee_test_last_report_severity() == (int)BugseeSeverityHigh,
+           "an upload with labels and no severity passes the default severity");
+    _bugsee_upload("s", "d", 4, NULL);
+    expect(_bugsee_test_last_report_severity() == 4, "an explicit upload severity is passed as given");
     // A breadcrumb filter result reaches the SDK's breadcrumb as the data object C# sends: nested values and
     // scalar kinds intact; a result without a data field leaves the crumb's own data (and a nil data) alone.
     {
@@ -419,6 +450,36 @@ int main(void)
         const char *emptied = _bugsee_test_apply_breadcrumb_result(start, "{\"data\":{}}");
         expect(emptied != NULL && same(emptied, "{}"), "an empty data object clears the crumb data");
         free((void *)emptied);
+    }
+    // A report handler result reaches the SDK report as a change set: typed values stay typed, attributes the
+    // handler did not touch are left alone, and only an explicit clear replaces the set.
+    {
+        const char *start = "{\"i\":42,\"b\":true,\"d\":1.5,\"s\":\"x\",\"o\":{\"k\":[1,2]}}";
+        const char *untouched = _bugsee_test_apply_report_result(start, "{\"summary\":\"s\"}");
+        expect(untouched != NULL && same(untouched, "{\"b\":true,\"d\":1.5,\"i\":42,\"o\":{\"k\":[1,2]},\"s\":\"x\"}"),
+               "a report result without attributes keeps every attribute and its kind");
+        free((void *)untouched);
+        const char *changed = _bugsee_test_apply_report_result(start,
+            "{\"attributes\":{\"n\":7,\"i\":43,\"t\":false},\"attributeRemovals\":[\"s\"]}");
+        expect(changed != NULL && same(changed,
+            "{\"b\":true,\"d\":1.5,\"i\":43,\"n\":7,\"o\":{\"k\":[1,2]},\"t\":false}"),
+            "a change set sets typed values, removes names and leaves the rest as they were");
+        free((void *)changed);
+        const char *replaced = _bugsee_test_apply_report_result(start, "{\"attributes\":{\"a\":1},\"attributesReplaceAll\":true}");
+        expect(replaced != NULL && same(replaced, "{\"a\":1}"), "attributesReplaceAll replaces the set");
+        free((void *)replaced);
+        const char *nulled = _bugsee_test_apply_report_result(start, "{\"attributes\":{\"i\":null}}");
+        expect(nulled != NULL && same(nulled, "{\"b\":true,\"d\":1.5,\"o\":{\"k\":[1,2]},\"s\":\"x\"}"),
+               "a null value removes the attribute instead of storing NSNull");
+        free((void *)nulled);
+        const char *reportJson = _bugsee_test_report_json_with_unserializable_attributes(start);
+        NSData *reportData = [[NSString stringWithUTF8String:reportJson] dataUsingEncoding:NSUTF8StringEncoding];
+        NSDictionary *seen = [NSJSONSerialization JSONObjectWithData:reportData options:0 error:nil];
+        NSDictionary *seenAttrs = seen[@"attributes"];
+        expect([seenAttrs[@"i"] isEqual:@42] && [seenAttrs[@"d"] isEqual:@1.5] && [seenAttrs[@"b"] isEqual:@YES]
+                   && [seenAttrs[@"s"] isEqual:@"x"] && [seenAttrs[@"o"][@"k"] count] == 2 && [seenAttrs[@"when"] isKindOfClass:[NSString class]],
+               "the report handed to C# keeps attribute kinds and degrades a non-JSON value to text");
+        free((void *)reportJson);
     }
     // notify takes every argument shape without throwing; the title is required and fields are strings only.
     _bugsee_notify("title", NULL, 2, NULL, 0);

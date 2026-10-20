@@ -4,6 +4,9 @@ namespace Bugsee.WrapperPolicy
 {
     public static class IssueSeverityWire
     {
+        /// <summary>The wire value of an optional severity: 0 when omitted (the SDK then applies its default).</summary>
+        public static int ToWire(IssueSeverity? severity) => severity.HasValue ? (int)severity.Value : 0;
+
         public static bool TryFromWire(int value, out IssueSeverity severity)
         {
             switch (value)

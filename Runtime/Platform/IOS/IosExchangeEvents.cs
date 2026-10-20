@@ -335,12 +335,6 @@ namespace Bugsee.Platform.IOS
             return RewriteObjectMapField(json, "headers");
         }
 
-        public static string NormalizeReport(string json)
-        {
-            if (string.IsNullOrEmpty(json)) return "{}";
-            return RewriteObjectMapField(json, "attributes");
-        }
-
         static string RewriteObjectMapField(string json, string field)
         {
             var key = "\"" + field + "\":";

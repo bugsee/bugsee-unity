@@ -35,7 +35,6 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Normalize_returns_empty_object_for_null_or_empty_input()
         {
             Assert.That(IosJsonNormalize.NormalizeNetwork(null), Is.EqualTo("{}"));
-            Assert.That(IosJsonNormalize.NormalizeReport(null), Is.EqualTo("{}"));
         }
 
         [Test]
@@ -67,18 +66,11 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void Normalize_keeps_the_original_json_when_a_value_is_a_container()
         {
-            var json = "{\"attributes\":{\"a\":{\"nested\":1},\"b\":\"x\"}}";
-            Assert.That(IosJsonNormalize.NormalizeReport(json), Is.EqualTo(json));
+            var json = "{\"headers\":{\"a\":{\"nested\":1},\"b\":\"x\"}}";
+            Assert.That(IosJsonNormalize.NormalizeNetwork(json), Is.EqualTo(json));
 
-            json = "{\"attributes\":{\"list\":[1,2]}}";
-            Assert.That(IosJsonNormalize.NormalizeReport(json), Is.EqualTo(json));
-        }
-
-        [Test]
-        public void NormalizeReport_rewrites_string_attributes()
-        {
-            Assert.That(IosJsonNormalize.NormalizeReport("{\"summary\":\"s\",\"attributes\":{\"cart\":\"abc\"}}"), Is.EqualTo(
-                "{\"summary\":\"s\",\"attributes\":[{\"key\":\"cart\",\"value\":\"abc\"}]}"));
+            json = "{\"headers\":{\"list\":[1,2]}}";
+            Assert.That(IosJsonNormalize.NormalizeNetwork(json), Is.EqualTo(json));
         }
 
         // ---- network event ----
