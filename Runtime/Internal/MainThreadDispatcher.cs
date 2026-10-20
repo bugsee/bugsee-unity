@@ -168,6 +168,8 @@ namespace Bugsee.Internal
         void Update()
         {
             DrainQueueInline();
+            try { global::Bugsee.Bugsee.TickSecureScreenRects(); }
+            catch (Exception ex) { Debug.LogException(ex); }
         }
     }
 }

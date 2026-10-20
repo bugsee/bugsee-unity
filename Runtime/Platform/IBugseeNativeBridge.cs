@@ -70,6 +70,13 @@ namespace Bugsee.Platform
         /// <summary>Scale divisor for <see cref="SecureRectRegistry.Snapshot"/> (1 on Android, screen scale on iOS).</summary>
         float GetSecureRectSnapshotScale();
 
+        /// <summary>
+        /// Where Unity's surface sits, in the native pixels secure rectangles are registered in (top-left origin), given
+        /// Unity's own screen size. False when it cannot be read; the caller then assumes the surface fills the screen.
+        /// Main thread only.
+        /// </summary>
+        bool TryGetSecureRectViewRegion(int screenWidth, int screenHeight, out int left, out int top, out int width, out int height);
+
         void CaptureViewHierarchy();
         void ResetVideoCapturePermission();
 

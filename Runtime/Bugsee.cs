@@ -32,6 +32,10 @@ namespace Bugsee
         static ILifecycleEventListener _appLifecycleListener;
         const int DefaultSecureRectDisplayId = 0;
         static readonly SecureRectManualOwners _manualSecureRectOwners = new SecureRectManualOwners();
+        static readonly SecureRectScreenOwners _screenSecureRectOwners = new SecureRectScreenOwners();
+        static bool _warnedSecureRectView;
+        static float _nextSecureViewPoll;
+        const float SecureViewPollSeconds = 0.5f;
 
         /// <summary>Raised for every native lifecycle event (all 7.x <see cref="LifecycleEvents"/> strings).</summary>
         public static event Action<string, object> LifecycleEvent;
@@ -458,7 +462,8 @@ namespace Bugsee
         /// Limitation: the rectangle must already be in the native display's coordinate space. With Android
         /// Resolution Scaling or <c>Screen.SetResolution</c>, or a non-fullscreen Unity view (status bar or notch
         /// offset), <c>Screen.height</c> and pixels differ from native pixels, so scale or offset the rectangle
-        /// yourself. On iOS the wrapper divides by <c>UIScreen.scale</c>, which is wrong if the render size
+        /// yourself, or use <see cref="AddSecureScreenRectangle"/>, which takes Unity screen space and does it for you.
+        /// On iOS the wrapper divides by <c>UIScreen.scale</c>, which is wrong if the render size
         /// differs from points x scale.
         /// </summary>
         public static void AddSecureRectangle(RectInt pixelRect)
@@ -493,8 +498,106 @@ namespace Bugsee
         public static void RemoveAllSecureRectangles()
         {
             _manualSecureRectOwners.RemoveAll(SecureRectRegistry.Instance);
+            var displays = _screenSecureRectOwners.RemoveAll(SecureRectRegistry.Instance);
             PushSecureBufferForDisplay(DefaultSecureRectDisplayId);
+            foreach (int display in displays)
+                if (display != DefaultSecureRectDisplayId) PushSecureBufferForDisplay(display);
         }
+
+        /// <summary>
+        /// Hides a region given in Unity screen space: pixels of <c>Screen.width</c> x <c>Screen.height</c> with the origin at
+        /// the BOTTOM-left, as <c>RectTransformUtility.PixelAdjustRect</c>, <c>Input.mousePosition</c> and
+        /// <c>RectTransform.GetWorldCorners</c> (overlay canvas) give it. The wrapper flips it, scales it by the Unity
+        /// surface's size over <c>Screen</c> (Resolution Scaling, <c>Screen.SetResolution</c>, iOS render scale), offsets it by
+        /// where the surface sits in the window (status bar, display cutout, multi-window) and rounds outwards. It converts
+        /// again when the screen size or the surface position changes (checked about twice a second). The rectangle keeps its
+        /// fraction of the screen it was added for, so it follows Resolution Scaling and a moving surface without being added
+        /// again; after a rotation or any layout change that moves the content, remove it and add it for the new layout. Call it from any thread (it runs on
+        /// the main thread). Remove it with <see cref="RemoveSecureScreenRectangle"/> and the same values.
+        /// <paramref name="displayId"/> 0 is the main display; for another one the rectangle is in that
+        /// <c>Display.displays[displayId]</c> rendering space, and is converted with the display's system size (the native
+        /// SDKs ask for it only if they record that display). A rectangle that is entirely off screen hides nothing until a
+        /// later size shows it.
+        /// </summary>
+        public static void AddSecureScreenRectangle(Rect unityScreenRect, int displayId = DefaultSecureRectDisplayId)
+        {
+            MainThreadDispatcher.Run(() =>
+            {
+                if (!ReadSecureRectView(displayId, out var view) && !_warnedSecureRectView)
+                {
+                    _warnedSecureRectView = true;
+                    Debug.LogWarning("[Bugsee] Could not read where Unity's view sits on the screen; the screen-space secure rectangle assumes it fills the screen until it can be read.");
+                }
+                _screenSecureRectOwners.Add(
+                    unityScreenRect.xMin, unityScreenRect.yMin, unityScreenRect.xMax, unityScreenRect.yMax,
+                    displayId, view, SecureRectRegistry.Instance);
+                PushSecureBufferForDisplay(displayId);
+            });
+        }
+
+        /// <summary>Stops hiding a rectangle added with <see cref="AddSecureScreenRectangle"/>; pass the same rectangle and display.</summary>
+        public static void RemoveSecureScreenRectangle(Rect unityScreenRect, int displayId = DefaultSecureRectDisplayId)
+        {
+            MainThreadDispatcher.Run(() =>
+            {
+                if (_screenSecureRectOwners.Remove(
+                    unityScreenRect.xMin, unityScreenRect.yMin, unityScreenRect.xMax, unityScreenRect.yMax,
+                    displayId, SecureRectRegistry.Instance))
+                    PushSecureBufferForDisplay(displayId);
+            });
+        }
+
+        // Unity's screen size and the surface's place in native pixels, for one display. Main thread only. False when the
+        // surface cannot be read right now (mid-rotation); the view returned then assumes it fills the screen.
+        static bool ReadSecureRectView(int displayId, out SecureRectView view)
+        {
+            int sw, sh;
+            if (displayId == DefaultSecureRectDisplayId)
+            {
+                sw = Screen.width;
+                sh = Screen.height;
+                if (Bridge.TryGetSecureRectViewRegion(sw, sh, out int l, out int t, out int w, out int h))
+                {
+                    view = new SecureRectView(sw, sh, l, t, w, h);
+                    return true;
+                }
+                view = new SecureRectView(sw, sh, 0, 0, sw, sh);
+                return false;
+            }
+
+            var displays = Display.displays;
+            if (displayId < 0 || displayId >= displays.Length)
+            {
+                view = default;
+                return true;
+            }
+            sw = displays[displayId].renderingWidth;
+            sh = displays[displayId].renderingHeight;
+            view = new SecureRectView(sw, sh, 0, 0, displays[displayId].systemWidth, displays[displayId].systemHeight);
+            return true;
+        }
+
+        /// <summary>Called every frame by the dispatcher: converts screen-space rectangles again when their view changed.</summary>
+        internal static void TickSecureScreenRects()
+        {
+            if (!_screenSecureRectOwners.HasEntries) return;
+            float now = Time.unscaledTime;
+            // Screen size and orientation are cheap to read, so a rotation is followed at once; the surface position needs
+            // JNI on Android, so it is read twice a second (and not while nothing changed on the Unity side).
+            if (now < _nextSecureViewPoll && Screen.width == _lastSecureScreenW && Screen.height == _lastSecureScreenH) return;
+            _nextSecureViewPoll = now + SecureViewPollSeconds;
+            _lastSecureScreenW = Screen.width;
+            _lastSecureScreenH = Screen.height;
+            foreach (int display in _screenSecureRectOwners.Displays())
+            {
+                // Unreadable (a view caught mid-rotation): keep what is registered and look again next frame.
+                if (!ReadSecureRectView(display, out var view)) { _nextSecureViewPoll = 0f; continue; }
+                if (_screenSecureRectOwners.Refresh(display, view, SecureRectRegistry.Instance))
+                    PushSecureBufferForDisplay(display);
+            }
+        }
+
+        static int _lastSecureScreenW, _lastSecureScreenH;
 
         static void PushSecureBufferForDisplay(int displayId)
         {

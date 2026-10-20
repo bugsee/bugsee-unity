@@ -64,6 +64,14 @@ namespace Bugsee.Platform.EditorStub
         public void SetSecureBuffer(int display, int[] packed) { }
 
         public float GetSecureRectSnapshotScale() => 1f;
+
+        public bool TryGetSecureRectViewRegion(int screenWidth, int screenHeight, out int left, out int top, out int width, out int height)
+        {
+            left = top = 0;
+            width = screenWidth;
+            height = screenHeight;
+            return true;
+        }
         public void CaptureViewHierarchy() { }
         public void ResetVideoCapturePermission() { }
         public IAppearance GetAppearance() => new StubAppearance();

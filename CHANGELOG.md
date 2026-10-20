@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - Unreleased
 
+### Added
+
+- `Bugsee.AddSecureScreenRectangle(Rect, displayId = 0)` / `RemoveSecureScreenRectangle` (#109): secure rectangles in Unity screen space (bottom-left origin, `Screen` pixels). The wrapper flips the y axis, scales by the Unity surface's size over `Screen.width` x `Screen.height` (Android Resolution Scaling, `Screen.SetResolution`, iOS render scale), adds the surface's offset in the window (Android: the first SurfaceView under the content view; status bar, cutout, multi-window), rounds outwards and clamps to the surface. The rectangle keeps its fraction of the screen it was added for and is converted again when the screen size or the surface position changes (checked twice a second while one exists); after a rotation or other layout change, add it again for the new layout. `displayId` > 0 uses that `Display.displays` rendering and system size (no native SDK use of it was verified). Unit tests cover the conversion; sample scenario `securerect`. `AddSecureRectangle(RectInt)` is unchanged (native pixels).
+
 ### Fixed
 
 - **iOS:** lifecycle events that arrive before the managed callback is registered (for example from a launch the host made natively before any C# call) are held, up to 128, and replayed in order on the main queue after the registering `Launch` or `Relaunch` call, as on Android, instead of being dropped. `Relaunch` now registers the wrapper like `Launch`.

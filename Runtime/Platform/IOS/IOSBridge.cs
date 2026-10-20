@@ -756,6 +756,22 @@ namespace Bugsee.Platform.IOS
 
         public float GetSecureRectSnapshotScale() => _bugsee_screen_scale();
 
+        // Unity's view fills the screen on iOS. Registered pixels are points times the screen scale (the snapshot divides
+        // by the scale again), so the surface is the screen's size in points, times the scale: Unity's own width over
+        // pixels-per-point stays right when the render resolution is reduced or the device renders at nativeScale.
+        public bool TryGetSecureRectViewRegion(int screenWidth, int screenHeight, out int left, out int top, out int width, out int height)
+        {
+            left = top = 0;
+            width = height = 0;
+            float perPoint = _bugsee_pixels_per_point(screenWidth);
+            float scale = _bugsee_screen_scale();
+            if (perPoint <= 0f || scale <= 0f || screenWidth <= 0 || screenHeight <= 0) return false;
+            width = Mathf.RoundToInt(screenWidth * scale / perPoint);
+            height = Mathf.RoundToInt(screenHeight * scale / perPoint);
+            // UIScreen's bounds turn a moment before or after Unity's size does: a mismatch is a view caught mid-rotation.
+            return FramePushPolicy.IsPlausibleUnityView(width, height, screenWidth, screenHeight);
+        }
+
         public void CaptureViewHierarchy() => _bugsee_capture_view_hierarchy();
 
         public void ResetVideoCapturePermission() { }
@@ -926,6 +942,7 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_set_email(string email);
         [DllImport("__Internal")] static extern IntPtr _bugsee_get_email();
         [DllImport("__Internal")] static extern void _bugsee_clear_email();
+        [DllImport("__Internal")] static extern float _bugsee_pixels_per_point(int unityPixelWidth);
         [DllImport("__Internal")] static extern void _bugsee_set_secure_buffer(int display, int[] packed, int packedLength);
         [DllImport("__Internal")] static extern float _bugsee_screen_scale();
         [DllImport("__Internal")] static extern void _bugsee_capture_view_hierarchy();
