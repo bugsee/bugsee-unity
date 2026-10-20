@@ -22,15 +22,20 @@ namespace Bugsee.WrapperPolicy.Tests
 
         static void UnderEachCulture(Action check)
         {
+            // Under DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 these tests would prove nothing, and a named culture may not even
+            // be creatable (PredefinedCulturesOnly), so probe before swapping anything.
+            try
+            {
+                foreach (var name in Cultures) new CultureInfo(name);
+                if ((1.5).ToString(new CultureInfo("de-DE")) != "1,5") Assert.Ignore("culture data is not available (invariant globalization)");
+            }
+            catch (CultureNotFoundException) { Assert.Ignore("culture data is not available (invariant globalization)"); }
             var saved = CultureInfo.CurrentCulture;
             try
             {
                 foreach (var name in Cultures)
                 {
                     CultureInfo.CurrentCulture = new CultureInfo(name);
-                    // Under DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 every culture is invariant and these tests would prove nothing.
-                    if (name == "de-DE" || name == "ru-RU")
-                        Assume.That(1.5.ToString(), Is.EqualTo("1,5"), "culture data is not available (invariant globalization)");
                     try { check(); }
                     catch (AssertionException e) { throw new AssertionException(name + ": " + e.Message, e); }
                 }
