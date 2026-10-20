@@ -91,6 +91,12 @@ Other platform differences, not aligned:
 - `IAppearance.ToMap()` returns what the SDK reports on Android; on iOS it lists only the properties set through the wrapper that the native theme applied.
 - `Trace(name, value)` with a collection or other non-primitive value: iOS sends it as JSON, Android as its `ToString()`. Pass a string or a primitive to get the same result on both.
 
+### Breadcrumbs and the log filter
+
+Breadcrumbs are off by default on both native SDKs (`CaptureBreadcrumbs`, Android 7.4.2 and iOS 7.0.0-beta7). While it is off, `Bugsee.AddBreadcrumb` does nothing and the breadcrumb filter is never called; launch with `CaptureBreadcrumbs = true` to use either. (The Android SDK's own Javadoc and `api-7.x.md` say the default is true; that is wrong.)
+
+`Bugsee.Log` lines skip the log filter on both platforms (the native SDKs submit them without filtering and the wrapper cannot ask for it). The log filter only sees what the SDK captures itself, such as the Unity log and logcat. This is documented, not exposed as an option.
+
 ## Crash & exception capture
 
 | Source | API / option | Severity default |
