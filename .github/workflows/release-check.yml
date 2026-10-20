@@ -1,0 +1,25 @@
+name: Release check
+
+# A release is a v* tag. The wrapper reports the build id stamped into the package (Tools~/scripts/stamp-wrapper-build.sh);
+# without one it reports no build, so a tag that still carries the `dev` placeholder is a release that cannot be told apart.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  wrapper-build-id:
+    name: Wrapper build id is stamped
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check the stamp
+        run: bash Tools~/scripts/check-release-build.sh "${GITHUB_REF_NAME}"

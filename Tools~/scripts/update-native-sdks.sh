@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Refresh native SDK pins and artifacts for com.bugsee.unity.
 #
-# - Regenerates Runtime/BugseePackageVersion.cs (also the Android Maven coordinates that
+# - Regenerates Runtime/BugseePackageVersion.cs, keeping its wrapper build id (also the Android Maven coordinates that
 #   Editor/BugseeAndroidMavenDependencies.cs declares in the generated Gradle project)
 # - Rewrites the pins listed in Tools~/scripts/native-pins.txt (docs, CHANGELOG, Tests~/iOS/run-tests.sh, ...)
 # - Verifies the iOS SPM tag on github.com/bugsee/spm (no local xcframework copy)
@@ -84,6 +84,11 @@ PY
 
 RUNTIME_VERSION_CS="${ROOT_DIR}/Runtime/BugseePackageVersion.cs"
 
+# The wrapper build id is not this script's to choose: a bump on main would stamp a hash that no release is cut
+# from. Keep what the file has (`dev` on main, a real id on a release branch); Tools~/scripts/stamp-wrapper-build.sh sets it.
+WRAPPER_BUILD="$(sed -nE 's/.*public const string Build = "([^"]*)".*/\1/p' "${RUNTIME_VERSION_CS}" 2>/dev/null | head -n 1 || true)"
+WRAPPER_BUILD="${WRAPPER_BUILD:-dev}"
+
 echo "==> Package ${BUGSEE_PACKAGE_VERSION}"
 echo "    Android ${ANDROID_SDK_VERSION}"
 echo "    iOS ${IOS_SDK_REPO} @ ${IOS_SDK_VERSION} (${IOS_SDK_COMMIT})"
@@ -97,7 +102,7 @@ namespace Bugsee
     public static class BugseePackageVersion
     {
         public const string Version = "${BUGSEE_PACKAGE_VERSION}";
-        public const string Build = "$(git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null || echo dev)";
+        public const string Build = "${WRAPPER_BUILD}";
         public const string AndroidSdkVersion = "${ANDROID_SDK_VERSION}";
         public const string AndroidMavenGroup = "${ANDROID_MAVEN_GROUP}";
         public const string AndroidMavenArtifact = "${ANDROID_MAVEN_ARTIFACT}";
@@ -136,7 +141,7 @@ package com.bugsee.unity;
  */
 final class UnityWrapperIdentity {
     static final String VERSION = "${BUGSEE_PACKAGE_VERSION}";
-    static final String BUILD = "$(git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null || echo dev)";
+    static final String BUILD = "${WRAPPER_BUILD}";
 
     private UnityWrapperIdentity() {}
 }
