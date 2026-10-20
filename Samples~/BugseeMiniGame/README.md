@@ -198,7 +198,7 @@ back to their defaults, including the endpoint, `CaptureManagedExceptions` and `
 is read only when the managed exception hooks are installed, so a relaunch that keeps them does not change it), and `Relaunch()` without options resets every option to its default. The Relaunch bubble therefore passes the whole option set of the last launch again (on Android it used to pass
 only the video options, on iOS nothing).
 
-`BUGSEE_E2E_SCENARIO=presets` waits for the SDK to launch, relaunches with no options to learn each option's SDK default, then
+`BUGSEE_E2E_SCENARIO=presets` waits for the SDK to launch, relaunches with only the options the sample cannot run without (endpoint, debug, video capture and mode) to learn each other option's SDK default, then
 relaunches with each preset in turn (`RelaunchAsync`) and compares every option the sample sent with what
 `Bugsee.GetLaunchOptions()` reports (numbers by value; the Android SDK reports enum options by name, such as `V2` or `Verbose`, and
 never reports the Unity-only options, so those are not compared there; the SDK's own `$$` keys and, on iOS, the Android-only options
