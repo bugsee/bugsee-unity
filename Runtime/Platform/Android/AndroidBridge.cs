@@ -539,13 +539,13 @@ namespace Bugsee.Platform.Android
             public void Launch(string appToken, IDictionary<string, object> options, Action<bool> done)
             {
                 using (var activity = _bridge.CurrentActivity())
-                using (var map = AndroidOptionsMapper.ToJavaMap(options))
+                using (var map = AndroidOptionsMapper.ToJavaMap(OptionPlatformGate.ForAndroid(options)))
                     _bridge._bugsee.CallStatic("launch", activity, appToken, map, new BooleanCallback1Proxy(OnMain(done)));
             }
 
             public void Relaunch(IDictionary<string, object> options, Action<bool> done)
             {
-                using (var map = AndroidOptionsMapper.ToJavaMap(options))
+                using (var map = AndroidOptionsMapper.ToJavaMap(OptionPlatformGate.ForAndroid(options)))
                     _bridge._bugsee.CallStatic("relaunch", map, new BooleanCallback1Proxy(OnMain(done)));
             }
 
