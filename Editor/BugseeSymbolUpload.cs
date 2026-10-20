@@ -138,7 +138,7 @@ namespace Bugsee.Editor
                 {
                     foreach (var so in Directory.EnumerateFiles(root, "libil2cpp.so", SearchOption.AllDirectories))
                     {
-                        if (IsExcludedPath(so))
+                        if (BuildPathExclusion.IsExcludedPath(so, root))
                         {
                             continue;
                         }
@@ -214,7 +214,7 @@ namespace Bugsee.Editor
                 {
                     foreach (var file in Directory.EnumerateFiles(root, pattern, SearchOption.AllDirectories))
                     {
-                        if (IsExcludedPath(file))
+                        if (BuildPathExclusion.IsExcludedPath(file, root))
                         {
                             continue;
                         }
@@ -298,7 +298,7 @@ namespace Bugsee.Editor
                 {
                     foreach (var zip in Directory.EnumerateFiles(root, "*.zip", SearchOption.AllDirectories))
                     {
-                        if (IsExcludedPath(zip))
+                        if (BuildPathExclusion.IsExcludedPath(zip, root))
                         {
                             continue;
                         }
@@ -389,15 +389,6 @@ namespace Bugsee.Editor
         {
             try { return new FileInfo(path).Length == 0; }
             catch { return false; }
-        }
-
-        static bool IsExcludedPath(string path)
-        {
-            var norm = path.Replace('\\', '/');
-            return norm.IndexOf("/Library/", StringComparison.OrdinalIgnoreCase) >= 0
-                || norm.IndexOf("/Temp/", StringComparison.OrdinalIgnoreCase) >= 0
-                || norm.IndexOf("/Bee/", StringComparison.OrdinalIgnoreCase) >= 0
-                || norm.IndexOf("/obj/", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         static void InjectArchiveUploadScript(string pathToBuiltProject)

@@ -12,6 +12,7 @@ void _bugsee_ensure_wrapper(const char *version, const char *build);
 const char *_bugsee_test_copy_wrapper_version(void);
 const char *_bugsee_test_copy_wrapper_build(void);
 int _bugsee_test_wrapper_installed(void);
+const char *_bugsee_test_apply_breadcrumb_result(const char *startDataJson, const char *resultJson);
 const char *_bugsee_test_copy_context_value(const char *key);
 void _bugsee_set_attribute(const char *key, const char *valueJson);
 char *_bugsee_get_attribute(const char *key);
@@ -35,8 +36,14 @@ char *_bugsee_appearance_get_string(const char *propertyName);
 typedef void (*BugseeLaunchStartedFn)(int token, int success);
 void _bugsee_launch(const char *appToken, const char *optionsJson, int startedToken, BugseeLaunchStartedFn started);
 void _bugsee_relaunch(const char *optionsJson, int startedToken, BugseeLaunchStartedFn started);
+typedef void (*BugseeLifecycleFn)(const char *eventType, const char *dataJson);
+void _bugsee_test_emit_lifecycle(const char *eventType, const char *payloadJson);
+void _bugsee_register_unity_callbacks(void *filterCb, void *reportCb, BugseeLifecycleFn lifecycleCb);
 typedef void (*BugseeStopCompletionFn)(int token);
 void _bugsee_stop(int token, BugseeStopCompletionFn completion);
+void _bugsee_start_blackout(void);
+void _bugsee_end_blackout(void);
+int _bugsee_is_blackout(void);
 typedef void (*BugseeDeleteCompletionFn)(int token, int wiped);
 void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completion);
 const char *_bugsee_test_exception_options(const char *optionsJson);
@@ -46,15 +53,7 @@ void _bugsee_logException(const char *name, const char *reason, bool handled, co
 int _bugsee_exception_options_dropped(void);
 }
 
-// Same switch as BugseeUnityBridge.mm: bugsee-cocoa up to 7.0.0-beta6 still has the exception logging options.
-#if __has_include(<Bugsee/BugseeExceptionLoggingOptions.h>)
-#define BUGSEE_IOS_LEGACY_EXCEPTION_API 1
-#else
-#define BUGSEE_IOS_LEGACY_EXCEPTION_API 0
-#endif
-#if !BUGSEE_IOS_LEGACY_EXCEPTION_API
 extern "C" int _bugsee_test_dropped_options_warning_count(void);
-#endif
 
 static int gStartedToken;
 static int gStartedCount;
@@ -65,6 +64,24 @@ static void OnStarted(int token, int success)
     (void)success;
     gStartedToken = token;
     gStartedCount++;
+}
+
+static NSMutableArray<NSString *> *gLifecycleEvents;
+
+static void OnLifecycle(const char *eventType, const char *dataJson)
+{
+    // Real SDK events (from the launch above) also arrive here, on a worker thread: keep only this test's.
+    if (strncmp(eventType, "e.", 2) != 0) return;
+    @synchronized (gLifecycleEvents) {
+        [gLifecycleEvents addObject:[NSString stringWithFormat:@"%s|%s", eventType, dataJson ? dataJson : "(null)"]];
+    }
+}
+
+static NSArray<NSString *> *lifecycleEvents(void)
+{
+    @synchronized (gLifecycleEvents) {
+        return [gLifecycleEvents copy];
+    }
 }
 
 static int gDeletedToken;
@@ -113,6 +130,13 @@ int main(void)
     const char *value;
 
     expect(_bugsee_test_wrapper_installed() == 1, "load registers one wrapper");
+
+    // Nothing has started a blackout yet, and one requested before any launch is kept, not lost.
+    expect(_bugsee_is_blackout() == 0, "no blackout is reported before one is started");
+    _bugsee_start_blackout();
+    expect(_bugsee_is_blackout() == 1, "a blackout started before the first launch is reported");
+    _bugsee_end_blackout();
+    expect(_bugsee_is_blackout() == 0, "a blackout ended before the first launch is gone");
 
     _bugsee_set_wrapper_context("{\"unity_version\":\"2021.3\",\"count\":1}");
     value = _bugsee_test_copy_context_value("unity_version");
@@ -242,25 +266,8 @@ int main(void)
     expect(_bugsee_test_exception_options(NULL) == NULL, "no exception options means nil options");
     expect(_bugsee_test_exception_options("[1]") == NULL, "non-object exception options are ignored");
     expect(_bugsee_test_exception_options("{\"labels\":[\"\xff\"]}") == NULL, "options that are not valid UTF-8 are ignored, not raised on");
-    expect(_bugsee_exception_options_dropped() == (BUGSEE_IOS_LEGACY_EXCEPTION_API ? 0 : 1),
+    expect(_bugsee_exception_options_dropped() == 1,
            "the wrapper knows whether the SDK drops the labels, includeVideo and mergingRules options");
-#if BUGSEE_IOS_LEGACY_EXCEPTION_API
-    value = _bugsee_test_exception_options(
-        "{\"labels\":[\"a\",3,\"b\"],\"includeVideo\":false,\"mergingRules\":{\"k\":1},\"domain\":\"x\"}");
-    expect(value != NULL && strstr(value, "labels=a,b;video=0;") != NULL && strstr(value, "k = 1") != NULL,
-           "exception options carry labels, includeVideo and mergingRules");
-    free((void *)value);
-    value = _bugsee_test_exception_options("{\"labels\":\"nope\",\"includeVideo\":\"yes\"}");
-    expect(value != NULL && strstr(value, "labels=(null);video=1;") != NULL, "wrong-typed exception options are dropped");
-    free((void *)value);
-    value = _bugsee_test_exception_options("{\"labels\":[\"only\"]}");
-    expect(value != NULL && strstr(value, "labels=only;video=1;") != NULL, "options without includeVideo keep the video");
-    free((void *)value);
-    value = _bugsee_test_exception_options("{\"skipFrames\":2,\"domain\":\"x\"}");
-    expect(value != NULL && strstr(value, "video=1;") != NULL && strstr(value, "= 2") != NULL,
-           "top-level skipFrames becomes the skip-frames merging rule");
-    free((void *)value);
-#else
     value = _bugsee_test_exception_options(
         "{\"labels\":[\"a\"],\"includeVideo\":false,\"mergingRules\":{\"k\":1},\"skipFrames\":2,\"domain\":\"x\"}");
     expect(value != NULL && strcmp(value, "skipFrames=2") == 0,
@@ -280,7 +287,6 @@ int main(void)
     value = _bugsee_test_exception_options("{\"skipFrames\":true}");
     expect(value != NULL && strcmp(value, "skipFrames=0") == 0, "a boolean skipFrames is not a frame count");
     free((void *)value);
-#endif
     // The wire's digits must not follow the user's locale: C# parses them as invariant.
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     [defaults setObject:@"de_DE" forKey:@"AppleLocale"];
@@ -306,6 +312,28 @@ int main(void)
     _bugsee_launch("00000000-0000-0000-0000-000000000000", "{\"max_recording_time\":60}", 41, OnStarted);
     expect(waitFor(^{ return gStartedCount == 1 ? 1 : 0; }, 5) && gStartedToken == 41,
            "launch reports the SDK's started answer with its token");
+    // The wrapper is installed in +load, so lifecycle events can arrive before the managed callback is
+    // registered: they are held and replayed, in order and with their payloads, on registration. (The launch
+    // above cannot announce Launching here: the SDK defers a launch until the app is active.)
+    gLifecycleEvents = [NSMutableArray array];
+    _bugsee_test_emit_lifecycle("e.early1", NULL);
+    _bugsee_test_emit_lifecycle("e.early2", "\"snap-1\"");
+    _bugsee_test_emit_lifecycle("e.early3", "{\"value\":\"x\"}");
+    expect(lifecycleEvents().count == 0, "events before the callback registered are held, not delivered");
+    _bugsee_register_unity_callbacks(NULL, NULL, OnLifecycle);
+    expect(lifecycleEvents().count == 0, "registering does not replay inside the registering call");
+    // Arrives while the replay is pending: it queues behind the held events instead of overtaking them.
+    _bugsee_test_emit_lifecycle("e.live", "\"snap-2\"");
+    expect(waitFor(^{ return lifecycleEvents().count == 4 ? 1 : 0; }, 5)
+               && [lifecycleEvents()[0] isEqualToString:@"e.early1|(null)"]
+               && [lifecycleEvents()[1] isEqualToString:@"e.early2|\"snap-1\""]
+               && [lifecycleEvents()[2] isEqualToString:@"e.early3|{\"value\":\"x\"}"]
+               && [lifecycleEvents()[3] isEqualToString:@"e.live|\"snap-2\""],
+           "held events replay after the registering call, in order (no payload, a string literal, a dictionary as an object), before a later event");
+    _bugsee_register_unity_callbacks(NULL, NULL, OnLifecycle);
+    _bugsee_test_emit_lifecycle("e.live2", NULL);
+    expect(lifecycleEvents().count == 5 && [lifecycleEvents()[4] isEqualToString:@"e.live2|(null)"],
+           "once replayed, an event goes straight through and registering again replays nothing twice");
     // The effective options are valid JSON holding the host's value merged over the SDK defaults.
     char *launchOptions = _bugsee_get_launch_options();
     id parsedOptions = launchOptions
@@ -315,6 +343,26 @@ int main(void)
            "launch options come back as a JSON object with the defaults");
     expect([parsedOptions[BugseeMaxRecordingTimeKey] intValue] == 60, "launch options hold the host's value");
     free(launchOptions);
+    // A breadcrumb filter result reaches the SDK's breadcrumb as the data object C# sends: nested values and
+    // scalar kinds intact; a result without a data field leaves the crumb's own data (and a nil data) alone.
+    {
+        const char *start = "{\"orig\":1,\"nul\":null}";
+        const char *kept = _bugsee_test_apply_breadcrumb_result(start, "{\"category\":\"c\",\"level\":2}");
+        expect(kept != NULL && same(kept, "{\"nul\":null,\"orig\":1}"), "a filter result without data keeps the crumb data exactly");
+        free((void *)kept);
+        const char *nilKept = _bugsee_test_apply_breadcrumb_result(NULL, "{\"category\":\"c\"}");
+        expect(nilKept != NULL && same(nilKept, "null"), "a filter result without data keeps a nil data nil");
+        free((void *)nilKept);
+        const char *nested = _bugsee_test_apply_breadcrumb_result(start,
+            "{\"data\":{\"n\":3,\"f\":1.5,\"b\":true,\"s\":\"x\\\\ny\\t\",\"o\":{\"deep\":[1,\"two\",{\"k\":false}]}}}");
+        expect(nested != NULL && same(nested,
+            "{\"b\":true,\"f\":1.5,\"n\":3,\"o\":{\"deep\":[1,\"two\",{\"k\":false}]},\"s\":\"x\\\\ny\\t\"}"),
+            "a filter result with nested data replaces the crumb data with its values and kinds");
+        free((void *)nested);
+        const char *emptied = _bugsee_test_apply_breadcrumb_result(start, "{\"data\":{}}");
+        expect(emptied != NULL && same(emptied, "{}"), "an empty data object clears the crumb data");
+        free((void *)emptied);
+    }
     // notify takes every argument shape without throwing; the title is required and fields are strings only.
     _bugsee_notify("title", NULL, 2, NULL, 0);
     _bugsee_notify("title", "body", 3, "{\"env\":\"prod\",\"n\":1}", 1);
@@ -371,6 +419,20 @@ int main(void)
     expect(_bugsee_test_simulator_warning_count() == 1, "the simulator warning is logged once across launches");
     expect(_bugsee_exceptions_filed() == 0, "the simulator reports that exceptions are not filed");
     expect(gStartedCount == 2, "a launch without a started callback calls nothing back");
+
+    // IsBlackout reads the SDK, not a managed flag. A blackout the wrapper did not start is seen, and one the
+    // wrapper ended is gone, and the answer survives the stop and launches above (the SDK keeps the flag).
+    [Bugsee startBlackout];
+    expect(_bugsee_is_blackout() == 1, "the blackout export sees a blackout the wrapper did not start");
+    _bugsee_end_blackout();
+    expect(_bugsee_is_blackout() == 0, "the blackout export sees a blackout the wrapper ended");
+    _bugsee_start_blackout();
+    expect(_bugsee_is_blackout() == 1, "the blackout export reports a blackout the wrapper started");
+    _bugsee_stop(8, OnStopped);
+    expect(waitFor(^{ return gStoppedToken == 8 ? 1 : 0; }, 5) && _bugsee_is_blackout() == 1,
+           "the blackout export still reports the blackout after a stop");
+    [Bugsee endBlackout];
+    expect(_bugsee_is_blackout() == 0, "the blackout export sees a blackout the SDK ended");
 
     printf("ios bridge tests passed\n");
     return 0;
