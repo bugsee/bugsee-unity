@@ -30,6 +30,33 @@ jobs:
       - name: Test
         run: dotnet test Tests~/WrapperPolicy/Bugsee.WrapperPolicy.Tests.csproj --nologo --configuration Release
 
+  windows-editor-path:
+    name: Windows Editor path (native Windows host)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build the bugsee-cli.exe stand-in
+        shell: pwsh
+        run: |
+          dotnet build Tests~/WindowsSmoke/FakeCli/FakeCli.csproj --nologo --configuration Release --output "$env:RUNNER_TEMP\fake-cli"
+          "BUGSEE_FAKE_CLI_EXE=$env:RUNNER_TEMP\fake-cli\bugsee-cli.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # The Windows-relevant classes only: the iOS Run Script, LocalPackageCopy and probe tests drive /bin/sh and POSIX
+      # file modes, which macOS and Linux already cover.
+      - name: Test
+        shell: pwsh
+        run: |
+          $classes = 'WindowsNativeSmokeTests','WindowsEditorPathTests','BugseeCliPolicyTests','BuildPathExclusionTests','Il2CppMappingArgsTests','AndroidIconPickerTests','AndroidMonoSymbolPolicyTests','AndroidSymbolPolicyTests','AndroidUploadIdentityTests','AndroidBuildUuidTests','GradlePluginInjectionTests','GradleBuildIdBlockTests','GradleMavenInjectionTests','GradleKotlinDslTests','GradleVersionCatalogTests','GradlePluginRepositoriesTests','MarkedGradleBlockTests','ProguardRulesTests'
+          $filter = ($classes | ForEach-Object { "FullyQualifiedName~.$_" }) -join '|'
+          dotnet test Tests~/WrapperPolicy/Bugsee.WrapperPolicy.Tests.csproj --nologo --configuration Release --filter $filter
+
   unity-compile:
     name: Unity C# compile check
     runs-on: ubuntu-latest
