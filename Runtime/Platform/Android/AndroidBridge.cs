@@ -90,7 +90,12 @@ namespace Bugsee.Platform.Android
                 EnsureWrapperRegistered();
                 InstallDefaultListeners();
                 ReportHandlerProxy.InvalidateBudget();
-                Lifecycle.Launch(appToken, options, completion);
+                // The SDK applies the options when it answers: drop a value cached from the old ones in between.
+                Lifecycle.Launch(appToken, options, ok =>
+                {
+                    ReportHandlerProxy.InvalidateBudget();
+                    completion?.Invoke(ok);
+                });
             });
         }
 
@@ -100,7 +105,11 @@ namespace Bugsee.Platform.Android
             MainThreadDispatcher.Run(() =>
             {
                 ReportHandlerProxy.InvalidateBudget();
-                Lifecycle.Relaunch(options, completion);
+                Lifecycle.Relaunch(options, ok =>
+                {
+                    ReportHandlerProxy.InvalidateBudget();
+                    completion?.Invoke(ok);
+                });
             });
 
         void ILifecycleResultBridge.Launch(string appToken, IDictionary<string, object> options, Action<bool> started) =>
