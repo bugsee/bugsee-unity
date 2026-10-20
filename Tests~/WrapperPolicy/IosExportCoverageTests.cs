@@ -58,7 +58,7 @@ namespace Bugsee.WrapperPolicy.Tests
             // A call, not the prototype that declares it: a prototype has a type (an identifier or "*") right before the name.
             var uncovered = imports
                 .Where(name => !NotExercised.ContainsKey(name))
-                .Where(name => !Regex.IsMatch(tests, @"(?<![\w*]\s{0,8})(?<![\w*])\b" + name + @"\("))
+                .Where(name => !Regex.IsMatch(tests, @"(?<![\w*]\s{0,8})\b" + name + @"\("))
                 .ToList();
             Assert.That(uncovered, Is.Empty, "DllImported exports no Tests~/iOS/*.mm test calls (add a call to BridgeExportTests.mm)");
         }

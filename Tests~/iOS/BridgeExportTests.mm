@@ -1,8 +1,9 @@
 // Second bridge test binary (run by run-tests.sh after BridgeTests.mm): drives the exports BridgeTests.mm does not,
 // through the same C ABI the C# DllImports use, against the real SDK slice with no launch. Where the SDK has an
-// observable state the test checks it; the rest must at least link, take the argument shapes C# passes (NULL strings,
-// empty buffers, unknown request ids) and return without crashing. The managed side of the link is checked by
-// NativeBindingTests (it also fails if an export is not exercised in one of the Tests~/iOS/*.mm files).
+// observable state the test checks it; the rest are smoke calls: they must link, take the argument shapes C# passes
+// (NULL strings, short buffers, unknown request ids) and return without crashing, and assert nothing else. The
+// prototypes below are checked against the real exports by NativeBindingTests; IosExportCoverageTests fails when a
+// DllImported export is not called from one of the Tests~/iOS/*.mm files.
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <Bugsee/Bugsee.h>
@@ -105,7 +106,7 @@ int main(void)
     expect(_bugsee_pixels_per_point((int)(points * 2)) == 2.0f || points != (float)(int)points,
            "pixels per point is the pixel width over the width in points");
 
-    // Free takes NULL and a returned string.
+    // Free takes NULL (and, above, a returned string).
     _bugsee_free(NULL);
 
     // Managed report upload: no JSON is a failed create, reported on the same call with the caller's token.
@@ -115,7 +116,9 @@ int main(void)
     expect(gUploadCalls == 1, "a report upload without JSON and without a callback calls nothing back");
     _bugsee_invalidate_managed_report_uploads();
 
-    // Logging and telemetry with no running SDK, including the NULL and non-object payloads C# can send.
+    // Logging and telemetry with no running SDK, including the NULL and non-object payloads C# can send (smoke only: the
+    // calls have no observable effect before a launch). _bugsee_feedback_show / _set_greeting only log today (the Feedback
+    // module is not in the core 7.x package); revisit them if a future SDK ships Feedback.
     _bugsee_log("hello", 3);
     _bugsee_log(NULL, 3);
     _bugsee_trace("t", "1");
@@ -131,14 +134,15 @@ int main(void)
     _bugsee_feedback_set_greeting(NULL);
     expect(_bugsee_get_status() == 0, "logging and telemetry do not start the SDK");
 
-    // Secure rect buffer: short or NULL buffers are ignored, a packed one is stored per display.
+    // Secure rect buffer (smoke only, nothing reads the stored buffer back): short or NULL buffers must be ignored and a
+    // packed one accepted for any display.
     int packed[] = { 1, 0, 0, 10, 10 };
     _bugsee_set_secure_buffer(0, NULL, 5);
     _bugsee_set_secure_buffer(0, packed, 1);
     _bugsee_set_secure_buffer(0, packed, 5);
     _bugsee_set_secure_buffer(1, packed, 5);
 
-    // Wrapper channel with no channel attached (no launch): every producer drops quietly.
+    // Wrapper channel with no channel attached (no launch): every producer must return quietly (smoke only).
     _bugsee_channel_log("msg", 3, 1);
     _bugsee_channel_log(NULL, 3, 1);
     _bugsee_channel_network("{\"id\":\"n\",\"url\":\"u\"}", 1);
@@ -147,8 +151,8 @@ int main(void)
     _bugsee_channel_breadcrumb("cat", "msg", 3, 0);
     _bugsee_channel_breadcrumb(NULL, NULL, 3, 1700000000.0);
 
-    // Filters: enabling installs the SDK hook, disabling is idempotent; unknown request ids are ignored, as are
-    // answers that arrive twice or after the filter was disabled.
+    // Filters (smoke only): enabling and disabling in any order, and answers for request ids nobody is waiting on, must be
+    // safe. Whether the SDK hook is installed or an answer is applied needs an SDK-triggered event (follow-up #206).
     _bugsee_set_network_filter_enabled(1);
     _bugsee_set_log_filter_enabled(1);
     _bugsee_set_breadcrumb_filter_enabled(1);
