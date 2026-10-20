@@ -200,7 +200,11 @@ namespace Bugsee.Sample
                 var crashHandler = Environment.GetEnvironmentVariable("BUGSEE_E2E_CRASH_HANDLER");
                 if (int.TryParse(crashHandler, out var handlerType))
                     iosOptions.SetCustomOption("com.bugsee.option.capture.crash-handler-type", handlerType);
-                Bugsee.Launch(appToken, iosOptions);
+                // BUGSEE_E2E_RELAUNCH_FIRST = 1: Relaunch is the first call, with no Launch before it.
+                if (Environment.GetEnvironmentVariable("BUGSEE_E2E_RELAUNCH_FIRST") == "1")
+                    Bugsee.Relaunch(iosOptions);
+                else
+                    Bugsee.Launch(appToken, iosOptions);
 #else
                 // Editor / unsupported: still call Launch (no-op bridge).
                 Bugsee.Launch(appToken);
@@ -753,6 +757,7 @@ namespace Bugsee.Sample
         void OnLifecycle(string eventType, object data)
         {
             _lastLifecycle = eventType;
+            Debug.Log("[BugseeSample] lifecycle " + eventType + " data=" + (data == null ? "null" : data.GetType().Name + ":" + data));
             var line = DateTime.Now.ToString("HH:mm:ss") + " " + eventType +
                        (data != null ? " data=" + data : "");
             _lifecycleLog.Enqueue(line);

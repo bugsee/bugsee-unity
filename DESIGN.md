@@ -12,7 +12,7 @@ Legacy foundation: `cross/unity`. Min Unity: **2021.3**.
 
 ## Assumptions
 
-1. Android pin: Maven `com.bugsee:bugsee-android:7.4.1` + `bugsee-android-ndk:7.4.1`, injected into the generated `unityLibrary/build.gradle` by an `IPostGenerateGradleAndroidProject` step (no EDM4U, no custom templates); Gradle plugin `4.0.8`. Core publishes no transitives (no kotlin-stdlib / fragment pull); NDK must be declared. Feedback AAR stays optional.
+1. Android pin: Maven `com.bugsee:bugsee-android:7.4.2` + `bugsee-android-ndk:7.4.2`, injected into the generated `unityLibrary/build.gradle` by an `IPostGenerateGradleAndroidProject` step (no EDM4U, no custom templates); Gradle plugin `4.0.8`. Core publishes no transitives (no kotlin-stdlib / fragment pull); NDK must be declared. Feedback AAR stays optional.
 2. iOS: SPM-only. Pin [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta7` (`IOS_SDK_VERSION` in `Tools~/versions.env`). Xcode resolves the remote package at export; no CocoaPods and no vendored xcframework.
 3. Public C# surface mirrors Android 7.0; intentional C#/.NET deviations allowed (see below).
 4. SDK-internal contracts (`capture` aggregators, most `contracts.internal.*` except what wrappers need for `BugseeWrapper`) are **not** public C# API.
@@ -89,7 +89,7 @@ Property / key naming currently follows **Android 7.0**. When the Bugsee **iOS**
 ## Native packaging (already scaffolded)
 
 - `package.json` → `com.bugsee.unity`, no package dependencies
-- `Editor/BugseeAndroidMavenDependencies.cs` → declares Maven 7.4.1 (+ NDK, both explicit) in the generated Gradle project; text edits in `Runtime/WrapperPolicy/GradleMavenInjection.cs`. A project-declared Bugsee dependency (EDM4U, custom template, local AAR) is kept and a version mismatch warned about; `.gradle.kts` files (project-converted; Unity generates Groovy) are edited in Kotlin syntax and `repositoriesMode` (`FAIL_ON_PROJECT_REPOS`) is respected; a project declaration is only a direct runtime-configuration argument in a top-level `dependencies {}` (never compileOnly/test/exclude/platform/constraints/variables), and a filtered `mavenCentral { content {} }` counts only if its filter serves `com.bugsee`. `maven { url <Central> content {} }` and `exclusiveContent` filters are read too. A declaration nested in an `if`/`else`/`with` block suppresses injection but never removes an earlier one. Not interpreted: version-catalog accessors, flavor-prefixed configurations
+- `Editor/BugseeAndroidMavenDependencies.cs` → declares Maven 7.4.2 (+ NDK, both explicit) in the generated Gradle project; text edits in `Runtime/WrapperPolicy/GradleMavenInjection.cs`. A project-declared Bugsee dependency (EDM4U, custom template, local AAR) is kept and a version mismatch warned about; `.gradle.kts` files (project-converted; Unity generates Groovy) are edited in Kotlin syntax and `repositoriesMode` (`FAIL_ON_PROJECT_REPOS`) is respected; a project declaration is only a direct runtime-configuration argument in a top-level `dependencies {}` (never compileOnly/test/exclude/platform/constraints/variables), and a filtered `mavenCentral { content {} }` counts only if its filter serves `com.bugsee`. `maven { url <Central> content {} }` and `exclusiveContent` filters are read too. A declaration nested in an `if`/`else`/`with` block suppresses injection but never removes an earlier one. Not interpreted: version-catalog accessors, flavor-prefixed configurations
 - `Editor/BugseeAndroidGradleSetup.cs` → applies the Bugsee Gradle plugin on AGP 8.6+; text edits in `Runtime/WrapperPolicy/GradlePluginInjection.cs` (Groovy and Kotlin DSL, root `plugins {}` or `buildscript` classpath, launcher `apply plugin:` or `plugins {}` after AGP; never ahead of AGP, never when it cannot be done safely: a warning names the lines to add) and `GradleVersionCatalog.cs` (AGP version through `libs.versions.toml`); `pluginManagement` repositories get Maven Central when they list neither it nor the plugin portal.
 - `Editor/BugseeIosSpmPostProcess.cs` → remote SPM `github.com/bugsee/spm` `7.0.0-beta7`
 - `Plugins/iOS/BugseeUnityBridge.mm` + `Plugins/Android/UnityManagedException.java`
@@ -135,7 +135,7 @@ Runtime/
 │   ├── iOS/
 │   │   └── IOSBridge.cs                  # P/Invoke → BugseeUnityBridge.mm + xcframework
 │   └── Editor/
-│       └── EditorBridge.cs               # Editor / unsupported no-op
+│       └── EditorBridge.cs               # Editor / unsupported no-op (SetAttribute still validates)
 │
 ├── Capture/
 │   └── BugseeFrameCapturer.cs            # VideoMode.DirectBuffers → getVideoFrameConsumer()
@@ -250,7 +250,7 @@ Alongside `dsym` / `elf` / `proguard` uploads (`BugseeSymbolUpload`).
 - Explicit `BUGSEE_IL2CPP_MAPPING` missing → warn + skip
 - Unresolved UUID → warn + skip (iOS often deferred to archive Run Script)
 - CLI non-zero / timeout → warn + continue
-- No `BUGSEE_APP_TOKEN` → silent skip (opt-in)
+- No `BUGSEE_APP_TOKEN` → silent skip of the upload (opt-in); the mapping files are still emitted by the build (`--emit-source-mapping --emit-method-map`, any IL2CPP build unless `BUGSEE_NO_IL2CPP_MAPPING`), so a later CI job can upload them
 
 Standalone `bugsee-cli` may still exit non-zero when used directly in CI scripts.
 
