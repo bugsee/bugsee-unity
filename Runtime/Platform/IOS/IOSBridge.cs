@@ -883,10 +883,6 @@ namespace Bugsee.Platform.IOS
 
         static string ToJsonValue(object value) => JsonWire.Value(value);
 
-        static string ToJsonLiteral(object value) => JsonWire.Literal(value);
-
-        static string JsonString(string s) => JsonWire.String(s);
-
         [DllImport("__Internal")] static extern void _bugsee_launch(
             string appToken, string optionsJson, int startedToken, LaunchStartedNativeCallback started);
         [DllImport("__Internal")] static extern void _bugsee_relaunch(
@@ -905,7 +901,6 @@ namespace Bugsee.Platform.IOS
             int iosLevel,
             double timestampUnixSeconds);
         [DllImport("__Internal")] static extern void _bugsee_delete_collected_data(int token, DeleteNativeCallback completion);
-        [DllImport("__Internal")] static extern void _bugsee_cancel_managed_report_upload(ulong uploadId);
         [DllImport("__Internal")] static extern void _bugsee_invalidate_managed_report_uploads();
         [DllImport("__Internal")] static extern void _bugsee_upload_managed_report(
             string reportJson,
@@ -928,7 +923,6 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_set_email(string email);
         [DllImport("__Internal")] static extern IntPtr _bugsee_get_email();
         [DllImport("__Internal")] static extern void _bugsee_clear_email();
-        [DllImport("__Internal")] static extern IntPtr _bugsee_get_device_id();
         [DllImport("__Internal")] static extern void _bugsee_set_secure_buffer(int display, int[] packed, int packedLength);
         [DllImport("__Internal")] static extern float _bugsee_screen_scale();
         [DllImport("__Internal")] static extern void _bugsee_capture_view_hierarchy();
