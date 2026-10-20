@@ -39,11 +39,18 @@ namespace Bugsee.Sample
         sealed class Handler : ReportHandlerBase
         {
             public string FilePath;
+            public bool Active = true;
 
             public override void OnBeforeReportCreated(IReport report, bool isTerminating, Action completionCallback)
             {
                 try
                 {
+                    if (!Active)
+                    {
+                        completionCallback?.Invoke();
+                        return;
+                    }
+
                     report.Summary = "attach-live";
                     AddThree("live", report, FilePath);
                 }
@@ -77,9 +84,15 @@ namespace Bugsee.Sample
             Debug.Log("[ATTACH] managed uploaded");
 
             yield return new WaitForSeconds(3f);
-            Bugsee.SetReportHandler(new Handler { FilePath = path });
+            var handler = new Handler { FilePath = path };
+            Bugsee.SetReportHandler(handler);
             Bugsee.Upload("attach-live-" + marker, "live report attachments");
             Debug.Log("[ATTACH] live upload requested");
+
+            // The handler stays registered with the SDK, so switch it off, and remove the temp file once the report is made.
+            yield return new WaitForSeconds(10f);
+            handler.Active = false;
+            try { File.Delete(path); } catch (Exception) { /* best effort */ }
         }
 
         public static void RunUnobserved(MonoBehaviour host, string marker) => host.StartCoroutine(UnobservedRoutine(marker));
@@ -105,8 +118,14 @@ namespace Bugsee.Sample
             GC.Collect();
             GC.WaitForPendingFinalizers();
             GC.Collect();
-            yield return new WaitForSeconds(2f);
-            Debug.Log("[UNOBS] after GC: fired=" + _unobservedCount);
+            // The event follows the finalizer by an unpredictable time (seen: 14 s to 50 s), so wait for it.
+            var waited = 0f;
+            while (_unobservedCount == 0 && waited < 90f)
+            {
+                yield return new WaitForSeconds(1f);
+                waited += 1f;
+            }
+            Debug.Log("[UNOBS] after GC + " + waited + " s: fired=" + _unobservedCount);
         }
     }
 }

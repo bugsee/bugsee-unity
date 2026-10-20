@@ -47,7 +47,7 @@ Bugsee.Launch(appToken, options);
 #endif
 ```
 
-`CaptureManagedExceptions` is independent of `DetectAndReportCrash`. Omit it to keep the default (enabled). `CaptureUnobservedTaskExceptions` (default enabled, needs `CaptureManagedExceptions`) controls whether `TaskScheduler.UnobservedTaskException` is reported; set it to `false` for apps whose fire-and-forget tasks fault on purpose. Unity raises that event only after the faulted `Task` is garbage-collected, so the handled error arrives late and at a time you do not control.
+`CaptureManagedExceptions` is independent of `DetectAndReportCrash`. Omit it to keep the default (enabled). `CaptureUnobservedTaskExceptions` (default enabled, needs `CaptureManagedExceptions`) controls whether `TaskScheduler.UnobservedTaskException` is reported; set it to `false` for apps whose fire-and-forget tasks fault on purpose. A `Relaunch` applies a changed value. Unity raises that event only after the faulted `Task` is garbage-collected, so the handled error arrives late and at a time you do not control.
 
 ## Lifecycle: Launch, Relaunch, Stop, Delete
 

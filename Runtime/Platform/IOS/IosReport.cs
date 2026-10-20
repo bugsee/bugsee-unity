@@ -405,7 +405,6 @@ namespace Bugsee.Platform.IOS
         {
             Name = name;
             Filename = name;
-            MimeType = "text/plain";
         }
 
         public string Name { get; set; }
@@ -435,8 +434,6 @@ namespace Bugsee.Platform.IOS
                 _text = null;
                 _dataBase64 = Convert.ToBase64String(data);
                 _isBinary = true;
-                if (string.IsNullOrEmpty(MimeType) || MimeType == "text/plain")
-                    MimeType = "application/octet-stream";
             }
         }
 

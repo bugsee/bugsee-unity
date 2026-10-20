@@ -213,9 +213,10 @@ namespace Bugsee.Platform.Android
             set => Set("setMimeType", value);
         }
 
+        // Empty data is valid: the stream is opened (which truncates the attachment) and closed without a write.
         public void SetData(byte[] data)
         {
-            if (data == null || data.Length == 0) return;
+            if (data == null) return;
 
             using (var stream = _attachment.Call<AndroidJavaObject>("openStream"))
             {
@@ -224,8 +225,11 @@ namespace Bugsee.Platform.Android
 
                 try
                 {
-                    var signed = AndroidJavaConverters.ToSBytes(data);
-                    stream.Call("write", signed);
+                    if (data.Length > 0)
+                    {
+                        var signed = AndroidJavaConverters.ToSBytes(data);
+                        stream.Call("write", signed);
+                    }
                     stream.Call("flush");
                 }
                 finally
@@ -483,7 +487,6 @@ namespace Bugsee.Platform.Android
             _markDirty = markDirty;
             Name = name;
             Filename = name;
-            MimeType = "text/plain";
         }
 
         public string Name { get; set; }

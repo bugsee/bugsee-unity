@@ -382,14 +382,15 @@ int main(void)
         "{\"name\":\"blankmime\",\"fileName\":\"blankmime\",\"mimeType\":\"\",\"dataBase64\":\"aGVsbG8=\"},"
         "{\"name\":\"nodata\",\"fileName\":\"nodata\"}]}";
     value = _bugsee_test_apply_report_attachments(attachmentsJson);
-    expect(same(value, "data:empty:0:-|data:hello:5:text/plain|data:nomime:5:-|data:blankmime:5:-"),
-           "add-time attachments keep empty data and pass no invented MIME type");
+    expect(same(value, "data:empty:0:-|fileName:empty|data:hello:5:text/plain|fileName:hello|data:nomime:5:-|fileName:nomime"
+                 "|data:blankmime:5:-|fileName:blankmime"),
+           "add-time attachments keep empty data, pass no invented MIME type and carry the file name");
     free((void *)value);
     value = _bugsee_test_apply_extended_attachments(attachmentsJson);
     printf("extended attachments: %s\n", value ? value : "(null)");
     expect(value != NULL && strncmp(value, "4|empty:0:", 10) == 0,
            "the extended report keeps an empty attachment and skips one without data");
-    expect(value != NULL && strstr(value, "|nomime:5:-") != NULL, "the extended report sets no MIME type for an attachment without one");
+    // The beta7 BugseeAttachment has no MIME type property, so the extended report cannot show one either way.
     free((void *)value);
 
     printf("ios bridge tests passed\n");

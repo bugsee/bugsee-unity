@@ -56,6 +56,8 @@ namespace Bugsee.Internal
             {
                 if (_instance != null)
                 {
+                    // A Relaunch calls Install again with the new options: the hooks stay, but this one is a switch.
+                    _instance.SyncUnobservedTaskHandler(launchOptions);
                     return;
                 }
 
@@ -67,13 +69,23 @@ namespace Bugsee.Internal
                 Application.logMessageReceivedThreaded += _instance.OnLogMessageReceivedThreaded;
                 AppDomain.CurrentDomain.UnhandledException += _instance.OnUnhandledException;
 #if !NET_LEGACY
-                if (GetBoolOption(launchOptions, Options.CaptureUnobservedTaskExceptions, true))
-                {
-                    TaskScheduler.UnobservedTaskException += _instance.OnUnobservedTaskException;
-                }
+                _instance.SyncUnobservedTaskHandler(launchOptions);
 #endif
             }
         }
+
+#if !NET_LEGACY
+        // Subscribed exactly when CaptureUnobservedTaskExceptions is on (default); `-=` of a handler that is not
+        // subscribed does nothing, so this is safe to call on every Install.
+        void SyncUnobservedTaskHandler(System.Collections.Generic.IDictionary<string, object> launchOptions)
+        {
+            TaskScheduler.UnobservedTaskException -= OnUnobservedTaskException;
+            if (GetBoolOption(launchOptions, Options.CaptureUnobservedTaskExceptions, true))
+            {
+                TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+            }
+        }
+#endif
 
         public static void Uninstall()
         {

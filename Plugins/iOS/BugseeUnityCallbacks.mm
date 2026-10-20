@@ -477,8 +477,22 @@ static int64_t BugseeUnityEnqueueFilter(NSString *kind, id event, id decisionBlo
 
 #if defined(BUGSEE_UNITY_TESTS)
 // Stands in for the SDK's report: records what the add-time attachment methods were asked for.
+@class BugseeUnityAttachmentRecorder;
+@interface BugseeUnityRecordedAttachment : NSObject
+@property(nonatomic, weak) BugseeUnityAttachmentRecorder *recorder;
+@property(nonatomic, copy) NSString *fileName;
+@end
+
 @interface BugseeUnityAttachmentRecorder : NSObject
 @property(nonatomic, strong) NSMutableArray<NSString *> *calls;
+@end
+
+@implementation BugseeUnityRecordedAttachment
+- (void)setFileName:(NSString *)fileName
+{
+    _fileName = [fileName copy];
+    [self.recorder.calls addObject:[NSString stringWithFormat:@"fileName:%@", fileName]];
+}
 @end
 
 @implementation BugseeUnityAttachmentRecorder
@@ -490,12 +504,16 @@ static int64_t BugseeUnityEnqueueFilter(NSString *kind, id event, id decisionBlo
 - (id)addAttachmentWithData:(NSData *)data name:(NSString *)name mimeType:(NSString *)mimeType
 {
     [self.calls addObject:[NSString stringWithFormat:@"data:%@:%lu:%@", name, (unsigned long)data.length, mimeType ?: @"-"]];
-    return nil;
+    BugseeUnityRecordedAttachment *created = [BugseeUnityRecordedAttachment new];
+    created.recorder = self;
+    return created;
 }
 - (id)addAttachmentWithFilePath:(NSString *)path name:(NSString *)name mimeType:(NSString *)mimeType move:(BOOL)move
 {
     [self.calls addObject:[NSString stringWithFormat:@"file:%@:%@", name, mimeType ?: @"-"]];
-    return nil;
+    BugseeUnityRecordedAttachment *created = [BugseeUnityRecordedAttachment new];
+    created.recorder = self;
+    return created;
 }
 @end
 #endif
