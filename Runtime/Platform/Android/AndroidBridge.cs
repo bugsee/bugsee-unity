@@ -90,14 +90,28 @@ namespace Bugsee.Platform.Android
                 ManagedExceptionPayload.WarmModuleUuid();
                 EnsureWrapperRegistered();
                 InstallDefaultListeners();
-                Lifecycle.Launch(appToken, options, completion);
+                ReportHandlerProxy.InvalidateBudget();
+                // The SDK applies the options when it answers: drop a value cached from the old ones in between.
+                Lifecycle.Launch(appToken, options, ok =>
+                {
+                    ReportHandlerProxy.InvalidateBudget();
+                    completion?.Invoke(ok);
+                });
             });
         }
 
         public void Relaunch(IDictionary<string, object> options) => Relaunch(options, null);
 
         internal void Relaunch(IDictionary<string, object> options, Action<bool> completion) =>
-            MainThreadDispatcher.Run(() => Lifecycle.Relaunch(options, completion));
+            MainThreadDispatcher.Run(() =>
+            {
+                ReportHandlerProxy.InvalidateBudget();
+                Lifecycle.Relaunch(options, ok =>
+                {
+                    ReportHandlerProxy.InvalidateBudget();
+                    completion?.Invoke(ok);
+                });
+            });
 
         void ILifecycleResultBridge.Launch(string appToken, IDictionary<string, object> options, Action<bool> started) =>
             Launch(appToken, options, started);
@@ -462,7 +476,7 @@ namespace Bugsee.Platform.Android
             if (_networkFilterProxy == null)
             {
                 _networkFilterProxy = new EventFilterProxy<INetworkEvent>(
-                    native => new AndroidNetworkEvent(native));
+                    native => new AndroidNetworkEvent(native)); // the SDK never times the network filter out (7.4.1/7.4.2): no reply window
                 _bugsee.CallStatic("setNetworkEventFilter", _networkFilterProxy);
             }
             _networkFilterProxy.SetFilter(filter);
@@ -481,7 +495,7 @@ namespace Bugsee.Platform.Android
             if (_logFilterProxy == null)
             {
                 _logFilterProxy = new EventFilterProxy<ILogEvent>(
-                    native => new AndroidLogEvent(native));
+                    native => new AndroidLogEvent(native), FilterReplyWindow.LogFilterSdkTimeoutMs);
                 _bugsee.CallStatic("setLogEventFilter", _logFilterProxy);
             }
             _logFilterProxy.SetFilter(filter);

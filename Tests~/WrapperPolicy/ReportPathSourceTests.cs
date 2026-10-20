@@ -263,7 +263,10 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Ios_report_snapshots_files_and_base64_bytes()
         {
             string report = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IosReport.cs"));
-            string addFile = ExtractMethodBody(report, "public IAttachment AddAttachmentFile(string path, string name, string mimeType)");
+            // The public method only takes the release lock; the body is in AddAttachmentFileLocked.
+            Assert.That(ExtractMethodBody(report, "public IAttachment AddAttachmentFile(string path, string name, string mimeType)"),
+                Does.Contain("AddAttachmentFileLocked"));
+            string addFile = ExtractMethodBody(report, "IAttachment AddAttachmentFileLocked(string path, string name, string mimeType)");
             Assert.That(addFile, Does.Contain("SnapshotAttachmentFile"));
             Assert.That(addFile, Does.Contain("File.Exists(path)"));
             Assert.That(addFile, Does.Contain("Path.GetFileName(path)"));

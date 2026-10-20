@@ -237,6 +237,10 @@ namespace Bugsee.Sample
                     Bugsee.SetReportHandler(new SampleReportHandler());
                 if (installSampleFilters)
                     ApplyFilters(true);
+                // "bugsee_handler_mode" = prompt | slow<seconds>: a report handler that records when it ran (issue #136 checks).
+                var handlerMode = ReadE2EValue("bugsee_handler_mode", "BUGSEE_HANDLER_MODE");
+                if (!string.IsNullOrEmpty(handlerMode))
+                    HandlerDelayE2E.Install(this, handlerMode, ReadE2EValue("bugsee_handler_report_s", "BUGSEE_HANDLER_REPORT_S"));
 
                 // Auto e2e matrix when endpoint override is set (device → local appserver).
                 // Scenarios via Android intent extra "bugsee_e2e" (default: sig).

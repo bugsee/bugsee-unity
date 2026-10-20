@@ -245,9 +245,23 @@ namespace Bugsee.Platform.IOS
                 return;
             }
 
+            // The SDK stops waiting for the handler after 30 s and carries on with the report unchanged
+            // (the ReportHandlerCallbackTimeout option is not read on iOS). A handler that would only start after
+            // that is skipped, and a reply after it is acknowledged without touching the report.
+            IosReport report = null;
+            var guard = new LateReplyGuard(ReportHandlerDeadline.DefaultBudgetMs, LateReplyGuard.StopwatchMillis,
+                applyEdits => CompleteReport(requestId, report, applyEdits && report != null ? report.ToResultJson() : null));
+
+            // A handler that never answers must not keep the native entry, the report and its snapshot files alive.
+            guard.ArmTimeout(1000, abandon => MainThreadDispatcher.Run(() =>
+            {
+                Debug.LogWarning("[Bugsee] The report handler did not call its completion callback by the SDK's deadline; it was abandoned.");
+                abandon();
+            }));
+
             void Work()
             {
-                IosReport report = null;
+                if (!guard.TryBegin()) return;
                 try
                 {
                     var handler = _reportHandler;
@@ -260,27 +274,19 @@ namespace Bugsee.Platform.IOS
 
                     if (handler == null)
                     {
-                        CompleteReport(requestId, report, null);
+                        guard.Abandon();
                         return;
                     }
 
-                    var finished = false;
-                    Action done = () =>
-                    {
-                        if (finished) return;
-                        finished = true;
-                        CompleteReport(requestId, report, report.ToResultJson());
-                    };
-
                     if (phase == 0)
-                        handler.OnBeforeReportCreated(report, false, done);
+                        handler.OnBeforeReportCreated(report, false, guard.Done);
                     else
-                        handler.OnAfterReportCreated(report, false, done);
+                        handler.OnAfterReportCreated(report, false, guard.Done);
                 }
                 catch (Exception ex)
                 {
                     Debug.LogException(ex);
-                    CompleteReport(requestId, report, null);
+                    guard.Abandon();
                 }
             }
 
