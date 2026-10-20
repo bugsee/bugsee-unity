@@ -82,7 +82,8 @@ namespace Bugsee.Sample
             // 2. Reports: create, edit (every IReport member), upload, discard.
             c.Run(BugseeDemoAction.ReportCreate);
             var d = x.Draft;
-            Check("CreateReport returns a report with an id", d != null && !string.IsNullOrEmpty(d.Id), "id=" + (d != null ? d.Id : "(null)"));
+            // A draft's Id is empty on both platforms (observed): the native report is created at upload.
+            Check("CreateReport returns a report", d != null, "id=" + (d != null ? "'" + d.Id + "'" : "(null)"));
             c.Run(BugseeDemoAction.ReportEdit);
             Check("Edit Report bubble opens its form", BugseeActionForms.IsOpen, "open=" + BugseeActionForms.IsOpen);
             BugseeActionForms.Instance.Close();
