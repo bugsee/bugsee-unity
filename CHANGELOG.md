@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Documented that `Relaunch`/`RelaunchAsync` replace the whole option set on both platforms (the native SDKs do not merge): native options, `Endpoint`, `CaptureManagedExceptions` and `CaptureUnobservedTaskExceptions` not passed again go back to their defaults, and `Relaunch()` without options resets every option (handlers, filters and the lifecycle listener are kept). `TreatUnityLogExceptionsAsFatal` keeps its first-launch value. Pass the full option set. Checked on Android and the iOS Simulator with the sample's `presets` scenario.
+
 - New launch option `CaptureUnobservedTaskExceptions` (Unity-only, default true, needs `CaptureManagedExceptions`): set it to false to stop reporting `TaskScheduler.UnobservedTaskException` as a handled error. The default stays on, as in the Bugsee .NET (MAUI) SDK, whose `HandleTaskExceptions` defaults to true and files the same event as a handled exception. Changing it on `Relaunch` takes effect (the subscription is re-synced; `TreatUnityLogExceptionsAsFatal` is still read at the first launch only). Unity raises the event only after the faulted Task is garbage-collected (seen: 14 to 50 s after a forced GC), so the report can be late, and fire-and-forget tasks that fault on purpose are noise for some apps.
 - New sample scenarios `attach` and `unobserved` (`BUGSEE_E2E_SCENARIO` / intent extra `bugsee_e2e`; `bugsee_unobserved=0` / `BUGSEE_E2E_UNOBSERVED=0` switches the option off): they log, tagged `[ATTACH]` and `[UNOBS]`, what the SDK accepted for empty and MIME-less attachments and whether an unobserved task exception fired after a forced GC.
 

@@ -82,7 +82,11 @@ namespace Bugsee
         }
 
         /// <summary>
-        /// Relaunch the SDK with new options. Does not wait for the SDK, and waits for a stop in flight like
+        /// Relaunch the SDK with new options. The options REPLACE the whole option set (native SDKs do not merge): every
+        /// native option, the endpoint, <c>CaptureManagedExceptions</c> and <c>CaptureUnobservedTaskExceptions</c> not passed
+        /// again goes back to its default, and a call without options resets every option to its default (handlers, filters and
+        /// the lifecycle listener are kept). <c>TreatUnityLogExceptionsAsFatal</c> keeps its first-launch value. Pass the full
+        /// option set you launched with. Does not wait for the SDK, and waits for a stop in flight like
         /// <see cref="Launch"/> (the same 5 s main-thread hand-off applies on iOS). Android ignores it with a
         /// warning unless the SDK is Launched. See <see cref="RelaunchAsync"/> for the result.
         /// </summary>
@@ -230,7 +234,11 @@ namespace Bugsee
             return result.Task;
         }
 
-        /// <summary><see cref="Relaunch"/> that completes with the SDK's answer, as <see cref="LaunchAsync"/>.</summary>
+        /// <summary>
+        /// <see cref="Relaunch"/> that completes with the SDK's answer, as <see cref="LaunchAsync"/>. Like <see cref="Relaunch"/> it
+        /// replaces the whole option set: options not passed again go back to their defaults (see its note on
+        /// <c>TreatUnityLogExceptionsAsFatal</c>).
+        /// </summary>
         public static Task<bool> RelaunchAsync(Dictionary<string, object> options = null)
         {
             options = ApplyCapturePolicy(options, out bool startPusher);
@@ -288,11 +296,13 @@ namespace Bugsee
         public static BugseeStatus Status => Bridge.GetStatus();
 
         /// <summary>
-        /// The options the SDK is running with: its defaults with the ones passed to <see cref="Launch"/> merged over
-        /// them, as a read-only snapshot (changing it changes nothing). Null while the SDK is not launched. Keys are
-        /// the native SDK's own option names and differ between Android and iOS; values are string, bool, long,
-        /// double (or a nested dictionary or list); narrower numeric types are widened the same way on both platforms. The
-        /// SDK's internal keys (starting with a double dollar sign) are left out. A value with no such form, such as a
+        /// The options the SDK is running with: its defaults with the ones passed to the last <see cref="Launch"/> or
+        /// <see cref="Relaunch"/> merged over them, as a read-only snapshot (changing it changes nothing). Null while the SDK
+        /// is not launched. Keys are the native SDK's own option names and differ between Android and iOS; values are string,
+        /// bool, long, double (or a nested dictionary or list); narrower numeric types are widened the same way on both
+        /// platforms. The SDK's internal keys (starting with a double dollar sign, such as the endpoint) and the Unity-only
+        /// <c>unity.*</c> options are left out, so this cannot rebuild the full set for a <see cref="Relaunch"/>: pass the set
+        /// you launched with. A value with no such form, such as a
         /// Java array, reads as its text.
         /// </summary>
         public static IReadOnlyDictionary<string, object> GetLaunchOptions()

@@ -194,8 +194,8 @@ preset in use, the number of option keys the SDK reports, one button per preset 
 button that logs every key.
 
 A relaunch REPLACES the SDK's option set on both platforms (the native SDKs do not merge): the options that are not passed again go
-back to their defaults, including the managed `unity.*` options and the endpoint, and `Relaunch()` without options resets everything
-to the defaults. The Relaunch bubble therefore passes the whole option set of the last launch again (on Android it used to pass
+back to their defaults, including the endpoint, `CaptureManagedExceptions` and `CaptureUnobservedTaskExceptions` (`TreatUnityLogExceptionsAsFatal`
+keeps its first-launch value), and `Relaunch()` without options resets every option to its default. The Relaunch bubble therefore passes the whole option set of the last launch again (on Android it used to pass
 only the video options, on iOS nothing).
 
 `BUGSEE_E2E_SCENARIO=presets` waits for the SDK to launch, relaunches with no options to learn each option's SDK default, then
