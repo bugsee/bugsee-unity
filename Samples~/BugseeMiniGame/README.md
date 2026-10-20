@@ -99,7 +99,7 @@ Gradle plugin `4.0.8` is applied on Unity 6+ launcher templates (`ndk { enabled 
 
 ### Interaction check (`interactions` e2e scenario)
 
-`BUGSEE_E2E_SCENARIO=interactions` waits for the SDK to launch, then runs every action of the hills above through the same
+`BUGSEE_E2E_SCENARIO=interactions` (iOS env var; Android intent extra `bugsee_e2e`, e.g. `am start -n com.bugsee.minigame/com.unity3d.player.UnityPlayerActivity --es bugsee_e2e interactions`) waits for the SDK to launch (up to 60 s, then starts anyway and the checks fail), then runs every action of the hills above through the same
 `BugseeActionCatalog.Run` item a bubble calls (and the same `BugseeInteractions` method a form's apply button calls), reads the
 effect back, and logs `[Sample] interactions PASS|FAIL <name> :: <detail>` lines ending in `interactions e2e done failures=N`.
 It covers the report draft (every field and attachment reads back, upload and discard), Notify, Breadcrumb, network events,

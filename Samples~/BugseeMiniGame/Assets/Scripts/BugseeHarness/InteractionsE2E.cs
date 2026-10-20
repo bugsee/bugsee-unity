@@ -275,8 +275,15 @@ namespace Bugsee.Sample
             var status = c.LastStatus;
             var ok = !status.StartsWith("Error") &&
                      (action == BugseeDemoAction.ReportCreate ? x.Draft != null && !ReferenceEquals(x.Draft, stale) : x.Draft == null);
-            Check("stale draft (SDK stopped since New Report): " + action + " works", ok, "launched=" + Bugsee.IsLaunched + " :: " + status);
+            Check("stale draft (SDK stopped since New Report): " + action + " does not wedge the bubble", ok, "launched=" + Bugsee.IsLaunched + " :: " + status);
             if (x.Draft != null) x.DiscardDraft();
+            if (action == BugseeDemoAction.ReportDiscard)
+            {
+                // After all of that a fresh draft goes through the SDK again.
+                c.Run(BugseeDemoAction.ReportCreate);
+                c.Run(BugseeDemoAction.ReportUpload);
+                Check("a fresh draft after the relaunch uploads", c.LastStatus.StartsWith("Upload(IReport) id="), c.LastStatus);
+            }
         }
 
         static IEnumerator WaitTask(BugseeInteractions x)

@@ -271,7 +271,7 @@ namespace Bugsee.Sample
 
                 // Neighbours on a ring are a chord apart (not an arc): the most that stay >= minCenterDist apart.
                 // (The arc count used before rejected the last hill of a full ring, so 13 hills placed only 12
-                // and the 13th came from a random fallback that failed for a third of the seeds.)
+                // and the 13th came from a random fallback that failed for about a quarter of the seeds.)
                 float chordSin = Mathf.Min(1f, minCenterDist * 1.001f / (2f * radius));
                 int maxOnRing = Mathf.Max(1, Mathf.FloorToInt(Mathf.PI / Mathf.Asin(chordSin)));
                 int slots = Mathf.Min(count - list.Count, maxOnRing);

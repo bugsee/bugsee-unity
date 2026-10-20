@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Bugsee.Contracts.Apm;
 using Bugsee.Contracts.Appearance;
 using Bugsee.Contracts.Exchange;
+using Bugsee.Contracts.Lifecycle;
 using Bugsee.Contracts.Options;
 using Bugsee.Contracts.Reporting;
 using UnityEngine;
@@ -65,7 +66,7 @@ namespace Bugsee.Sample
     /// GetLaunchOptions, DeleteCollectedDataOnDevice, LogUnhandledException and Appearance strings.
     /// The catalog dispatches to these; the IMGUI forms and the <c>interactions</c> e2e scenario call the same methods.
     /// </summary>
-    public sealed class BugseeInteractions
+    public sealed class BugseeInteractions : IDisposable
     {
         readonly BugseeSampleBootstrap _bootstrap;
         int _unhandledCount;
@@ -77,6 +78,19 @@ namespace Bugsee.Sample
         public BugseeInteractions(BugseeSampleBootstrap bootstrap)
         {
             _bootstrap = bootstrap;
+            Bugsee.LifecycleEvent += OnLifecycle;
+        }
+
+        public void Dispose() => Bugsee.LifecycleEvent -= OnLifecycle;
+
+        // A stop (also behind Delete Data and the legacy Stop bubble) closes the SDK's open report and ends the spans
+        // of the old session: the sample's handles to them would be dead, so they are dropped.
+        void OnLifecycle(string eventType, object data)
+        {
+            if (eventType != LifecycleEvents.Stopped) return;
+            Draft = null;
+            _transaction = null;
+            _span = null;
         }
 
         // The values the forms last applied; a form edits a copy, so Cancel leaves these alone.
@@ -346,7 +360,6 @@ namespace Bugsee.Sample
         {
             LastAsync = null;
             Track("StopAsync", Bugsee.StopAsync());
-            Draft = null; // stopping closes the SDK's open report
         }
 
         void Track(string name, Task task)
@@ -398,7 +411,6 @@ namespace Bugsee.Sample
         public void ConfirmDeleteData()
         {
             Bugsee.DeleteCollectedDataOnDevice();
-            Draft = null; // deleting stops the SDK, which closes its open report
             Status("DeleteCollectedDataOnDevice requested; the SDK stops (tap Launch to resume)");
         }
 

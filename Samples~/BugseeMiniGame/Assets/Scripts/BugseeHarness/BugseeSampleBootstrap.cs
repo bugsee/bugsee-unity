@@ -89,6 +89,7 @@ namespace Bugsee.Sample
         void OnDestroy()
         {
             Bugsee.LifecycleEvent -= OnLifecycle;
+            _catalog?.Interactions.Dispose();
             if (ReferenceEquals(BugseeActionCatalog.Instance, _catalog))
                 BugseeActionCatalog.ClearInstance(_catalog);
         }
