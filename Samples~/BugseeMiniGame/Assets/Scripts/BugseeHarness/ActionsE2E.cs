@@ -32,7 +32,8 @@ namespace Bugsee.Sample
             Bugsee.SetUserIdentifier("e2e-user");
             c.Run(BugseeDemoAction.ClearIdentity);
             Check("identity cleared", string.IsNullOrEmpty(Bugsee.GetUserIdentifier()), c.LastStatus);
-            Check("attribute survives ClearIdentity", Bugsee.GetAttribute(key) == "survives", "value=" + Bugsee.GetAttribute(key));
+            var kept = Bugsee.GetAttribute(key); // object: compare by value, not by reference
+            Check("attribute survives ClearIdentity", "survives".Equals(kept), "value=" + (kept ?? "(null)"));
             Bugsee.ClearAttribute(key);
 
             // 3. Pause/Resume alternates and the state is visible.
