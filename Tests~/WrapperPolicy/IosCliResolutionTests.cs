@@ -562,7 +562,10 @@ namespace Bugsee.WrapperPolicy.Tests
                 {
                     var stdout = process.StandardOutput.ReadToEndAsync();
                     var stderr = process.StandardError.ReadToEndAsync();
-                    Assert.That(process.WaitForExit(120000), Is.True, "upload script timed out");
+                    bool exited = process.WaitForExit(120000);
+                    // A regressed watchdog must not leave a TERM-ignoring probe running after the test.
+                    if (!exited) { try { process.Kill(true); } catch (InvalidOperationException) { } }
+                    Assert.That(exited, Is.True, "upload script timed out");
                     return new ScriptRun
                     {
                         ExitCode = process.ExitCode,
