@@ -41,6 +41,9 @@ void _bugsee_test_emit_lifecycle(const char *eventType, const char *payloadJson)
 void _bugsee_register_unity_callbacks(void *filterCb, void *reportCb, BugseeLifecycleFn lifecycleCb);
 typedef void (*BugseeStopCompletionFn)(int token);
 void _bugsee_stop(int token, BugseeStopCompletionFn completion);
+void _bugsee_start_blackout(void);
+void _bugsee_end_blackout(void);
+int _bugsee_is_blackout(void);
 typedef void (*BugseeDeleteCompletionFn)(int token, int wiped);
 void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completion);
 const char *_bugsee_test_exception_options(const char *optionsJson);
@@ -127,6 +130,13 @@ int main(void)
     const char *value;
 
     expect(_bugsee_test_wrapper_installed() == 1, "load registers one wrapper");
+
+    // Nothing has started a blackout yet, and one requested before any launch is kept, not lost.
+    expect(_bugsee_is_blackout() == 0, "no blackout is reported before one is started");
+    _bugsee_start_blackout();
+    expect(_bugsee_is_blackout() == 1, "a blackout started before the first launch is reported");
+    _bugsee_end_blackout();
+    expect(_bugsee_is_blackout() == 0, "a blackout ended before the first launch is gone");
 
     _bugsee_set_wrapper_context("{\"unity_version\":\"2021.3\",\"count\":1}");
     value = _bugsee_test_copy_context_value("unity_version");
@@ -409,6 +419,20 @@ int main(void)
     expect(_bugsee_test_simulator_warning_count() == 1, "the simulator warning is logged once across launches");
     expect(_bugsee_exceptions_filed() == 0, "the simulator reports that exceptions are not filed");
     expect(gStartedCount == 2, "a launch without a started callback calls nothing back");
+
+    // IsBlackout reads the SDK, not a managed flag. A blackout the wrapper did not start is seen, and one the
+    // wrapper ended is gone, and the answer survives the stop and launches above (the SDK keeps the flag).
+    [Bugsee startBlackout];
+    expect(_bugsee_is_blackout() == 1, "the blackout export sees a blackout the wrapper did not start");
+    _bugsee_end_blackout();
+    expect(_bugsee_is_blackout() == 0, "the blackout export sees a blackout the wrapper ended");
+    _bugsee_start_blackout();
+    expect(_bugsee_is_blackout() == 1, "the blackout export reports a blackout the wrapper started");
+    _bugsee_stop(8, OnStopped);
+    expect(waitFor(^{ return gStoppedToken == 8 ? 1 : 0; }, 5) && _bugsee_is_blackout() == 1,
+           "the blackout export still reports the blackout after a stop");
+    [Bugsee endBlackout];
+    expect(_bugsee_is_blackout() == 0, "the blackout export sees a blackout the SDK ended");
 
     printf("ios bridge tests passed\n");
     return 0;
