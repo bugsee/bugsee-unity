@@ -13,7 +13,7 @@ namespace Bugsee.Sample
         public const float WorldHalfExtent = 72f;
         public const float HillRadius = 9f;
         /// <summary>Clear grass corridor between dome skirts (center distance = 2*R + gap).</summary>
-        public const float HillSkirtGap = 6f;
+        public const float HillSkirtGap = 12f;
         /// <summary>Unity cylinder half-height used for the summit pad visual (full height = 2× this).</summary>
         public const float SummitPadHalfHeight = 0.04f;
         /// <summary>World-space Y of the pad top above the dome mesh tip.</summary>
@@ -264,16 +264,17 @@ namespace Bugsee.Sample
             while (list.Count < count && ring < 12)
             {
                 ring++;
-                // Radial step ≈ minCenterDist so consecutive rings don't merge.
-                float radius = spawnClear + (ring - 1) * minCenterDist;
+                // Radial step slightly over minCenterDist so consecutive rings don't merge.
+                float radius = spawnClear + (ring - 1) * minCenterDist * 1.02f;
                 if (radius > maxR)
                     break;
 
-                int maxOnRing = Mathf.Max(1, Mathf.FloorToInt((Mathf.PI * 2f * radius) / minCenterDist));
+                // Neighbours on a ring are a chord apart (not an arc): the most that stay >= minCenterDist apart.
+                // (The arc count used before rejected the last hill of a full ring, so 13 hills placed only 12
+                // and the 13th came from a random fallback that failed for a third of the seeds.)
+                float chordSin = Mathf.Min(1f, minCenterDist * 1.001f / (2f * radius));
+                int maxOnRing = Mathf.Max(1, Mathf.FloorToInt(Mathf.PI / Mathf.Asin(chordSin)));
                 int slots = Mathf.Min(count - list.Count, maxOnRing);
-                // Prefer not packing the ring completely full — leave a bit of slack.
-                if (slots > 2)
-                    slots = Mathf.Max(2, slots - (ring == 1 ? 0 : 1));
 
                 float start = (float)rng.NextDouble() * 0.35f + ring * 0.55f;
                 for (int i = 0; i < slots && list.Count < count; i++)

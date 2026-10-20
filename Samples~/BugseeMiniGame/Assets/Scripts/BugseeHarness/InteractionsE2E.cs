@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Linq;
 using System.Threading.Tasks;
+using Bugsee.Contracts.Lifecycle;
 using Bugsee.Contracts.Options;
 using UnityEngine;
 
@@ -17,11 +18,19 @@ namespace Bugsee.Sample
     static class InteractionsE2E
     {
         static int _failures;
+        static readonly RectInt MyRect = new RectInt(30, 30, 200, 100);
+        // What the scenario changed and must put back exactly (also when it throws half way).
+        static string _textKey;
+        static string _textOriginal;
+        static bool _textTouched;
 
         public static IEnumerator Run(BugseeSampleBootstrap b)
         {
             _failures = 0;
+            _textTouched = false;
             var c = b.Catalog;
+            var origRectActive = c.SecureRectActive;
+            var origRect = c.SecureRect;
             Debug.Log("[Sample] interactions e2e start launched=" + Bugsee.IsLaunched + " status=" + Bugsee.Status);
             var body = Body(b, c);
             while (true)
@@ -44,8 +53,11 @@ namespace Bugsee.Sample
             try { BugseeActionForms.Instance?.Close(); } catch { }
             try { if (c.Interactions.Transaction != null && !c.Interactions.Transaction.IsFinished) c.Interactions.FinishTransaction(); } catch { }
             try { if (c.Interactions.Draft != null) c.Interactions.DiscardDraft(); } catch { }
-            try { Bugsee.RemoveAllSecureRectangles(); c.RememberSecureRect(c.SecureRect, false); } catch { }
-            if (!Bugsee.IsLaunched)
+            try { Bugsee.RemoveSecureRectangle(MyRect); c.RememberSecureRect(origRect, origRectActive); } catch { } // only mine
+            try { if (_textTouched) c.Interactions.SetAppearanceText(_textKey, _textOriginal); } catch { }
+            if (Bugsee.Status == BugseeStatus.Launching || Bugsee.Status == BugseeStatus.Stopping)
+                yield return WaitFor(() => Bugsee.Status == BugseeStatus.Launched || Bugsee.Status == BugseeStatus.Stopped, 40f);
+            if (Bugsee.Status == BugseeStatus.Stopped) // not while Launching: a second launch would race the first
             {
                 try { var t = Bugsee.LaunchAsync(b.AppToken, b.LastLaunchOptions); }
                 catch (Exception ex) { Debug.Log("[Sample] interactions relaunch in cleanup threw " + ex.Message); }
@@ -146,13 +158,13 @@ namespace Bugsee.Sample
             BugseeActionForms.Instance.Close();
             x.NotifyForm.Title = "e2e notify";
             x.NotifyForm.Urgent = true;
-            x.SendNotify(x.NotifyForm);
-            Check("Notify (urgent, with fields)", c.LastStatus == "Notify \"e2e notify\" " + x.NotifyForm.Severity + " urgent", c.LastStatus);
+            var sent = x.SendNotify(x.NotifyForm);
+            Check("Notify (urgent, with fields) is sent", sent && c.LastStatus == "Notify sent \"e2e notify\" " + x.NotifyForm.Severity + " urgent", c.LastStatus);
             Check("Notify fields parse", BugseeInteractions.ParseFields(x.NotifyForm.Fields).Count == 2, "fields=" + x.NotifyForm.Fields);
             x.NotifyForm.Title = "";
             x.NotifyForm.Urgent = false;
-            x.SendNotify(x.NotifyForm); // native ignores it with a warning
-            Check("Notify with an empty title does not throw", true, c.LastStatus);
+            var ignored = x.SendNotify(x.NotifyForm);
+            Check("Notify with an empty title is reported as ignored", !ignored && c.LastStatus == "Notify ignored: a title is required", c.LastStatus);
             x.NotifyForm.Title = "Anteater ping";
 
             // 4. APM: a transaction across orb pickups with a child span.
@@ -179,7 +191,7 @@ namespace Bugsee.Sample
             // 5. Logging and privacy.
             c.Run(BugseeDemoAction.LogUnhandled);
             Check("LogUnhandledException", c.LastStatus.StartsWith("LogUnhandledException #") && c.LastStatus.EndsWith("sent"), c.LastStatus);
-            var rect = new RectInt(30, 30, 200, 100);
+            var rect = MyRect;
             Bugsee.AddSecureRectangle(rect);
             c.RememberSecureRect(rect, true); // what the Set Secure Rect form does on apply
             c.Run(BugseeDemoAction.RemoveSecureRect);
@@ -193,6 +205,9 @@ namespace Bugsee.Sample
             BugseeActionForms.Instance.Close();
             var key = BugseeInteractions.AppearanceTextKeys[0];
             var before = x.GetAppearanceText(key);
+            _textKey = key;
+            _textOriginal = before;
+            _textTouched = true;
             x.SetAppearanceText(key, "e2e summary placeholder");
             Check("Appearance.SetString/GetString round trip", x.GetAppearanceText(key) == "e2e summary placeholder", "value=" + x.GetAppearanceText(key) + " before=" + (before ?? "(null)"));
             try { x.SetAppearanceText(key, before); Check("Appearance string restored", x.GetAppearanceText(key) == before, "value=" + (x.GetAppearanceText(key) ?? "(null)")); }
@@ -227,6 +242,10 @@ namespace Bugsee.Sample
             yield return null;
             Check("the bubble reports the async result", c.LastStatus.StartsWith("RelaunchAsync -> "), c.LastStatus);
 
+            // 8b. Stop and Delete Data close the SDK's open report: a draft made before must not wedge the Reports bubbles.
+            foreach (var action in new[] { BugseeDemoAction.ReportCreate, BugseeDemoAction.ReportUpload, BugseeDemoAction.ReportDiscard })
+                yield return StaleDraft(b, c, action);
+
             // 9. Delete Data behind its confirm: the scenario presses the confirm, then launches again.
             c.Run(BugseeDemoAction.DeleteData);
             Check("Delete Data bubble opens a confirm, nothing is deleted yet", BugseeActionForms.IsOpen && Bugsee.IsLaunched,
@@ -239,6 +258,25 @@ namespace Bugsee.Sample
             yield return WaitTask(x);
             yield return WaitFor(() => Bugsee.IsLaunched, 40f);
             Check("Launch Async resumes the SDK after the delete", Bugsee.IsLaunched, "status=" + Bugsee.Status + " " + Describe(x.LastAsync));
+        }
+
+        // A draft is made, the SDK is stopped and launched behind the sample's back, then the bubble runs on the stale draft.
+        static IEnumerator StaleDraft(BugseeSampleBootstrap b, BugseeActionCatalog c, BugseeDemoAction action)
+        {
+            var x = c.Interactions;
+            c.Run(BugseeDemoAction.ReportCreate);
+            var stale = x.Draft;
+            var stop = Bugsee.StopAsync();
+            yield return WaitFor(() => stop.IsCompleted, 20f);
+            yield return WaitFor(() => !Bugsee.IsLaunched, 10f);
+            var launch = Bugsee.LaunchAsync(b.AppToken, b.LastLaunchOptions);
+            yield return WaitFor(() => Bugsee.IsLaunched, 40f);
+            c.Run(action);
+            var status = c.LastStatus;
+            var ok = !status.StartsWith("Error") &&
+                     (action == BugseeDemoAction.ReportCreate ? x.Draft != null && !ReferenceEquals(x.Draft, stale) : x.Draft == null);
+            Check("stale draft (SDK stopped since New Report): " + action + " works", ok, "launched=" + Bugsee.IsLaunched + " :: " + status);
+            if (x.Draft != null) x.DiscardDraft();
         }
 
         static IEnumerator WaitTask(BugseeInteractions x)

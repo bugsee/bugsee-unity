@@ -88,6 +88,11 @@ namespace Bugsee.Sample
         string _attrValue = "value";
         string _userId = "anteater-explorer";
 
+        // Edit copies of the specs: Cancel drops them, Apply stores them back.
+        BreadcrumbSpec _breadcrumb;
+        ReportDraftSpec _reportDraft;
+        NotifySpec _notify;
+
         // Confirm dialog.
         string _confirmTitle;
         string _confirmMessage;
@@ -192,11 +197,23 @@ namespace Bugsee.Sample
 
         BugseeInteractions Interactions => BugseeActionCatalog.Instance?.Interactions;
 
-        public void ShowBreadcrumb() => Open(FormKind.Breadcrumb);
+        public void ShowBreadcrumb()
+        {
+            _breadcrumb = Interactions?.BreadcrumbForm.Clone();
+            Open(FormKind.Breadcrumb);
+        }
 
-        public void ShowReportDraft() => Open(FormKind.ReportDraft);
+        public void ShowReportDraft()
+        {
+            _reportDraft = Interactions?.ReportSpec.Clone();
+            Open(FormKind.ReportDraft);
+        }
 
-        public void ShowNotify() => Open(FormKind.Notify);
+        public void ShowNotify()
+        {
+            _notify = Interactions?.NotifyForm.Clone();
+            Open(FormKind.Notify);
+        }
 
         public void ShowConfirm(string title, string message, Action onConfirm)
         {
@@ -344,7 +361,7 @@ namespace Bugsee.Sample
 
         void DrawBreadcrumbForm()
         {
-            var spec = Interactions?.BreadcrumbForm;
+            var spec = _breadcrumb;
             if (spec == null) { Close(); return; }
             BeginModal(360f, 260f, "Add Breadcrumb");
             RowField("Category", ref spec.Category);
@@ -355,7 +372,11 @@ namespace Bugsee.Sample
 
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Add", GUILayout.Height(32f)))
-                Apply(() => Interactions.AddBreadcrumb(spec.Category, spec.Message, spec.Level));
+                Apply(() =>
+                {
+                    Interactions.BreadcrumbForm = spec.Clone();
+                    Interactions.AddBreadcrumb(spec.Category, spec.Message, spec.Level);
+                });
             if (GUILayout.Button("Cancel", GUILayout.Height(32f)))
                 Close();
             GUILayout.EndHorizontal();
@@ -364,7 +385,7 @@ namespace Bugsee.Sample
 
         void DrawReportDraftForm()
         {
-            var spec = Interactions?.ReportSpec;
+            var spec = _reportDraft;
             if (spec == null) { Close(); return; }
             float h = Mathf.Min(Screen.height - 40f, 560f);
             BeginModal(Mathf.Min(400f, Screen.width - 24f), h, "Edit Report" + (Interactions.Draft == null ? " (creates one)" : ""));
@@ -387,7 +408,11 @@ namespace Bugsee.Sample
 
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Apply", GUILayout.Height(32f)))
-                Apply(() => Interactions.ApplyDraft(spec));
+                Apply(() =>
+                {
+                    Interactions.ReportSpec = spec.Clone();
+                    Interactions.ApplyDraft(spec);
+                });
             if (GUILayout.Button("Cancel", GUILayout.Height(32f)))
                 Close();
             GUILayout.EndHorizontal();
@@ -396,7 +421,7 @@ namespace Bugsee.Sample
 
         void DrawNotifyForm()
         {
-            var spec = Interactions?.NotifyForm;
+            var spec = _notify;
             if (spec == null) { Close(); return; }
             BeginModal(Mathf.Min(400f, Screen.width - 24f), 320f, "Notify");
             RowField("Title", ref spec.Title);
@@ -409,7 +434,11 @@ namespace Bugsee.Sample
 
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Send", GUILayout.Height(32f)))
-                Apply(() => Interactions.SendNotify(spec));
+                Apply(() =>
+                {
+                    Interactions.NotifyForm = spec.Clone();
+                    Interactions.SendNotify(spec);
+                });
             if (GUILayout.Button("Cancel", GUILayout.Height(32f)))
                 Close();
             GUILayout.EndHorizontal();

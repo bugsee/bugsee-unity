@@ -54,8 +54,8 @@ Feedback, Appearance, filters, report handler, and lifecycle listener.
 | Hill | Bubbles (SDK call) |
 |------|--------------------|
 | Reporting | Report (`ShowReportDialog`), Upload, Report Hdlr, Hierarchy, **Notify** (`Notify`: form with title, body, severity, `key=value` fields, urgent) |
-| Reports | **New Report** (`CreateReport`), **Edit Report** (form: `Description`, `Email`, `Severity`, `SetLabels`/`AddLabel`/`ClearLabels`, `SetAttribute`/`RemoveAttribute`/`ClearAllAttributes`, `AddAttachmentBytes` + `IAttachment.SetData(string)`, `AddAttachmentFile`, `ClearAttachments`), **Send Report** (`Upload(IReport)`), **Discard Report** (`Discard`); one draft at a time |
-| Exchange | **Breadcrumb** (`AddBreadcrumb`: category, message, level), **Network Event** (`GetExchangeFactory` + `AddNetworkEvent`: a started and a completed POST to a `.../password-reset` URL, so the Filters bubble's network redaction applies) |
+| Reports | **New Report** (`CreateReport`), **Edit Report** (form: `Description`, `Email`, `Severity`, `SetLabels`/`AddLabel`/`ClearLabels`, `SetAttribute`/`RemoveAttribute`/`ClearAllAttributes`, `AddAttachmentBytes` + `IAttachment.SetData(string)`, `AddAttachmentFile`, `ClearAttachments`), **Send Report** (`Upload(IReport)`), **Discard Report** (`Discard`); one draft at a time (stopping the SDK or deleting its data closes the SDK's open report, so the sample drops the draft: make a new one) |
+| Exchange | **Breadcrumb** (`AddBreadcrumb`: category, message, level), **Network Event** (`GetExchangeFactory` + `AddNetworkEvent`: a started and a completed POST to a `.../password-reset` URL, the kind of URL the Filters bubble's network filter redacts; whether the native layer applies that filter to events added this way is not verified) |
 | APM | **Start Txn** (`StartTransaction`), **Child Span** (`StartChild`), **Finish Txn** (`Finish`); while a transaction is open, every yellow orb you collect becomes a finished child span |
 | Logging | Log Bundle, Log Levels, Exception, **Log Unhandled** (`LogUnhandledException`), Test Crash |
 | Attributes, Identity | Set / Get / Clear Attr, Clear Attrs; Set User ID, Get ID, Identity, Clear ID |
@@ -63,13 +63,14 @@ Feedback, Appearance, filters, report handler, and lifecycle listener.
 | Privacy | Set Secure Rect, **Remove Rect** (`RemoveSecureRectangle` of the rect last added), Clear Rects, Reset Video |
 | Feedback | Feedback, Greeting, FB Listen |
 | Session | Launch, Relaunch, Stop, Status, Lifecycle (listener) |
-| Lifecycle | **Launch Async**, **Relaunch Async**, **Stop Async** (`LaunchAsync`/`RelaunchAsync`/`StopAsync`; the status line shows the result), **Launch Options** (`GetLaunchOptions`, all keys in the log), **Delete Data** (`DeleteCollectedDataOnDevice` behind a confirm; the SDK stays stopped until you launch it again) |
+| Lifecycle | **Launch Async**, **Relaunch Async**, **Stop Async** (`LaunchAsync`/`RelaunchAsync`/`StopAsync`; the status line shows the result), **Launch Options** (`GetLaunchOptions`, all keys in the log, values of token/endpoint-like keys redacted), **Delete Data** (`DeleteCollectedDataOnDevice` behind a confirm; the SDK stays stopped until you launch it again) |
 | Appearance | Appearance (colors), **Texts** (`Appearance.SetString`/`GetString` for the report placeholders; an empty field restores the default), Filters |
 
 SetSecureRect / SetAttribute / SetUserIdentifier / Appearance and the new Breadcrumb / Edit Report / Notify / Texts bubbles
 open IMGUI forms for input (they block game input while open); Delete Data opens a confirm dialog.
-There are 13 hills now: the hill skirt gap was reduced so the layout still places every one (a warning is logged if it ever
-cannot).
+There are 13 hills now. The field layout used to count how many hills fit on a ring by arc length instead of chord length, so
+a full ring lost its last hill; with the chord count 13 hills place for every world seed (14 would not, at the current gap), and a
+warning is logged if the world ever has fewer summits than hills.
 
 Not reachable from the sample: `OptionsBuilder` / `Options.*` (a launch-options preset is tracked separately) and
 `IReport.Summary` beyond the report handler.

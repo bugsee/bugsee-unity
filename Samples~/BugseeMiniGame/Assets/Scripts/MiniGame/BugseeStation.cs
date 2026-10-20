@@ -177,6 +177,9 @@ namespace Bugsee.Sample
             // Publish hit-test rect in screen space (bottom-left origin) for the stick.
             ActionPanelScreenRect = new Rect(x, screen.y - totalH * 0.65f, w, totalH + 8f);
 
+            // A form or confirm is modal: its dimmer does not stop taps reaching the bubbles under it.
+            var prevEnabled = GUI.enabled;
+            GUI.enabled = !BugseeActionForms.IsBlockingInput;
             var prev = GUI.backgroundColor;
             GUI.backgroundColor = Color.Lerp(Color, Color.white, 0.25f);
             GUI.Box(new Rect(x, yGui, w, titleH), Title);
@@ -196,6 +199,7 @@ namespace Bugsee.Sample
             }
 
             GUI.backgroundColor = prev;
+            GUI.enabled = prevEnabled;
         }
     }
 
