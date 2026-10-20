@@ -24,6 +24,7 @@ namespace Bugsee.Platform.Android
         bool _wrapperContextRefined;
         ReportHandlerProxy _reportHandlerProxy;
         LifecycleListenerProxy _lifecycleProxy;
+        DataRequestProviderProxy _dataRequestProxy;
         EventFilterProxy<INetworkEvent> _networkFilterProxy;
         EventFilterProxy<ILogEvent> _logFilterProxy;
         EventFilterProxy<IBreadcrumb> _breadcrumbFilterProxy;
@@ -657,6 +658,13 @@ namespace Bugsee.Platform.Android
             using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
             {
                 wrapper.CallStatic("attachLifecycleListener", _lifecycleProxy);
+            }
+
+            // The wrapper answers requestData("vh") with the Unity scene once this is in place (null until then).
+            _dataRequestProxy = new DataRequestProviderProxy();
+            using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
+            {
+                wrapper.CallStatic("setManagedDataProvider", _dataRequestProxy);
             }
         }
 

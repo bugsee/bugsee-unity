@@ -13,6 +13,12 @@ const char *_bugsee_test_copy_wrapper_version(void);
 const char *_bugsee_test_copy_wrapper_build(void);
 int _bugsee_test_wrapper_installed(void);
 const char *_bugsee_test_copy_context_value(const char *key);
+typedef void (*BugseeDataRequestFn)(int64_t requestId, const char *dataType);
+void _bugsee_register_data_request_callback(BugseeDataRequestFn callback);
+void _bugsee_complete_data_request(int64_t requestId, const char *json);
+int _bugsee_test_request_data(const char *type);
+int _bugsee_test_data_reply_count(void);
+const char *_bugsee_test_copy_data_reply(void);
 void _bugsee_set_attribute(const char *key, const char *valueJson);
 char *_bugsee_get_attribute(const char *key);
 void _bugsee_clear_attribute(const char *key);
@@ -79,6 +85,22 @@ static void OnDeleted(int token, int wiped)
 static void OnStopped(int token)
 {
     gStoppedToken = token;
+}
+
+// Stands in for C#'s data request callback: records the ids and types it is asked, answers inline when told to.
+static int64_t gDataRequestIds[8];
+static char gDataRequestTypes[8][16];
+static int gDataRequestCalls;
+static const char *gDataRequestInlineAnswer;
+
+static void OnDataRequest(int64_t requestId, const char *dataType)
+{
+    if (gDataRequestCalls < 8) {
+        gDataRequestIds[gDataRequestCalls] = requestId;
+        strncpy(gDataRequestTypes[gDataRequestCalls], dataType ? dataType : "", 15);
+    }
+    gDataRequestCalls++;
+    if (gDataRequestInlineAnswer) _bugsee_complete_data_request(requestId, gDataRequestInlineAnswer);
 }
 
 // Spins the main run loop until the condition holds or the time is up.
@@ -301,6 +323,34 @@ int main(void)
     setlocale(LC_ALL, "C");
     [defaults removeObjectForKey:@"AppleLocale"];
     [defaults removeObjectForKey:@"AppleLanguages"];
+
+    // requestData: only "vh" reaches managed code, every request is answered once, and nothing hangs the SDK's budget.
+    expect(_bugsee_test_request_data("vh") == 1 && _bugsee_test_copy_data_reply() == NULL,
+           "vh is answered nil before managed code has registered");
+    _bugsee_register_data_request_callback(OnDataRequest);
+    expect(_bugsee_test_request_data("other") == 1 && gDataRequestCalls == 0 && _bugsee_test_copy_data_reply() == NULL,
+           "an unknown type is answered nil without asking managed code");
+    gDataRequestInlineAnswer = "{\"class_name\":\"UnityPlayer\"}";
+    expect(_bugsee_test_request_data("vh") == 1 && gDataRequestCalls == 1 && same(gDataRequestTypes[0], "vh"),
+           "vh is handed to managed code and answered inside the request");
+    value = _bugsee_test_copy_data_reply();
+    expect(same(value, "{\"class_name\":\"UnityPlayer\"}"), "the managed answer reaches the SDK byte for byte");
+    free((void *)value);
+    _bugsee_complete_data_request(gDataRequestIds[0], "{\"late\":true}");
+    expect(_bugsee_test_data_reply_count() == 1, "a second answer to the same request is ignored");
+    gDataRequestInlineAnswer = NULL;
+    expect(_bugsee_test_request_data("vh") == 0 && gDataRequestCalls == 2, "an answer made later is waited for");
+    _bugsee_complete_data_request(gDataRequestIds[1], "{\"later\":true}");
+    value = _bugsee_test_copy_data_reply();
+    expect(_bugsee_test_data_reply_count() == 1 && same(value, "{\"later\":true}"), "the later answer arrives once with its text");
+    free((void *)value);
+    _bugsee_complete_data_request(gDataRequestIds[1], "{\"again\":true}");
+    expect(_bugsee_test_data_reply_count() == 1, "the id is spent after its answer");
+    expect(_bugsee_test_request_data("vh") == 0, "a request waits for its answer");
+    _bugsee_complete_data_request(gDataRequestIds[2], NULL);
+    expect(_bugsee_test_data_reply_count() == 1 && _bugsee_test_copy_data_reply() == NULL, "null from managed code is answered as nil");
+    _bugsee_complete_data_request(987654, "{}");
+    _bugsee_register_data_request_callback(NULL);
 
     // Lifecycle against the real SDK: answers come back with the caller's token.
     _bugsee_launch("00000000-0000-0000-0000-000000000000", "{\"max_recording_time\":60}", 41, OnStarted);
