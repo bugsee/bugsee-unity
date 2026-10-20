@@ -14,6 +14,8 @@ const char *_bugsee_test_copy_wrapper_build(void);
 int _bugsee_test_wrapper_installed(void);
 const char *_bugsee_test_apply_breadcrumb_result(const char *startDataJson, const char *resultJson);
 const char *_bugsee_test_copy_context_value(const char *key);
+const char *_bugsee_test_apply_report_result(const char *startAttributesJson, const char *resultJson);
+const char *_bugsee_test_report_json_with_unserializable_attributes(const char *startAttributesJson);
 void _bugsee_set_attribute(const char *key, const char *valueJson);
 char *_bugsee_get_attribute(const char *key);
 void _bugsee_clear_attribute(const char *key);
@@ -362,6 +364,36 @@ int main(void)
         const char *emptied = _bugsee_test_apply_breadcrumb_result(start, "{\"data\":{}}");
         expect(emptied != NULL && same(emptied, "{}"), "an empty data object clears the crumb data");
         free((void *)emptied);
+    }
+    // A report handler result reaches the SDK report as a change set: typed values stay typed, attributes the
+    // handler did not touch are left alone, and only an explicit clear replaces the set.
+    {
+        const char *start = "{\"i\":42,\"b\":true,\"d\":1.5,\"s\":\"x\",\"o\":{\"k\":[1,2]}}";
+        const char *untouched = _bugsee_test_apply_report_result(start, "{\"summary\":\"s\"}");
+        expect(untouched != NULL && same(untouched, "{\"b\":true,\"d\":1.5,\"i\":42,\"o\":{\"k\":[1,2]},\"s\":\"x\"}"),
+               "a report result without attributes keeps every attribute and its kind");
+        free((void *)untouched);
+        const char *changed = _bugsee_test_apply_report_result(start,
+            "{\"attributes\":{\"n\":7,\"i\":43,\"t\":false},\"attributeRemovals\":[\"s\"]}");
+        expect(changed != NULL && same(changed,
+            "{\"b\":true,\"d\":1.5,\"i\":43,\"n\":7,\"o\":{\"k\":[1,2]},\"t\":false}"),
+            "a change set sets typed values, removes names and leaves the rest as they were");
+        free((void *)changed);
+        const char *replaced = _bugsee_test_apply_report_result(start, "{\"attributes\":{\"a\":1},\"attributesReplaceAll\":true}");
+        expect(replaced != NULL && same(replaced, "{\"a\":1}"), "attributesReplaceAll replaces the set");
+        free((void *)replaced);
+        const char *nulled = _bugsee_test_apply_report_result(start, "{\"attributes\":{\"i\":null}}");
+        expect(nulled != NULL && same(nulled, "{\"b\":true,\"d\":1.5,\"o\":{\"k\":[1,2]},\"s\":\"x\"}"),
+               "a null value removes the attribute instead of storing NSNull");
+        free((void *)nulled);
+        const char *reportJson = _bugsee_test_report_json_with_unserializable_attributes(start);
+        NSData *reportData = [[NSString stringWithUTF8String:reportJson] dataUsingEncoding:NSUTF8StringEncoding];
+        NSDictionary *seen = [NSJSONSerialization JSONObjectWithData:reportData options:0 error:nil];
+        NSDictionary *seenAttrs = seen[@"attributes"];
+        expect([seenAttrs[@"i"] isEqual:@42] && [seenAttrs[@"d"] isEqual:@1.5] && [seenAttrs[@"b"] isEqual:@YES]
+                   && [seenAttrs[@"s"] isEqual:@"x"] && [seenAttrs[@"o"][@"k"] count] == 2 && [seenAttrs[@"when"] isKindOfClass:[NSString class]],
+               "the report handed to C# keeps attribute kinds and degrades a non-JSON value to text");
+        free((void *)reportJson);
     }
     // notify takes every argument shape without throwing; the title is required and fields are strings only.
     _bugsee_notify("title", NULL, 2, NULL, 0);

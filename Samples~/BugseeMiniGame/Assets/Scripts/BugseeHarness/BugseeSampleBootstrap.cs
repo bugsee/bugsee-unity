@@ -332,6 +332,8 @@ namespace Bugsee.Sample
                 case "logerror":
                 case "sigraise":
                 case "nullderef":
+                case "attrsnoop":
+                case "attrsedit":
                 case "delete":
                     if (_e2ePhase == 0 && _e2eTimer >= 5f)
                     {
@@ -484,6 +486,11 @@ namespace Bugsee.Sample
                         { "skipFrames", 1 },
                     });
                 }
+            }
+            else if (marker.StartsWith("attrs"))
+            {
+                // Report-handler attribute kinds (see ReportAttributesE2E).
+                ReportAttributesE2E.Run(this, marker.StartsWith("attrsedit"), _e2eRunId);
             }
             else if (marker.StartsWith("logerror"))
             {

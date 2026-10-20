@@ -250,9 +250,12 @@ namespace Bugsee.Platform.IOS
                 try
                 {
                     var handler = _reportHandler;
-                    var dto = JsonUtility.FromJson<IosReportDto>(
-                        IosJsonNormalize.NormalizeReport(json ?? "{}"));
-                    report = new IosReport(dto);
+                    // attributes are read separately: JsonUtility cannot hold free-form values or keep a scalar's kind.
+                    var dto = JsonUtility.FromJson<IosReportDto>(json ?? "{}");
+                    var attributes = IosReport.ReadAttributes(json);
+                    if (attributes == null)
+                        Debug.LogWarning("[Bugsee] The report's attributes could not be read (malformed or nested too deep); the report handler sees none. Native keeps them unless the handler sets attributes or clears them all.");
+                    report = new IosReport(dto, attributes);
 
                     if (handler == null)
                     {
