@@ -165,6 +165,9 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(AttributeWire.ToTraceJson(true), Is.EqualTo("true"));
             Assert.That(AttributeWire.ToTraceJson(5), Is.EqualTo("5"));
             Assert.That(AttributeWire.ToTraceJson(1.0f), Is.EqualTo("1.0"));
+            Assert.That(AttributeWire.ToTraceJson(float.NaN), Is.EqualTo("null"));
+            Assert.That(AttributeWire.ToTraceJson(double.PositiveInfinity), Is.EqualTo("null"));
+            Assert.That(AttributeWire.ToTraceJson(float.NegativeInfinity), Is.EqualTo("null"));
             Assert.That(AttributeWire.ToNative(1.0f), Is.EqualTo(1.0).And.TypeOf<double>());
             Assert.That(AttributeWire.ToTraceJson(Level.Low), Is.EqualTo("3"));
             Assert.That(AttributeWire.ToNative(Level.Low), Is.EqualTo(3));

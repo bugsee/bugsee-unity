@@ -103,6 +103,10 @@ namespace Bugsee.WrapperPolicy
                 return JsonWire.Bounded(value, MaxContainerJsonLength, out _);
             if (value is System.Collections.IEnumerable && !(value is string) && !(value is byte[]))
                 return JsonWire.String(Convert.ToString(value, CultureInfo.InvariantCulture));
+            // NaN and the infinities have no JSON form: JsonWire writes null (ToJson would make it "null.0").
+            if ((value is float f && (float.IsNaN(f) || float.IsInfinity(f)))
+                || (value is double d && (double.IsNaN(d) || double.IsInfinity(d))))
+                return "null";
             return ToJson(value);
         }
 
