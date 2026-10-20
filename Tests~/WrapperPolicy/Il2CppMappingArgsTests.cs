@@ -1,3 +1,4 @@
+using System.IO;
 using NUnit.Framework;
 
 namespace Bugsee.WrapperPolicy.Tests
@@ -17,6 +18,35 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(Il2CppMappingArgs.Ensure(existing), Is.EqualTo(expected));
         }
 
+        [TestCase(true, false, true)]
+        [TestCase(true, true, false)]
+        [TestCase(false, false, false)]
+        [TestCase(false, true, false)]
+        public void Emission_follows_the_backend_and_the_opt_out_only(bool il2cpp, bool optOut, bool expected)
+        {
+            Assert.That(Il2CppMappingArgs.ShouldEmit(il2cpp, optOut), Is.EqualTo(expected));
+        }
+
+        // Emission must not depend on the upload configuration: a build without the token (or one a later CI job uploads) still writes the files.
+        [Test]
+        public void The_editor_step_does_not_look_at_the_token_or_the_explicit_mapping_path()
+        {
+            var dir = TestContext.CurrentContext.TestDirectory;
+            while (!File.Exists(Path.Combine(dir, "package.json")))
+            {
+                var parent = Directory.GetParent(dir);
+                if (parent == null) Assert.Fail("package.json not found above " + TestContext.CurrentContext.TestDirectory);
+                dir = parent.FullName;
+            }
+            var text = File.ReadAllText(Path.Combine(dir, "Editor", "BugseeIl2CppMappingArgs.cs"));
+            Assert.That(text, Does.Contain("Il2CppMappingArgs.ShouldEmit("));
+            Assert.That(text, Does.Not.Contain("HasAppToken"));
+            Assert.That(text, Does.Not.Contain("BUGSEE_IL2CPP_MAPPING\""));
+            Assert.That(text, Does.Not.Contain("BUGSEE_NO_SYMBOL_UPLOAD"));
+            // The tracked ProjectSettings.asset is not edited for a build.
+            Assert.That(text, Does.Not.Contain("SetAdditionalIl2CppArgs"));
+        }
+
         [Test]
         public void A_flag_that_only_shares_a_prefix_does_not_count()
         {
@@ -31,38 +61,18 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(Il2CppMappingArgs.Ensure(once), Is.EqualTo(once));
         }
 
-        [Test]
-        public void Restore_waits_while_a_build_runs_and_after_a_failed_build_restores_what_it_applied()
+        [TestCase(null, null, "--emit-source-mapping --emit-method-map")]
+        [TestCase("", "", "--emit-source-mapping --emit-method-map")]
+        [TestCase("--emit-null-checks", null, "--emit-source-mapping --emit-method-map")]
+        [TestCase("--emit-source-mapping --emit-method-map", null, null)]
+        [TestCase("--emit-source-mapping", "--emit-method-map", null)]
+        [TestCase("--emit-source-mapping", null, "--emit-method-map")]
+        [TestCase(null, "--foo", "--foo --emit-source-mapping --emit-method-map")]
+        [TestCase(null, "--foo ", "--foo --emit-source-mapping --emit-method-map")]
+        [TestCase("--emit-method-map", "--foo", "--foo --emit-source-mapping")]
+        public void The_environment_value_adds_only_what_neither_Player_Settings_nor_the_environment_has(string playerArgs, string envArgs, string expected)
         {
-            Assert.That(Il2CppArgsRestorePolicy.Decide(buildInProgress: true, currentEqualsApplied: true), Is.EqualTo(SymbolRestoreAction.Skip));
-            Assert.That(Il2CppArgsRestorePolicy.Decide(buildInProgress: true, currentEqualsApplied: false), Is.EqualTo(SymbolRestoreAction.Skip));
-            // The failure window: no post-build callback ran, the build is over, the settings still hold the applied string.
-            Assert.That(Il2CppArgsRestorePolicy.Decide(buildInProgress: false, currentEqualsApplied: true), Is.EqualTo(SymbolRestoreAction.Restore));
-        }
-
-        [Test]
-        public void An_args_string_the_user_edited_since_is_kept()
-        {
-            Assert.That(Il2CppArgsRestorePolicy.Decide(buildInProgress: false, currentEqualsApplied: false), Is.EqualTo(SymbolRestoreAction.Discard));
-        }
-
-        [Test]
-        public void The_record_is_kept_when_the_restore_threw_and_deleted_in_every_other_case()
-        {
-            // Parsed record, restore threw (caught exception path): the flags are still in Player Settings, keep the way back.
-            Assert.That(Il2CppArgsRestorePolicy.DeleteRecord(recordParsed: true, restoreThrew: true), Is.False);
-            // Restore or a deliberate discard completed.
-            Assert.That(Il2CppArgsRestorePolicy.DeleteRecord(recordParsed: true, restoreThrew: false), Is.True);
-            // Nothing to restore from.
-            Assert.That(Il2CppArgsRestorePolicy.DeleteRecord(recordParsed: false, restoreThrew: false), Is.True);
-        }
-
-        [Test]
-        public void An_unreadable_record_is_kept_but_a_parse_failure_is_not()
-        {
-            Assert.That(Il2CppArgsRestorePolicy.IsTransientReadError(new System.IO.IOException()), Is.True);
-            Assert.That(Il2CppArgsRestorePolicy.IsTransientReadError(new System.UnauthorizedAccessException()), Is.True);
-            Assert.That(Il2CppArgsRestorePolicy.IsTransientReadError(new System.ArgumentException("bad json")), Is.False);
+            Assert.That(Il2CppMappingArgs.EnvironmentValue(playerArgs, envArgs), Is.EqualTo(expected));
         }
     }
 }

@@ -365,11 +365,11 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Bridge_keeps_the_beta6_exception_api_behind_one_switch()
+        public void Bridge_uses_the_beta7_exception_and_delete_api_only()
         {
             string bridge = Read("Plugins", "iOS", "BugseeUnityBridge.mm");
-            Assert.That(bridge, Does.Contain("__has_include(<Bugsee/BugseeExceptionLoggingOptions.h>)"));
-            Assert.That(bridge, Does.Contain("[Bugsee logException:finalName reason:finalReason options:BugseeExceptionOptionsFrom(optionsJson) completion:nil];"));
+            Assert.That(bridge, Does.Not.Contain("BugseeExceptionLoggingOptions"));
+            Assert.That(bridge, Does.Not.Contain("options:BugseeExceptionOptionsFrom"));
             Assert.That(bridge, Does.Contain("domain:finalName"));
             Assert.That(bridge, Does.Contain("skipFrames:BugseeExceptionSkipFrames(options)"));
             Assert.That(bridge, Does.Contain("[Bugsee deleteCollectedDataOnDevice:done];"));
