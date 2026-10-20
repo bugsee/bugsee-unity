@@ -14,6 +14,7 @@ const char *_bugsee_test_copy_wrapper_build(void);
 int _bugsee_test_wrapper_installed(void);
 const char *_bugsee_test_apply_breadcrumb_result(const char *startDataJson, const char *resultJson);
 const char *_bugsee_test_copy_context_value(const char *key);
+const char *_bugsee_test_apply_network_result(const char *startJson, const char *resultJson);
 typedef void (*BugseeDataRequestFn)(int64_t requestId, const char *dataType);
 void _bugsee_register_data_request_callback(BugseeDataRequestFn callback);
 void _bugsee_complete_data_request(int64_t requestId, const char *json);
@@ -209,6 +210,57 @@ int main(void)
         free((void *)value);
     }
 
+    // Network filter results: native applies only the keys present, a JSON null clears, and an untouched event keeps
+    // a nil error / body / url (the wrapper omits what the filter did not change).
+    const char *netStart = "{\"id\":\"n1\",\"url\":\"host-a\",\"method\":\"GET\",\"stage\":\"complete\",\"responseCode\":200}";
+    value = _bugsee_test_apply_network_result(netStart, "{\"stage\":\"complete\"}");
+    expect(strstr(value, "\"error\":null") && strstr(value, "\"body\":null") && strstr(value, "\"url\":\"host-a\""),
+           "a no-change network result leaves error and body nil and the url as it was");
+    free((void *)value);
+    value = _bugsee_test_apply_network_result("{\"url\":null,\"stage\":\"complete\"}", "{\"stage\":\"complete\"}");
+    expect(strstr(value, "\"url\":null") && strstr(value, "\"error\":null"), "a no-change result keeps a nil url nil");
+    free((void *)value);
+    value = _bugsee_test_apply_network_result(netStart, "{\"stage\":\"complete\",\"url\":\"host-redacted\",\"headers\":{\"Authorization\":\"x\"}}");
+    expect(strstr(value, "\"url\":\"host-redacted\"") && strstr(value, "\"Authorization\":\"x\"") && strstr(value, "\"error\":null"),
+           "a deliberate url and headers change applies and leaves the error nil");
+    free((void *)value);
+    value = _bugsee_test_apply_network_result(netStart, "{\"url\":null,\"body\":\"\",\"errorShortMessage\":\"boom\"}");
+    expect(strstr(value, "\"url\":null") && strstr(value, "\"body\":\"\"") && strstr(value, "\"name\":\"boom\""),
+           "an explicit null url, empty body and error name apply");
+    free((void *)value);
+    value = _bugsee_test_apply_network_result(
+        "{\"url\":\"host-a\",\"body\":\"secret\",\"errorShortMessage\":\"e\",\"errorDescription\":\"d\"}",
+        "{\"body\":null,\"errorShortMessage\":null,\"errorDescription\":null}");
+    expect(strstr(value, "\"body\":null") && strstr(value, "\"error\":null"), "an explicit null clears the body and the whole error");
+    free((void *)value);
+    // Empty error strings remove the key like null: a filter clearing an error with "" must not leave {name:""} behind.
+    value = _bugsee_test_apply_network_result(netStart, "{\"url\":\"\",\"errorShortMessage\":\"\",\"errorDescription\":\"\"}");
+    expect(strstr(value, "\"error\":null") && strstr(value, "\"url\":\"\""), "empty error strings leave no error and an empty url applies");
+    free((void *)value);
+    value = _bugsee_test_apply_network_result("{\"errorShortMessage\":\"e\",\"errorDescription\":\"d\"}", "{\"errorShortMessage\":\"\",\"errorDescription\":\"\"}");
+    expect(strstr(value, "\"error\":null") != NULL, "clearing both error fields with empty strings clears the error");
+    free((void *)value);
+    value = _bugsee_test_apply_network_result("{\"errorShortMessage\":\"e\",\"errorDescription\":\"d\"}", "{\"errorShortMessage\":\"\"}");
+    expect(strstr(value, "\"description\":\"d\"") && !strstr(value, "\"name\""), "an empty name removes only the name");
+    free((void *)value);
+    value = _bugsee_test_apply_network_result("{\"errorShortMessage\":\"e\"}", "{\"errorShortMessage\":null}");
+    expect(strstr(value, "\"error\":null") != NULL, "a cleared name leaves no error");
+    free((void *)value);
+    // A replacement event is applied onto the original: the original's body, Authorization header and error must go.
+    value = _bugsee_test_apply_network_result(
+        "{\"url\":\"host-a\",\"body\":\"secret\",\"headers\":{\"Authorization\":\"Bearer abc\"},\"errorShortMessage\":\"e\",\"errorDescription\":\"d\"}",
+        "{\"stage\":\"complete\",\"url\":\"host-clean\",\"body\":null,\"errorShortMessage\":null,\"errorDescription\":null,\"size\":0,\"responseCode\":200,\"headers\":{}}");
+    expect(strstr(value, "\"url\":\"host-clean\"") && strstr(value, "\"body\":null") && strstr(value, "\"error\":null")
+               && strstr(value, "\"headers\":{}") && !strstr(value, "Authorization"),
+           "a replacement result removes the original's body, header and error");
+    free((void *)value);
+    // The same replacement with keys left out (what omission-style JSON would do) would keep them: why it is written in full.
+    value = _bugsee_test_apply_network_result(
+        "{\"url\":\"host-a\",\"body\":\"secret\",\"headers\":{\"Authorization\":\"Bearer abc\"}}",
+        "{\"stage\":\"complete\",\"url\":\"host-clean\"}");
+    expect(strstr(value, "Authorization") && strstr(value, "\"body\":\"secret\""), "keys left out keep the original's body and header");
+    free((void *)value);
+
     // A scalar attribute must not throw from NSJSONSerialization (top-level non-container), and
     // reads back tagged with its kind: s string, b bool, i integer, d floating point, j container.
     struct { const char *name; const char *json; const char *expected; } scalars[] = {
@@ -341,8 +393,13 @@ int main(void)
     [defaults setObject:@"de_DE" forKey:@"AppleLocale"];
     [defaults setObject:@[@"de"] forKey:@"AppleLanguages"];
     setlocale(LC_ALL, "de_DE");
-    expect([[NSString localizedStringWithFormat:@"%.1f", 1.5] containsString:@","],
-           "the test locale really uses a decimal comma");
+    // A runner without de_DE installed (or one that ignores the override) cannot show a comma: skip the precondition
+    // rather than fail; the attribute checks below hold in any locale and only prove the point under a comma.
+    if ([[NSString localizedStringWithFormat:@"%.1f", 1.5] containsString:@","]) {
+        printf("ok the test locale really uses a decimal comma\n");
+    } else {
+        printf("skip the test locale does not use a decimal comma on this host; the checks below do not prove locale independence here\n");
+    }
     _bugsee_set_attribute("localized", "1.5");
     char *localized = _bugsee_get_attribute("localized");
     expect(localized != NULL && same(localized, "d:1.5"), "floating attribute stays POSIX under a comma locale");

@@ -348,6 +348,7 @@ namespace Bugsee.Sample
                 case "attrsnoop":
                 case "attrsedit":
                 case "delete":
+                case "netfilter":
                     if (_e2ePhase == 0 && _e2eTimer >= 5f)
                     {
                         _e2ePhase = 99;
@@ -701,6 +702,10 @@ namespace Bugsee.Sample
             else if (marker.StartsWith("delete"))
             {
                 StartCoroutine(DeleteThenLaunch(marker));
+            }
+            else if (marker.StartsWith("netfilter"))
+            {
+                StartCoroutine(NetFilterE2E.Run());
             }
         }
 

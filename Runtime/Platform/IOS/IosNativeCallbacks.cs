@@ -190,7 +190,7 @@ namespace Bugsee.Platform.IOS
                 return;
             }
 
-            _bugsee_complete_filter(requestId, 1, ToNativeMapJson(ios.ToChannelJson(nativeStage, 0), "headers"));
+            _bugsee_complete_filter(requestId, 1, ToNativeMapJson(ios.ToReplacementJson(nativeStage), "headers"));
         }
 
         static void CompleteLog(long requestId, string json, EventFilter<ILogEvent> filter)
