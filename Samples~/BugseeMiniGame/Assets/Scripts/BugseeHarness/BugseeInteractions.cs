@@ -363,7 +363,7 @@ namespace Bugsee.Sample
         public void RelaunchAsync()
         {
             LastAsync = null;
-            Track("RelaunchAsync", Bugsee.RelaunchAsync(_bootstrap.LastLaunchOptions));
+            Track("RelaunchAsync", _bootstrap.RelaunchWithPreset(_bootstrap.LaunchPreset)); // ordered with the preset relaunches
         }
 
         public void StopAsync()
