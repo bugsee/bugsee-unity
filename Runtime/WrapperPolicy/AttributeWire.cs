@@ -39,6 +39,50 @@ namespace Bugsee.WrapperPolicy
             }
         }
 
+        /// <summary>Longest JSON text a container value may send to Android; longer text is cut at this length.</summary>
+        public const int MaxContainerJsonLength = 8192;
+
+        /// <summary>
+        /// The value the Android boxer can carry: null, string, bool, or a number (the boxable widths of
+        /// <see cref="ToBoxable"/>). A map or list crosses as JSON text (as on iOS, capped at
+        /// <see cref="MaxContainerJsonLength"/>), an enum by its integer value, and anything else as its culture-invariant
+        /// text, never a type name or a text that depends on the device's culture.
+        /// </summary>
+        public static object ToNative(object value)
+        {
+            switch (value)
+            {
+                case null:
+                case string _:
+                case bool _:
+                case int _:
+                case long _:
+                case float _:
+                case double _:
+                case byte _:
+                case short _:
+                    return value;
+                case sbyte _:
+                case ushort _:
+                case uint _:
+                case ulong _:
+                case decimal _:
+                    return ToBoxable(value);
+                case Enum e:
+                    return ToBoxable(Convert.ChangeType(e, Enum.GetUnderlyingType(e.GetType()), CultureInfo.InvariantCulture));
+                case byte[] _:
+                case System.Collections.IEnumerable _:
+                    string json = JsonWire.Value(value);
+                    return json.Length > MaxContainerJsonLength ? json.Substring(0, MaxContainerJsonLength) : json;
+                case DateTime dt:
+                    return dt.ToString("o", CultureInfo.InvariantCulture);
+                case DateTimeOffset dto:
+                    return dto.ToString("o", CultureInfo.InvariantCulture);
+                default:
+                    return Convert.ToString(value, CultureInfo.InvariantCulture);
+            }
+        }
+
         public static object Decode(string wire)
         {
             if (wire == null) return null;

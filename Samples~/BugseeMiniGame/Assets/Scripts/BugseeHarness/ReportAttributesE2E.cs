@@ -66,6 +66,12 @@ namespace Bugsee.Sample
             return sb.Append(']').ToString();
         }
 
+        static string ContainerCheck(object value, string json)
+        {
+            if (value is string text) return (text == json ? "PASS" : "FAIL") + " value=" + text;
+            return (value is IEnumerable ? "PASS managed " : "FAIL ") + (value == null ? "null" : value.GetType().Name);
+        }
+
         sealed class Probe : ReportHandlerBase
         {
             readonly bool _edit;
@@ -83,6 +89,7 @@ namespace Bugsee.Sample
                     report.SetAttribute("added_long", 7L);
                     report.SetAttribute("added_whole", 3.0);
                     report.SetAttribute("added_list", new List<object> { 1, "a" });
+                    report.SetAttribute("added_map", new Dictionary<string, object> { { "k", 1 }, { "n", new List<object> { true, "x" } } });
                     report.RemoveAttribute("a_numstr");
                     Debug.Log("[ATTRS] before-out:" + Describe(report));
                 }
@@ -92,6 +99,16 @@ namespace Bugsee.Sample
             public override void OnAfterReportCreated(IReport report, bool isTerminating, Action completionCallback)
             {
                 Debug.Log("[ATTRS] after:" + Describe(report));
+                if (_edit)
+                {
+                    // Integers read back as long on both platforms. A container set by the handler is JSON text on
+                    // Android (the SDK holds the text); on iOS the handler's own report keeps the managed container
+                    // until the handler returns, and only the wire is JSON. Either way it is never a type name.
+                    Debug.Log("[ATTRS] check a_int long " + (report.GetAttribute("a_int") is long ? "PASS" : "FAIL"));
+                    Debug.Log("[ATTRS] check added_long long " + (report.GetAttribute("added_long") is long ? "PASS" : "FAIL"));
+                    Debug.Log("[ATTRS] check added_list json " + ContainerCheck(report.GetAttribute("added_list"), "[1,\"a\"]"));
+                    Debug.Log("[ATTRS] check added_map json " + ContainerCheck(report.GetAttribute("added_map"), "{\"k\":1,\"n\":[true,\"x\"]}"));
+                }
                 completionCallback?.Invoke();
             }
         }
