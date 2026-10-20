@@ -135,7 +135,9 @@ namespace Bugsee.Sample
             }
 
             // Q / Tab cycles the selected action, E / Space runs it (bubbles still work by tap).
-            if (_playerInside && Actions != null && Actions.Length > 0)
+            // Not while a form is open or an IMGUI text field has focus: legacy Input still sees typed keys.
+            if (_playerInside && Actions != null && Actions.Length > 0 &&
+                !BugseeActionForms.IsBlockingInput && GUIUtility.keyboardControl == 0)
             {
                 if (Input.GetKeyDown(KeyCode.Q) || Input.GetKeyDown(KeyCode.Tab))
                     SelectNext();
@@ -186,7 +188,10 @@ namespace Bugsee.Sample
                 GUI.backgroundColor = Color.Lerp(Color, Color.white, selected ? 0.8f : 0.4f);
                 var label = (selected ? "> " : "") + BugseeActionCatalog.DisplayName(Actions[i]);
                 if (GUI.Button(new Rect(x, yGui, w, rowH), label))
+                {
+                    _selected = i; // a tapped row becomes the selection too (touch has no Q/Tab)
                     Activate(Actions[i]);
+                }
                 yGui += rowH + 6f;
             }
 

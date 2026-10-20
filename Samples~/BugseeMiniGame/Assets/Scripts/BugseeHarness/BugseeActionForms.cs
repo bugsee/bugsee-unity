@@ -139,7 +139,11 @@ namespace Bugsee.Sample
 
         public void ShowAttribute(string key = null, string value = null)
         {
-            _attrKey = !string.IsNullOrEmpty(key) ? key : BugseeActionCatalog.AttributeKey;
+            // Re-opening while the form is already open must not wipe what is being typed.
+            if (_kind != FormKind.Attribute)
+                _attrKey = !string.IsNullOrEmpty(key) ? key : BugseeActionCatalog.AttributeKey;
+            else if (!string.IsNullOrEmpty(key))
+                _attrKey = key;
             if (value != null)
                 _attrValue = value;
             Open(FormKind.Attribute);

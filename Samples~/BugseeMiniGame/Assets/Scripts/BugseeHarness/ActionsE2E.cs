@@ -17,6 +17,29 @@ namespace Bugsee.Sample
             var c = b.Catalog;
             _failures = 0;
             Debug.Log("[Sample] actions e2e start launched=" + Bugsee.IsLaunched + " status=" + Bugsee.Status);
+            var savedKey = BugseeActionCatalog.AttributeKey;
+            GameObject hill = null;
+            try
+            {
+                Body(c, out hill);
+            }
+            catch (System.Exception ex)
+            {
+                Check("scenario completed without an exception", false, ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                if (hill != null) Object.Destroy(hill);
+                try { Bugsee.EndBlackout(); } catch { }
+                BugseeActionCatalog.AttributeKey = savedKey;
+            }
+
+            Debug.Log("[Sample] actions e2e done failures=" + _failures);
+        }
+
+        static void Body(BugseeActionCatalog c, out GameObject hill)
+        {
+            hill = null;
 
             // 1. One attribute key shared by Set / Get / Clear.
             var key = "e2e.key";
@@ -36,12 +59,13 @@ namespace Bugsee.Sample
             Check("attribute survives ClearIdentity", "survives".Equals(kept), "value=" + (kept ?? "(null)"));
             Bugsee.ClearAttribute(key);
 
-            // 3. Pause/Resume alternates and the state is visible.
+            // 3. Pause/Resume alternates and the state is visible (start from a known state).
+            Bugsee.EndBlackout();
             c.Run(BugseeDemoAction.ObsoletePauseResume);
             var s1 = c.LastStatus; var bo1 = Bugsee.IsBlackout;
             c.Run(BugseeDemoAction.ObsoletePauseResume);
             var s2 = c.LastStatus; var bo2 = Bugsee.IsBlackout;
-            Check("Pause then Resume", bo1 && !bo2 && s1.StartsWith("Pause()") && s2.StartsWith("Resume()"), s1 + " | " + s2);
+            Check("Pause then Resume", bo1 && !bo2 && s1.StartsWith("Pause()") && s2.StartsWith("Resume()"), "bo1=" + bo1 + " bo2=" + bo2 + " :: " + s1 + " | " + s2);
 
             // 4. Hazard path: counter in the message, status is the LogException result.
             c.Run(BugseeDemoAction.LogException);
@@ -52,6 +76,7 @@ namespace Bugsee.Sample
 
             // 5. E/Space selection through the real station code.
             var go = new GameObject("E2EHill");
+            hill = go;
             var st = go.AddComponent<BugseeHillStation>();
             st.Configure(new BugseeActionGroup("E2E", Color.white,
                 BugseeDemoAction.GetIdentity, BugseeDemoAction.GetAttribute, BugseeDemoAction.LogException), new List<Transform>());
@@ -67,9 +92,6 @@ namespace Bugsee.Sample
                 e0.StartsWith("GetUserIdentifier=") && e1.StartsWith("GetAttribute ") && e2.StartsWith("LogException #") && st.SelectedIndex == 0,
                 e0 + " | " + e1 + " | " + e2 + " | idx=" + st.SelectedIndex);
             Bugsee.ClearAttribute(key);
-            Object.Destroy(go);
-
-            Debug.Log("[Sample] actions e2e done failures=" + _failures);
         }
 
         static void Check(string name, bool ok, string detail)

@@ -76,6 +76,17 @@ Each build declares `bugsee-android:7.4.1` + `bugsee-android-ndk:7.4.1` in the g
 `unityLibrary/build.gradle` (core publishes no transitives; NDK is explicit); no custom Gradle templates are needed (the sample ships none; the package copies Unity's own default templates, so it builds on Unity 2021.3 and Unity 6).
 Gradle plugin `4.0.8` is applied on Unity 6+ launcher templates (`ndk { enabled = true }`).
 
+### Action check (`actions` e2e scenario)
+
+`BUGSEE_E2E_SCENARIO=actions` (iOS env var, Android intent extra `bugsee_e2e`) waits for the SDK to launch, then runs the same
+action-catalog items the bubbles call (Set/Get/Clear Attr, Clear ID, Pause/Resume, Exception) and the hill selection used by
+E/Space, and logs `[Sample] actions PASS|FAIL ...` lines ending in `actions e2e done failures=N`.
+
+Notes: `Pause()`/`Resume()` are obsolete aliases of `StartBlackout()`/`EndBlackout()`, so the Pause/Resume bubble follows
+`IsBlackout` (a blackout started by the Blackout bubble makes the next tap a Resume). The `count` option of the Exception bubble is
+only a marker in the message and options: it does not change report grouping (the signature uses type and stack), and the iOS beta7
+bridge honours only `skipFrames`.
+
 ## Character
 
 The player prefers the Meshy **rigged** FBX at `Resources/Anteater/ScarletSnout`

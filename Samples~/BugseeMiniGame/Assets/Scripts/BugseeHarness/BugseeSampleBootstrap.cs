@@ -336,7 +336,10 @@ namespace Bugsee.Sample
                     if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
                     {
                         _e2ePhase = 99;
-                        ActionsE2E.Run(this);
+                        if (Bugsee.IsLaunched)
+                            ActionsE2E.Run(this);
+                        else
+                            Debug.Log("[Sample] actions FAIL not launched :: status=" + Bugsee.Status);
                     }
                     break;
                 case "upload":
