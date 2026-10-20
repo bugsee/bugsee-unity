@@ -44,12 +44,21 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Every_imported_export_is_called_by_a_native_test()
         {
             var imports = new SortedSet<string>();
+            var rawCount = 0;
+            var parsedCount = 0;
             foreach (var path in Directory.GetFiles(RepoFile("Runtime/Platform/IOS"), "*.cs"))
             {
                 var src = StripComments(File.ReadAllText(path));
+                rawCount += Regex.Matches(src, @"DllImport\s*\(\s*""__Internal""").Count;
                 foreach (Match m in Regex.Matches(src, @"\[DllImport\(""__Internal""[^\]]*\]\s*(?:internal|public|private)?\s*static\s+extern\s+[\w.<>\[\]]+\s+(_bugsee_\w+)\s*\("))
+                {
                     imports.Add(m.Groups[1].Value);
+                    parsedCount++;
+                }
             }
+
+            // Nothing may be skipped silently: a declaration this parser cannot read would otherwise escape the check.
+            Assert.That(parsedCount, Is.EqualTo(rawCount), "a DllImport declaration was not parsed");
 
             Assert.That(imports.Count, Is.GreaterThanOrEqualTo(55), "the DllImport parser found too few imports");
 
