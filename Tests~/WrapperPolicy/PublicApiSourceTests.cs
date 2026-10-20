@@ -336,7 +336,7 @@ namespace Bugsee.WrapperPolicy.Tests
             // stale-result and deadline rules are covered by AndroidLaunchStatePolicyTests.
             string bridge = android;
             Assert.That(ExtractMethodBody(bridge, "internal void Launch(string appToken, IDictionary<string, object> options, Action<bool> completion)"),
-                Does.Contain("Lifecycle.Launch(appToken, options, completion);"));
+                Does.Contain("Lifecycle.Launch(appToken, options, ok =>").And.Contain("completion?.Invoke(ok);"));
             string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
             string iosLaunch = ExtractMethodBody(ios, "void Launch(string appToken, IDictionary<string, object> options, Action<bool> started)");
             Assert.That(iosLaunch.IndexOf("RunSyncLifecycle", StringComparison.Ordinal),
@@ -347,7 +347,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(launchBody.IndexOf("MainThreadDispatcher.Run", StringComparison.Ordinal),
                 Is.LessThan(launchBody.IndexOf("ManagedExceptionPayload.EnsureBuildIdentity()", StringComparison.Ordinal)));
             Assert.That(ExtractMethodBody(bridge, "internal void Relaunch(IDictionary<string, object> options, Action<bool> completion)"),
-                Does.Contain("Lifecycle.Relaunch(options, completion)"));
+                Does.Contain("Lifecycle.Relaunch(options, ok =>").And.Contain("completion?.Invoke(ok);"));
             Assert.That(ExtractMethodBody(bridge, "void Stop(Action completion, Action<bool> finished)"),
                 Does.Contain("Lifecycle.Stop(completion, finished)"));
             Assert.That(bridge, Does.Contain("class AndroidBridge : IBugseeNativeBridge, ILifecycleResultBridge"));

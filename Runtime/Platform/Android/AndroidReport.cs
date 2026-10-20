@@ -13,11 +13,16 @@ namespace Bugsee.Platform.Android
     sealed class AndroidReport : IReport
     {
         readonly AndroidJavaObject _report;
+        readonly ReportEditGate _gate;
 
-        public AndroidReport(AndroidJavaObject report)
+        /// <param name="gate">Once closed, every edit does nothing (a handler that outlived its turn); null: always editable.</param>
+        public AndroidReport(AndroidJavaObject report, ReportEditGate gate = null)
         {
             _report = report;
+            _gate = gate;
         }
+
+        bool Closed => _gate != null && !_gate.IsOpen;
 
         public string Id => _report.Call<string>("getId");
 
@@ -36,19 +41,19 @@ namespace Bugsee.Platform.Android
         public string Summary
         {
             get => _report.Call<string>("getSummary");
-            set => _report.Call("setSummary", value);
+            set { if (!Closed) _report.Call("setSummary", value); }
         }
 
         public string Description
         {
             get => _report.Call<string>("getDescription");
-            set => _report.Call("setDescription", value);
+            set { if (!Closed) _report.Call("setDescription", value); }
         }
 
         public string Email
         {
             get => _report.Call<string>("getEmail");
-            set => _report.Call("setEmail", value);
+            set { if (!Closed) _report.Call("setEmail", value); }
         }
 
         public IssueSeverity? Severity
@@ -65,7 +70,7 @@ namespace Bugsee.Platform.Android
             }
             set
             {
-                if (!value.HasValue)
+                if (!value.HasValue || Closed)
                     return;
 
                 using (var clazz = new AndroidJavaClass("com.bugsee.library.contracts.options.IssueSeverity"))
@@ -93,12 +98,13 @@ namespace Bugsee.Platform.Android
 
         public void SetAttribute(string name, object value)
         {
+            if (Closed) return;
             using (var boxed = AndroidJavaConverters.Box(AttributeWire.ToBoxable(value)))
                 _report.Call("setAttribute", name, boxed);
         }
 
-        public void RemoveAttribute(string name) => _report.Call("removeAttribute", name);
-        public void ClearAllAttributes() => _report.Call("clearAllAttributes");
+        public void RemoveAttribute(string name) { if (!Closed) _report.Call("removeAttribute", name); }
+        public void ClearAllAttributes() { if (!Closed) _report.Call("clearAllAttributes"); }
 
         public IReadOnlyList<string> Labels
         {
@@ -116,11 +122,12 @@ namespace Bugsee.Platform.Android
             }
         }
 
-        public void AddLabel(string label) => _report.Call("addLabel", label);
-        public void ClearLabels() => _report.Call("clearLabels");
+        public void AddLabel(string label) { if (!Closed) _report.Call("addLabel", label); }
+        public void ClearLabels() { if (!Closed) _report.Call("clearLabels"); }
 
         public void SetLabels(IEnumerable<string> labels)
         {
+            if (Closed) return;
             using (var javaList = new AndroidJavaObject("java.util.ArrayList"))
             {
                 if (labels != null)
@@ -128,6 +135,7 @@ namespace Bugsee.Platform.Android
                     foreach (var label in labels)
                         javaList.Call<bool>("add", label);
                 }
+                if (Closed) return; // the handler's turn can end while the caller's sequence is enumerated
                 _report.Call("setLabels", javaList);
             }
         }
@@ -144,7 +152,7 @@ namespace Bugsee.Platform.Android
                     for (var i = 0; i < size; i++)
                     {
                         var att = javaList.Call<AndroidJavaObject>("get", i);
-                        if (att != null) list.Add(new AndroidAttachment(att));
+                        if (att != null) list.Add(new AndroidAttachment(att, _gate));
                     }
                 }
                 return list;
@@ -154,42 +162,47 @@ namespace Bugsee.Platform.Android
         // addAttachment returns null when the report refuses it (not live, attachment limit); keep that as null.
         public IAttachment AddAttachmentFile(string path, string name, string mimeType)
         {
-            if (string.IsNullOrEmpty(path))
+            if (string.IsNullOrEmpty(path) || Closed)
                 return null;
 
             var attachmentName = string.IsNullOrEmpty(name) ? "attachment" : name;
             using (var file = new AndroidJavaObject("java.io.File", path))
             {
                 var att = _report.Call<AndroidJavaObject>("addAttachment", file, attachmentName, mimeType, false);
-                return att == null ? null : new AndroidAttachment(att);
+                return att == null ? null : new AndroidAttachment(att, _gate);
             }
         }
 
         public IAttachment AddAttachmentBytes(byte[] data, string name, string mimeType)
         {
-            if (data == null || data.Length == 0)
+            if (data == null || data.Length == 0 || Closed)
                 return null;
 
             var attachmentName = string.IsNullOrEmpty(name) ? "attachment" : name;
             var att = _report.Call<AndroidJavaObject>("addAttachment", data, attachmentName, mimeType);
-            return att == null ? null : new AndroidAttachment(att);
+            return att == null ? null : new AndroidAttachment(att, _gate);
         }
 
-        public void ClearAttachments() => _report.Call("clearAttachments");
+        public void ClearAttachments() { if (!Closed) _report.Call("clearAttachments"); }
     }
 
     sealed class AndroidAttachment : IAttachment
     {
         readonly AndroidJavaObject _attachment;
+        readonly ReportEditGate _gate;
 
-        public AndroidAttachment(AndroidJavaObject attachment)
+        public AndroidAttachment(AndroidJavaObject attachment, ReportEditGate gate = null)
         {
             _attachment = attachment;
+            _gate = gate;
         }
+
+        bool Closed => _gate != null && !_gate.IsOpen;
 
         // The Java setters are fluent (return Attachment); a void-typed JNI call would not resolve them.
         void Set(string method, string value)
         {
+            if (Closed) return;
             using (_attachment.Call<AndroidJavaObject>(method, value))
             {
             }
@@ -215,7 +228,7 @@ namespace Bugsee.Platform.Android
 
         public void SetData(byte[] data)
         {
-            if (data == null || data.Length == 0) return;
+            if (data == null || data.Length == 0 || Closed) return;
 
             using (var stream = _attachment.Call<AndroidJavaObject>("openStream"))
             {
