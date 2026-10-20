@@ -169,9 +169,21 @@ namespace Bugsee.Platform.IOS
 
         public IReadOnlyList<IAttachment> Attachments => _attachments;
 
+        // Set once the report has been completed: a handler that is still running (it was abandoned or answered late)
+        // must not copy a file nothing will ever submit or delete.
+        bool _released;
+        readonly object _releaseGate = new object();
+
+        // One lock for the release check, the copy, the registration and the release cleanup, so a copy cannot land after
+        // the cleanup has looked at the list.
         public IAttachment AddAttachmentFile(string path, string name, string mimeType)
         {
-            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            lock (_releaseGate) return AddAttachmentFileLocked(path, name, mimeType);
+        }
+
+        IAttachment AddAttachmentFileLocked(string path, string name, string mimeType)
+        {
+            if (_released || string.IsNullOrEmpty(path) || !File.Exists(path))
                 return null;
 
             string snapshotPath;
@@ -236,8 +248,12 @@ namespace Bugsee.Platform.IOS
 
         public void ReleaseSnapshotFiles()
         {
-            for (var i = 0; i < _attachments.Count; i++)
-                _attachments[i].DeleteSnapshotIfOwned();
+            lock (_releaseGate)
+            {
+                _released = true;
+                for (var i = 0; i < _attachments.Count; i++)
+                    _attachments[i].DeleteSnapshotIfOwned();
+            }
         }
 
         public string ToResultJson()

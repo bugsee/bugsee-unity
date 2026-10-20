@@ -1,8 +1,10 @@
 #if UNITY_ANDROID && !UNITY_EDITOR
 using System;
+using System.Threading;
 using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Reporting;
 using Bugsee.Internal;
+using Bugsee.WrapperPolicy;
 using UnityEngine;
 
 namespace Bugsee.Platform.Android
@@ -16,10 +18,14 @@ namespace Bugsee.Platform.Android
         readonly Func<AndroidJavaObject, TNative> _wrap;
         EventFilter<TNative> _filter;
 
-        public EventFilterProxy(Func<AndroidJavaObject, TNative> wrap)
+        readonly long _sdkTimeoutMs;
+
+        /// <param name="sdkTimeoutMs">How long the SDK waits for this filter before it drops the event (0: never).</param>
+        public EventFilterProxy(Func<AndroidJavaObject, TNative> wrap, long sdkTimeoutMs = 0)
             : base("com.bugsee.library.contracts.exchange.EventFilter")
         {
             _wrap = wrap;
+            _sdkTimeoutMs = sdkTimeoutMs;
         }
 
         public void SetFilter(EventFilter<TNative> filter) => _filter = filter;
@@ -35,6 +41,9 @@ namespace Bugsee.Platform.Android
                 return;
             }
 
+            // The SDK's window for the reply starts now; see FilterReplyWindow.
+            var window = new FilterReplyWindow(_sdkTimeoutMs, LateReplyGuard.StopwatchMillis);
+
             // Filters may touch managed state — run on main thread, then complete.
             // The AndroidJavaObject arguments are backed by JNI global references, not the proxy
             // call's local frame, so they stay valid across the hop; release them deterministically
@@ -42,16 +51,24 @@ namespace Bugsee.Platform.Android
             MainThreadDispatcher.Run(() =>
             {
                 TNative managed = null;
+                if (!window.IsOpen)
+                {
+                    // The SDK dropped the event and may already have handed its callback to another one.
+                    Debug.LogWarning("[Bugsee] A filter was skipped: the SDK stopped waiting for it before the Unity main loop could run it.");
+                    ReleaseArgs(data, callback);
+                    return;
+                }
+
                 try
                 {
                     managed = _wrap(data);
                     var result = filter(managed);
-                    callback?.Call("run", result == null ? (AndroidJavaObject)null : data);
+                    Reply(window, callback, result == null ? (AndroidJavaObject)null : data);
                 }
                 catch (Exception ex)
                 {
                     Debug.Log("filter-failed " + ex.GetType().Name);
-                    callback?.Call("run", (AndroidJavaObject)null);
+                    Reply(window, callback, (AndroidJavaObject)null);
                 }
                 finally
                 {
@@ -61,6 +78,17 @@ namespace Bugsee.Platform.Android
                     ReleaseArgs(data, callback);
                 }
             });
+        }
+
+        // A reply after the SDK's window is withheld: the SDK has moved on and a late one would complete another event.
+        static void Reply(FilterReplyWindow window, AndroidJavaObject callback, AndroidJavaObject value)
+        {
+            if (!window.IsOpen)
+            {
+                Debug.LogWarning("[Bugsee] A filter reply was withheld: it came after the SDK stopped waiting for it.");
+                return;
+            }
+            callback?.Call("run", value);
         }
 
         static void ReleaseArgs(AndroidJavaObject data, AndroidJavaObject callback)
@@ -114,29 +142,80 @@ namespace Bugsee.Platform.Android
                 return;
             }
 
+            // The SDK waits for the handler at most ReportHandlerCallbackTimeout, then carries on with the report
+            // unchanged. While the Unity loop is paused (app in the background) this hop sits in the queue, so a
+            // handler that would only start after that is skipped and a reply after it is only acknowledged.
+            var gate = new ReportEditGate();
+            var guard = new LateReplyGuard(BudgetMillis(), LateReplyGuard.StopwatchMillis, _ =>
+            {
+                gate.Close(); // whatever the handler kept can no longer change the report
+                try { completion?.Call("run"); }
+                finally { try { completion?.Dispose(); } catch (Exception) { } }
+            });
+
+            // A handler that never answers must not keep the completion alive: abandon it after the SDK's deadline.
+            guard.ArmTimeout(AbandonMarginMs, run =>
+            {
+                Debug.LogWarning("[Bugsee] The report handler did not call its completion callback by the SDK's deadline; it was abandoned.");
+                try { using (AndroidJniScope.Enter()) run(); }
+                catch (Exception ex) { Debug.LogWarning("[Bugsee] Abandoning the report handler failed: " + ex.Message); }
+            });
+
             MainThreadDispatcher.Run(() =>
             {
-                var finished = false;
-                Action done = () =>
+                // The after-phase is often a notification (record the report, send analytics), so it still runs late,
+                // with a completion that only acknowledges; the before-phase exists to edit the report and is skipped.
+                var late = !guard.TryBegin();
+                if (late && before)
                 {
-                    if (finished) return;
-                    finished = true;
-                    try { completion?.Call("run"); }
-                    finally { try { completion?.Dispose(); } catch (Exception) { } }
-                };
+                    Debug.LogWarning("[Bugsee] The report handler was skipped: the SDK stopped waiting for it before the Unity main loop could run it.");
+                    try { report?.Dispose(); } catch (Exception) { }
+                    return;
+                }
 
                 try
                 {
-                    var wrapped = new AndroidReport(report);
+                    var wrapped = new AndroidReport(report, gate);
+                    Action done = late ? (() => { }) : (Action)guard.Done;
                     if (before) handler.OnBeforeReportCreated(wrapped, false, done);
                     else handler.OnAfterReportCreated(wrapped, false, done);
                 }
                 catch (Exception ex)
                 {
                     Debug.LogException(ex);
-                    done();
+                    guard.Abandon();
                 }
             });
+        }
+
+        /// <summary>Forget the cached timeout: the SDK was (re)launched, possibly with another one.</summary>
+        internal static void InvalidateBudget() => Interlocked.Exchange(ref _budgetMs, -1);
+
+        const long AbandonMarginMs = 1000;
+        const long BudgetRefreshMs = 60000;
+        static long _budgetMs = -1;
+        static long _budgetReadAtMs;
+
+        // The launch options are read over JNI, so at most once a minute; when they cannot be read (not launched, a
+        // relaunch in progress) the last value stays, so a larger configured timeout is not cut to the default.
+        static long BudgetMillis()
+        {
+            var now = LateReplyGuard.StopwatchMillis();
+            var cached = Interlocked.Read(ref _budgetMs);
+            if (cached >= 0 && now - Interlocked.Read(ref _budgetReadAtMs) < BudgetRefreshMs) return cached;
+            try
+            {
+                var launch = global::Bugsee.Bugsee.GetLaunchOptions();
+                if (launch != null)
+                {
+                    var budget = ReportHandlerDeadline.BudgetMillis(launch, true);
+                    Interlocked.Exchange(ref _budgetMs, budget);
+                    Interlocked.Exchange(ref _budgetReadAtMs, now);
+                    return budget;
+                }
+            }
+            catch (Exception) { }
+            return cached >= 0 ? cached : ReportHandlerDeadline.DefaultBudgetMs;
         }
     }
 
