@@ -458,6 +458,14 @@ namespace Bugsee.Sample
                         _pendingE2EFire = "S:shapes";
                     }
                     break;
+                case "attach":
+                case "unobserved":
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 99;
+                        _pendingE2EFire = (_e2eScenario == "attach" ? "T:" : "N:") + _e2eRunId;
+                    }
+                    break;
                 case "options":
                     // Which keys of the platform gate (OptionPlatformGate) reach the native launch options.
                     if (_e2ePhase == 0 && _e2eTimer >= 5f)
@@ -596,6 +604,12 @@ namespace Bugsee.Sample
                     break;
                 case 'S':
                     ShapesE2E.Run(this);
+                    break;
+                case 'T':
+                    AttachmentTaskE2E.RunAttach(this, marker);
+                    break;
+                case 'N':
+                    AttachmentTaskE2E.RunUnobserved(this, marker);
                     break;
                 case 'D':
                     BlackoutE2E.Run(this, appToken, LastLaunchOptions);
@@ -959,6 +973,8 @@ namespace Bugsee.Sample
                 ReportingTriggerByScreenshot = true,
                 DetectAndReportCrash = true,
                 CaptureManagedExceptions = true,
+                // "bugsee_unobserved" = 0 turns off reporting of unobserved task exceptions (scenario "unobserved").
+                CaptureUnobservedTaskExceptions = ReadE2EValue("bugsee_unobserved", "BUGSEE_E2E_UNOBSERVED") != "0",
                 DetectAndReportHang = true,
                 DetectAndReportExitNotResponding = true,
                 DetectAndReportExitLowMemory = true,
@@ -986,6 +1002,8 @@ namespace Bugsee.Sample
                 ReportingTriggerByShake = true,
                 DetectAndReportCrash = true,
                 CaptureManagedExceptions = true,
+                // "bugsee_unobserved" = 0 turns off reporting of unobserved task exceptions (scenario "unobserved").
+                CaptureUnobservedTaskExceptions = ReadE2EValue("bugsee_unobserved", "BUGSEE_E2E_UNOBSERVED") != "0",
                 DetectAndReportHang = true,
                 Debug = true
             };

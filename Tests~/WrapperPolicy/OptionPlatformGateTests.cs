@@ -72,7 +72,8 @@ namespace Bugsee.WrapperPolicy.Tests
         // Read by the wrapper from the managed dictionary; passed to native unchanged on both platforms.
         static readonly string[] WrapperConstants =
         {
-            nameof(Options.CaptureManagedExceptions), nameof(Options.TreatUnityLogExceptionsAsFatal)
+            nameof(Options.CaptureManagedExceptions), nameof(Options.TreatUnityLogExceptionsAsFatal),
+            nameof(Options.CaptureUnobservedTaskExceptions)
         };
 
         static HashSet<string> ExpectedAndroidOnlyKeysFromOptionsContract()

@@ -341,7 +341,9 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
             if (![item isKindOfClass:[NSDictionary class]]) continue;
             NSDictionary *att = (NSDictionary *)item;
             NSString *name = [att[@"name"] isKindOfClass:[NSString class]] ? att[@"name"] : @"attachment";
-            NSString *mime = [att[@"mimeType"] isKindOfClass:[NSString class]] ? att[@"mimeType"] : @"application/octet-stream";
+            // A missing MIME type stays unset (nil), as the report contract says; none is invented.
+            NSString *mime = [att[@"mimeType"] isKindOfClass:[NSString class]] && [(NSString *)att[@"mimeType"] length] > 0
+                ? att[@"mimeType"] : nil;
             id pathVal = att[@"path"];
             if ([pathVal isKindOfClass:[NSString class]] && [(NSString *)pathVal length] > 0) {
                 id reportObj = (id)report;
@@ -358,7 +360,8 @@ static void BugseeUnityApplyReportDict(id<BGSReportContract> report, NSDictionar
                 continue;
             }
             id b64 = att[@"dataBase64"];
-            if ([b64 isKindOfClass:[NSString class]] && [(NSString *)b64 length] > 0) {
+            // An empty string is valid data (an empty attachment); only a missing or undecodable payload is skipped.
+            if ([b64 isKindOfClass:[NSString class]]) {
                 NSData *decoded = [[NSData alloc] initWithBase64EncodedString:(NSString *)b64 options:0];
                 if (decoded) {
                     id reportObj = (id)report;
@@ -561,6 +564,49 @@ static int64_t BugseeUnityEnqueueFilter(NSString *kind, id event, id decisionBlo
     }
     return requestId;
 }
+
+#if defined(BUGSEE_UNITY_TESTS)
+// Stands in for the SDK's report: records what the add-time attachment methods were asked for.
+@class BugseeUnityAttachmentRecorder;
+@interface BugseeUnityRecordedAttachment : NSObject
+@property(nonatomic, weak) BugseeUnityAttachmentRecorder *recorder;
+@property(nonatomic, copy) NSString *fileName;
+@end
+
+@interface BugseeUnityAttachmentRecorder : NSObject
+@property(nonatomic, strong) NSMutableArray<NSString *> *calls;
+@end
+
+@implementation BugseeUnityRecordedAttachment
+- (void)setFileName:(NSString *)fileName
+{
+    _fileName = [fileName copy];
+    [self.recorder.calls addObject:[NSString stringWithFormat:@"fileName:%@", fileName]];
+}
+@end
+
+@implementation BugseeUnityAttachmentRecorder
+- (instancetype)init
+{
+    if ((self = [super init])) _calls = [NSMutableArray new];
+    return self;
+}
+- (id)addAttachmentWithData:(NSData *)data name:(NSString *)name mimeType:(NSString *)mimeType
+{
+    [self.calls addObject:[NSString stringWithFormat:@"data:%@:%lu:%@", name, (unsigned long)data.length, mimeType ?: @"-"]];
+    BugseeUnityRecordedAttachment *created = [BugseeUnityRecordedAttachment new];
+    created.recorder = self;
+    return created;
+}
+- (id)addAttachmentWithFilePath:(NSString *)path name:(NSString *)name mimeType:(NSString *)mimeType move:(BOOL)move
+{
+    [self.calls addObject:[NSString stringWithFormat:@"file:%@:%@", name, mimeType ?: @"-"]];
+    BugseeUnityRecordedAttachment *created = [BugseeUnityRecordedAttachment new];
+    created.recorder = self;
+    return created;
+}
+@end
+#endif
 
 extern "C" {
 
@@ -899,6 +945,16 @@ const char *_bugsee_test_copy_context_value(const char *key)
     if (!gWrapperContext || !key) return NULL;
     NSString *value = gWrapperContext[[NSString stringWithUTF8String:key]];
     return value ? strdup(value.UTF8String) : NULL;
+}
+
+// Applies a report dictionary's attachments to a recording stand-in and returns its calls, joined by "|".
+const char *_bugsee_test_apply_report_attachments(const char *json)
+{
+    NSDictionary *d = BugseeUnityParseJson(json);
+    if (!d) return NULL;
+    BugseeUnityAttachmentRecorder *recorder = [BugseeUnityAttachmentRecorder new];
+    BugseeUnityApplyReportDict((id<BGSReportContract>)recorder, d);
+    return strdup([recorder.calls componentsJoinedByString:@"|"].UTF8String);
 }
 
 // Builds a real SDK network event from startJson, applies a filter result the way _bugsee_complete_filter does and

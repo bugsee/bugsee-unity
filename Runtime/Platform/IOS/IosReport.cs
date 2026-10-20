@@ -203,7 +203,8 @@ namespace Bugsee.Platform.IOS
             var att = new IosAttachment(name ?? "attachment");
             var baseName = Path.GetFileName(path);
             att.Filename = string.IsNullOrEmpty(baseName) ? (name ?? "attachment") : baseName;
-            att.MimeType = mimeType ?? "application/octet-stream";
+            // A missing MIME type stays unset (the report contract: "the backend treats it as unknown"); none is invented.
+            att.MimeType = string.IsNullOrEmpty(mimeType) ? null : mimeType;
             att.SetSnapshotPath(snapshotPath);
             _attachments.Add(att);
             _attachmentsDirty = true;
@@ -212,11 +213,12 @@ namespace Bugsee.Platform.IOS
 
         public IAttachment AddAttachmentBytes(byte[] data, string name, string mimeType)
         {
-            if (data == null || data.Length == 0)
+            // Empty data is valid and produces an empty attachment (report contract); only null is an error.
+            if (data == null)
                 return null;
             var att = new IosAttachment(name ?? "attachment");
             att.Filename = name ?? "attachment";
-            att.MimeType = mimeType ?? "application/octet-stream";
+            att.MimeType = string.IsNullOrEmpty(mimeType) ? null : mimeType;
             att.SetAttachmentBytes(data);
             _attachments.Add(att);
             _attachmentsDirty = true;
@@ -408,7 +410,6 @@ namespace Bugsee.Platform.IOS
         {
             Name = name;
             Filename = name;
-            MimeType = "text/plain";
         }
 
         public string Name { get; set; }
@@ -438,8 +439,6 @@ namespace Bugsee.Platform.IOS
                 _text = null;
                 _dataBase64 = Convert.ToBase64String(data);
                 _isBinary = true;
-                if (string.IsNullOrEmpty(MimeType) || MimeType == "text/plain")
-                    MimeType = "application/octet-stream";
             }
         }
 
@@ -504,7 +503,10 @@ namespace Bugsee.Platform.IOS
             sb.Append('{');
             Append("name", Name); sb.Append(',');
             Append("fileName", Filename); sb.Append(',');
-            Append("mimeType", MimeType); sb.Append(',');
+            if (!string.IsNullOrEmpty(MimeType))
+            {
+                Append("mimeType", MimeType); sb.Append(',');
+            }
             if (!string.IsNullOrEmpty(_path))
             {
                 Append("path", _path);

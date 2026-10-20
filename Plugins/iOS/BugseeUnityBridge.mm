@@ -169,7 +169,8 @@ static void BugseeBridgeApplyExtendedReportDict(BugseeExtendedReport *report, NS
 
             NSData *data = nil;
             id b64 = att[@"dataBase64"];
-            if ([b64 isKindOfClass:[NSString class]] && [(NSString *)b64 length] > 0) {
+            // An empty string is valid data (an empty attachment); only a missing or undecodable payload is skipped.
+            if ([b64 isKindOfClass:[NSString class]]) {
                 data = [[NSData alloc] initWithBase64EncodedString:(NSString *)b64 options:0];
             }
             id text = att[@"text"];
@@ -385,6 +386,21 @@ void _bugsee_logException(const char *name, const char *reason, bool handled, co
 #if BUGSEE_UNITY_TESTS
 int _bugsee_test_simulator_warning_count(void) { return gSimulatorWarningCount; }
 int _bugsee_test_dropped_options_warning_count(void) { return gDroppedOptionsWarningCount; }
+// Applies a report dictionary to a fresh extended report and describes the attachments the SDK kept, as
+// "<count>|<name>:<bytes>:<mimeType or ->|...".
+const char *_bugsee_test_apply_extended_attachments(const char *json)
+{
+    NSDictionary *d = BugseeDeserializeJson(json);
+    BugseeExtendedReport *report = [BugseeExtendedReport new];
+    if (![d isKindOfClass:[NSDictionary class]] || !report) return NULL;
+    BugseeBridgeApplyExtendedReportDict(report, d);
+    NSMutableString *summary = [NSMutableString stringWithFormat:@"%lu", (unsigned long)report.attachments.count];
+    for (BugseeAttachment *a in report.attachments) {
+        NSString *mime = [a respondsToSelector:@selector(mimeType)] ? [(id)a mimeType] : nil;
+        [summary appendFormat:@"|%@:%lu:%@", a.name, (unsigned long)a.data.length, mime.length > 0 ? mime : @"-"];
+    }
+    return strdup(summary.UTF8String);
+}
 const char *_bugsee_test_exception_options(const char *optionsJson)
 {
     NSDictionary *d = BugseeExceptionOptionsDict(optionsJson);

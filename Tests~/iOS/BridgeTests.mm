@@ -67,6 +67,8 @@ int _bugsee_test_simulator_warning_count(void);
 int _bugsee_exceptions_filed(void);
 void _bugsee_logException(const char *name, const char *reason, bool handled, const char *optionsJson);
 int _bugsee_exception_options_dropped(void);
+const char *_bugsee_test_apply_report_attachments(const char *json);
+const char *_bugsee_test_apply_extended_attachments(const char *json);
 }
 
 extern "C" int _bugsee_test_dropped_options_warning_count(void);
@@ -614,6 +616,25 @@ int main(void)
     expect(_bugsee_test_simulator_warning_count() == 1, "the simulator warning is logged once across launches");
     expect(_bugsee_exceptions_filed() == 0, "the simulator reports that exceptions are not filed");
     expect(gStartedCount == 2, "a launch without a started callback calls nothing back");
+
+    // Attachments: empty data is valid and a missing MIME type stays unset, on both report paths.
+    const char *attachmentsJson =
+        "{\"attachments\":[{\"name\":\"empty\",\"fileName\":\"empty\",\"dataBase64\":\"\"},"
+        "{\"name\":\"hello\",\"fileName\":\"hello\",\"mimeType\":\"text/plain\",\"dataBase64\":\"aGVsbG8=\"},"
+        "{\"name\":\"nomime\",\"fileName\":\"nomime\",\"dataBase64\":\"aGVsbG8=\"},"
+        "{\"name\":\"blankmime\",\"fileName\":\"blankmime\",\"mimeType\":\"\",\"dataBase64\":\"aGVsbG8=\"},"
+        "{\"name\":\"nodata\",\"fileName\":\"nodata\"}]}";
+    value = _bugsee_test_apply_report_attachments(attachmentsJson);
+    expect(same(value, "data:empty:0:-|fileName:empty|data:hello:5:text/plain|fileName:hello|data:nomime:5:-|fileName:nomime"
+                 "|data:blankmime:5:-|fileName:blankmime"),
+           "add-time attachments keep empty data, pass no invented MIME type and carry the file name");
+    free((void *)value);
+    value = _bugsee_test_apply_extended_attachments(attachmentsJson);
+    printf("extended attachments: %s\n", value ? value : "(null)");
+    expect(value != NULL && strncmp(value, "4|empty:0:", 10) == 0,
+           "the extended report keeps an empty attachment and skips one without data");
+    // The beta7 BugseeAttachment has no MIME type property, so the extended report cannot show one either way.
+    free((void *)value);
 
     // IsBlackout reads the SDK, not a managed flag. A blackout the wrapper did not start is seen, and one the
     // wrapper ended is gone, and the answer survives the stop and launches above (the SDK keeps the flag).
