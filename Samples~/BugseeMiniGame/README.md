@@ -55,7 +55,7 @@ Feedback, Appearance, filters, report handler, and lifecycle listener.
 |------|--------------------|
 | Reporting | Report (`ShowReportDialog`), Upload, Report Hdlr, Hierarchy, **Notify** (`Notify`: form with title, body, severity, `key=value` fields, urgent) |
 | Reports | **New Report** (`CreateReport`), **Edit Report** (form: `Description`, `Email`, `Severity`, `SetLabels`/`AddLabel`/`ClearLabels`, `SetAttribute`/`RemoveAttribute`/`ClearAllAttributes`, `AddAttachmentBytes` + `IAttachment.SetData(string)`, `AddAttachmentFile`, `ClearAttachments`), **Send Report** (`Upload(IReport)`), **Discard Report** (`Discard`); one draft at a time (stopping the SDK or deleting its data closes the SDK's open report, so the sample drops the draft: make a new one) |
-| Exchange | **Breadcrumb** (`AddBreadcrumb`: category, message, level), **Network Event** (`GetExchangeFactory` + `AddNetworkEvent`: a started and a completed POST to a `.../password-reset` URL, the kind of URL the Filters bubble's network filter redacts; whether the native layer applies that filter to events added this way is not verified) |
+| Exchange | **Breadcrumb** (`AddBreadcrumb`: category, message, level), **Network Event** (`GetExchangeFactory` + `AddNetworkEvent`: a started and a completed POST to a `.../password-reset` URL, the kind of URL the Filters bubble's network filter redacts; the filter counters on the HUD show it ran) |
 | APM | **Start Txn** (`StartTransaction`), **Child Span** (`StartChild`), **Finish Txn** (`Finish`); while a transaction is open, every yellow orb you collect becomes a finished child span |
 | Logging | Log Bundle, Log Levels, Exception, **Log Unhandled** (`LogUnhandledException`), Test Crash |
 | Attributes, Identity | Set / Get / Clear Attr, Clear Attrs; Set User ID, Get ID, Identity, Clear ID |
@@ -108,6 +108,20 @@ strings, `GetLaunchOptions`, and the async lifecycle (`StopAsync`, `LaunchAsync`
 and a final launch), and ends with the SDK launched. It does not tap bubbles or type into the forms: it checks that the
 bubbles' forms open and calls what their apply buttons call. Staging does not show these uploads right away; read the
 `[Sample] interactions` lines in the device log.
+
+### Filter check (`filters` e2e scenario)
+
+`BUGSEE_E2E_SCENARIO=filters` (iOS env var, Android intent extra `bugsee_e2e`) waits for the SDK to launch, turns the Filters
+bubble on, and sends what the Network Event and Breadcrumb bubbles send plus, on Android, a Debug line written to logcat. It
+waits for each filter's counter to move: the network filter redacts the `password-reset` URL and the body, the breadcrumb filter
+drops every breadcrumb (the scenario counts its own `e2e` breadcrumbs apart from the SDK's `http` ones), and the log filter drops
+Debug and Verbose lines. `Bugsee.Log` lines skip the log filter on both platforms (the wrapper submits them without filtering), so
+the log filter only sees what the SDK captures itself (the Unity log, logcat on Android); on iOS which Debug lines it drops depends
+on what the SDK logs, so the scenario only requires that it ran there. It then turns the filters off and checks that the SDK calls
+no filter any more (the seen counters stay 0). It logs `[Sample] filters PASS|FAIL ...` lines ending in
+`filters e2e done failures=N`. The sample launches with `CaptureBreadcrumbs = true`: the option is off by default, and without it no
+breadcrumb reaches the breadcrumb filter. The HUD shows the live counters on its `flt on|off nR/S lD/S bD/S` line (redacted or
+dropped / seen, for the network, log and breadcrumb filter); the network and breadcrumb filters also log each redaction or drop.
 
 ### Action check (`actions` e2e scenario)
 

@@ -127,8 +127,8 @@ namespace Bugsee.Sample
 
         /// <summary>
         /// Two network events (started, completed) built with the SDK's exchange factory. The URL contains
-        /// "password" so the sample network filter (Filters bubble) would have something to redact; whether the
-        /// native layer routes these events through that filter is not verified here.
+        /// "password" so the sample network filter (Filters bubble) has something to redact; the SDK routes events added
+        /// this way through that filter (the wrapper submits them with requiresFiltering), see the filters e2e scenario.
         /// </summary>
         public void AddNetworkEvents()
         {

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 using Bugsee.Contracts.Exchange;
 using Bugsee.Contracts.Feedback;
 using Bugsee.Contracts.Lifecycle;
@@ -556,36 +557,109 @@ namespace Bugsee.Sample
         }
     }
 
-    /// <summary>Optional filters used by the debug panel / filter totem.</summary>
+    /// <summary>
+    /// Optional filters used by the debug panel / filter totem. Each filter counts what it saw and what it dropped or
+    /// redacted (the HUD shows the totals, <see cref="Summary"/>), and the network and breadcrumb filters log each one.
+    /// The wrapper calls the filters on the main thread; the counters are interlocked anyway. The log filter does not log:
+    /// the SDK captures the Unity log, so a log line written from it would reach it again.
+    /// </summary>
     public static class SampleFilters
     {
         public static bool NetworkRedactEnabled;
         public static bool LogDropDebugEnabled;
         public static bool BreadcrumbDropEnabled;
 
+        /// <summary>The last log line the filter dropped (for a check's detail; not logged from the filter).</summary>
+        public static volatile string LastLogDropped;
+
+        /// <summary>
+        /// When set, the drops of a breadcrumb in that category (<see cref="BreadcrumbMarkerDropped"/>) and of a log line containing
+        /// <see cref="LogMarker"/> (<see cref="LogMarkerDropped"/>) are counted apart, so a check can tell its own events from the SDK's.
+        /// </summary>
+        public static volatile string BreadcrumbMarker;
+        public static volatile string LogMarker;
+        static int _breadcrumbMarkerDropped, _logMarkerDropped;
+        public static int BreadcrumbMarkerDropped => Volatile.Read(ref _breadcrumbMarkerDropped);
+        public static int LogMarkerDropped => Volatile.Read(ref _logMarkerDropped);
+
+        static int _networkSeen, _networkRedacted, _logSeen, _logDropped, _breadcrumbSeen, _breadcrumbDropped;
+
+        public static int NetworkSeen => Volatile.Read(ref _networkSeen);
+        public static int NetworkRedacted => Volatile.Read(ref _networkRedacted);
+        public static int LogSeen => Volatile.Read(ref _logSeen);
+        public static int LogDropped => Volatile.Read(ref _logDropped);
+        public static int BreadcrumbSeen => Volatile.Read(ref _breadcrumbSeen);
+        public static int BreadcrumbDropped => Volatile.Read(ref _breadcrumbDropped);
+
+        /// <summary>"n2/2 l1/9 b3/3": redacted or dropped / seen, for the network, log and breadcrumb filter.</summary>
+        public static string Summary =>
+            "n" + NetworkRedacted + "/" + NetworkSeen + " l" + LogDropped + "/" + LogSeen + " b" + BreadcrumbDropped + "/" + BreadcrumbSeen;
+
+        public static void ResetCounters()
+        {
+            Interlocked.Exchange(ref _networkSeen, 0);
+            Interlocked.Exchange(ref _networkRedacted, 0);
+            Interlocked.Exchange(ref _logSeen, 0);
+            Interlocked.Exchange(ref _logDropped, 0);
+            Interlocked.Exchange(ref _breadcrumbSeen, 0);
+            Interlocked.Exchange(ref _breadcrumbDropped, 0);
+            Interlocked.Exchange(ref _breadcrumbMarkerDropped, 0);
+            Interlocked.Exchange(ref _logMarkerDropped, 0);
+        }
+
         public static INetworkEvent NetworkFilter(INetworkEvent e)
         {
             if (e == null) return null;
+            Interlocked.Increment(ref _networkSeen);
             if (!NetworkRedactEnabled) return e;
+            var redacted = false;
             if (!string.IsNullOrEmpty(e.Url) && e.Url.IndexOf("password", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
                 e.Url = "[redacted]";
+                redacted = true;
+            }
             if (!string.IsNullOrEmpty(e.Body))
+            {
                 e.Body = "[redacted-body]";
+                redacted = true;
+            }
+            if (redacted)
+            {
+                var n = Interlocked.Increment(ref _networkRedacted);
+                Debug.Log("[BugseeSample] network filter redacted #" + n + " id=" + e.Id + " stage=" + e.Stage);
+            }
             return e;
         }
 
         public static ILogEvent LogFilter(ILogEvent e)
         {
             if (e == null) return null;
+            Interlocked.Increment(ref _logSeen);
             if (LogDropDebugEnabled && e.Level >= LogLevel.Debug)
+            {
+                Interlocked.Increment(ref _logDropped);
+                LastLogDropped = e.Level + ": " + e.Message;
+                var logMarker = LogMarker;
+                if (logMarker != null && e.Message != null && e.Message.Contains(logMarker))
+                    Interlocked.Increment(ref _logMarkerDropped);
                 return null;
+            }
             return e;
         }
 
         public static IBreadcrumb BreadcrumbFilter(IBreadcrumb e)
         {
             if (e == null) return null;
-            if (BreadcrumbDropEnabled) return null;
+            Interlocked.Increment(ref _breadcrumbSeen);
+            if (BreadcrumbDropEnabled)
+            {
+                var n = Interlocked.Increment(ref _breadcrumbDropped);
+                var crumbMarker = BreadcrumbMarker;
+                if (crumbMarker != null && e.Category == crumbMarker)
+                    Interlocked.Increment(ref _breadcrumbMarkerDropped);
+                Debug.Log("[BugseeSample] breadcrumb filter dropped #" + n + " category=" + e.Category);
+                return null;
+            }
             return e;
         }
     }
