@@ -350,7 +350,8 @@ public class AndroidWrapperTests {
         int unhandled = bridge.indexOf("\"logUnhandledException\", throwable");
         int exit = bridge.indexOf("ManagedViewRequests.ExitBlockingNativeCall()");
         assertTrue(enter > 0 && enter < handled && handled < exit && enter < unhandled && unhandled < exit);
-        assertTrue(bridge.substring(bridge.lastIndexOf("finally", exit), exit).contains("finally"));
+        int fin = bridge.lastIndexOf("finally", exit);
+        assertTrue("the exit runs in the finally that follows both SDK calls", fin > handled && fin > unhandled && fin < exit);
     }
 
     static String classPool(String relative) throws Exception {
