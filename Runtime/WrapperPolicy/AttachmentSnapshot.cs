@@ -12,25 +12,36 @@ namespace Bugsee.WrapperPolicy
     {
         const string DirectoryName = "bugsee-unity-report-attachments";
 
-        // Application.temporaryCachePath, captured on the main thread at startup (the Unity API is main-thread only and the
-        // report handlers run elsewhere). Null until then, and in tests.
-        static volatile string _cacheRoot;
+        // The app's private cache directories, captured on the main thread at startup (the Unity APIs are main-thread only
+        // and the report handlers run elsewhere). Empty until then, and in tests.
+        static volatile string[] _preferred = new string[0];
         static volatile Action<string> _warn;
 
-        public static void Configure(string cacheRoot, Action<string> warn)
+        public static void Configure(string[] preferredRoots, Action<string> warn)
         {
-            _cacheRoot = cacheRoot;
+            _preferred = preferredRoots ?? new string[0];
             _warn = warn;
         }
 
-        /// <summary>The directories snapshots are tried in, in order.</summary>
+        public static bool IsConfigured => _preferred.Length > 0;
+
+        static string Normalize(string path)
+        {
+            try { return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar); }
+            catch (Exception) { return path; }
+        }
+
+        /// <summary>The directories snapshots are tried in, in order: the configured ones, then the system temp path.</summary>
         public static string[] Roots()
         {
-            var cache = _cacheRoot;
+            var roots = new System.Collections.Generic.List<string>();
+            var seen = new System.Collections.Generic.HashSet<string>();
+            foreach (var r in _preferred)
+                if (!string.IsNullOrEmpty(r) && seen.Add(Normalize(r))) roots.Add(r);
             string tmp = null;
             try { tmp = Path.GetTempPath(); } catch (Exception) { }
-            if (string.IsNullOrEmpty(cache)) return string.IsNullOrEmpty(tmp) ? new string[0] : new[] { tmp };
-            return string.IsNullOrEmpty(tmp) || tmp == cache ? new[] { cache } : new[] { cache, tmp };
+            if (!string.IsNullOrEmpty(tmp) && seen.Add(Normalize(tmp))) roots.Add(tmp);
+            return roots.ToArray();
         }
 
         /// <summary>The snapshot directory under the first root that works, creating it; null when none can be created.</summary>
@@ -38,15 +49,40 @@ namespace Bugsee.WrapperPolicy
         {
             foreach (var root in Roots())
             {
-                try
-                {
-                    var dir = Path.Combine(root, DirectoryName);
-                    Directory.CreateDirectory(dir);
-                    return dir;
-                }
+                try { return EnsureDirectory(root); }
                 catch (Exception) { }
             }
             return null;
+        }
+
+        static string EnsureDirectory(string root)
+        {
+            var dir = Path.Combine(root, DirectoryName);
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+
+        /// <summary>
+        /// Deletes snapshot files older than maxAge under every root: copies a crash or kill left behind (the report that
+        /// owned them is gone with the process). Best effort; meant for a background thread at startup.
+        /// </summary>
+        public static void CleanStale(string[] roots, TimeSpan maxAge)
+        {
+            foreach (var root in roots)
+            {
+                try
+                {
+                    var dir = Path.Combine(root, DirectoryName);
+                    if (!Directory.Exists(dir)) continue;
+                    var cutoff = DateTime.UtcNow - maxAge;
+                    foreach (var file in Directory.GetFiles(dir))
+                    {
+                        try { if (File.GetLastWriteTimeUtc(file) < cutoff) File.Delete(file); }
+                        catch (Exception) { }
+                    }
+                }
+                catch (Exception) { }
+            }
         }
 
         /// <summary>Copies the file; returns the copy's path, or null (with a warning) when no location is writable.</summary>
@@ -65,9 +101,7 @@ namespace Bugsee.WrapperPolicy
             {
                 try
                 {
-                    var dir = Path.Combine(root, DirectoryName);
-                    Directory.CreateDirectory(dir);
-                    var dest = Path.Combine(dir, Guid.NewGuid().ToString("N") + ext);
+                    var dest = Path.Combine(EnsureDirectory(root), Guid.NewGuid().ToString("N") + ext);
                     File.Copy(sourcePath, dest, true);
                     return dest;
                 }

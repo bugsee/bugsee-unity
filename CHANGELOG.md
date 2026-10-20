@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `AddAttachmentFile` on a managed report (`CreateReport`) copies the file under the app's internal cache directory (Android) or `Application.temporaryCachePath` (iOS), falling back to the system temp path, instead of `Path.GetTempPath()`, which is `/data/local/tmp` and not writable by the app on some Android 11 devices; the call returned null with no log. A failed copy now logs a `[Bugsee]` warning. Copies left behind by a crash are removed at startup after a day. Fixes #188, #177.
 - **iOS:** lifecycle events that arrive before the managed callback is registered (for example from a launch the host made natively before any C# call) are held, up to 128, and replayed in order on the main queue after the registering `Launch` or `Relaunch` call, as on Android, instead of being dropped. `Relaunch` now registers the wrapper like `Launch`.
 - **iOS:** a lifecycle payload that is a dictionary reaches `LifecycleEvent` / `ILifecycleEventListener` as a `Dictionary<string, object>`, as on Android, not as raw JSON text; a one-key dictionary is no longer mistaken for a string.
 

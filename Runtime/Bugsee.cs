@@ -333,7 +333,11 @@ namespace Bugsee
             Bridge.DeleteCollectedDataOnDevice();
         }
 
-        public static IReport CreateReport() => Bridge.CreateReport();
+        public static IReport CreateReport()
+        {
+            Internal.AttachmentSnapshotBootstrap.EnsureConfigured();
+            return Bridge.CreateReport();
+        }
 
         /// <summary>Release a report from <see cref="CreateReport"/> without uploading.</summary>
         public static void Discard(IReport report) => Bridge.DiscardReport(report);
