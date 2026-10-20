@@ -14,6 +14,13 @@ namespace Bugsee.WrapperPolicy
         public const string MethodMap = "--emit-method-map";
 
         /// <summary>
+        /// Whether a build writes the mapping files: any IL2CPP build, with or without a Bugsee app token (a later CI job, or
+        /// a developer, uploads the files; the upload itself still needs the token), unless BUGSEE_NO_IL2CPP_MAPPING is set.
+        /// BUGSEE_IL2CPP_MAPPING (an explicit file to upload) does not turn the emission off.
+        /// </summary>
+        public static bool ShouldEmit(bool il2cppBackend, bool optOutEnvironmentSet) => il2cppBackend && !optOutEnvironmentSet;
+
+        /// <summary>
         /// <paramref name="existing"/> (Player Settings > Additional IL2CPP Arguments) with the mapping arguments it is
         /// missing appended; the same string when it already has both. Existing arguments are never reordered or removed.
         /// </summary>
@@ -29,6 +36,24 @@ namespace Bugsee.WrapperPolicy
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// The value for the IL2CPP_ADDITIONAL_ARGS environment variable (Unity adds it to the il2cpp command line next to
+        /// Player Settings > Additional IL2CPP Arguments, so the build does not have to edit the VCS-tracked ProjectSettings.asset):
+        /// <paramref name="envArgs"/> (the variable's current value) with the mapping arguments that neither it nor
+        /// <paramref name="playerArgs"/> has appended; null when nothing is missing and the variable needs no change.
+        /// </summary>
+        public static string EnvironmentValue(string playerArgs, string envArgs)
+        {
+            string seen = (playerArgs ?? string.Empty) + " " + (envArgs ?? string.Empty);
+            string appended = Ensure(seen).Substring(seen.Length).Trim();
+            if (appended.Length == 0)
+            {
+                return null;
+            }
+
+            return string.IsNullOrWhiteSpace(envArgs) ? appended : envArgs.TrimEnd() + " " + appended;
         }
 
         static bool Has(string args, string flag)
