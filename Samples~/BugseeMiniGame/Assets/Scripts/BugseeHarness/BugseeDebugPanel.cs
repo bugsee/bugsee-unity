@@ -77,6 +77,14 @@ namespace Bugsee.Sample
                 _bootstrap?.SetStatus("ResetVideoCapturePermission");
             }
 
+            Section("Launch options");
+            GUILayout.Label(_bootstrap != null ? _bootstrap.LaunchOptionsLine : "");
+            foreach (var preset in LaunchPresets.Names)
+            {
+                if (GUILayout.Button("Relaunch with preset: " + preset)) _bootstrap?.RelaunchWithPreset(preset);
+            }
+            if (GUILayout.Button("GetLaunchOptions (log)")) BugseeActionCatalog.Instance?.Run(BugseeDemoAction.LaunchOptions);
+
             Section("Logging / Reporting");
             if (GUILayout.Button("Log bundle")) BugseeActionCatalog.Instance?.Run(BugseeDemoAction.LogBundle);
             if (GUILayout.Button("LogException")) BugseeActionCatalog.Instance?.Run(BugseeDemoAction.LogException);

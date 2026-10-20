@@ -72,8 +72,7 @@ There are 13 hills now. The field layout used to count how many hills fit on a r
 a full ring lost its last hill; with the chord count 13 hills place for every world seed (14 would not, at the current gap), and a
 warning is logged if the world ever has fewer summits than hills.
 
-Not reachable from the sample: `OptionsBuilder` / `Options.*` (a launch-options preset is tracked separately) and
-`IReport.Summary` beyond the report handler.
+Not reachable from the sample: `IReport.Summary` beyond the report handler.
 
 ## Platforms
 
@@ -108,6 +107,43 @@ strings, `GetLaunchOptions`, and the async lifecycle (`StopAsync`, `LaunchAsync`
 and a final launch), and ends with the SDK launched. It does not tap bubbles or type into the forms: it checks that the
 bubbles' forms open and calls what their apply buttons call. Staging does not show these uploads right away; read the
 `[Sample] interactions` lines in the device log.
+
+### Launch presets and the presets check (`presets` e2e scenario)
+
+The sample launches with the same options as before (the `default` preset) unless a preset is chosen: the intent extra
+`bugsee_preset` (Android) or the variable `BUGSEE_PRESET` (iOS) set to `minimal`, `detect` or `privacy`; `PRESET=detect
+Tools~/scripts/e2e-android.sh ...` passes it on Android. The presets (`LaunchPresets.cs`) sit on top of the sample's own options.
+`minimal` and `detect` set every switch (detectors, capture, triggers, the Android exit reasons and WebView options) to opposite
+values, so each of those options differs from the SDK default in at least one of them; `detect` also lowers the hang levels, scales
+the screenshot and, on Android, sets a WebView domain allowlist; `privacy` is built with `OptionsBuilder` (scaled video, a 1 KB
+network body limit, required reporting-form fields, default priorities, `PerformanceUploadMode`; it does not capture screenshots).
+The iOS crash handler is set through the typed `IOSLaunchOptions.CrashHandlerType` (`BUGSEE_E2E_CRASH_HANDLER` = 1, 2 or 3 still
+overrides it). Two things to know before running a preset by hand: `detect` makes a logged exception fatal
+(`TreatUnityLogExceptionsAsFatal`, so the hazard orbs' `LogException` is reported as unhandled), and `privacy` uploads over Wi-Fi
+only, which can hold reports on a device or emulator without it. The debug panel (`` ` ``) has a **Launch options** section: the
+preset in use, the number of option keys the SDK reports, one button per preset that relaunches with it, and a `GetLaunchOptions`
+button that logs every key.
+
+A relaunch REPLACES the SDK's option set on both platforms (the native SDKs do not merge): the options that are not passed again go
+back to their defaults, including the managed `unity.*` options and the endpoint, and `Relaunch()` without options resets everything
+to the defaults. The Relaunch bubble therefore passes the whole option set of the last launch again (on Android it used to pass
+only the video options, on iOS nothing).
+
+`BUGSEE_E2E_SCENARIO=presets` waits for the SDK to launch, relaunches with no options to learn each option's SDK default, then
+relaunches with each preset in turn (`RelaunchAsync`) and compares every option the sample sent with what
+`Bugsee.GetLaunchOptions()` reports (numbers by value; the Android SDK reports enum options by name, such as `V2` or `Verbose`, and
+never reports the Unity-only options, so those are not compared there; the SDK's own `$$` keys and, on iOS, the Android-only options
+are left out; at least 5 keys must be compared). An option whose value equals the SDK default proves nothing, so the scenario counts
+only the options that differ from the default: every non-default preset must have at least 8, every option the presets set must
+differ from the default in at least one preset, and each preset must read back differently from the launch before it. It also
+checks that the Relaunch bubble keeps the whole set, that a relaunch with only `Duration` applies it and leaves the others at their
+defaults, and that after returning to the default preset the options only the other presets set are back at their defaults.
+
+What this does not prove: on iOS the readback shows the SDK stored the host options as given (also Android-only ones such as
+`ReportHandlerCallbackTimeout`), not that each has an effect. Two options of `minimal` and `detect` have a visible effect and are
+checked as such: with `CaptureBreadcrumbs` a breadcrumb reaches the breadcrumb filter and without it none does; with `CaptureNetwork`
+a network event reaches the network filter and without it none does. The effect of the other options is not observable from the sample.
+It logs `[Sample] presets PASS|FAIL ...` lines ending in `presets e2e done failures=N`.
 
 ### Filter check (`filters` e2e scenario)
 

@@ -42,9 +42,39 @@ namespace Bugsee.Sample
         public IEnumerable<string> LifecycleLog => _lifecycleLog;
         public BugseeActionCatalog Catalog => _catalog;
         internal string AppToken => appToken;
-        /// <summary>The options of the last LaunchSdk (null before it or in the Editor): LaunchAsync/RelaunchAsync reuse them.</summary>
         /// <summary>What the last LaunchSdk used (null in the Editor): scenarios and the async bubbles launch again the same way (endpoint, video, debug).</summary>
         internal Dictionary<string, object> LastLaunchOptions { get; private set; }
+
+        string _preset = LaunchPresets.Default;
+        bool _presetResolved;
+        /// <summary>The launch preset the options of the last launch were built with (see <see cref="LaunchPresets"/>).</summary>
+        public string LaunchPreset => _preset;
+        /// <summary>The task of the last <see cref="RelaunchSdk"/> or <see cref="RelaunchWithPreset"/> (null before one).</summary>
+        internal System.Threading.Tasks.Task<bool> LastRelaunch { get; private set; }
+
+        string _optionsLine = "";
+        float _optionsLineAt = -10f;
+
+        /// <summary>What the SDK reports as its launch options, for the debug panel (read from native at most once a second).</summary>
+        public string LaunchOptionsLine
+        {
+            get
+            {
+                if (Time.unscaledTime - _optionsLineAt < 1f && _optionsLine.StartsWith("preset=" + _preset + " "))
+                    return _optionsLine;
+                _optionsLineAt = Time.unscaledTime;
+                try
+                {
+                    var options = Bugsee.GetLaunchOptions();
+                    _optionsLine = "preset=" + _preset + " | " + (options == null ? "not launched" : options.Count + " launch option keys");
+                }
+                catch (Exception ex)
+                {
+                    _optionsLine = "preset=" + _preset + " | launch options error: " + ex.Message;
+                }
+                return _optionsLine;
+            }
+        }
 
         /// <summary>Called from <see cref="MiniGameBootstrap"/> when building the scene at runtime.</summary>
         public void Configure(string token, bool launchOnStart, string endpoint = null)
@@ -115,6 +145,12 @@ namespace Bugsee.Sample
 
             try
             {
+                if (!_presetResolved)
+                {
+                    // "bugsee_preset" = minimal | detect | privacy launches with that option preset (default: the sample's own options).
+                    _preset = LaunchPresets.Resolve(ReadE2EValue("bugsee_preset", "BUGSEE_PRESET"));
+                    _presetResolved = true;
+                }
 #if UNITY_ANDROID && !UNITY_EDITOR
                 // Asking for DirectBuffers means the Unity-side frame pusher; the wrapper starts it, or falls back to the
                 // default capture (with a warning) when this Unity cannot run it. Without the switch: the default capture.
@@ -132,33 +168,7 @@ namespace Bugsee.Sample
                         : rowOrder == "bottomup" ? global::Bugsee.Contracts.Capture.VideoFrameRowOrder.BottomUp
                         : (global::Bugsee.Contracts.Capture.VideoFrameRowOrder?)null
                 };
-                var options = new AndroidLaunchOptions
-                {
-                    CaptureVideo = true,
-                    CaptureVideoMode = _framePusherRequested ? VideoMode.DirectBuffers : VideoMode.V2,
-                    CaptureVideoFrameRate = FrameRate.High,
-                    CaptureLogs = true,
-                    CaptureBreadcrumbs = true,
-                    CaptureNetwork = true,
-                    ReportingTriggerByShake = true,
-                    ReportingTriggerByScreenshot = true,
-                    DetectAndReportCrash = true,
-                    CaptureManagedExceptions = true,
-                    // "bugsee_unobserved" = 0 turns off reporting of unobserved task exceptions (scenario "unobserved").
-                    CaptureUnobservedTaskExceptions = ReadE2EValue("bugsee_unobserved", "BUGSEE_E2E_UNOBSERVED") != "0",
-                    DetectAndReportHang = true,
-                    DetectAndReportExitNotResponding = true,
-                    DetectAndReportExitLowMemory = true,
-                    PerformanceMonitoring = ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") != "apmoff",
-                    PerformanceSampleRate = ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "apmleak" || ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "apmpool" || (ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") ?? "").StartsWith("apmthr") ? 0f : 1f,
-                    Debug = true
-                };
-                if (TryReadBugPriority(out var bugPriority))
-                    options.ReportingDefaultBugPriority = bugPriority;
-                if (!string.IsNullOrWhiteSpace(endpointOverride))
-                    options.Endpoint = endpointOverride.Trim();
-                if (ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "options")
-                    AddGatingProbeOptions(options);
+                var options = BuildLaunchOptions(_preset);
                 LastLaunchOptions = options;
                 // "bugsee_launch_thread" = 1 launches from a worker thread (checks that a launch from any thread works).
                 if (ReadE2EValue("bugsee_launch_thread", "BUGSEE_LAUNCH_THREAD") == "1")
@@ -198,31 +208,7 @@ namespace Bugsee.Sample
                             ReadE2EValue("bugsee_secure_rect_delay_s", "BUGSEE_SECURE_RECT_DELAY_S")));
                 }
 #elif UNITY_IOS && !UNITY_EDITOR
-                var iosOptions = new IOSLaunchOptions
-                {
-                    // The iOS Simulator crashes the SDK's Unity video capture (it reads a private "iosurface" key the
-                    // simulator's texture lacks), so a simulator run sets BUGSEE_E2E_VIDEO=0.
-                    CaptureVideo = Environment.GetEnvironmentVariable("BUGSEE_E2E_VIDEO") != "0",
-                    CaptureLogs = true,
-                    CaptureBreadcrumbs = true,
-                    CaptureNetwork = true,
-                    ReportingTriggerByShake = true,
-                    DetectAndReportCrash = true,
-                    CaptureManagedExceptions = true,
-                    CaptureUnobservedTaskExceptions = ReadE2EValue("bugsee_unobserved", "BUGSEE_E2E_UNOBSERVED") != "0",
-                    DetectAndReportHang = true,
-                    Debug = true
-                };
-                if (TryReadBugPriority(out var iosBugPriority))
-                    iosOptions.ReportingDefaultBugPriority = iosBugPriority;
-                if (!string.IsNullOrWhiteSpace(endpointOverride))
-                    iosOptions.Endpoint = endpointOverride.Trim();
-                // BUGSEE_E2E_CRASH_HANDLER = 1 (BSD) | 2 (Mach) | 3 (Mach + BSD): the SDK option the draft IOSLaunchOptions.CrashHandlerType sends.
-                var crashHandler = Environment.GetEnvironmentVariable("BUGSEE_E2E_CRASH_HANDLER");
-                if (int.TryParse(crashHandler, out var handlerType))
-                    iosOptions.SetCustomOption("com.bugsee.option.capture.crash-handler-type", handlerType);
-                if (Environment.GetEnvironmentVariable("BUGSEE_E2E_SCENARIO") == "options")
-                    AddGatingProbeOptions(iosOptions);
+                var iosOptions = BuildLaunchOptions(_preset);
                 LastLaunchOptions = iosOptions;
                 // BUGSEE_E2E_RELAUNCH_FIRST = 1: Relaunch is the first call, with no Launch before it.
                 if (Environment.GetEnvironmentVariable("BUGSEE_E2E_RELAUNCH_FIRST") == "1")
@@ -382,6 +368,14 @@ namespace Bugsee.Sample
                     {
                         _e2ePhase = 99;
                         StartCoroutine(FiltersE2E.Run(this));
+                    }
+                    break;
+                case "presets":
+                    // Relaunches with each launch preset and reads the launch options back (issue #118).
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        StartCoroutine(PresetsE2E.Run(this));
                     }
                     break;
                 case "actions":
@@ -954,27 +948,118 @@ namespace Bugsee.Sample
             throw new ArgumentException("E2E StableB " + marker);
         }
 
-        public void RelaunchSdk()
+        /// <summary>
+        /// The sample's launch options (Android and iOS; null in the Editor) with the preset on top. The iOS crash handler goes through
+        /// the typed <see cref="IOSLaunchOptions.CrashHandlerType"/>, and BUGSEE_E2E_CRASH_HANDLER = 1 (BSD) | 2 (Mach) | 3 (Mach + BSD)
+        /// overrides the preset's value.
+        /// </summary>
+        BugseeLaunchOptions BuildLaunchOptions(string preset)
         {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            var options = new AndroidLaunchOptions
+            {
+                CaptureVideo = true,
+                CaptureVideoMode = _framePusherRequested ? VideoMode.DirectBuffers : VideoMode.V2,
+                CaptureVideoFrameRate = FrameRate.High,
+                CaptureLogs = true,
+                CaptureBreadcrumbs = true,
+                CaptureNetwork = true,
+                ReportingTriggerByShake = true,
+                ReportingTriggerByScreenshot = true,
+                DetectAndReportCrash = true,
+                CaptureManagedExceptions = true,
+                // "bugsee_unobserved" = 0 turns off reporting of unobserved task exceptions (scenario "unobserved").
+                CaptureUnobservedTaskExceptions = ReadE2EValue("bugsee_unobserved", "BUGSEE_E2E_UNOBSERVED") != "0",
+                DetectAndReportHang = true,
+                DetectAndReportExitNotResponding = true,
+                DetectAndReportExitLowMemory = true,
+                PerformanceMonitoring = ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") != "apmoff",
+                PerformanceSampleRate = ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "apmleak" || ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "apmpool" || (ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") ?? "").StartsWith("apmthr") ? 0f : 1f,
+                Debug = true
+            };
+            LaunchPresets.Apply(preset, options);
+            if (TryReadBugPriority(out var bugPriority))
+                options.ReportingDefaultBugPriority = bugPriority;
+            if (!string.IsNullOrWhiteSpace(endpointOverride))
+                options.Endpoint = endpointOverride.Trim();
+            if (ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "options")
+                AddGatingProbeOptions(options);
+            return options;
+#elif UNITY_IOS && !UNITY_EDITOR
+            var options = new IOSLaunchOptions
+            {
+                // The iOS Simulator crashes the SDK's Unity video capture (it reads a private "iosurface" key the
+                // simulator's texture lacks), so a simulator run sets BUGSEE_E2E_VIDEO=0.
+                CaptureVideo = Environment.GetEnvironmentVariable("BUGSEE_E2E_VIDEO") != "0",
+                CaptureLogs = true,
+                CaptureBreadcrumbs = true,
+                CaptureNetwork = true,
+                ReportingTriggerByShake = true,
+                DetectAndReportCrash = true,
+                CaptureManagedExceptions = true,
+                // "bugsee_unobserved" = 0 turns off reporting of unobserved task exceptions (scenario "unobserved").
+                CaptureUnobservedTaskExceptions = ReadE2EValue("bugsee_unobserved", "BUGSEE_E2E_UNOBSERVED") != "0",
+                DetectAndReportHang = true,
+                Debug = true
+            };
+            LaunchPresets.Apply(preset, options);
+            if (TryReadBugPriority(out var bugPriority))
+                options.ReportingDefaultBugPriority = bugPriority;
+            if (!string.IsNullOrWhiteSpace(endpointOverride))
+                options.Endpoint = endpointOverride.Trim();
+            var crashHandler = Environment.GetEnvironmentVariable("BUGSEE_E2E_CRASH_HANDLER");
+            if (int.TryParse(crashHandler, out var handlerType)) // any integer goes to the SDK as given, also an invalid one
+                options.CrashHandlerType = (CrashHandlerType)handlerType;
+            if (Environment.GetEnvironmentVariable("BUGSEE_E2E_SCENARIO") == "options")
+                AddGatingProbeOptions(options);
+            return options;
+#else
+            return null;
+#endif
+        }
+
+        /// <summary>
+        /// Relaunches with the options of <paramref name="preset"/>. The preset and its options are remembered for the next
+        /// Launch/Relaunch only once the SDK accepted the relaunch (a coroutine on the main thread, a frame after the answer).
+        /// Returns the SDK's answer.
+        /// </summary>
+        public System.Threading.Tasks.Task<bool> RelaunchWithPreset(string preset)
+        {
+            preset = LaunchPresets.Resolve(preset);
             try
             {
-#if UNITY_ANDROID && !UNITY_EDITOR
-                Bugsee.Relaunch(new AndroidLaunchOptions
-                {
-                    CaptureVideo = true,
-                    CaptureVideoMode = _framePusherRequested ? VideoMode.DirectBuffers : VideoMode.V2
-                });
-#else
-                Bugsee.Relaunch();
-#endif
-                SetStatus("Relaunch");
+                var options = BuildLaunchOptions(preset);
+                var task = Bugsee.RelaunchAsync(options);
+                LastRelaunch = task;
+                StartCoroutine(CommitPreset(task, preset, options, ++_relaunchSeq));
+                SetStatus("Relaunch preset " + preset);
             }
             catch (Exception ex)
             {
                 Debug.LogException(ex);
-                SetStatus("Relaunch failed: " + ex.Message);
+                SetStatus("Relaunch preset failed: " + ex.Message);
+                LastRelaunch = System.Threading.Tasks.Task.FromResult(false);
             }
+            return LastRelaunch;
         }
+
+        int _relaunchSeq;
+
+        // Only the newest relaunch request commits: an older one that is answered later was replaced by it.
+        IEnumerator CommitPreset(System.Threading.Tasks.Task<bool> task, string preset, BugseeLaunchOptions options, int seq)
+        {
+            while (!task.IsCompleted) yield return null;
+            if (task.IsFaulted || !task.Result || options == null || seq != _relaunchSeq) yield break;
+            _preset = preset;
+            LastLaunchOptions = options;
+            _optionsLineAt = -10f;
+        }
+
+        /// <summary>
+        /// Relaunches with the options of the preset in use (through <see cref="RelaunchWithPreset"/>, so it is ordered with it). A native relaunch that gets only a few options may not keep the rest
+        /// (a relaunch replaces the whole option set, and without options resets it to the defaults), so the whole set is passed again.
+        /// </summary>
+        public void RelaunchSdk() => RelaunchWithPreset(_preset);
 
         public void ApplyFilters(bool enabled)
         {
