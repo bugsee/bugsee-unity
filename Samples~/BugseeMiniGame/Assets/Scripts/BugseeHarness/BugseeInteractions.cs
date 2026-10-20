@@ -103,6 +103,9 @@ namespace Bugsee.Sample
 
         public int Pickups => _pickups;
 
+        /// <summary>Whether the last Edit Report apply got a file attachment back (the SDK returns null when it cannot copy the file).</summary>
+        public bool LastFileAttached { get; private set; }
+
         /// <summary>A transaction that is open and real: an inert one (SDK stopped or APM off) has no trace id and counts as none.</summary>
         bool TransactionOpen => _transaction != null && !_transaction.IsFinished && !string.IsNullOrEmpty(_transaction.TraceId);
 
@@ -210,7 +213,14 @@ namespace Bugsee.Sample
             {
                 var path = Path.Combine(Application.persistentDataPath, "sample-attachment.txt");
                 File.WriteAllText(path, "file attachment written by the sample at " + DateTime.UtcNow.ToString("o"));
-                report.AddAttachmentFile(path, "sample-file.txt", "text/plain");
+                LastFileAttached = report.AddAttachmentFile(path, "sample-file.txt", "text/plain") != null;
+                if (!LastFileAttached)
+                    Debug.Log("[BugseeSample] AddAttachmentFile returned null for " + path + " (exists=" + File.Exists(path) +
+                              "); the SDK copies it under Path.GetTempPath()=" + Path.GetTempPath());
+            }
+            else
+            {
+                LastFileAttached = false;
             }
 
             var summary = "Edit Report id=" + report.Id + " severity=" + report.Severity + " labels=" + report.Labels.Count +
