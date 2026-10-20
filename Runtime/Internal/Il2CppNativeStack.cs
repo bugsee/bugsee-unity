@@ -5,6 +5,7 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Text;
+using Bugsee.WrapperPolicy;
 using UnityEngine;
 
 namespace Bugsee.Internal
@@ -32,6 +33,33 @@ namespace Bugsee.Internal
 #else
                 return false;
 #endif
+            }
+        }
+
+        static readonly ImageUuidCache RuntimeUuidCache = new ImageUuidCache(ProbeImageUuid);
+
+        /// <summary>
+        /// UUID of the loaded IL2CPP image, or null when unavailable. Read from a throwaway exception thrown and
+        /// caught here (the runtime reports the image of a thrown exception's native trace), so it is the UUID of
+        /// this very build, and is known also when the exception being reported was never thrown or has no native
+        /// trace. Kept once found; a probe that found nothing is retried a few times (see ImageUuidCache).
+        /// </summary>
+        public static string RuntimeImageUuid => RuntimeUuidCache.Get();
+
+        static string ProbeImageUuid()
+        {
+            if (!IsSupported)
+            {
+                return null;
+            }
+
+            try
+            {
+                throw new InvalidOperationException("Bugsee image probe");
+            }
+            catch (Exception probe)
+            {
+                return TryCapture(probe)?.ImageUuid;
             }
         }
 

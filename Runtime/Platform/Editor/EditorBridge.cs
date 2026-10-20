@@ -44,14 +44,20 @@ namespace Bugsee.Platform.EditorStub
         public void LogExceptionPayload(ManagedExceptionPayload.Payload payload, IDictionary<string, object> options = null) { }
         public void LogUnhandledExceptionPayload(ManagedExceptionPayload.Payload payload, IDictionary<string, object> options = null) { }
         public void TestCrash() { }
-        public void ShowReportDialog(string summary, string description, IssueSeverity severity, IList<string> labels) { }
-        public void Upload(string summary, string description, IssueSeverity severity, IList<string> labels) { }
+        public void ShowReportDialog(string summary, string description, IssueSeverity? severity, IList<string> labels) { }
+        public void Upload(string summary, string description, IssueSeverity? severity, IList<string> labels) { }
         public void Notify(string title, string body, IssueSeverity severity, IDictionary<string, string> fields, bool urgent) { }
         public ISpanHandle StartTransaction(string name, string operation, IDictionary<string, object> attributes) => null;
         public void SetUserIdentifier(string userIdentifier) { }
         public string GetUserIdentifier() => null;
         public void ClearUserIdentifier() { }
-        public void SetAttribute(string key, object value) { }
+        public void SetAttribute(string key, object value)
+        {
+            // The same validation the device bridges run, so a bad attribute fails in the Editor too.
+            var decision = AttributePolicy.Evaluate(key, value);
+            if (!decision.Accepted)
+                throw new ArgumentException(decision.Error, nameof(value));
+        }
         public object GetAttribute(string key) => null;
         public void ClearAttribute(string key) { }
         public void ClearAllAttributes() { }
