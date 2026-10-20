@@ -364,14 +364,15 @@ namespace Bugsee.Sample
                     if (_e2ePhase == 0 && _e2eTimer >= 5f && Bugsee.IsLaunched)
                     {
                         _e2ePhase = 1;
+                        _e2eTimer = 0f;
                         _pendingE2EFire = "V:omitted";
                     }
-                    else if (_e2ePhase == 1 && _e2eTimer >= 9f)
+                    else if (_e2ePhase == 1 && _e2eTimer >= 4f)
                     {
                         _e2ePhase = 2;
                         _pendingE2EFire = "V:explicit";
                     }
-                    else if (_e2ePhase == 2 && _e2eTimer >= 13f)
+                    else if (_e2ePhase == 2 && _e2eTimer >= 8f)
                     {
                         _e2ePhase = 99;
                         _pendingE2EFire = "V:dialog";
@@ -382,9 +383,10 @@ namespace Bugsee.Sample
                     if (_e2ePhase == 0 && _e2eTimer >= 5f && Bugsee.IsLaunched)
                     {
                         _e2ePhase = 1;
+                        _e2eTimer = 0f;
                         _pendingE2EFire = "V:labelled-upload";
                     }
-                    else if (_e2ePhase == 1 && _e2eTimer >= 9f)
+                    else if (_e2ePhase == 1 && _e2eTimer >= 4f)
                     {
                         _e2ePhase = 99;
                         _pendingE2EFire = "V:labelled-dialog";

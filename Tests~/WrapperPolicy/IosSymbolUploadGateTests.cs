@@ -72,7 +72,88 @@ namespace Bugsee.WrapperPolicy.Tests
             var run = RunScript(new[] { "BugseeMiniGame.app.dSYM", "Bugsee.framework.dSYM" }, cliExitCode: 3);
 
             Assert.That(run.Calls.Count(c => c.Contains("--type dsym")), Is.EqualTo(2), run.Output);
-            Assert.That(run.Output, Does.Contain("Bugsee: upload command failed (archive continues)"));
+            Assert.That(run.Output, Does.Contain("warning: Bugsee: symbol upload failed (exit 3)"));
+            Assert.That(run.ExitCode, Is.EqualTo(0));
+        }
+
+        // The CLI's exit-code contract in words, as warning: lines (Xcode lists those; error: would fail the build).
+        [TestCase(1, "bugsee-cli hit an unexpected error")]
+        [TestCase(2, "rejected its arguments")]
+        [TestCase(21, "the server rejected the app token")]
+        [TestCase(30, "server returned an error")]
+        [TestCase(31, "could not be reached (network)")]
+        [TestCase(127, "bugsee-cli could not be run")]
+        [TestCase(99, "bugsee-cli failed")]
+        public void Archive_script_warns_with_the_reason_for_each_cli_failure(int code, string reason)
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, cliExitCode: code);
+
+            var lines = run.Output.Split('\n').Where(l => l.StartsWith("warning: Bugsee: symbol upload failed (exit " + code + ")")).ToList();
+            Assert.That(lines, Is.Not.Empty, run.Output);
+            Assert.That(lines[0], Does.Contain(reason));
+            Assert.That(lines[0], Does.Contain("BugseeMiniGame.app.dSYM"));
+            Assert.That(run.Output, Does.Contain("warning: Bugsee: some symbols were NOT uploaded"));
+            Assert.That(run.Output, Does.Not.Contain("error:"));
+            Assert.That(run.ExitCode, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void Archive_script_has_no_failure_warning_when_every_upload_succeeds()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" });
+
+            Assert.That(run.Output, Does.Not.Contain("symbol upload failed"));
+            Assert.That(run.Output, Does.Not.Contain("NOT uploaded"));
+            Assert.That(run.ExitCode, Is.EqualTo(0));
+        }
+
+        // Xcode fails an archive whose log has an error: line anywhere (verified: "bugsee-cli: error: x", "  error: x",
+        // "/a/b.c:1:2: error: x"), exit 0 or not, and bugsee-cli prints error: on stderr for every failure. So the
+        // CLI's output is rewritten, both streams, and the exit code survives the pipe.
+        [TestCase(21)]
+        [TestCase(1)]
+        public void Archive_script_rewrites_every_error_line_of_the_cli_so_xcode_does_not_fail_the_archive(int code)
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, cliExitCode: code,
+                cliNoise: new[] { "error: upload failed: network", "bugsee-cli: error: x", "  error: z", "/a/b.c:1:2: error: y", "mid ERROR: line" });
+
+            Assert.That(run.Output.ToLowerInvariant(), Does.Not.Contain("error:"), run.Output);
+            Assert.That(run.Output, Does.Contain("error - upload failed: network"));
+            Assert.That(run.Output, Does.Contain("warning: Bugsee: symbol upload failed (exit " + code + ")"));
+            Assert.That(run.ExitCode, Is.EqualTo(0));
+        }
+
+        // A file name with error: in it, or a line break, must not turn the warning into an error line or split it.
+        [Test]
+        public void Archive_script_keeps_the_failure_warning_on_one_line_for_an_odd_file_name()
+        {
+            var run = RunScript(new[] { "a: error: b\nc.dSYM" }, cliExitCode: 31);
+
+            Assert.That(run.Output.ToLowerInvariant(), Does.Not.Contain("error:"), run.Output);
+            var warnings = run.Output.Split('\n').Where(l => l.StartsWith("warning: Bugsee: symbol upload failed")).ToList();
+            Assert.That(warnings, Has.Count.EqualTo(1), run.Output);
+            Assert.That(warnings[0], Does.EndWith("c.dSYM (the build continues)."));
+            Assert.That(run.ExitCode, Is.EqualTo(0));
+        }
+
+        // A plain build by a teammate who never uploads gets a note, not a permanent warning; an archive (ACTION=install) warns.
+        [TestCase("build", "note: Bugsee: BUGSEE_APP_TOKEN unset")]
+        [TestCase("install", "warning: Bugsee: BUGSEE_APP_TOKEN unset")]
+        public void Archive_script_warns_about_a_missing_token_only_for_an_archive(string action, string expected)
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, token: "", action: action);
+
+            Assert.That(run.Output, Does.Contain(expected));
+            Assert.That(run.ExitCode, Is.EqualTo(0));
+        }
+
+        // The exit code is recorded for a failed upload even when TMPDIR is unusable (falls back to /tmp).
+        [Test]
+        public void Archive_script_still_reports_a_failed_upload_when_tmpdir_is_unusable()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, cliExitCode: 21, tmpDir: "/nonexistent-bugsee-tmp");
+
+            Assert.That(run.Output, Does.Contain("warning: Bugsee: symbol upload failed (exit 21)"), run.Output);
             Assert.That(run.ExitCode, Is.EqualTo(0));
         }
 
@@ -82,7 +163,9 @@ namespace Bugsee.WrapperPolicy.Tests
             var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, token: "");
 
             Assert.That(run.Calls, Is.Empty);
-            Assert.That(run.Output, Does.Contain("BUGSEE_APP_TOKEN unset"));
+            var warning = run.Output.Split('\n').Single(l => l.Contains("BUGSEE_APP_TOKEN unset"));
+            Assert.That(warning, Does.StartWith("warning: Bugsee: "));
+            Assert.That(warning, Does.Contain("build setting"));
             Assert.That(run.ExitCode, Is.EqualTo(0));
         }
 
@@ -191,6 +274,22 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(maps, Has.Count.EqualTo(1), run.Output);
             Assert.That(maps[0], Does.Contain("/project/" + SymbolsMap + " --type il2cpp-linemap"));
             Assert.That(maps[0], Does.EndWith("--uuid " + Uuid));
+        }
+
+        // A staged copy of the map is removed before the end: a failed upload names the map in the project, not the copy.
+        [Test]
+        public void Archive_script_names_the_original_map_when_a_staged_map_fails_to_upload()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, exportStart: ExportStart, uuids: Uuid, cliExitCode: 31, plant: root =>
+            {
+                PlantMap(root, SymbolsMap, ExportStart + 5);
+                PlantMap(root, "Il2CppOutputProject/Source/il2cppOutput/Symbols/MethodMap.tsv", ExportStart - 3600);
+            });
+
+            var warning = run.Output.Split('\n').Last(l => l.StartsWith("warning: Bugsee: symbol upload failed"));
+            Assert.That(warning, Does.Contain("/project/" + SymbolsMap), run.Output);
+            Assert.That(warning, Does.Not.Contain("bugsee-linemap."), run.Output);
+            Assert.That(run.ExitCode, Is.EqualTo(0));
         }
 
         // The pointer names a stale file but this export wrote another: the one under the exported project wins.
@@ -369,7 +468,8 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         static ScriptRun RunScript(string[] dsymBundles, int cliExitCode = 0, string token = "test-token",
-            string platform = "iphoneos", Action<string> plant = null, long exportStart = 0, string uuids = null, string tmpDir = null)
+            string platform = "iphoneos", Action<string> plant = null, long exportStart = 0, string uuids = null, string tmpDir = null,
+            string[] cliNoise = null, string action = null)
         {
             if (!File.Exists("/bin/sh"))
                 Assert.Ignore("needs /bin/sh");
@@ -387,7 +487,8 @@ namespace Bugsee.WrapperPolicy.Tests
 
                 var calls = Path.Combine(root, "calls.txt");
                 var cli = Path.Combine(root, "fake-cli.sh");
-                File.WriteAllText(cli, "#!/bin/sh\n[ \"$1\" = --version ] && { echo 'bugsee-cli 0.8.1'; exit 0; }\necho \"$*\" >> \"" + calls + "\"\nfor a in \"$@\"; do case \"$a\" in */LineNumberMappings.json) ls \"$(dirname \"$a\")\" | tr '\\n' ' ' >> \"" + calls + ".siblings\"; echo >> \"" + calls + ".siblings\";; esac; done\nexit " + cliExitCode + "\n");
+                var noise = cliNoise == null ? "" : "printf '%s\\n' " + string.Join(" ", cliNoise.Select(l => "'" + l + "'")) + " | tee /dev/stderr\n";
+                File.WriteAllText(cli, "#!/bin/sh\n[ \"$1\" = --version ] && { echo 'bugsee-cli 0.8.1'; exit 0; }\necho \"$*\" >> \"" + calls + "\"\nfor a in \"$@\"; do case \"$a\" in */LineNumberMappings.json) ls \"$(dirname \"$a\")\" | tr '\\n' ' ' >> \"" + calls + ".siblings\"; echo >> \"" + calls + ".siblings\";; esac; done\n" + noise + "exit " + cliExitCode + "\n");
                 File.SetUnixFileMode(cli, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
                 var script = Path.Combine(projectDir, "upload-symbols.sh");
                 File.WriteAllText(script, IosArchiveUploadScript.Build(null, exportStart));
@@ -411,6 +512,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 info.Environment["PROJECT_DIR"] = projectDir;
                 info.Environment.Remove("BUGSEE_SKIP_UPLOAD_ON_DEBUG");
                 if (tmpDir != null) info.Environment["TMPDIR"] = tmpDir;
+                if (action == null) info.Environment.Remove("ACTION"); else info.Environment["ACTION"] = action;
                 if (uuids != null) info.Environment["BUGSEE_IL2CPP_UUIDS"] = uuids;
                 else info.Environment.Remove("BUGSEE_IL2CPP_UUIDS");
 

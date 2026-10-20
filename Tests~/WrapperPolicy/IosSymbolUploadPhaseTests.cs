@@ -7,7 +7,7 @@ namespace Bugsee.WrapperPolicy.Tests
     {
         const string PhaseName = "Bugsee Upload Symbols";
         const string NewScript =
-            "/bin/sh \"${PROJECT_DIR}/BugseeScripts/upload-symbols.sh\" || echo \"Bugsee: symbol upload script failed (the build continues).\"\n";
+            "/bin/sh \"${PROJECT_DIR}/BugseeScripts/upload-symbols.sh\" || echo \"warning: Bugsee: symbol upload script failed (the build continues).\"\n";
 
         // As Unity 2021.3 wrote them in an export of the sample: another tool's phase, then the phase of the earlier
         // package version (bare path, fails with "Permission denied").
@@ -36,7 +36,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
         // The same phase as Unity writes it after adding it with NewScript to a fresh export.
         const string NewScriptLine =
-            "shellScript = \"/bin/sh \\\"${PROJECT_DIR}/BugseeScripts/upload-symbols.sh\\\" || echo \\\"Bugsee: symbol upload script failed (the build continues).\\\"\\n\";";
+            "shellScript = \"/bin/sh \\\"${PROJECT_DIR}/BugseeScripts/upload-symbols.sh\\\" || echo \\\"warning: Bugsee: symbol upload script failed (the build continues).\\\"\\n\";";
 
         static string Section(string phases) =>
             "/* Begin PBXShellScriptBuildPhase section */\n" + phases + "/* End PBXShellScriptBuildPhase section */\n\n" +
