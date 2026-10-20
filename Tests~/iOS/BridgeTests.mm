@@ -20,6 +20,11 @@ void _bugsee_set_attribute(const char *key, const char *valueJson);
 char *_bugsee_get_attribute(const char *key);
 void _bugsee_clear_attribute(const char *key);
 char *_bugsee_get_launch_options(void);
+int _bugsee_test_default_bug_severity(void);
+const char *_bugsee_test_last_report_overload(void);
+int _bugsee_test_last_report_severity(void);
+void _bugsee_show_report(const char *summary, const char *description, int severity, const char *labelsJson);
+void _bugsee_upload(const char *summary, const char *description, int severity, const char *labelsJson);
 void _bugsee_notify(const char *title, const char *body, int severity, const char *fieldsJson, int urgent);
 int64_t _bugsee_start_transaction(const char *name, const char *operation, const char *attributesJson);
 int64_t _bugsee_span_start_child(int64_t spanId, const char *operation, const char *description);
@@ -345,6 +350,30 @@ int main(void)
            "launch options come back as a JSON object with the defaults");
     expect([parsedOptions[BugseeMaxRecordingTimeKey] intValue] == 60, "launch options hold the host's value");
     free(launchOptions);
+    // An omitted report severity is the SDK default, High until the host configures ReportingDefaultBugPriority.
+    expect(_bugsee_test_default_bug_severity() == (int)BugseeSeverityHigh, "the default bug severity is High");
+    // Which SDK overload each report entry point reaches (omitted severity is 0): the ones without a severity read
+    // the option inside the SDK; with labels (no such overload) the bridge passes the default itself.
+    _bugsee_show_report("", "", 0, NULL);
+    expect(same(_bugsee_test_last_report_overload(), "showReportDialog"), "an empty dialog uses the plain showReportDialog");
+    _bugsee_show_report("s", "d", 0, NULL);
+    expect(same(_bugsee_test_last_report_overload(), "showReportDialogWithSummary:description:"),
+           "a dialog without severity or labels uses the overload without a severity");
+    _bugsee_show_report("s", "d", 0, "[\"a\"]");
+    expect(same(_bugsee_test_last_report_overload(), "showReportDialogWithSummary:description:severity:labels:")
+           && _bugsee_test_last_report_severity() == (int)BugseeSeverityHigh,
+           "a dialog with labels and no severity passes the default severity");
+    _bugsee_show_report("s", "d", 2, "[\"a\"]");
+    expect(_bugsee_test_last_report_severity() == 2, "an explicit dialog severity is passed as given");
+    _bugsee_upload("s", "d", 0, NULL);
+    expect(same(_bugsee_test_last_report_overload(), "uploadWithSummary:description:"),
+           "an upload without severity or labels uses the overload without a severity");
+    _bugsee_upload("s", "d", 0, "[\"a\"]");
+    expect(same(_bugsee_test_last_report_overload(), "uploadWithSummary:description:severity:labels:")
+           && _bugsee_test_last_report_severity() == (int)BugseeSeverityHigh,
+           "an upload with labels and no severity passes the default severity");
+    _bugsee_upload("s", "d", 4, NULL);
+    expect(_bugsee_test_last_report_severity() == 4, "an explicit upload severity is passed as given");
     // A breadcrumb filter result reaches the SDK's breadcrumb as the data object C# sends: nested values and
     // scalar kinds intact; a result without a data field leaves the crumb's own data (and a nil data) alone.
     {

@@ -49,7 +49,8 @@ namespace Bugsee.WrapperPolicy.Tests
         [TestCase("Linux", "x86_64", "x86_64-unknown-linux-gnu")]
         [TestCase("linux", "aarch64", "aarch64-unknown-linux-gnu")]
         [TestCase("windows", "X64", "x86_64-pc-windows-msvc")]
-        [TestCase("windows", "Arm64", null)]
+        [TestCase("windows", "Arm64", "aarch64-pc-windows-msvc")]
+        [TestCase("windows", "X86", null)]
         [TestCase("linux", "X86", null)]
         [TestCase("", "X64", null)]
         public void Host_triple_names_the_published_release(string os, string arch, string expected)
@@ -250,7 +251,7 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void The_default_release_has_a_pinned_hash_for_every_published_host_and_other_versions_none()
         {
-            foreach (var triple in new[] { "aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-pc-windows-msvc" })
+            foreach (var triple in new[] { "aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc" })
             {
                 Assert.That(BugseeCliPolicy.KnownSha256(BugseeCliPolicy.DefaultVersion, triple), Has.Length.EqualTo(64), triple);
                 Assert.That(BugseeCliPolicy.ParseSha256Sidecar(BugseeCliPolicy.KnownSha256(BugseeCliPolicy.DefaultVersion, triple)), Is.Not.Null);

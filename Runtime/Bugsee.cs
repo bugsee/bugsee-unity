@@ -361,17 +361,25 @@ namespace Bugsee
 
         public static void TestCrash() => Bridge.TestCrash();
 
+        /// <summary>
+        /// Show the report dialog. An omitted <paramref name="severity"/> lets the SDK pick its default, the
+        /// <c>ReportingDefaultBugPriority</c> launch option (High unless configured).
+        /// </summary>
         public static void ShowReportDialog(
             string summary = "",
             string description = "",
-            IssueSeverity severity = IssueSeverity.High,
+            IssueSeverity? severity = null,
             IList<string> labels = null) =>
             Bridge.ShowReportDialog(summary, description, severity, labels);
 
+        /// <summary>
+        /// Create and upload a report without UI. An omitted <paramref name="severity"/> lets the SDK pick its
+        /// default, the <c>ReportingDefaultBugPriority</c> launch option (High unless configured).
+        /// </summary>
         public static void Upload(
             string summary,
             string description = "",
-            IssueSeverity severity = IssueSeverity.High,
+            IssueSeverity? severity = null,
             IList<string> labels = null) =>
             Bridge.Upload(summary, description, severity, labels);
 
