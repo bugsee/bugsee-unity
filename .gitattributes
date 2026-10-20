@@ -1,0 +1,2 @@
+# Vendored SDK manifests are hashed (sources.txt): never convert line endings.
+Tests~/WrapperPolicy/Fixtures/options-manifest/* -text
