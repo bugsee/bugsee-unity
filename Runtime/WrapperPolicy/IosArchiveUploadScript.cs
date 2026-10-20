@@ -50,7 +50,7 @@ if [ ""${CONFIGURATION}"" = ""Debug"" ] && [ ""${BUGSEE_SKIP_UPLOAD_ON_DEBUG}"" 
   exit 0
 fi
 if [ -z ""${BUGSEE_APP_TOKEN}"" ]; then
-  printf '%s\n' ""warning: Bugsee: BUGSEE_APP_TOKEN unset — dSYMs and the il2cpp line map are NOT uploaded (the build continues). Xcode's GUI does not see your shell's environment: add a user-defined build setting named BUGSEE_APP_TOKEN to the Unity-iPhone target (a gitignored .xcconfig keeps it out of the project), or set it in your CI / Xcode Cloud environment.""
+  printf '%s\n' ""warning: Bugsee: BUGSEE_APP_TOKEN unset — dSYMs and the il2cpp line map are NOT uploaded (the build continues). Xcode's GUI does not see your shell's environment: set it in your CI / Xcode Cloud environment, or add a user-defined build setting named BUGSEE_APP_TOKEN to the Unity-iPhone target (a Unity Replace export regenerates the project, so add it again after each export).""
   exit 0
 fi
 
@@ -205,13 +205,25 @@ cli_failure() {
     *) WHY=""bugsee-cli failed"" ;;
   esac
 }
+# Xcode fails an archive that prints an error: line, wherever it sits in the line (bugsee-cli prints error: on every
+# failure), even when the script exits 0: every error: from the CLI or a file name becomes ""error -"" (any case).
+defang() {
+  sed 's/[Ee][Rr][Rr][Oo][Rr]:/error -/g'
+}
 upload() {
   UPLOAD_RC=0
-  ""$@"" || UPLOAD_RC=$?
+  RC_FILE=""${TMPDIR:-/tmp}/bugsee-upload-rc.$$""
+  rm -f ""${RC_FILE}""
+  # The exit code goes through a file: a pipe would hand back sed's. stdout and stderr both pass through defang.
+  { ""$@"" 2>&1 || echo $? >""${RC_FILE}""; } | defang
+  [ ! -s ""${RC_FILE}"" ] || UPLOAD_RC=$(cat ""${RC_FILE}"" 2>/dev/null) || UPLOAD_RC=1
+  rm -f ""${RC_FILE}""
+  case ""${UPLOAD_RC}"" in ''|*[!0-9]*) UPLOAD_RC=1 ;; esac
   if [ ""${UPLOAD_RC}"" -ne 0 ]; then
     FAILED=1
     cli_failure ""${UPLOAD_RC}""
-    printf '%s\n' ""warning: Bugsee: symbol upload failed (exit ${UPLOAD_RC}): ${WHY}. Not uploaded: ${LAST_UPLOAD} (the build continues).""
+    SAFE_NAME=$(printf '%s' ""${LAST_UPLOAD}"" | tr '\n\r' '  ' | defang)
+    printf '%s\n'  ""warning: Bugsee: symbol upload failed (exit ${UPLOAD_RC}): ${WHY}. Not uploaded: ${SAFE_NAME} (the build continues).""
   fi
   return 0
 }
@@ -220,7 +232,7 @@ upload() {
 if [ -n ""${DWARF_DSYM_FOLDER_PATH}"" ] && [ -d ""${DWARF_DSYM_FOLDER_PATH}"" ]; then
   for DSYM in ""${DWARF_DSYM_FOLDER_PATH}""/*.dSYM; do
     [ -d ""${DSYM}"" ] || continue
-    echo ""Bugsee: uploading dSYM ${DSYM}""
+    echo ""Bugsee: uploading dSYM ${DSYM}"" | defang
     LAST_UPLOAD=""${DSYM}""
     upload ""${CLI}"" debug-files upload ""${DSYM}"" --type dsym --version ""${VERSION}"" --build ""${BUILD}""
   done
@@ -239,7 +251,7 @@ if [ ! -d ""${DWARF_DSYM_FOLDER_PATH}/Bugsee.framework.dSYM"" ]; then
     [ -n ""${SDK_DSYM}"" ] && break
   done
   if [ -n ""${SDK_DSYM}"" ]; then
-    echo ""Bugsee: uploading SDK dSYM ${SDK_DSYM}""
+    echo ""Bugsee: uploading SDK dSYM ${SDK_DSYM}"" | defang
     LAST_UPLOAD=""${SDK_DSYM}""
     upload ""${CLI}"" debug-files upload ""${SDK_DSYM}"" --type dsym --version ""${VERSION}"" --build ""${BUILD}""
   fi
@@ -272,7 +284,7 @@ if [ -z ""${UUID}"" ]; then
   fi
 fi
 if [ -n ""${LINEMAP}"" ] && [ -f ""${LINEMAP}"" ] && [ -n ""${UUID}"" ]; then
-  echo ""Bugsee: uploading il2cpp-linemap ${LINEMAP} uuid=${UUID}""
+  echo ""Bugsee: uploading il2cpp-linemap ${LINEMAP} uuid=${UUID}"" | defang
   LAST_UPLOAD=""${LINEMAP}""
   upload ""${CLI}"" debug-files upload ""${LINEMAP}"" --type il2cpp-linemap --version ""${VERSION}"" --build ""${BUILD}"" --uuid ""${UUID}""
 else

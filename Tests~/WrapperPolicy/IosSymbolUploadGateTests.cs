@@ -107,13 +107,32 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(run.ExitCode, Is.EqualTo(0));
         }
 
-        // No dSYM at all still gets the no-dSYM warning, and the build goes on.
-        [Test]
-        public void Archive_script_warns_and_exits_zero_with_no_dsyms_at_all()
+        // Xcode fails an archive whose log has an error: line anywhere (verified: "bugsee-cli: error: x", "  error: x",
+        // "/a/b.c:1:2: error: x"), exit 0 or not, and bugsee-cli prints error: on stderr for every failure. So the
+        // CLI's output is rewritten, both streams, and the exit code survives the pipe.
+        [TestCase(21)]
+        [TestCase(1)]
+        public void Archive_script_rewrites_every_error_line_of_the_cli_so_xcode_does_not_fail_the_archive(int code)
         {
-            var run = RunScript(new string[0]);
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, cliExitCode: code,
+                cliNoise: new[] { "error: upload failed: network", "bugsee-cli: error: x", "  error: z", "/a/b.c:1:2: error: y", "mid ERROR: line" });
 
-            Assert.That(run.Output, Does.Contain("warning: Bugsee: no dSYM for Debug"));
+            Assert.That(run.Output.ToLowerInvariant(), Does.Not.Contain("error:"), run.Output);
+            Assert.That(run.Output, Does.Contain("error - upload failed: network"));
+            Assert.That(run.Output, Does.Contain("warning: Bugsee: symbol upload failed (exit " + code + ")"));
+            Assert.That(run.ExitCode, Is.EqualTo(0));
+        }
+
+        // A file name with error: in it, or a line break, must not turn the warning into an error line or split it.
+        [Test]
+        public void Archive_script_keeps_the_failure_warning_on_one_line_for_an_odd_file_name()
+        {
+            var run = RunScript(new[] { "a: error: b\nc.dSYM" }, cliExitCode: 31);
+
+            Assert.That(run.Output.ToLowerInvariant(), Does.Not.Contain("error:"), run.Output);
+            var warnings = run.Output.Split('\n').Where(l => l.StartsWith("warning: Bugsee: symbol upload failed")).ToList();
+            Assert.That(warnings, Has.Count.EqualTo(1), run.Output);
+            Assert.That(warnings[0], Does.EndWith("c.dSYM (the build continues)."));
             Assert.That(run.ExitCode, Is.EqualTo(0));
         }
 
@@ -185,7 +204,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(dsyms[0], Does.Contain("/Build/Products/Debug-iphoneos/Bugsee.framework.dSYM --type dsym"));
         }
 
-        static ScriptRun RunScript(string[] dsymBundles, int cliExitCode = 0, string token = "test-token",
+        static ScriptRun RunScript(string[] dsymBundles, int cliExitCode = 0, string token = "test-token", string[] cliNoise = null,
             string platform = "iphoneos", Action<string> plant = null)
         {
             if (!File.Exists("/bin/sh"))
@@ -204,7 +223,8 @@ namespace Bugsee.WrapperPolicy.Tests
 
                 var calls = Path.Combine(root, "calls.txt");
                 var cli = Path.Combine(root, "fake-cli.sh");
-                File.WriteAllText(cli, "#!/bin/sh\n[ \"$1\" = --version ] && { echo 'bugsee-cli 0.8.1'; exit 0; }\necho \"$*\" >> \"" + calls + "\"\nexit " + cliExitCode + "\n");
+                var noise = cliNoise == null ? "" : "printf '%s\\n' " + string.Join(" ", cliNoise.Select(l => "'" + l + "'")) + " | tee /dev/stderr\n";
+                File.WriteAllText(cli, "#!/bin/sh\n[ \"$1\" = --version ] && { echo 'bugsee-cli 0.8.1'; exit 0; }\necho \"$*\" >> \"" + calls + "\"\n" + noise + "exit " + cliExitCode + "\n");
                 File.SetUnixFileMode(cli, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
                 var script = Path.Combine(projectDir, "upload-symbols.sh");
                 File.WriteAllText(script, IosArchiveUploadScript.Build());
