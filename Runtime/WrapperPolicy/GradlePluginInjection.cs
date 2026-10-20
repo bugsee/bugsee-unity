@@ -29,6 +29,9 @@ namespace Bugsee.WrapperPolicy
         internal const string NdkMarker = "// bugsee:gradle-ndk";
         const string LegacyMarker = "// Bugsee Gradle plugin";
 
+        const string UploadsComment =
+            "// No token is stored here: when Gradle runs, the plugin's uploads read BUGSEE_APP_TOKEN (and BUGSEE_ENDPOINT, BUGSEE_CLI_PATH) from the environment.";
+
         const string RootAnchor = "plugins {";
         const string LauncherAnchor = "apply plugin: 'com.android.application'";
 
@@ -46,6 +49,12 @@ namespace Bugsee.WrapperPolicy
             /// <summary>True when <c>mavenCentral()</c> was appended to the root buildscript repositories so the classpath entry resolves.</summary>
             public bool AddedBuildscriptRepository;
 
+            /// <summary>
+            /// True when the gradleUploads option was asked for and the launcher now carries the lines that read the token from the
+            /// environment. False when the project has a <c>bugsee { }</c> block of its own (left as written) or declares the plugin itself.
+            /// </summary>
+            public bool GradleUploadsApplied;
+
             /// <summary>Why the plugin is not applied, or a note about the project's own declarations; null when nothing needs saying.</summary>
             public string Message;
 
@@ -56,12 +65,28 @@ namespace Bugsee.WrapperPolicy
         /// <summary>
         /// Applies the plugin to <paramref name="launcher"/>, declaring it in <paramref name="root"/> as well where that is
         /// what makes it resolvable. Text that cannot be edited safely is returned unchanged with a message.
+        /// <paramref name="gradleUploads"/> adds the lines that let the plugin's own uploads read the app token from the
+        /// environment of the Gradle process (see <see cref="BlockLines"/>).
         /// </summary>
         public static PluginPatch Apply(
             string root, GradleMavenInjection.GradleDsl rootDsl,
             string launcher, GradleMavenInjection.GradleDsl launcherDsl,
             string pluginVersion,
-            bool allowRepositoryInjection = true)
+            bool allowRepositoryInjection = true,
+            bool gradleUploads = false)
+        {
+            var patch = ApplyCore(root, rootDsl, launcher, launcherDsl, pluginVersion, allowRepositoryInjection, gradleUploads);
+            patch.GradleUploadsApplied = gradleUploads && patch.Applied && patch.Launcher != null &&
+                                         patch.Launcher.IndexOf(UploadsComment, StringComparison.Ordinal) >= 0;
+            return patch;
+        }
+
+        static PluginPatch ApplyCore(
+            string root, GradleMavenInjection.GradleDsl rootDsl,
+            string launcher, GradleMavenInjection.GradleDsl launcherDsl,
+            string pluginVersion,
+            bool allowRepositoryInjection,
+            bool gradleUploads)
         {
             var patch = new PluginPatch { Root = root, Launcher = launcher };
             RootShape rootShape = ShapeOfRoot(root);
@@ -108,7 +133,7 @@ namespace Bugsee.WrapperPolicy
             // marked line of ours (an `id` entry in a plugins { } block) for an apply line and rewrite it.
             if (launcherDsl == GradleMavenInjection.GradleDsl.Groovy && rootDeclares && UsesApplyStyle(launcher))
             {
-                string applied = TryMarked(launcher, LauncherAnchor, LauncherGroovyPatch());
+                string applied = TryMarked(launcher, LauncherAnchor, LauncherGroovyPatch(gradleUploads));
                 if (applied != null && UsesApplyStyle(applied) && HasMarkedApplyLine(applied))
                 {
                     patch.Launcher = applied;
@@ -118,7 +143,7 @@ namespace Bugsee.WrapperPolicy
             }
 
             string failure;
-            string text = ApplyToLauncherBlock(launcher, launcherDsl, pluginVersion, rootDeclares, out failure);
+            string text = ApplyToLauncherBlock(launcher, launcherDsl, pluginVersion, rootDeclares, gradleUploads, out failure);
             if (text == null)
             {
                 // Leave the root as it was too: a declaration nothing applies is noise.
@@ -148,15 +173,79 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>The lines after the launcher's <c>apply plugin: 'com.android.application'</c> (Groovy).</summary>
-        public static string LauncherGroovyPatch()
+        public static string LauncherGroovyPatch(bool gradleUploads = false)
         {
-            return $"apply plugin: '{PluginId}' {PluginMarker}\n\n" +
-                   "bugsee {\n" +
-                   "    // App token is supplied at runtime via Bugsee.Launch.\n" +
-                   "    ndk {\n" +
-                   "        enabled = true\n" +
-                   "    }\n" +
-                   $"}} {NdkMarker}";
+            return $"apply plugin: '{PluginId}' {PluginMarker}\n\n" + string.Join("\n", BlockLines(kotlin: false, gradleUploads));
+        }
+
+        /// <summary>
+        /// The <c>bugsee { }</c> block. It always enables NDK support. With <paramref name="gradleUploads"/> it also lets the
+        /// plugin's own mapping and native uploads run (native from AGP's native-debug-symbols.zip, not the merge step's stripped libraries): a Unity build has no token the plugin can see (the SDK gets it from
+        /// <c>Bugsee.Launch</c> at runtime), so they would skip. The added lines read <c>BUGSEE_APP_TOKEN</c> (and
+        /// <c>BUGSEE_ENDPOINT</c>, <c>BUGSEE_CLI_PATH</c>) from the environment of the Gradle process when Gradle runs, so nothing is
+        /// stored in the Gradle project (an exported project can be committed or shared). Without the token, or with
+        /// <c>BUGSEE_NO_SYMBOL_UPLOAD</c> set (as for the Editor's uploads), the plugin skips as before. The Editor asks for them
+        /// only for an Export Project, where it has no mapping or native libraries of its own to upload.
+        /// </summary>
+        public static List<string> BlockLines(bool kotlin, bool gradleUploads = false)
+        {
+            string enabled = kotlin ? "enabled.set(true)" : "enabled = true";
+            var lines = new List<string> { "bugsee {" };
+            if (!gradleUploads)
+            {
+                lines.Add("    // App token is supplied at runtime via Bugsee.Launch.");
+            }
+            else
+            {
+                lines.Add("    " + UploadsComment);
+                if (kotlin)
+                {
+                    lines.Add("    if (System.getenv(\"BUGSEE_NO_SYMBOL_UPLOAD\") == null) {");
+                    lines.Add("        System.getenv(\"BUGSEE_APP_TOKEN\")?.takeIf { it.isNotEmpty() }?.let { appToken(it) }");
+                    lines.Add("    }");
+                    lines.Add("    System.getenv(\"BUGSEE_ENDPOINT\")?.takeIf { it.isNotEmpty() }?.let { endpoint.set(it) }");
+                    lines.Add("    System.getenv(\"BUGSEE_CLI_PATH\")?.takeIf { java.io.File(it).isFile }?.let { cliPath.set(it) }");
+                }
+                else
+                {
+                    lines.Add("    if (System.getenv('BUGSEE_NO_SYMBOL_UPLOAD') == null && System.getenv('BUGSEE_APP_TOKEN')) {");
+                    lines.Add("        appToken(System.getenv('BUGSEE_APP_TOKEN'))");
+                    lines.Add("    }");
+                    lines.Add("    if (System.getenv('BUGSEE_ENDPOINT')) {");
+                    lines.Add("        endpoint = System.getenv('BUGSEE_ENDPOINT')");
+                    lines.Add("    }");
+                    lines.Add("    if (System.getenv('BUGSEE_CLI_PATH') && new File(System.getenv('BUGSEE_CLI_PATH')).isFile()) {");
+                    lines.Add("        cliPath = System.getenv('BUGSEE_CLI_PATH')");
+                    lines.Add("    }");
+                }
+            }
+
+            lines.Add("    ndk {");
+            lines.Add("        " + enabled);
+            if (gradleUploads)
+            {
+                // The merge step's libraries hold Unity's STRIPPED libil2cpp/libunity/libmain (dynamic symbols only, same build id as the
+                // full ones). bugsee-cli labels those "symtab" and the server keeps the first copy of a build id at that level, so sending
+                // them would block the real symbol tables. AGP's native-debug-symbols.zip carries Unity's full copies (setupSymbols.gradle).
+                lines.Add("        " + (kotlin ? "useMergedNativeLibs.set(false)" : "useMergedNativeLibs = false"));
+            }
+
+            lines.Add("    }");
+            lines.Add("} " + NdkMarker);
+            return lines;
+        }
+
+        /// <summary>
+        /// What to put in a <c>bugsee { }</c> block of your own for the plugin's uploads in an Export Project, when the package could not add
+        /// it (the project owns the block).
+        /// </summary>
+        public static string UploadsInstructions(bool kotlin)
+        {
+            var lines = BlockLines(kotlin, gradleUploads: true);
+            // Everything between the opening line and the end marker, without the marker.
+            lines.RemoveAt(0);
+            lines.RemoveAt(lines.Count - 1);
+            return string.Join("\n", lines);
         }
 
         /// <summary>How the root build file makes plugins available, which decides the manual instructions.</summary>
@@ -379,7 +468,7 @@ namespace Bugsee.WrapperPolicy
         /// version replaces the marked line. Null (with <paramref name="failure"/>) when the launcher has no such block.
         /// </summary>
         static string ApplyToLauncherBlock(
-            string launcher, GradleMavenInjection.GradleDsl dsl, string version, bool rootDeclares, out string failure)
+            string launcher, GradleMavenInjection.GradleDsl dsl, string version, bool rootDeclares, bool gradleUploads, out string failure)
         {
             failure = null;
             bool kotlin = dsl == GradleMavenInjection.GradleDsl.Kotlin;
@@ -389,7 +478,6 @@ namespace Bugsee.WrapperPolicy
             string entry = kotlin
                 ? $"id(\"{PluginId}\")" + (rootDeclares ? string.Empty : $" version \"{version}\"")
                 : $"id '{PluginId}'" + (rootDeclares ? string.Empty : $" version '{version}'");
-            string enabled = kotlin ? "enabled.set(true)" : "enabled = true";
 
             int open = GradleMavenInjection.FindTopLevelBlockOpen(lines, "plugins");
             if (open < 0)
@@ -459,15 +547,7 @@ namespace Bugsee.WrapperPolicy
                 close++;
             }
 
-            var ndk = new List<string>
-            {
-                "bugsee {",
-                "    // App token is supplied at runtime via Bugsee.Launch.",
-                "    ndk {",
-                "        " + enabled,
-                "    }",
-                "} " + NdkMarker,
-            };
+            var ndk = BlockLines(kotlin, gradleUploads);
             int ndkEnd = lines.FindIndex(l => l.IndexOf(NdkMarker, StringComparison.Ordinal) >= 0);
             if (ndkEnd >= 0)
             {
