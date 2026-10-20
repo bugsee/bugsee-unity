@@ -168,14 +168,12 @@ namespace Bugsee.Editor
                     foreach (var file in Directory.EnumerateFiles(
                                  root, "LineNumberMappings.json", SearchOption.AllDirectories))
                     {
-                        var norm = file.Replace('\\', '/');
-                        if (norm.IndexOf("/Library/", StringComparison.OrdinalIgnoreCase) >= 0
-                            || norm.IndexOf("/Temp/", StringComparison.OrdinalIgnoreCase) >= 0
-                            || norm.IndexOf("/Bee/", StringComparison.OrdinalIgnoreCase) >= 0
-                            || norm.IndexOf("/obj/", StringComparison.OrdinalIgnoreCase) >= 0)
+                        if (BuildPathExclusion.IsExcludedPath(file, root))
                         {
                             continue;
                         }
+
+                        var norm = file.Replace('\\', '/');
 
                         DateTime mtime;
                         try { mtime = File.GetLastWriteTimeUtc(file); }
