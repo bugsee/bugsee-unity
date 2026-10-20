@@ -71,13 +71,13 @@ namespace Bugsee.Internal
         // Logged on the next frame: a Debug.Log is captured by the SDK, and the SDK is inside requestData right now.
         static void LogLater(int nodes, int chars, long walkMs, long writeMs, bool truncated)
         {
-            MainThreadDispatcher.Run(() => Debug.Log("[Bugsee] managed view hierarchy: " + nodes + " nodes, " + chars + " chars, walk "
+            MainThreadDispatcher.Post(() => Debug.Log("[Bugsee] managed view hierarchy: " + nodes + " nodes, " + chars + " chars, walk "
                 + walkMs + " ms, write " + writeMs + " ms" + (truncated ? ", truncated" : "")));
         }
 
         static void LogLater(string error)
         {
-            MainThreadDispatcher.Run(() => Debug.LogWarning("[Bugsee] The managed view hierarchy could not be read: " + error));
+            MainThreadDispatcher.Post(() => Debug.LogWarning("[Bugsee] The managed view hierarchy could not be read: " + error));
         }
 
         static ManagedViewNode Read(ManagedViewBudget budget)
@@ -105,7 +105,7 @@ namespace Bugsee.Internal
                 if (budget.IsExhausted) { root.Truncated = true; break; }
                 if (!budget.TryTake(2)) { root.Truncated = true; break; }
                 var scene = scenes[i];
-                var sceneNode = new ManagedViewNode { Id = scene.handle, ClassName = "Scene", Name = scene.name };
+                var sceneNode = new ManagedViewNode { Id = scene.handle, IdText = "scene-" + scene.handle, ClassName = "Scene", Name = scene.name };
                 root.Children.Add(sceneNode);
                 var roots = scene.GetRootGameObjects();
                 for (var r = 0; r < roots.Length; r++)

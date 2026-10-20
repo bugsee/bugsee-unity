@@ -9,6 +9,8 @@ namespace Bugsee.WrapperPolicy
     public sealed class ManagedViewNode
     {
         public long Id;
+        /// <summary>Overrides <see cref="Id"/> on the wire, for nodes whose id comes from another counter (a scene handle can equal an instance id).</summary>
+        public string IdText;
         public string ClassName;
         /// <summary>The GameObject's name. A free-text label, so it is withheld for protected nodes.</summary>
         public string Name;
@@ -167,7 +169,7 @@ namespace Bugsee.WrapperPolicy
             var isProtected = rectCount > 0 && (!hasBounds || Overlaps(rects, rectCount, x, y, w, h));
 
             sb.Append('{');
-            sb.Append("\"id\":").Append(JsonWire.String(node.Id.ToString(CultureInfo.InvariantCulture)));
+            sb.Append("\"id\":").Append(JsonWire.String(node.IdText ?? node.Id.ToString(CultureInfo.InvariantCulture)));
             sb.Append(",\"class_name\":").Append(JsonWire.String(string.IsNullOrEmpty(node.ClassName) ? "GameObject" : node.ClassName));
             sb.Append(",\"bounds\":[");
             if (hasBounds)

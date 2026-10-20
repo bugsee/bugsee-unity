@@ -43,6 +43,17 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void ANodeWithAnIdTextUsesItSoCountersCannotCollide()
+        {
+            var scene = Node(5, "Scene", "s", 0, 0, 10, 10);
+            scene.IdText = "scene-5";
+            var root = Node(0, "UnityPlayer", null, 0, 0, 10, 10, scene, Node(5, "Image", "i", 0, 0, 1, 1));
+            var items = Parse(ManagedViewTreeJson.Write(root, null, 0, 1f)).GetProperty("subitems");
+            Assert.That(items[0].GetProperty("id").GetString(), Is.EqualTo("scene-5"));
+            Assert.That(items[1].GetProperty("id").GetString(), Is.EqualTo("5"));
+        }
+
+        [Test]
         public void BoundsAreDividedByTheScaleForNativeUnits()
         {
             // iOS reports points: 3 pixels per point.
