@@ -561,6 +561,12 @@ namespace Bugsee
                 read.Ok = Bridge.TryGetSecureRectViewRegion(
                     read.ScreenWidth, read.ScreenHeight,
                     out read.Left, out read.Top, out read.Width, out read.Height, out read.Settled);
+                // An unreadable surface may still report the display's native size (iOS): that is the better fallback.
+                if (!read.Ok && read.Width > 0 && read.Height > 0)
+                {
+                    read.FallbackWidth = read.Width;
+                    read.FallbackHeight = read.Height;
+                }
                 return read;
             }
 
