@@ -338,18 +338,18 @@ namespace Bugsee.Platform.Android
             }
         }
 
-        public void ShowReportDialog(string summary, string description, IssueSeverity severity, IList<string> labels)
+        public void ShowReportDialog(string summary, string description, IssueSeverity? severity, IList<string> labels)
         {
-            using (var sev = Severity(severity))
+            using (var sev = OptionalSeverity(severity))
             using (var javaLabels = ToJavaStringList(labels))
             {
                 _bugsee.CallStatic("showReportDialog", summary ?? "", description ?? "", sev, javaLabels);
             }
         }
 
-        public void Upload(string summary, string description, IssueSeverity severity, IList<string> labels)
+        public void Upload(string summary, string description, IssueSeverity? severity, IList<string> labels)
         {
-            using (var sev = Severity(severity))
+            using (var sev = OptionalSeverity(severity))
             using (var javaLabels = ToJavaStringList(labels))
             {
                 _bugsee.CallStatic("upload", summary ?? "", description ?? "", sev, javaLabels);
@@ -668,6 +668,11 @@ namespace Bugsee.Platform.Android
                 return clazz.CallStatic<AndroidJavaObject>("fromIntValue", (int)severity);
             }
         }
+
+        // A null severity is the native "not given": the report takes the ReportingDefaultBugPriority option.
+        // (IssueSeverity)0 is no severity, as on iOS.
+        static AndroidJavaObject OptionalSeverity(IssueSeverity? severity) =>
+            severity.HasValue && IssueSeverityWire.ToWire(severity) > 0 ? Severity(severity.Value) : null;
 
         static AndroidJavaObject ToJavaStringList(IList<string> labels)
         {

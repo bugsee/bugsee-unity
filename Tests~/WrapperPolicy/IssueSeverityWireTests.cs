@@ -21,6 +21,15 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Omitted_report_severity_is_zero_on_the_wire_and_explicit_ones_keep_their_value()
+        {
+            Assert.That(IssueSeverityWire.ToWire(null), Is.EqualTo(0));
+            Assert.That(IssueSeverityWire.ToWire(IssueSeverity.VeryLow), Is.EqualTo(1));
+            Assert.That(IssueSeverityWire.ToWire(IssueSeverity.High), Is.EqualTo(3));
+            Assert.That(IssueSeverityWire.ToWire(IssueSeverity.Blocker), Is.EqualTo(5));
+        }
+
+        [Test]
         public void FromIntValue_zero_honors_defaultValue()
         {
             Assert.That(IssueSeverityExtensions.FromIntValue(0, IssueSeverity.High), Is.EqualTo(IssueSeverity.High));
