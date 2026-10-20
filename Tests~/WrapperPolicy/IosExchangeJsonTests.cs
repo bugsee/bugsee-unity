@@ -1,0 +1,240 @@
+using System.Collections.Generic;
+using Bugsee.Contracts.Exchange;
+using Bugsee.Contracts.Options;
+using Bugsee.Platform.IOS;
+using NUnit.Framework;
+
+namespace Bugsee.WrapperPolicy.Tests
+{
+    /// <summary>
+    /// The iOS filter payloads cross the native boundary as JSON written by <c>JsonUtility</c> (here the host-side
+    /// stand-in in UnityEngineJsonStub.cs) and read back after <c>IosJsonNormalize</c> rewrites object maps into
+    /// key/value arrays. These pin the shapes and the pure helpers around them without a device.
+    /// </summary>
+    public class IosExchangeJsonTests
+    {
+        // ---- IosJsonNormalize ----
+
+        [Test]
+        public void NormalizeNetwork_rewrites_the_headers_map_into_key_value_pairs()
+        {
+            var json = "{\"url\":\"http://a\",\"headers\":{\"Accept\":\"*/*\",\"X-A\":\"b\"},\"size\":3}";
+
+            Assert.That(IosJsonNormalize.NormalizeNetwork(json), Is.EqualTo(
+                "{\"url\":\"http://a\",\"headers\":[{\"key\":\"Accept\",\"value\":\"*/*\"},{\"key\":\"X-A\",\"value\":\"b\"}],\"size\":3}"));
+        }
+
+        [Test]
+        public void Normalize_turns_an_empty_map_into_an_empty_array()
+        {
+            Assert.That(IosJsonNormalize.NormalizeNetwork("{\"headers\":{}}"), Is.EqualTo("{\"headers\":[]}"));
+            Assert.That(IosJsonNormalize.NormalizeNetwork("{\"headers\":{ }}"), Is.EqualTo("{\"headers\":[]}"));
+        }
+
+        [Test]
+        public void Normalize_returns_empty_object_for_null_or_empty_input()
+        {
+            Assert.That(IosJsonNormalize.NormalizeNetwork(null), Is.EqualTo("{}"));
+            Assert.That(IosJsonNormalize.NormalizeReport(null), Is.EqualTo("{}"));
+        }
+
+        [Test]
+        public void Normalize_leaves_json_alone_when_the_field_is_missing_or_already_an_array()
+        {
+            Assert.That(IosJsonNormalize.NormalizeNetwork("{\"url\":\"x\"}"), Is.EqualTo("{\"url\":\"x\"}"));
+            var arr = "{\"headers\":[{\"key\":\"a\",\"value\":\"b\"}]}";
+            Assert.That(IosJsonNormalize.NormalizeNetwork(arr), Is.EqualTo(arr));
+        }
+
+        [Test]
+        public void Normalize_quotes_scalar_values_and_keeps_null()
+        {
+            var json = "{\"headers\":{\"n\":42,\"b\":true,\"z\":null,\"s\":\"x\"}}";
+
+            Assert.That(IosJsonNormalize.NormalizeNetwork(json), Is.EqualTo(
+                "{\"headers\":[{\"key\":\"n\",\"value\":\"42\"},{\"key\":\"b\",\"value\":\"true\"},{\"key\":\"z\",\"value\":null},{\"key\":\"s\",\"value\":\"x\"}]}"));
+        }
+
+        [Test]
+        public void Normalize_keeps_escaped_quotes_and_braces_inside_string_values()
+        {
+            var json = "{\"headers\":{\"k\":\"a \\\"q\\\" } b\"},\"size\":1}";
+
+            Assert.That(IosJsonNormalize.NormalizeNetwork(json), Is.EqualTo(
+                "{\"headers\":[{\"key\":\"k\",\"value\":\"a \\\"q\\\" } b\"}],\"size\":1}"));
+        }
+
+        [Test]
+        public void Normalize_keeps_the_original_json_when_a_value_is_a_container()
+        {
+            var json = "{\"attributes\":{\"a\":{\"nested\":1},\"b\":\"x\"}}";
+            Assert.That(IosJsonNormalize.NormalizeReport(json), Is.EqualTo(json));
+
+            json = "{\"attributes\":{\"list\":[1,2]}}";
+            Assert.That(IosJsonNormalize.NormalizeReport(json), Is.EqualTo(json));
+        }
+
+        [Test]
+        public void NormalizeReport_rewrites_string_attributes()
+        {
+            Assert.That(IosJsonNormalize.NormalizeReport("{\"summary\":\"s\",\"attributes\":{\"cart\":\"abc\"}}"), Is.EqualTo(
+                "{\"summary\":\"s\",\"attributes\":[{\"key\":\"cart\",\"value\":\"abc\"}]}"));
+        }
+
+        // ---- network event ----
+
+        static IosNetworkEvent Network(IosNetworkDto dto = null) => new IosNetworkEvent(dto ?? new IosNetworkDto());
+
+        [Test]
+        public void Network_ToResultJson_writes_headers_as_key_value_pairs_and_every_scalar()
+        {
+            var ev = Network(new IosNetworkDto
+            {
+                id = "7", url = "http://a/b", method = "GET", body = "{}", size = 12, responseCode = 204,
+                statusText = "No Content", stage = "complete", timestampMs = 1700000000123,
+                headers = new[] { new IosKv { key = "A", value = "1" } },
+            });
+            ev.ResponseCode = 200;
+            ev.Headers["B"] = "2";
+
+            var json = ev.ToResultJson();
+
+            Assert.That(json, Does.Contain("\"id\":\"7\""));
+            Assert.That(json, Does.Contain("\"url\":\"http://a/b\""));
+            Assert.That(json, Does.Contain("\"responseCode\":200"));
+            Assert.That(json, Does.Contain("\"size\":12"));
+            Assert.That(json, Does.Contain("\"timestampMs\":1700000000123"));
+            Assert.That(json, Does.Contain("\"headers\":[{\"key\":\"A\",\"value\":\"1\"},{\"key\":\"B\",\"value\":\"2\"}]"));
+        }
+
+        [Test]
+        public void Network_ToResultJson_with_no_headers_writes_an_empty_array()
+        {
+            Assert.That(Network().ToResultJson(), Does.Contain("\"headers\":[]"));
+        }
+
+        [Test]
+        public void Network_ToChannelJson_overrides_stage_and_stamps_a_missing_time_without_mutating_the_event()
+        {
+            var ev = Network(new IosNetworkDto { stage = "RequestCompleted" });
+
+            var json = ev.ToChannelJson("before", 1234);
+
+            Assert.That(json, Does.Contain("\"stage\":\"before\""));
+            Assert.That(json, Does.Contain("\"timestampMs\":1234"));
+            // The event itself is unchanged: the next serialization starts from the original values.
+            var again = ev.ToResultJson();
+            Assert.That(again, Does.Contain("\"stage\":\"RequestCompleted\""));
+            Assert.That(again, Does.Contain("\"timestampMs\":0"));
+        }
+
+        [Test]
+        public void Network_ToChannelJson_keeps_the_time_the_event_already_has()
+        {
+            var ev = Network(new IosNetworkDto { timestampMs = 99 });
+
+            Assert.That(ev.ToChannelJson("complete", 5000), Does.Contain("\"timestampMs\":99"));
+            Assert.That(ev.ToChannelJson("complete", 0), Does.Contain("\"timestampMs\":99"));
+        }
+
+        [Test]
+        public void Network_ToChannelJson_does_not_invent_a_time_when_none_is_supplied()
+        {
+            Assert.That(Network().ToChannelJson("complete", 0), Does.Contain("\"timestampMs\":0"));
+        }
+
+        [TestCase(NetworkEventStage.RequestStarted, "before")]
+        [TestCase(NetworkEventStage.RequestCompleted, "complete")]
+        [TestCase(NetworkEventStage.RequestErrored, "error")]
+        [TestCase(NetworkEventStage.RequestAborted, "cancel")]
+        [TestCase(NetworkEventStage.Redirect, null)]
+        [TestCase(NetworkEventStage.WebSocket, null)]
+        [TestCase(NetworkEventStage.RequestTimingsReceived, null)]
+        public void ToNativeStage_maps_only_stages_the_sdk_has(NetworkEventStage stage, string expected)
+        {
+            Assert.That(IosNetworkEvent.ToNativeStage(stage), Is.EqualTo(expected));
+        }
+
+        [TestCase(null, NetworkEventStage.RequestCompleted)]
+        [TestCase("", NetworkEventStage.RequestCompleted)]
+        [TestCase("before", NetworkEventStage.RequestStarted)]
+        [TestCase("RequestStarted", NetworkEventStage.RequestStarted)]
+        [TestCase("begin", NetworkEventStage.RequestStarted)]
+        [TestCase("cancel", NetworkEventStage.RequestAborted)]
+        [TestCase("Abort", NetworkEventStage.RequestAborted)]
+        [TestCase("error", NetworkEventStage.RequestErrored)]
+        [TestCase("redirect", NetworkEventStage.Redirect)]
+        [TestCase("websocket", NetworkEventStage.WebSocket)]
+        [TestCase("timings", NetworkEventStage.RequestTimingsReceived)]
+        [TestCase("complete", NetworkEventStage.RequestCompleted)]
+        [TestCase("something else", NetworkEventStage.RequestCompleted)]
+        public void Stage_parses_native_and_managed_spellings(string native, NetworkEventStage expected)
+        {
+            Assert.That(Network(new IosNetworkDto { stage = native }).Stage, Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void FromKv_skips_empty_keys_and_nulls_and_last_duplicate_wins()
+        {
+            var map = IosNetworkEvent.FromKv(new[]
+            {
+                new IosKv { key = "a", value = "1" },
+                null,
+                new IosKv { key = "", value = "x" },
+                new IosKv { key = "a", value = "2" },
+            });
+
+            Assert.That(map, Is.EqualTo(new Dictionary<string, string> { { "a", "2" } }));
+            Assert.That(IosNetworkEvent.FromKv(null), Is.Empty);
+        }
+
+        [Test]
+        public void ToKv_round_trips_and_handles_empty_input()
+        {
+            Assert.That(IosNetworkEvent.ToKv(null), Is.Empty);
+            Assert.That(IosNetworkEvent.ToKv(new Dictionary<string, string>()), Is.Empty);
+
+            var pairs = IosNetworkEvent.ToKv(new Dictionary<string, string> { { "a", "1" }, { "b", null } });
+
+            Assert.That(pairs.Length, Is.EqualTo(2));
+            Assert.That(pairs[0].key, Is.EqualTo("a"));
+            Assert.That(pairs[1].value, Is.Null);
+        }
+
+        [Test]
+        public void Headers_setter_copies_the_map_and_null_clears_it()
+        {
+            var ev = Network();
+            var source = new Dictionary<string, string> { { "a", "1" } };
+            ev.Headers = source;
+            source["a"] = "changed";
+            Assert.That(ev.Headers["a"], Is.EqualTo("1"));
+
+            ev.Headers = null;
+            Assert.That(ev.Headers, Is.Empty);
+        }
+
+        // ---- log event ----
+
+        [Test]
+        public void Log_event_round_trips_message_and_level()
+        {
+            var ev = new IosLogEvent(new IosLogDto { message = "hi \"there\"\n", level = (int)LogLevel.Warning });
+
+            Assert.That(ev.Message, Is.EqualTo("hi \"there\"\n"));
+            Assert.That(ev.Level, Is.EqualTo(LogLevel.Warning));
+
+            ev.Message = "changed";
+            ev.Level = LogLevel.Error;
+            Assert.That(ev.ToResultJson(), Is.EqualTo("{\"message\":\"changed\",\"level\":" + (int)LogLevel.Error + "}"));
+        }
+
+        [Test]
+        public void Log_event_escapes_control_characters()
+        {
+            var json = new IosLogEvent(new IosLogDto { message = "a\tb\\c" }).ToResultJson();
+
+            Assert.That(json, Does.Contain("\"message\":\"a\\tb\\\\c\""));
+        }
+    }
+}
