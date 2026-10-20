@@ -17,6 +17,13 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>
+        /// The wrapper build to report: null for none. A build that is empty or the "dev" placeholder (what every
+        /// checkout and release carries until a build id is stamped) is not a build id.
+        /// </summary>
+        public static string WrapperBuild(string build) =>
+            string.IsNullOrEmpty(build) || build == "dev" ? null : build;
+
+        /// <summary>
         /// Whether a caller-supplied wrapper_info can be passed through: the SDK reads it as a map and indexes
         /// into it (a string there is an unrecognised-selector crash at launch), it compares "type" with
         /// isEqualToString: (anything but a string there crashes the same way), and a map without a "type" silently

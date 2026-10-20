@@ -857,14 +857,16 @@ namespace Bugsee.Platform.IOS
                 merged.Remove("wrapper_info");
             }
 
-            merged["wrapper_info"] = new Dictionary<string, object>
+            var wrapperInfo = new Dictionary<string, object>
             {
                 { "type", "UNITY" },
                 { "version", BugseePackageVersion.Version },
-                { "build", BugseePackageVersion.Build },
                 { "metal", SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Metal },
                 { "fps", IosHostPolicy.CaptureFrameRate(Application.targetFrameRate, Screen.currentResolution.refreshRate) },
             };
+            var wrapperBuild = IosHostPolicy.WrapperBuild(BugseePackageVersion.Build);
+            if (wrapperBuild != null) wrapperInfo["build"] = wrapperBuild;
+            merged["wrapper_info"] = wrapperInfo;
             return merged;
         }
 

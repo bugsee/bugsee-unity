@@ -45,12 +45,12 @@ public class AndroidWrapperTests {
         assertEquals(UnityWrapperIdentity.VERSION, wrapper.getWrapperVersion());
         assertNotEquals("unknown", wrapper.getWrapperVersion());
         // The contract says null for "no build"; the literal "unknown" would be reported as one.
-        String build = UnityWrapperIdentity.BUILD;
-        if (build == null || build.length() == 0) {
-            assertNull(wrapper.getWrapperBuild());
-        } else {
-            assertEquals(build, wrapper.getWrapperBuild());
-        }
+        assertEquals(UnityWrapper.normalizeBuild(UnityWrapperIdentity.BUILD), wrapper.getWrapperBuild());
+        // "dev" is the placeholder of every checkout and release, not a build id.
+        assertNull(UnityWrapper.normalizeBuild("dev"));
+        assertNull(UnityWrapper.normalizeBuild(""));
+        assertNull(UnityWrapper.normalizeBuild(null));
+        assertEquals("a1b2c3d", UnityWrapper.normalizeBuild("a1b2c3d"));
     }
 
     private static final class Recorder implements LifecycleEventListener {
