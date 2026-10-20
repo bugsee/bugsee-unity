@@ -10,12 +10,9 @@ using UnityEngine;
 
 namespace Bugsee.Editor
 {
-    /// <summary>Shared version/build resolution + runtime identity file writer.</summary>
+    /// <summary>Shared version/build resolution.</summary>
     internal static class BugseeBuildIdentity
     {
-        const string ResourcesFolder = "Assets/Resources";
-        const string ModuleUuidAsset = "BugseeIl2CppModuleUuids.txt";
-
         /// <summary>Android name settings as they were at the end of preprocess (see BugseeBuildSettingsSnapshot).</summary>
         internal static PlayerNameSettings Recorded;
 
@@ -198,32 +195,6 @@ namespace Bugsee.Editor
             return null;
         }
 
-        /// <summary>
-        /// Persist discovered IL2CPP module UUID(s) so the runtime managed-exception
-        /// payload can include <c>moduleUUID</c> for MethodMap / future LNM.
-        /// </summary>
-        public static void WriteRuntimeModuleUuidFile(System.Collections.Generic.IList<string> uuids)
-        {
-            if (uuids == null || uuids.Count == 0)
-            {
-                return;
-            }
-
-            try
-            {
-                if (!Directory.Exists(ResourcesFolder))
-                {
-                    Directory.CreateDirectory(ResourcesFolder);
-                }
-                var path = Path.Combine(ResourcesFolder, ModuleUuidAsset);
-                File.WriteAllText(path, string.Join("\n", uuids) + "\n");
-                AssetDatabase.ImportAsset(path);
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"Bugsee: failed writing runtime module UUID file: {ex.Message}");
-            }
-        }
     }
 
     /// <summary>
