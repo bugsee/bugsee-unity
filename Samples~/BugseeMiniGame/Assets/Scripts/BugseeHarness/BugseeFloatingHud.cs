@@ -17,6 +17,14 @@ namespace Bugsee.Sample
 
         void OnGUI()
         {
+            var prevEnabled = GUI.enabled;
+            GUI.enabled = !BugseeActionForms.IsBlockingInput; // a form or confirm is modal
+            try { Draw(); }
+            finally { GUI.enabled = prevEnabled; }
+        }
+
+        void Draw()
+        {
             const float w = 150f;
             float x = Screen.width - w - 12f;
             float y = 12f;

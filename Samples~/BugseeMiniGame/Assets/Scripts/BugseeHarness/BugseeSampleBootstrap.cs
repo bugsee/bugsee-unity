@@ -41,6 +41,10 @@ namespace Bugsee.Sample
         public string LastLifecycle => _lastLifecycle;
         public IEnumerable<string> LifecycleLog => _lifecycleLog;
         public BugseeActionCatalog Catalog => _catalog;
+        internal string AppToken => appToken;
+        /// <summary>The options of the last LaunchSdk (null before it or in the Editor): LaunchAsync/RelaunchAsync reuse them.</summary>
+        /// <summary>What the last LaunchSdk used (null in the Editor): scenarios and the async bubbles launch again the same way (endpoint, video, debug).</summary>
+        internal Dictionary<string, object> LastLaunchOptions { get; private set; }
 
         /// <summary>Called from <see cref="MiniGameBootstrap"/> when building the scene at runtime.</summary>
         public void Configure(string token, bool launchOnStart, string endpoint = null)
@@ -87,6 +91,7 @@ namespace Bugsee.Sample
         void OnDestroy()
         {
             Bugsee.LifecycleEvent -= OnLifecycle;
+            _catalog?.Interactions.Dispose();
             if (ReferenceEquals(BugseeActionCatalog.Instance, _catalog))
                 BugseeActionCatalog.ClearInstance(_catalog);
         }
@@ -148,7 +153,7 @@ namespace Bugsee.Sample
                     options.Endpoint = endpointOverride.Trim();
                 if (ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "options")
                     AddGatingProbeOptions(options);
-                _launchOptions = options;
+                LastLaunchOptions = options;
                 // "bugsee_launch_thread" = 1 launches from a worker thread (checks that a launch from any thread works).
                 if (ReadE2EValue("bugsee_launch_thread", "BUGSEE_LAUNCH_THREAD") == "1")
                 {
@@ -210,7 +215,7 @@ namespace Bugsee.Sample
                     iosOptions.SetCustomOption("com.bugsee.option.capture.crash-handler-type", handlerType);
                 if (Environment.GetEnvironmentVariable("BUGSEE_E2E_SCENARIO") == "options")
                     AddGatingProbeOptions(iosOptions);
-                _launchOptions = iosOptions;
+                LastLaunchOptions = iosOptions;
                 // BUGSEE_E2E_RELAUNCH_FIRST = 1: Relaunch is the first call, with no Launch before it.
                 if (Environment.GetEnvironmentVariable("BUGSEE_E2E_RELAUNCH_FIRST") == "1")
                     Bugsee.Relaunch(iosOptions);
@@ -274,8 +279,6 @@ namespace Bugsee.Sample
         // Drive e2e from Update (not a coroutine). Fires are deferred to a single
         // call site (`PumpPendingE2EFire`) so identical throws share the same
         // Update() IL offset — worker error signatures hash cleaned frame traces.
-        // What the first Launch used, so a scenario that launches again does it the same way (endpoint, video, debug).
-        Dictionary<string, object> _launchOptions;
         string _e2eScenario;
         bool _skipE2EArming;
         string _e2eRunId;
@@ -355,6 +358,14 @@ namespace Bugsee.Sample
                     {
                         _e2ePhase = 99;
                         _pendingE2EFire = "X:" + _e2eScenario + "-" + _e2eRunId;
+                    }
+                    break;
+                case "interactions":
+                    // Drives every action of the interaction hills (issue #116), once the SDK is launched.
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        StartCoroutine(InteractionsE2E.Run(this));
                     }
                     break;
                 case "actions":
@@ -576,7 +587,7 @@ namespace Bugsee.Sample
                     ShapesE2E.Run(this);
                     break;
                 case 'D':
-                    BlackoutE2E.Run(this, appToken, _launchOptions);
+                    BlackoutE2E.Run(this, appToken, LastLaunchOptions);
                     break;
                 case 'C':
                     SetStatus("E2E native TestCrash");
