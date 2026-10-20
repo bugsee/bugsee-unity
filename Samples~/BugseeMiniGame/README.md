@@ -195,7 +195,7 @@ button that logs every key.
 
 A relaunch REPLACES the SDK's option set on both platforms (the native SDKs do not merge): the options that are not passed again go
 back to their defaults, including the endpoint, `CaptureManagedExceptions` and `CaptureUnobservedTaskExceptions` (`TreatUnityLogExceptionsAsFatal`
-keeps its first-launch value), and `Relaunch()` without options resets every option to its default. The Relaunch bubble therefore passes the whole option set of the last launch again (on Android it used to pass
+is read only when the managed exception hooks are installed, so a relaunch that keeps them does not change it), and `Relaunch()` without options resets every option to its default. The Relaunch bubble therefore passes the whole option set of the last launch again (on Android it used to pass
 only the video options, on iOS nothing).
 
 `BUGSEE_E2E_SCENARIO=presets` waits for the SDK to launch, relaunches with no options to learn each option's SDK default, then

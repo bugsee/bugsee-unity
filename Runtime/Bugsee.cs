@@ -85,7 +85,7 @@ namespace Bugsee
         /// Relaunch the SDK with new options. The options REPLACE the whole option set (native SDKs do not merge): every
         /// native option, the endpoint, <c>CaptureManagedExceptions</c> and <c>CaptureUnobservedTaskExceptions</c> not passed
         /// again goes back to its default, and a call without options resets every option to its default (handlers, filters and
-        /// the lifecycle listener are kept). <c>TreatUnityLogExceptionsAsFatal</c> keeps its first-launch value. Pass the full
+        /// the lifecycle listener are kept). <c>TreatUnityLogExceptionsAsFatal</c> is read only when the managed exception hooks are installed, so a Relaunch that keeps them does not change it. Pass the full
         /// option set you launched with. Does not wait for the SDK, and waits for a stop in flight like
         /// <see cref="Launch"/> (the same 5 s main-thread hand-off applies on iOS). Android ignores it with a
         /// warning unless the SDK is Launched. See <see cref="RelaunchAsync"/> for the result.
