@@ -5,8 +5,8 @@
 #   check-release-build.sh --dev   main: the id is still the `dev` placeholder (a stamped release commit was not merged back)
 #
 # Release checks: C# and Java constants agree; not `dev`; a valid shape; when hash-shaped, that commit is an ANCESTOR of
-# HEAD and HEAD differs from it only in the files a release edits (the two constants, CHANGELOG.md, package.json,
-# Tools~/versions.env), so the id really names the code that was tagged; and the tag is v<package.json version>
+# HEAD and HEAD differs from it only in what a release edits (CHANGELOG.md and the build/version lines of the two constant
+# files, package.json and Tools~/versions.env), so the id really names the code that was tagged; and the tag is v<package.json version>
 # (a prerelease tag such as v0.1.0-rc1 needs package.json "0.1.0-rc1").
 # Run it before `git push --tags`; the release-check workflow repeats it after the push and can only report.
 set -euo pipefail
@@ -40,10 +40,20 @@ if [[ "${CS}" =~ ^[0-9a-f]{7,40}$ ]]; then
     || fail "build id ${CS} is not an ancestor of the tagged commit (it names a commit on another branch)"
   changed="$(git -C "${ROOT_DIR}" diff --name-only "${CS}" HEAD)"
   while IFS= read -r file; do
+    # Besides CHANGELOG.md, a release may change only the build and the package version lines of these files;
+    # the native SDK pins and Maven coordinates beside them are code.
     case "${file}" in
-      ""|Runtime/BugseePackageVersion.cs|Plugins/Android/UnityWrapperIdentity.java|CHANGELOG.md|package.json|Tools~/versions.env) ;;
+      "") continue ;;
+      CHANGELOG.md) continue ;;
+      Runtime/BugseePackageVersion.cs) filter='/(public const string Build|public const string Version) = /d' ;;
+      Plugins/Android/UnityWrapperIdentity.java) filter='/(static final String BUILD|static final String VERSION) = /d' ;;
+      package.json) filter='/^[[:space:]]*"version":/d' ;;
+      Tools~/versions.env) filter='/^BUGSEE_PACKAGE_VERSION=/d' ;;
       *) fail "build id ${CS} does not describe this commit: ${file} changed after it (stamp again from the release commit's parent)" ;;
     esac
+    if [[ "$(git -C "${ROOT_DIR}" show "${CS}:${file}" | sed -E "${filter}")" != "$(git -C "${ROOT_DIR}" show "HEAD:${file}" | sed -E "${filter}")" ]]; then
+      fail "build id ${CS} does not describe this commit: ${file} changed beyond its build/version lines"
+    fi
   done <<<"${changed}"
 fi
 
