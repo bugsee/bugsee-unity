@@ -21,6 +21,20 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(text, Does.Contain("${CONFIGURATION}\" = \"Debug\""));
         }
 
+        // The Xcode build that archives is often another process than the Unity export: the switch is read when the script runs.
+        [TestCase("1")]
+        [TestCase("")]
+        public void Archive_script_uploads_nothing_when_the_symbol_upload_opt_out_is_set(string value)
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, noSymbolUpload: value);
+            Assert.That(run.Calls, Is.Empty, run.Output);
+            Assert.That(run.Output, Does.Contain("skip symbol upload (BUGSEE_NO_SYMBOL_UPLOAD is set)"));
+            Assert.That(run.ExitCode, Is.EqualTo(0));
+
+            var without = RunScript(new[] { "BugseeMiniGame.app.dSYM" });
+            Assert.That(without.Calls.Any(c => c.Contains("--type dsym")), Is.True, without.Output);
+        }
+
         // Unity's Debug configuration writes no dSYM, so an upload there would otherwise end silently with nothing sent.
         [Test]
         public void Archive_script_warns_when_the_build_has_no_dsym()
@@ -469,7 +483,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
         static ScriptRun RunScript(string[] dsymBundles, int cliExitCode = 0, string token = "test-token",
             string platform = "iphoneos", Action<string> plant = null, long exportStart = 0, string uuids = null, string tmpDir = null,
-            string[] cliNoise = null, string action = null)
+            string[] cliNoise = null, string action = null, string noSymbolUpload = null)
         {
             if (!File.Exists("/bin/sh"))
                 Assert.Ignore("needs /bin/sh");
@@ -511,6 +525,8 @@ namespace Bugsee.WrapperPolicy.Tests
                 info.Environment["PLATFORM_NAME"] = platform;
                 info.Environment["PROJECT_DIR"] = projectDir;
                 info.Environment.Remove("BUGSEE_SKIP_UPLOAD_ON_DEBUG");
+                if (noSymbolUpload != null) info.Environment["BUGSEE_NO_SYMBOL_UPLOAD"] = noSymbolUpload;
+                else info.Environment.Remove("BUGSEE_NO_SYMBOL_UPLOAD");
                 if (tmpDir != null) info.Environment["TMPDIR"] = tmpDir;
                 if (action == null) info.Environment.Remove("ACTION"); else info.Environment["ACTION"] = action;
                 if (uuids != null) info.Environment["BUGSEE_IL2CPP_UUIDS"] = uuids;

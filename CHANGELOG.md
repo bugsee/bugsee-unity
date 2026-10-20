@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Editor:** the il2cpp-linemap upload (and the iOS export's deferred-upload pointer and Append-export sweep) now honours `BUGSEE_NO_SYMBOL_UPLOAD` like the R8 mapping and native symbol uploads; before, it ran with a token set even when the switch was set. The IL2CPP map files are still emitted (`BUGSEE_NO_IL2CPP_MAPPING` turns that off).
+- **Editor, iOS:** the il2cpp-linemap upload (and the iOS export's deferred-upload pointer and Append-export sweep) now honours `BUGSEE_NO_SYMBOL_UPLOAD` like the R8 mapping and native symbol uploads; before, it ran with a token set even when the switch was set. The iOS Xcode Run Script reads the switch too when it runs (uploads nothing, dSYMs included). The IL2CPP map files are still emitted (`BUGSEE_NO_IL2CPP_MAPPING` turns that off).
 - **iOS:** lifecycle events that arrive before the managed callback is registered (for example from a launch the host made natively before any C# call) are held, up to 128, and replayed in order on the main queue after the registering `Launch` or `Relaunch` call, as on Android, instead of being dropped. `Relaunch` now registers the wrapper like `Launch`.
 - **iOS:** a lifecycle payload that is a dictionary reaches `LifecycleEvent` / `ILifecycleEventListener` as a `Dictionary<string, object>`, as on Android, not as raw JSON text; a one-key dictionary is no longer mistaken for a string.
 

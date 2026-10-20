@@ -69,6 +69,10 @@ if [ ""${CONFIGURATION}"" = ""Debug"" ] && [ ""${BUGSEE_SKIP_UPLOAD_ON_DEBUG}"" 
   echo ""Bugsee: skip symbol upload for Debug (BUGSEE_SKIP_UPLOAD_ON_DEBUG=1).""
   exit 0
 fi
+if [ -n ""${BUGSEE_NO_SYMBOL_UPLOAD+x}"" ]; then
+  echo ""Bugsee: skip symbol upload (BUGSEE_NO_SYMBOL_UPLOAD is set).""
+  exit 0
+fi
 if [ -z ""${BUGSEE_APP_TOKEN}"" ]; then
   PREFIX=warning:; [ -z ""${ACTION}"" ] || [ ""${ACTION}"" = install ] || PREFIX=note:
   printf '%s\n' ""${PREFIX} Bugsee: BUGSEE_APP_TOKEN unset — dSYMs and the il2cpp line map are NOT uploaded (the build continues). Xcode's GUI does not see your shell's environment: set it in your CI / Xcode Cloud environment, or add a user-defined build setting named BUGSEE_APP_TOKEN to the Unity-iPhone target (a Unity Replace export regenerates the project, so add it again after each export).""

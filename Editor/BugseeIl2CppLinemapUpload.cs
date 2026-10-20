@@ -34,8 +34,9 @@ namespace Bugsee.Editor
             DeleteIosPendingLinemap(report);
             SweepIosIl2CppOutput(report);
 
-            if (Environment.GetEnvironmentVariable("BUGSEE_NO_IL2CPP_MAPPING") != null
-                || Environment.GetEnvironmentVariable("BUGSEE_NO_SYMBOL_UPLOAD") != null)
+            if (!SymbolUploadPolicy.LinemapUploadAllowed(
+                    Environment.GetEnvironmentVariable("BUGSEE_NO_SYMBOL_UPLOAD") != null,
+                    Environment.GetEnvironmentVariable("BUGSEE_NO_IL2CPP_MAPPING") != null))
             {
                 return;
             }
@@ -168,8 +169,9 @@ namespace Bugsee.Editor
 
             try
             {
-                var mayDelete = Environment.GetEnvironmentVariable("BUGSEE_NO_IL2CPP_MAPPING") == null
-                    && Environment.GetEnvironmentVariable("BUGSEE_NO_SYMBOL_UPLOAD") == null
+                var mayDelete = SymbolUploadPolicy.LinemapUploadAllowed(
+                        Environment.GetEnvironmentVariable("BUGSEE_NO_SYMBOL_UPLOAD") != null,
+                        Environment.GetEnvironmentVariable("BUGSEE_NO_IL2CPP_MAPPING") != null)
                     && BugseeCliRunner.HasAppToken
                     && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("BUGSEE_IL2CPP_MAPPING"));
                 var projectRoot = Path.GetDirectoryName(Application.dataPath);

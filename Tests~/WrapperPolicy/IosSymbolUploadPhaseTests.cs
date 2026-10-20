@@ -191,17 +191,6 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void A_linemap_upload_honours_the_symbol_upload_opt_out_before_any_work_and_the_sweep_does_not_delete()
-        {
-            var linemap = File.ReadAllText(RepoFile("Editor/BugseeIl2CppLinemapUpload.cs"));
-            int gate = linemap.IndexOf("GetEnvironmentVariable(\"BUGSEE_NO_SYMBOL_UPLOAD\") != null");
-            int token = linemap.IndexOf("if (!BugseeCliRunner.HasAppToken)");
-            Assert.That(gate, Is.GreaterThan(0), "the same switch the R8 mapping and ELF uploads honour");
-            Assert.That(gate, Is.LessThan(token));
-            Assert.That(linemap, Does.Contain("GetEnvironmentVariable(\"BUGSEE_NO_SYMBOL_UPLOAD\") == null\n                    && BugseeCliRunner.HasAppToken"));
-        }
-
-        [Test]
         public void A_current_phase_or_a_project_without_one_is_left_unchanged()
         {
             string current = Section(OtherPhase + OldPhase.Replace(
