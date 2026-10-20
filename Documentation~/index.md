@@ -112,7 +112,8 @@ Managed exceptions use the **UnityManagedException** JSON-in-reason contract (`n
 
 | Mode | Build / capture | Backend | File:line? |
 |---|---|---|---|
-| **A. Rich managed stacks** | Mono, or IL2CPP **Method Name, File Name, and Line Number** (or Script Debugging) | Parse `frames[].trace` | **Yes** (from string) |
+| **A. Rich managed stacks** | Mono **Development Build** (a portable `.pdb` ships next to each assembly), or IL2CPP **Method Name, File Name, and Line Number** (or Script Debugging) | Parse `frames[].trace` | **Yes** (from string) |
+| **A0. Mono Release** | Mono without Development Build: no `.pdb` in the player, the text is `at Ns.C.M (System.String a) [0x0000b] in <module-guid>:0` | Parse `frames[].trace` | **No**: method names only. The IL offset is not resolved anywhere (the CLI's `PortablePdb` type is a scaffold; the worker reads no Portable PDB). A Development Build has file:line for assemblies Unity compiles (not for store builds; a managed plug-in without a `.pdb` stays IL-offset only); IL2CPP has it only where Unity offers IL2CPP line information. A Release Mono Android build logs a build-time warning. |
 | **B. Release Method-only + LNM** | IL2CPP; thrown exception; SDK emits native IPs via `il2cpp_native_stack_trace` | PC → dSYM/ELF → LineNumberMappings | **In progress** (needs symbols + `il2cpp-linemap`; addresses are module-relative) |
 | **C. MethodMap only** | IL2CPP mangled names; map uploaded | MethodMap.tsv demangle | **Names only** (no invented `.cs:line`) |
 
@@ -168,7 +169,7 @@ Failure policy: **never fail the Unity build**. Missing maps/UUIDs/CLI → warn 
 
 **Android**
 
-1. Scripting Backend: **IL2CPP** is the supported configuration for fully symbolicated native crashes. With Mono, frames inside the Mono runtime (`libmonobdwgc-2.0.so`, `libmono-native.so`, `libMonoPosixHelper.so`) cannot be symbolicated: Unity 2021.3 has no Mono ARM64 (ARMv7 only) and those libraries have no GNU build-id. Frames in `libunity.so` and `libmain.so` still symbolicate. A Mono Android build logs a one-time warning at build time (whether or not symbol upload is configured) and is never failed
+1. Scripting Backend: **IL2CPP** is the supported configuration for fully symbolicated native crashes. With Mono, frames inside the Mono runtime (`libmonobdwgc-2.0.so`, `libmono-native.so`, `libMonoPosixHelper.so`) cannot be symbolicated: Unity 2021.3 has no Mono ARM64 (ARMv7 only) and those libraries have no GNU build-id. Frames in `libunity.so` and `libmain.so` still symbolicate. A Mono Android build logs a one-time warning at build time (whether or not symbol upload is configured) and is never failed. A Mono build that is not a Development Build logs a second one-time warning: its managed frames have IL offsets only (`[0x0000b] in <module-guid>:0`), no C# file or line
 2. Create symbols.zip / native debug symbols enabled
 3. For primary LNM apply: native debug symbol level **FULL** (DWARF lines), not SYMBOL_TABLE-only
 4. No custom Gradle templates needed: Bugsee patches the generated Gradle project (the Bugsee Gradle plugin with `ndk { enabled = true }` when it pins AGP 8.6+, i.e. Unity 6; on older AGPs, see below); a template of your own that pins another AGP major than your Unity's default fails the build and is reported (file layouts the patching understands: [Gradle file layouts](#gradle-file-layouts))
@@ -343,7 +344,7 @@ Device/CI proof remains manual.
 
 1. `CaptureManagedExceptions` enabled (default).
 2. Unhandled managed exception / `LogUnhandledException` appears once (no dual-hook duplicates).
-3. **Mode A:** MethodFileLineNumber / Mono → viewer shows C# file:line from stack strings.
+3. **Mode A:** MethodFileLineNumber / Mono Development build → viewer shows C# file:line from stack strings.
 4. **Mode B (in progress):** Release IL2CPP + uploaded dSYM/ELF + `il2cpp-linemap` → `LogException` on a **thrown** exception emits native IPs for worker LNM. Validate on device before treating as parity with Sentry.
 5. **Mode C:** MethodMap demangles mangled names when module UUID(s) match (names only if no addresses/lines).
 
