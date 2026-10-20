@@ -467,9 +467,72 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(IosArchiveUploadScript.Build(null, 1_800_000_000), Does.Contain("EXPORT_START='1800000000'\n"));
         }
 
+        // A Unity export sets no MARKETING_VERSION / CURRENT_PROJECT_VERSION: the version and build come from the built
+        // app's Info.plist (the Player Settings' values), and the flags are left out when nothing is known.
+        const string PlistRelative = "BugseeMiniGame.app/Info.plist";
+
+        static void PlantPlist(string root, string version, string build)
+        {
+            var path = Path.Combine(root, "Build", "Products", "Debug-iphoneos", PlistRelative);
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            File.WriteAllText(path, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict>"
+                + "<key>CFBundleShortVersionString</key><string>" + version + "</string>"
+                + "<key>CFBundleVersion</key><string>" + build + "</string></dict></plist>\n");
+        }
+
+        static Dictionary<string, string> NoBuildSettings(bool withPlistPath) => new Dictionary<string, string>
+        {
+            { "MARKETING_VERSION", null },
+            { "CURRENT_PROJECT_VERSION", null },
+            { "TARGET_BUILD_DIR", null },
+            { "INFOPLIST_PATH", withPlistPath ? PlistRelative : null },
+        };
+
+        [Test]
+        public void Archive_script_takes_version_and_build_from_the_built_info_plist()
+        {
+            if (!File.Exists("/usr/libexec/PlistBuddy"))
+                Assert.Ignore("needs PlistBuddy");
+            var env = NoBuildSettings(true);
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, env: env,
+                plant: root => PlantPlist(root, "3.4.5", "678"));
+            // TARGET_BUILD_DIR is not set by the harness: the script falls back to BUILT_PRODUCTS_DIR.
+            Assert.That(run.Calls.Single(c => c.Contains("--type dsym")), Does.EndWith("--type dsym --version 3.4.5 --build 678"), run.Output);
+        }
+
+        [Test]
+        public void Archive_script_omits_version_and_build_when_unknown()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, env: NoBuildSettings(false));
+            Assert.That(run.Calls.Single(c => c.Contains("--type dsym")), Does.EndWith("--type dsym"), run.Output);
+            Assert.That(run.Output, Does.Contain("no app version found").And.Contain("no app build number found"));
+        }
+
+        [Test]
+        public void Archive_script_omits_an_unexpanded_build_setting_reference_from_the_plist()
+        {
+            if (!File.Exists("/usr/libexec/PlistBuddy"))
+                Assert.Ignore("needs PlistBuddy");
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, env: NoBuildSettings(true),
+                plant: root => PlantPlist(root, "$(MARKETING_VERSION)", "9"));
+            Assert.That(run.Calls.Single(c => c.Contains("--type dsym")), Does.EndWith("--type dsym --build 9"), run.Output);
+        }
+
+        [Test]
+        public void Archive_script_prefers_bugsee_version_and_build_over_the_plist()
+        {
+            if (!File.Exists("/usr/libexec/PlistBuddy"))
+                Assert.Ignore("needs PlistBuddy");
+            var env = NoBuildSettings(true);
+            env["BUGSEE_VERSION"] = "7.0 beta";
+            env["BUGSEE_BUILD"] = "70";
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, env: env, plant: root => PlantPlist(root, "3.4.5", "678"));
+            Assert.That(run.Calls.Single(c => c.Contains("--type dsym")), Does.EndWith("--type dsym --version 7.0 beta --build 70"), run.Output);
+        }
+
         static ScriptRun RunScript(string[] dsymBundles, int cliExitCode = 0, string token = "test-token",
             string platform = "iphoneos", Action<string> plant = null, long exportStart = 0, string uuids = null, string tmpDir = null,
-            string[] cliNoise = null, string action = null)
+            string[] cliNoise = null, string action = null, Dictionary<string, string> env = null)
         {
             if (!File.Exists("/bin/sh"))
                 Assert.Ignore("needs /bin/sh");
@@ -513,6 +576,13 @@ namespace Bugsee.WrapperPolicy.Tests
                 info.Environment.Remove("BUGSEE_SKIP_UPLOAD_ON_DEBUG");
                 if (tmpDir != null) info.Environment["TMPDIR"] = tmpDir;
                 if (action == null) info.Environment.Remove("ACTION"); else info.Environment["ACTION"] = action;
+                if (env != null)
+                {
+                    foreach (var pair in env)
+                    {
+                        if (pair.Value == null) info.Environment.Remove(pair.Key); else info.Environment[pair.Key] = pair.Value;
+                    }
+                }
                 if (uuids != null) info.Environment["BUGSEE_IL2CPP_UUIDS"] = uuids;
                 else info.Environment.Remove("BUGSEE_IL2CPP_UUIDS");
 
