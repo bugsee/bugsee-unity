@@ -78,7 +78,7 @@ namespace Bugsee.Sample
         string _bottom = "160";
 
         // Attribute / identity.
-        string _attrKey = "sample.key";
+        string _attrKey = BugseeActionCatalog.AttributeKey;
         string _attrValue = "value";
         string _userId = "anteater-explorer";
 
@@ -139,7 +139,10 @@ namespace Bugsee.Sample
 
         public void ShowAttribute(string key = null, string value = null)
         {
-            if (!string.IsNullOrEmpty(key))
+            // Re-opening while the form is already open must not wipe what is being typed.
+            if (_kind != FormKind.Attribute)
+                _attrKey = !string.IsNullOrEmpty(key) ? key : BugseeActionCatalog.AttributeKey;
+            else if (!string.IsNullOrEmpty(key))
                 _attrKey = key;
             if (value != null)
                 _attrValue = value;
@@ -178,6 +181,7 @@ namespace Bugsee.Sample
             _kind = FormKind.None;
             _error = null;
             _expandedColorKey = null;
+            GUIUtility.keyboardControl = 0; // release text-field focus so the hill shortcuts work again
         }
 
         void Open(FormKind kind)
@@ -457,6 +461,7 @@ namespace Bugsee.Sample
             try
             {
                 Bugsee.SetAttribute(_attrKey.Trim(), _attrValue ?? "");
+                BugseeActionCatalog.AttributeKey = _attrKey.Trim();
                 Status("SetAttribute " + _attrKey.Trim() + "=" + _attrValue);
                 Close();
             }
