@@ -57,7 +57,9 @@ namespace Bugsee.Internal
                 if (_instance != null)
                 {
                     // A Relaunch calls Install again with the new options: the hooks stay, but this one is a switch.
+#if !NET_LEGACY
                     _instance.SyncUnobservedTaskHandler(launchOptions);
+#endif
                     return;
                 }
 
