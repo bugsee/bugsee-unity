@@ -260,6 +260,50 @@ namespace Bugsee.Platform.Android
         }
     }
 
+    /// <summary>
+    /// The SDK's <c>requestData</c> channel for the one flow Unity answers (the managed view hierarchy). Called on the Android
+    /// main thread; the scene is read on Unity's thread and the reply is made from there, so this never blocks the UI thread.
+    /// </summary>
+    sealed class DataRequestProviderProxy : AndroidJavaProxy
+    {
+        public DataRequestProviderProxy()
+            : base("com.bugsee.library.contracts.common.DataRequestProvider")
+        {
+        }
+
+        public void requestData(string dataType, AndroidJavaObject callback)
+        {
+            if (callback == null) return;
+            try
+            {
+                ManagedViewHierarchy.Handle(dataType, () => 1f, json => Reply(callback, json));
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                Reply(callback, null);
+            }
+        }
+
+        static void Reply(AndroidJavaObject callback, string json)
+        {
+            try
+            {
+                if (json != null)
+                {
+                    callback.Call("onResult", json);
+                }
+                else
+                {
+                    using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
+                        wrapper.CallStatic("replyNoData", callback);
+                }
+            }
+            catch (Exception ex) { Debug.LogException(ex); }
+            finally { callback.Dispose(); }
+        }
+    }
+
     sealed class RunnableProxy : AndroidJavaProxy
     {
         readonly Action _action;
