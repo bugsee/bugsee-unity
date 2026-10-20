@@ -12,7 +12,7 @@ namespace Bugsee.Sample
     /// floating point, decimal and bool values through every bridge path that turns a value into wire text: attributes (read back
     /// with GetAttribute), event parameters, a trace value, LogException fields and breadcrumb filter data. An attribute must read
     /// back as the double 1.5 (not "1,5") and the bool as a bool. What native does with event, trace and exception values is not
-    /// readable from C#, so for those paths the run proves the call went through under that culture without an exception; the
+    /// readable from C#, so those paths are smoke checks only (the call went through under that culture without an exception; labelled SMOKE ONLY in the log) and only the attribute read-back can detect the bug; the
     /// wire text itself is covered by Tests~/WrapperPolicy/CultureInvariantWireTests.cs.
     /// Logs <c>[Sample] culture PASS|FAIL name :: detail</c> and a final <c>done failures=N</c>.
     /// </summary>
@@ -25,28 +25,36 @@ namespace Bugsee.Sample
         {
             _failures = 0;
             var saved = CultureInfo.CurrentCulture;
+            var savedDefault = CultureInfo.DefaultThreadCurrentCulture;
             Debug.Log("[Sample] culture e2e start launched=" + Bugsee.IsLaunched + " status=" + Bugsee.Status);
-            foreach (var name in new[] { "de-DE", "ru-RU" })
+            try
             {
-                CultureInfo.CurrentCulture = new CultureInfo(name);
-                CultureInfo.DefaultThreadCurrentCulture = CultureInfo.CurrentCulture;
-                Debug.Log("[Sample] culture using " + name + " (1.5 formats as \"" + 1.5.ToString() + "\", true as \"" + true.ToString() + "\")");
-                var body = Body(name);
-                while (true)
+                foreach (var name in new[] { "de-DE", "ru-RU" })
                 {
-                    bool more;
-                    try { more = body.MoveNext(); }
-                    catch (Exception ex)
+                    CultureInfo.CurrentCulture = new CultureInfo(name);
+                    CultureInfo.DefaultThreadCurrentCulture = CultureInfo.CurrentCulture;
+                    Debug.Log("[Sample] culture using " + name + " (1.5 formats as \"" + 1.5.ToString() + "\", true as \"" + true.ToString() + "\")");
+                    var body = Body(name);
+                    while (true)
                     {
-                        Check(name, "scenario completed without an exception", false, ex.GetType().Name + ": " + ex.Message);
-                        break;
+                        bool more;
+                        try { more = body.MoveNext(); }
+                        catch (Exception ex)
+                        {
+                            Check(name, "scenario completed without an exception", false, ex.GetType().Name + ": " + ex.Message);
+                            break;
+                        }
+                        if (!more) break;
+                        yield return body.Current;
                     }
-                    if (!more) break;
-                    yield return body.Current;
                 }
             }
-            CultureInfo.CurrentCulture = saved;
-            CultureInfo.DefaultThreadCurrentCulture = null;
+            finally
+            {
+                // Also when the coroutine is stopped part way: the rest of the sample must not run under de-DE.
+                CultureInfo.CurrentCulture = saved;
+                CultureInfo.DefaultThreadCurrentCulture = savedDefault;
+            }
             Debug.Log("[Sample] culture e2e done failures=" + _failures);
         }
 
@@ -90,7 +98,7 @@ namespace Bugsee.Sample
                 Bugsee.AddBreadcrumb("culture-e2e", "under " + culture, "info");
             }
             catch (Exception ex) { ok = false; Debug.Log("[Sample] culture exception " + ex); }
-            Check(culture, "event, trace, exception and breadcrumb calls went through", ok, "no exception");
+            Check(culture, "SMOKE ONLY: event, trace, exception and breadcrumb calls went through", ok, "no exception, what native stored is not checked");
             yield return new WaitForSeconds(3f);
             Debug.Log("[Sample] culture INFO breadcrumb filter " + (_crumbData ?? "did not run (breadcrumb capture may be off)"));
             Bugsee.SetBreadcrumbFilter(null);

@@ -10,7 +10,11 @@ namespace Bugsee.WrapperPolicy.Tests
 {
     /// <summary>
     /// A decimal-comma or non-Gregorian device must send the same wire text as any other (#143): 1.5 not "1,5",
-    /// "true" not "True". The runtime tests swap the current culture; the source scan bans the conversions that read it.
+    /// "true" not "True". The per-path runtime tests below, which swap the current culture, are the real guard. The source
+    /// scan is a best-effort lint on top: it checks each call's own argument list for the conversions that read the culture
+    /// (Convert.To*, Parse/TryParse, string.Format, ToString with a format, ToString() on a few value names, a culture-less
+    /// numeric format spec in an interpolated string, a float literal concatenated into text, CurrentCulture). It cannot
+    /// see types, so implicit formatting of a variable ("x" + d, StringBuilder.Append(d), $"{d}") is not caught.
     /// </summary>
     public class CultureInvariantWireTests
     {
@@ -24,6 +28,9 @@ namespace Bugsee.WrapperPolicy.Tests
                 foreach (var name in Cultures)
                 {
                     CultureInfo.CurrentCulture = new CultureInfo(name);
+                    // Under DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 every culture is invariant and these tests would prove nothing.
+                    if (name == "de-DE" || name == "ru-RU")
+                        Assume.That(1.5.ToString(), Is.EqualTo("1,5"), "culture data is not available (invariant globalization)");
                     try { check(); }
                     catch (AssertionException e) { throw new AssertionException(name + ": " + e.Message, e); }
                 }
@@ -44,7 +51,8 @@ namespace Bugsee.WrapperPolicy.Tests
                 Assert.That(InvariantText.Of(true), Is.EqualTo("true"));
                 Assert.That(InvariantText.Of(false), Is.EqualTo("false"));
                 Assert.That(InvariantText.Of(date), Is.EqualTo("2026-10-21T01:02:03.0000000Z"));
-                Assert.That(InvariantText.Of(DayOfWeek.Friday), Is.EqualTo("Friday"));
+                Assert.That(InvariantText.Of(DayOfWeek.Friday), Is.EqualTo("5")); // the value, as JsonWire sends it
+                Assert.That(InvariantText.Of(0.1 + 0.2), Is.EqualTo("0.30000000000000004"));
                 Assert.That(InvariantText.Of('x'), Is.EqualTo("x"));
                 Assert.That(InvariantText.Of(null), Is.EqualTo(""));
             });
@@ -66,7 +74,7 @@ namespace Bugsee.WrapperPolicy.Tests
             });
         }
 
-        // ---- source scan -------------------------------------------------------------------------------------------
+        // ---- source scan (best effort, see the class comment) --------------------------------------------------------
 
         static string RepoRoot()
         {
@@ -79,67 +87,189 @@ namespace Bugsee.WrapperPolicy.Tests
             throw new InvalidOperationException("package root not found");
         }
 
-        // One entry per statement (lines joined up to the next ; { or }), so a call split over lines is judged whole.
-        static IEnumerable<(string File, int Line, string Text)> Lines()
+        /// <summary>
+        /// Same length as <paramref name="src"/>, with comments, string and char literal contents replaced by spaces (the quotes
+        /// stay), so a bracket or ; inside text or a comment cannot confuse the scan. Also returns the interpolated strings.
+        /// </summary>
+        static string Blank(string src, List<(int Start, int End)> interpolated)
         {
-            var root = RepoRoot();
-            foreach (var folder in new[] { "Runtime", "Editor" })
-                foreach (var file in Directory.GetFiles(Path.Combine(root, folder), "*.cs", SearchOption.AllDirectories))
+            var o = src.ToCharArray();
+            int n = src.Length;
+            for (int i = 0; i < n;)
+            {
+                char c = src[i];
+                if (c == '/' && i + 1 < n && src[i + 1] == '/')
                 {
-                    var lines = File.ReadAllLines(file);
-                    var rel = Path.GetRelativePath(root, file);
-                    var pending = new System.Text.StringBuilder();
-                    int start = 0;
-                    for (int i = 0; i < lines.Length; i++)
-                    {
-                        var t = lines[i].Trim();
-                        if (t.StartsWith("//") || t.StartsWith("*")) continue;
-                        if (pending.Length == 0) start = i + 1;
-                        pending.Append(lines[i]).Append(' ');
-                        if (t.EndsWith(";") || t.EndsWith("{") || t.EndsWith("}") || t.Length == 0)
-                        {
-                            yield return (rel, start, pending.ToString());
-                            pending.Clear();
-                        }
-                    }
-                    if (pending.Length > 0) yield return (rel, start, pending.ToString());
+                    while (i < n && src[i] != '\n') o[i++] = ' ';
                 }
+                else if (c == '/' && i + 1 < n && src[i + 1] == '*')
+                {
+                    int end = src.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                    end = end < 0 ? n : end + 2;
+                    for (; i < end; i++) if (src[i] != '\n') o[i] = ' ';
+                }
+                else if (c == '\'')
+                {
+                    int j = i + 1;
+                    if (j < n && src[j] == '\\') j++;
+                    j++;
+                    while (j < n && src[j] != '\'' && j - i < 12) j++;
+                    for (int k = i + 1; k < j && k < n; k++) o[k] = ' ';
+                    i = j + 1;
+                }
+                else if (c == '"')
+                {
+                    bool verbatim = i > 0 && (src[i - 1] == '@' || (i > 1 && src[i - 1] == '$' && src[i - 2] == '@') || (i > 1 && src[i - 1] == '@' && src[i - 2] == '$'));
+                    bool interp = (i > 0 && src[i - 1] == '$') || (i > 1 && src[i - 2] == '$' && src[i - 1] == '@') || (i > 1 && src[i - 2] == '@' && src[i - 1] == '$');
+                    int j = i + 1;
+                    while (j < n)
+                    {
+                        if (verbatim) { if (src[j] == '"') { if (j + 1 < n && src[j + 1] == '"') { j += 2; continue; } break; } }
+                        else { if (src[j] == '\\') { j += 2; continue; } if (src[j] == '"' || src[j] == '\n') break; }
+                        j++;
+                    }
+                    if (interp) interpolated.Add((i, Math.Min(j, n - 1)));
+                    for (int k = i + 1; k < j && k < n; k++) if (src[k] != '\n') o[k] = ' ';
+                    i = j + 1;
+                }
+                else i++;
+            }
+            return new string(o);
         }
 
-        const string Inv = "InvariantCulture";
-
-        static readonly (string Why, Regex Pattern)[] Banned =
+        /// <summary>The text inside the parentheses that open at <paramref name="open"/>, in the blanked and the original source.</summary>
+        static (string Blanked, string Original) Args(string blank, string src, int open)
         {
-            ("Convert.ToString/ToInt32/ToDouble/ToSingle/ToInt64 without a culture", new Regex(@"Convert\.To(String|Int32|Int64|Double|Single|Decimal)\((?![^;]*" + Inv + ")")),
-            ("number Parse/TryParse without a culture", new Regex(@"\b(int|long|uint|ulong|short|ushort|float|double|decimal|Single|Double|Int32|Int64)\.(Try)?Parse\((?![^;]*" + Inv + ")")),
-            ("string.Format without a culture", new Regex(@"\b[sS]tring\.Format\((?!\s*(CultureInfo|System\.Globalization))")),
-            ("ToString with a non-hex, non-GUID format and no culture", new Regex(@"\.ToString\(""(?![xXNDo]\d*""\))[^""]*""\)")),
-            ("ToString() on a value that is not known to be text", new Regex(@"\b(value|Value|raw|obj|arg|VersionCode|kv\.Value|param|parameter)\.ToString\(\)")),
-        };
+            int depth = 0;
+            for (int i = open; i < blank.Length; i++)
+            {
+                if (blank[i] == '(') depth++;
+                else if (blank[i] == ')' && --depth == 0)
+                    return (blank.Substring(open + 1, i - open - 1), src.Substring(open + 1, i - open - 1));
+            }
+            return (blank.Substring(open + 1), src.Substring(open + 1));
+        }
+
+        static bool HasInvariant(string args) => args.Contains("InvariantCulture");
+
+        static readonly Regex ConvertCall = new Regex(@"\bConvert\.To(String|Int16|Int32|Int64|UInt16|UInt32|UInt64|Double|Single|Decimal|Boolean|DateTime|Byte|SByte|Char)\s*\(");
+        static readonly Regex ParseCall = new Regex(@"\b(int|long|uint|ulong|short|ushort|byte|sbyte|float|double|decimal|Single|Double|Decimal|Int16|Int32|Int64|UInt16|UInt32|UInt64|Byte|SByte|DateTime|DateTimeOffset|TimeSpan)\s*\.\s*(Try)?Parse(Exact)?\s*\(");
+        static readonly Regex FormatCall = new Regex(@"\b[sS]tring\.Format\s*\(");
+        static readonly Regex ToStringCall = new Regex(@"\.ToString\s*\(");
+        static readonly Regex BareToString = new Regex(@"\b(value|Value|raw|obj|arg|args|param|parameter|number|VersionCode|Frequency|Timestamp|timestamp)\s*\.ToString\s*\(\s*\)");
+        static readonly Regex RadixOnly = new Regex(@"^\s*(2|8|10|16)\s*$");
+        static readonly Regex HexFormat = new Regex(@"^\s*""[xX]\d*""\s*$");
+        static readonly Regex RoundTripDateFormat = new Regex(@"^\s*""[oO]""\s*$");
+        static readonly Regex GuidFormat = new Regex(@"^\s*""[NDBPX]""\s*$");
+        static readonly Regex FloatLiteralConcat = new Regex(@"[+]\s*-?\d+\.\d+[fFdDmM]?\b|\b\d+\.\d+[fFdDmM]?\s*[+]\s*""");
+        static readonly Regex AppendFloatLiteral = new Regex(@"\.Append\(\s*-?\d+\.\d+[fFdDmM]?\s*\)");
+        static readonly Regex NumericHole = new Regex(@"\{[^{}:]+:[FfNnEeGgDdPpRrCc]\d*\}");
+
+        /// <summary>The problems one source text has; line numbers are 1-based.</summary>
+        internal static List<string> Scan(string src, string name)
+        {
+            var hits = new List<string>();
+            var interpolated = new List<(int Start, int End)>();
+            var blank = Blank(src, interpolated);
+            int Line(int index) { int l = 1; for (int i = 0; i < index; i++) if (src[i] == '\n') l++; return l; }
+            void Hit(int index, string why) => hits.Add(name + ":" + Line(index) + ": " + why);
+
+            foreach (Match m in ConvertCall.Matches(blank))
+            {
+                var a = Args(blank, src, m.Index + m.Length - 1);
+                if (!HasInvariant(a.Original) && !(a.Blanked.Contains(",") && RadixOnly.IsMatch(a.Blanked.Substring(a.Blanked.LastIndexOf(',') + 1))))
+                    Hit(m.Index, "Convert." + m.Groups[1].Value + " without CultureInfo.InvariantCulture");
+            }
+            foreach (Match m in ParseCall.Matches(blank))
+            {
+                var a = Args(blank, src, m.Index + m.Length - 1);
+                if (!HasInvariant(a.Original))
+                    Hit(m.Index, m.Groups[1].Value + ".Parse/TryParse without CultureInfo.InvariantCulture");
+            }
+            foreach (Match m in FormatCall.Matches(blank))
+            {
+                var a = Args(blank, src, m.Index + m.Length - 1);
+                if (!HasInvariant(a.Original))
+                    Hit(m.Index, "string.Format without CultureInfo.InvariantCulture");
+            }
+            foreach (Match m in ToStringCall.Matches(blank))
+            {
+                var a = Args(blank, src, m.Index + m.Length - 1);
+                var arg = a.Original.Trim();
+                if (arg.Length == 0 || HasInvariant(a.Original)) continue;
+                var first = arg.Split(',')[0];
+                if (arg == first && (HexFormat.IsMatch(first) || RoundTripDateFormat.IsMatch(first))) continue;
+                // "N" / "D" are culture-dependent on a number or date; only a Guid has them as plain hex layouts.
+                if (arg == first && GuidFormat.IsMatch(first) && Regex.IsMatch(blank.Substring(Math.Max(0, m.Index - 40), Math.Min(40, m.Index)), @"[gG]uid[\w.()]*$"))
+                    continue;
+                Hit(m.Index, "ToString(" + arg + ") reads the current culture");
+            }
+            foreach (Match m in BareToString.Matches(blank))
+                Hit(m.Index, "ToString() on a value that may be a number, bool or date: use InvariantText.Of");
+            foreach (Match m in Regex.Matches(blank, @"\bCurrent(UI)?Culture\b"))
+                Hit(m.Index, "uses the current culture");
+            foreach (Match m in FloatLiteralConcat.Matches(blank))
+                Hit(m.Index, "a floating point literal concatenated into text");
+            foreach (Match m in AppendFloatLiteral.Matches(blank))
+                Hit(m.Index, "a floating point literal appended to text");
+            foreach (var (start, end) in interpolated)
+            {
+                var text = src.Substring(start, end - start + 1);
+                if (NumericHole.IsMatch(text) && !src.Substring(Math.Max(0, start - 40), Math.Min(40, start)).Contains("Invariant"))
+                    Hit(start, "interpolated string with a numeric format spec and no FormattableString.Invariant");
+            }
+            return hits;
+        }
 
         [Test]
         public void No_bridge_or_build_path_converts_a_value_with_the_current_culture()
         {
+            var root = RepoRoot();
             var hits = new List<string>();
-            foreach (var (file, line, text) in Lines())
-                foreach (var (why, pattern) in Banned)
-                    if (pattern.IsMatch(text))
-                        hits.Add($"{file}:{line}: {why}: {text.Trim()}");
+            foreach (var folder in new[] { "Runtime", "Editor" })
+                foreach (var file in Directory.GetFiles(Path.Combine(root, folder), "*.cs", SearchOption.AllDirectories))
+                    hits.AddRange(Scan(File.ReadAllText(file), Path.GetRelativePath(root, file)));
             Assert.That(hits, Is.Empty, "Use CultureInfo.InvariantCulture or InvariantText.Of:\n" + string.Join("\n", hits));
         }
 
-        [Test]
-        public void The_scan_catches_what_it_is_meant_to_ban()
+        [TestCase("var s = kv.Value.ToString();")]
+        [TestCase("var s = Convert.ToString(value);")]
+        [TestCase("var s = Convert.ToString(a) + Convert.ToString(b, CultureInfo.InvariantCulture);")]
+        [TestCase("var s = Convert.ToBoolean(x);")]
+        [TestCase("var n = Convert.ToUInt32(x);")]
+        [TestCase("int.TryParse(x, out var n);")]
+        [TestCase("byte.Parse(x);")]
+        [TestCase("var t = TimeSpan.Parse(x);")]
+        [TestCase("var t = DateTime.Parse(x);")]
+        [TestCase("d.ToString(\"F1\");")]
+        [TestCase("d.ToString(\"N1\");")]
+        [TestCase("n.ToString(\"D\");")]
+        [TestCase("date.ToString(\"D\");")]
+        [TestCase("DateTime.Now.ToString(\"yyyyMMdd\");")]
+        [TestCase("string.Format(\"{0}\", d); var x = \"CultureInfo.InvariantCulture\";")]
+        [TestCase("var s = \"a;\"; var t = Convert.ToString(d); // InvariantCulture")]
+        [TestCase("var s = d.ToString(CultureInfo.CurrentCulture);")]
+        [TestCase("var s = \"x\" + 1.5;")]
+        [TestCase("sb.Append(2.5);")]
+        [TestCase("var s = $\"{d:F1}\";")]
+        public void The_scan_catches_what_it_is_meant_to_ban(string code)
         {
-            Assert.That(Banned.Any(b => b.Pattern.IsMatch("var s = kv.Value.ToString();")));
-            Assert.That(Banned.Any(b => b.Pattern.IsMatch("var s = Convert.ToString(value);")));
-            Assert.That(Banned.Any(b => b.Pattern.IsMatch("int.TryParse(x, out var n)")));
-            Assert.That(Banned.Any(b => b.Pattern.IsMatch("d.ToString(\"F1\")")));
-            Assert.That(Banned.Any(b => b.Pattern.IsMatch("string.Format(\"{0}\", d)")));
-            Assert.That(Banned.Any(b => b.Pattern.IsMatch("DateTime.Now.ToString(\"yyyyMMdd\")")));
-            Assert.That(Banned.Any(b => b.Pattern.IsMatch("Convert.ToString(v, CultureInfo.InvariantCulture)")), Is.False);
-            Assert.That(Banned.Any(b => b.Pattern.IsMatch("b.ToString(\"x2\")")), Is.False);
-            Assert.That(Banned.Any(b => b.Pattern.IsMatch("Guid.NewGuid().ToString(\"N\")")), Is.False);
+            Assert.That(Scan(code, "x"), Is.Not.Empty);
+        }
+
+        [TestCase("var s = Convert.ToString(v, CultureInfo.InvariantCulture);")]
+        [TestCase("var b = Convert.ToByte(hex, 16);")]
+        [TestCase("b.ToString(\"x2\");")]
+        [TestCase("dt.ToString(\"o\", CultureInfo.InvariantCulture);")]
+        [TestCase("Guid.NewGuid().ToString(\"N\");")]
+        [TestCase("var s = Convert.ToString(\n  v,\n  CultureInfo.InvariantCulture);")]
+        [TestCase("// Convert.ToString(v) and 1.5.ToString(\"F2\") in a comment\nvar x = 1;")]
+        [TestCase("var s = \"Convert.ToString(v)\";")]
+        [TestCase("var s = sb.ToString();")]
+        [TestCase("int.TryParse(x, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n);")]
+        public void The_scan_allows_invariant_and_non_culture_uses(string code)
+        {
+            Assert.That(Scan(code, "x"), Is.Empty);
         }
     }
 }

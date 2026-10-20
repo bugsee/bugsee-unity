@@ -83,7 +83,7 @@ namespace Bugsee.Platform.IOS
                     continue;
                 }
 
-                parts.Add(JsonWire.String(kv.Key) + ":" + JsonWire.String(global::Bugsee.WrapperPolicy.InvariantText.Of(kv.Value)));
+                parts.Add(JsonWire.String(kv.Key) + ":" + JsonWire.String(InvariantText.Of(kv.Value)));
             }
 
             return "{" + string.Join(",", parts.ToArray()) + "}";
