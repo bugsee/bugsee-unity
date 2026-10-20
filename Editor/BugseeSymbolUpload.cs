@@ -22,8 +22,29 @@ namespace Bugsee.Editor
     {
         public int callbackOrder => 910;
 
+        // When the build that is being exported began (seconds since the Unix epoch), for the Run Script's check that the
+        // line map it finds belongs to this export. Set before the gates below, which only decide about uploading.
+        static long exportStartEpoch;
+
         public void OnPostprocessBuild(BuildReport report)
         {
+            exportStartEpoch = BuildArtifactChoice.UnixSeconds(report.summary.buildStartedAt);
+            if (report.summary.platform == BuildTarget.iOS || report.summary.platform == BuildTarget.tvOS)
+            {
+                // The Run Script's age check is safe only where the export step could compare the exported maps with this build's
+                // own output and bring a valid one's time up to date (an unchanged Append export does not copy it again): see
+                // BugseeIl2CppLinemapUpload's sweep, which runs before this.
+                if (!BugseeIl2CppLinemapUpload.IosAgeCheckSafe)
+                {
+                    exportStartEpoch = 0;
+                    var message = "Bugsee: the exported IL2CPP line map could not be checked against this build's own IL2CPP output " +
+                                  "(not found, a link in the way, or a file's time could not be set); the Run Script uploads the map " +
+                                  "it finds without an age check.";
+                    if (BugseeCliRunner.HasAppToken) Debug.LogWarning(message);
+                    else Debug.Log(message);
+                }
+            }
+
             var optedOut = Environment.GetEnvironmentVariable("BUGSEE_NO_SYMBOL_UPLOAD") != null;
             if (optedOut || !BugseeCliRunner.HasAppToken)
             {
@@ -495,6 +516,14 @@ namespace Bugsee.Editor
             return roots;
         }
 
+        // The DWARF files inside the dSYMs of the app and of UnityFramework, which the script uploads. A configuration
+        // without a dSYM (Debug with DEBUG_INFORMATION_FORMAT = dwarf) leaves them missing; Xcode does not mind.
+        static readonly string[] DsymInputPaths =
+        {
+            "$(DWARF_DSYM_FOLDER_PATH)/$(DWARF_DSYM_FILE_NAME)/Contents/Resources/DWARF/$(EXECUTABLE_NAME)",
+            "$(DWARF_DSYM_FOLDER_PATH)/UnityFramework.framework.dSYM/Contents/Resources/DWARF/UnityFramework",
+        };
+
         static void InjectArchiveUploadScript(string pathToBuiltProject)
         {
             var projectPath = PBXProject.GetPBXProjectPath(pathToBuiltProject);
@@ -518,7 +547,7 @@ namespace Bugsee.Editor
                 if (cli != null) cli = Path.GetFullPath(cli);
             }
 
-            File.WriteAllText(scriptPath, IosArchiveUploadScript.Build(cli), new UTF8Encoding(false));
+            File.WriteAllText(scriptPath, IosArchiveUploadScript.Build(cli, exportStartEpoch), new UTF8Encoding(false));
 
             // Run it through sh: a file written from C# has no executable bit, so invoking the path directly
             // fails the whole build with "Permission denied" (Debug and Release alike, before the script's own
@@ -527,9 +556,26 @@ namespace Bugsee.Editor
                 "/bin/sh \"${PROJECT_DIR}/BugseeScripts/upload-symbols.sh\" || echo \"Bugsee: symbol upload script failed (the build continues).\"\n";
             // An "Append" export keeps the phase an earlier package version added (the bare-path one fails), and
             // AddShellScriptBuildPhase reuses a phase only when its script is identical: update it in place first.
-            project.ReadFromString(XcodeShellScriptPhase.RewriteScript(project.WriteToString(), phaseName, shellScript));
+            // The inputs and "always out of date" (below) are written as text after the phase is added: PBXProject has no API
+            // for them, and a phase that carries them is not recognised as the one AddShellScriptBuildPhase would add (the
+            // export would end with two), so an earlier export's are taken off first.
+            project.ReadFromString(XcodeShellScriptPhase.SetInputs(
+                XcodeShellScriptPhase.RewriteScript(project.WriteToString(), phaseName, shellScript), phaseName, null));
             project.AddShellScriptBuildPhase(target, phaseName, "/bin/sh", shellScript);
+            // The phase reads the exported project and the build's dSYMs and uploads over the network: a sandboxed script
+            // phase (ENABLE_USER_SCRIPT_SANDBOXING = YES, the default of new Xcode projects) is not allowed to, and Xcode
+            // then fails it with "Operation not permitted" before the script starts. Unity leaves the setting unset (off).
+            if (project.GetBuildPropertyForAnyConfig(target, "ENABLE_USER_SCRIPT_SANDBOXING") == "YES")
+            {
+                Debug.Log("[Bugsee] Setting ENABLE_USER_SCRIPT_SANDBOXING to NO on the Unity-iPhone target (it was YES): " +
+                          "Xcode does not start a sandboxed Run Script phase here, so symbols would not be uploaded.");
+            }
+            project.SetBuildProperty(target, "ENABLE_USER_SCRIPT_SANDBOXING", "NO");
             project.WriteToFile(projectPath);
+            // Declared inputs make Xcode run the phase after the tasks that write the app's and UnityFramework's dSYMs: a
+            // phase without inputs may run beside them and find the dSYM missing or half written.
+            File.WriteAllText(projectPath, XcodeShellScriptPhase.SetInputs(File.ReadAllText(projectPath), phaseName, DsymInputPaths),
+                new UTF8Encoding(false));
             Debug.Log(
                 "[Bugsee] Injected Xcode Run Script 'Bugsee Upload Symbols' for archive-time " +
                 "dSYM + il2cpp-linemap upload (requires BUGSEE_APP_TOKEN in the Xcode/CI env).");
