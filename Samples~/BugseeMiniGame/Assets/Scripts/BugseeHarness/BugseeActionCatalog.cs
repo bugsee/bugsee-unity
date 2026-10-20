@@ -59,6 +59,11 @@ namespace Bugsee.Sample
         bool _lifecycleListenerOn;
         bool _feedbackListenerOn;
         SampleLifecycleListener _lifecycleListener;
+        int _exceptionCount;
+
+        /// <summary>Attribute key used by Set/Get/Clear Attr (form, bubbles, debug panel); the last key set wins.</summary>
+        public const string DefaultAttributeKey = "sample.key";
+        public static string AttributeKey { get; set; } = DefaultAttributeKey;
 
         public BugseeActionCatalog(BugseeSampleBootstrap bootstrap)
         {
@@ -142,19 +147,23 @@ namespace Bugsee.Sample
                         break;
 
                     case BugseeDemoAction.LogException:
+                    {
+                        var n = ++_exceptionCount;
                         try
                         {
-                            throw new InvalidOperationException("Sample exception from fields sample");
+                            throw new InvalidOperationException("Sample exception #" + n + " from fields sample");
                         }
                         catch (Exception ex)
                         {
                             Bugsee.LogException(ex, new Dictionary<string, object>
                             {
-                                { "source", "BugseeActionCatalog" }
+                                { "source", "BugseeActionCatalog" },
+                                { "count", n }
                             });
                         }
-                        _bootstrap.SetStatus("LogException");
+                        _bootstrap.SetStatus("LogException #" + n + " sent");
                         break;
+                    }
 
                     case BugseeDemoAction.TestCrash:
                         _bootstrap.SetStatus("TestCrash (native)");
@@ -197,8 +206,7 @@ namespace Bugsee.Sample
 
                     case BugseeDemoAction.ClearIdentity:
                         Bugsee.ClearUserIdentifier();
-                        Bugsee.ClearAllAttributes();
-                        _bootstrap.SetStatus("Clear identity + attributes");
+                        _bootstrap.SetStatus("ClearUserIdentifier (attributes kept)");
                         break;
 
                     case BugseeDemoAction.ToggleIdentity:
@@ -221,14 +229,14 @@ namespace Bugsee.Sample
 
                     case BugseeDemoAction.GetAttribute:
                     {
-                        var v = Bugsee.GetAttribute("field.note");
-                        _bootstrap.SetStatus("GetAttribute field.note=" + (v ?? "(null)"));
+                        var v = Bugsee.GetAttribute(AttributeKey);
+                        _bootstrap.SetStatus("GetAttribute " + AttributeKey + "=" + (v ?? "(null)"));
                         break;
                     }
 
                     case BugseeDemoAction.ClearAttribute:
-                        Bugsee.ClearAttribute("field.note");
-                        _bootstrap.SetStatus("ClearAttribute field.note");
+                        Bugsee.ClearAttribute(AttributeKey);
+                        _bootstrap.SetStatus("ClearAttribute " + AttributeKey);
                         break;
 
                     case BugseeDemoAction.ClearAllAttributes:
@@ -283,10 +291,16 @@ namespace Bugsee.Sample
 
                     case BugseeDemoAction.ObsoletePauseResume:
 #pragma warning disable CS0618
-                        Bugsee.Pause();
-                        Bugsee.Resume();
+                        // Pause()/Resume() are obsolete aliases of StartBlackout()/EndBlackout(): alternate per tap.
+                        var wasPaused = Bugsee.IsBlackout;
+                        if (wasPaused)
+                            Bugsee.Resume();
+                        else
+                            Bugsee.Pause();
 #pragma warning restore CS0618
-                        _bootstrap.SetStatus("Pause+Resume (obsolete → blackout)");
+                        _bootstrap.SetStatus(wasPaused
+                            ? "Resume() (obsolete) -> resumed"
+                            : "Pause() (obsolete) -> paused; tap again to Resume()");
                         break;
 
                     case BugseeDemoAction.Launch:
@@ -345,13 +359,23 @@ namespace Bugsee.Sample
                 case BugseeDemoAction.ToggleLifecycleListener: return "Lifecycle";
                 case BugseeDemoAction.Appearance: return "Appearance";
                 case BugseeDemoAction.StatusReadout: return "Status";
-                case BugseeDemoAction.ObsoletePauseResume: return "Pause/Resume";
+                case BugseeDemoAction.ObsoletePauseResume: return "Pause/Resume (old)";
                 case BugseeDemoAction.Launch: return "Launch";
                 case BugseeDemoAction.Relaunch: return "Relaunch";
                 case BugseeDemoAction.Stop: return "Stop";
                 default: return action.ToString();
             }
         }
+    }
+
+    /// <summary>Selection rule for the E/Space + Q/Tab keyboard path on a hill.</summary>
+    public static class HillSelection
+    {
+        /// <summary>Next selected index, wrapping; 0 when there are no actions.</summary>
+        public static int Next(int current, int count) => count <= 0 ? 0 : (current + 1) % count;
+
+        /// <summary>The selection clamped into range (the action list can change).</summary>
+        public static int Clamp(int current, int count) => count <= 0 ? 0 : Mathf.Clamp(current, 0, count - 1);
     }
 
     sealed class SampleLifecycleListener : ILifecycleEventListener
