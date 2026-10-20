@@ -827,6 +827,37 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Report_dialog_and_upload_default_to_no_severity_so_the_sdk_default_applies()
+        {
+            string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));
+            Assert.That(facade, Does.Match(@"ShowReportDialog\(\s*string summary = """",\s*string description = """",\s*IssueSeverity\? severity = null,"));
+            Assert.That(facade, Does.Match(@"Upload\(\s*string summary,\s*string description = """",\s*IssueSeverity\? severity = null,"));
+            Assert.That(facade, Does.Not.Contain("IssueSeverity severity = IssueSeverity.High"));
+
+            string android = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs"));
+            Assert.That(ExtractMethodBody(android, "public void ShowReportDialog("), Does.Contain("OptionalSeverity(severity)"));
+            Assert.That(ExtractMethodBody(android, "public void Upload("), Does.Contain("OptionalSeverity(severity)"));
+            Assert.That(ExtractMethodBody(android, "static AndroidJavaObject OptionalSeverity("), Does.Contain("severity.HasValue && IssueSeverityWire.ToWire(severity) > 0 ? Severity(severity.Value) : null"));
+
+            string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
+            Assert.That(ios, Does.Contain("_bugsee_show_report(summary ?? \"\", description ?? \"\", IssueSeverityWire.ToWire(severity)"));
+            Assert.That(ios, Does.Contain("_bugsee_upload(summary ?? \"\", description ?? \"\", IssueSeverityWire.ToWire(severity)"));
+        }
+
+        [Test]
+        public void Ios_report_entry_points_use_the_native_overloads_without_severity_when_it_is_omitted()
+        {
+            string bridge = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
+            string show = ExtractNativeFunctionBody(bridge, "_bugsee_show_report");
+            Assert.That(show, Does.Contain("[Bugsee showReportDialog];"));
+            Assert.That(show, Does.Contain("showReportDialogWithSummary:summaryStr ?: @\"\" description:descriptionStr ?: @\"\"];"));
+            Assert.That(show, Does.Contain("hasSeverity ? (BugseeSeverityLevel)severity : BugseeDefaultBugSeverity()"));
+            string upload = ExtractNativeFunctionBody(bridge, "_bugsee_upload");
+            Assert.That(upload, Does.Contain("uploadWithSummary:summaryStr description:descriptionStr];"));
+            Assert.That(upload, Does.Contain("severity > 0 ? (BugseeSeverityLevel)severity : BugseeDefaultBugSeverity()"));
+        }
+
+        [Test]
         public void Ios_live_report_wraps_attachment_list()
         {
             string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
