@@ -235,6 +235,8 @@ namespace Bugsee.Platform.IOS
     sealed class IosLogEvent : ILogEvent
     {
         readonly IosLogDto _dto;
+        // Fields a setter was called on: the result carries exactly these, whatever value they hold.
+        IosLogField _touched;
 
         public IosLogEvent(IosLogDto dto)
         {
@@ -244,16 +246,17 @@ namespace Bugsee.Platform.IOS
         public string Message
         {
             get => _dto.message;
-            set => _dto.message = value;
+            set { _dto.message = value; _touched |= IosLogField.Message; }
         }
 
         public LogLevel Level
         {
             get => LogLevelExtensions.FromRawValue(_dto.level);
-            set => _dto.level = (int)value;
+            set { _dto.level = (int)value; _touched |= IosLogField.Level; }
         }
 
-        public string ToResultJson() => JsonUtility.ToJson(_dto);
+        // Only the fields the filter set: JsonUtility would write every untouched null string as "".
+        public string ToResultJson() => IosEventResultJson.ForLog(_dto.message, _dto.level, _touched);
     }
 
     sealed class IosBreadcrumb : IBreadcrumb
@@ -263,6 +266,8 @@ namespace Bugsee.Platform.IOS
         // Data hands out a mutable dictionary, so any access counts as a touch. Until then the result omits `data`
         // and native keeps its own (exact numbers, nulls, a nil data stay as they were).
         bool _dataTouched;
+        // Fields a setter was called on: the result carries exactly these, whatever value they hold.
+        IosBreadcrumbField _touched;
 
         public IosBreadcrumb(IosBreadcrumbDto dto, IDictionary<string, object> data)
         {
@@ -280,25 +285,25 @@ namespace Bugsee.Platform.IOS
         public string Category
         {
             get => _dto.category;
-            set => _dto.category = value;
+            set { _dto.category = value; _touched |= IosBreadcrumbField.Category; }
         }
 
         public string Message
         {
             get => _dto.message;
-            set => _dto.message = value;
+            set { _dto.message = value; _touched |= IosBreadcrumbField.Message; }
         }
 
         public string Type
         {
             get => _dto.type;
-            set => _dto.type = value;
+            set { _dto.type = value; _touched |= IosBreadcrumbField.Type; }
         }
 
         public LogLevel? Level
         {
             get => _dto.level == 0 ? (LogLevel?)null : LogLevelExtensions.FromRawValue(_dto.level);
-            set => _dto.level = value.HasValue ? (int)value.Value : 0;
+            set { _dto.level = value.HasValue ? (int)value.Value : 0; _touched |= IosBreadcrumbField.Level; }
         }
 
         public IDictionary<string, object> Data
@@ -317,9 +322,12 @@ namespace Bugsee.Platform.IOS
             }
         }
 
-        // A touched data goes back as a real JSON object (nested values and scalar kinds kept), not through JsonUtility.
+        // Only the fields the filter set go back (JsonUtility would write every untouched null string as ""), and a
+        // touched data as a real JSON object (nested values and scalar kinds kept).
         public string ToResultJson() =>
-            IosBridgeJson.AppendObjectField(JsonUtility.ToJson(_dto), "data", _dataTouched ? _data : null);
+            IosBridgeJson.AppendObjectField(
+                IosEventResultJson.ForBreadcrumb(_dto.category, _dto.message, _dto.type, _dto.level, _touched),
+                "data", _dataTouched ? _data : null);
     }
 
     /// <summary>

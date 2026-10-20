@@ -577,6 +577,9 @@ namespace Bugsee.Sample
         /// <see cref="LogMarker"/> (<see cref="LogMarkerDropped"/>) are counted apart, so a check can tell its own events from the SDK's.
         /// </summary>
         public static volatile string BreadcrumbMarker;
+
+        /// <summary>When set, a breadcrumb in that category keeps flowing but its message is edited (the only field touched).</summary>
+        public static volatile string BreadcrumbEditMarker;
         public static volatile string LogMarker;
         static int _breadcrumbMarkerDropped, _logMarkerDropped;
         public static int BreadcrumbMarkerDropped => Volatile.Read(ref _breadcrumbMarkerDropped);
@@ -660,6 +663,8 @@ namespace Bugsee.Sample
                 Debug.Log("[BugseeSample] breadcrumb filter dropped #" + n + " category=" + e.Category);
                 return null;
             }
+            var editMarker = BreadcrumbEditMarker;
+            if (editMarker != null && e.Category == editMarker) e.Message = "[edited]";
             return e;
         }
     }

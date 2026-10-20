@@ -85,6 +85,22 @@ namespace Bugsee.Sample
                 SampleFilters.Summary);
             Check("with the filters off nothing is redacted or dropped",
                 SampleFilters.NetworkRedacted == 0 && SampleFilters.BreadcrumbDropped == 0 && SampleFilters.LogDropped == 0, SampleFilters.Summary);
+
+            // 3. Filters on but nothing dropped or redacted (issue #160): a breadcrumb the filter leaves alone must reach the SDK
+            // unchanged, and one whose message the filter edits must keep its category and type (JsonUtility wrote every untouched null
+            // string as ""). The SDK exposes no read-back, so a device run of this phase is read in the native log.
+            b.ApplyFilters(true);
+            SampleFilters.NetworkRedactEnabled = false;
+            SampleFilters.LogDropDebugEnabled = false;
+            SampleFilters.BreadcrumbDropEnabled = false;
+            SampleFilters.ResetCounters();
+            SampleFilters.BreadcrumbEditMarker = "e2e-edit";
+            x.AddBreadcrumb("e2e-pass", "left alone", "info");
+            x.AddBreadcrumb("e2e-edit", "to be edited", "info");
+            yield return WaitFor(() => SampleFilters.BreadcrumbSeen >= 2, WaitSeconds);
+            Check("breadcrumb filter saw an untouched and an edited breadcrumb", SampleFilters.BreadcrumbSeen >= 2, SampleFilters.Summary);
+            Check("nothing is dropped while the filters pass events through", SampleFilters.BreadcrumbDropped == 0, SampleFilters.Summary);
+            SampleFilters.BreadcrumbEditMarker = null;
         }
 
         /// <summary>Writes a Debug line to logcat (Android only), which the SDK captures and passes through the log filter.</summary>

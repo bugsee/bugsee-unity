@@ -223,7 +223,7 @@ drops every breadcrumb (the scenario counts its own `e2e` breadcrumbs apart from
 Debug and Verbose lines. `Bugsee.Log` lines skip the log filter on both platforms (the wrapper submits them without filtering), so
 the log filter only sees what the SDK captures itself (the Unity log, logcat on Android); on iOS which Debug lines it drops depends
 on what the SDK logs, so the scenario only requires that it ran there. It then turns the filters off and checks that the SDK calls
-no filter any more (the seen counters stay 0). It logs `[Sample] filters PASS|FAIL ...` lines ending in
+no filter any more (the seen counters stay 0), then runs the filters in pass-through mode (nothing dropped; one breadcrumb is left alone, one has only its message edited) to exercise results that carry only the touched fields (#160; read the applied values in the native log). It logs `[Sample] filters PASS|FAIL ...` lines ending in
 `filters e2e done failures=N`. The sample launches with `CaptureBreadcrumbs = true`: the option is off by default, and without it no
 breadcrumb reaches the breadcrumb filter. The HUD shows the live counters on its `flt on|off nR/S lD/S bD/S` line (redacted or
 dropped / seen, for the network, log and breadcrumb filter); the network and breadcrumb filters also log each redaction or drop.

@@ -210,11 +210,14 @@ static NSDictionary *BugseeUnityLogToDict(BugseeLogEvent *event)
     };
 }
 
+// Only the keys present are applied; a JSON null clears a string (the filter assigned null), and an absent key
+// leaves the SDK's own value alone.
 static void BugseeUnityApplyLogDict(BugseeLogEvent *event, NSDictionary *d)
 {
     if (![d isKindOfClass:[NSDictionary class]] || !event) return;
     id msg = d[@"message"];
     if ([msg isKindOfClass:[NSString class]]) event.text = msg;
+    else if (msg == [NSNull null]) event.text = nil;
     id level = d[@"level"];
     if ([level respondsToSelector:@selector(intValue)]) event.level = (BugseeLogLevel)[level intValue];
 }
@@ -231,12 +234,19 @@ static NSDictionary *BugseeUnityBreadcrumbToDict(id<BGSBreadcrumb> crumb)
     return d;
 }
 
+// Only the keys present are applied; a JSON null clears a string (the filter assigned null).
 static void BugseeUnityApplyBreadcrumbDict(id<BGSBreadcrumb> crumb, NSDictionary *d)
 {
     if (![d isKindOfClass:[NSDictionary class]] || !crumb) return;
-    id cat = d[@"category"]; if ([cat isKindOfClass:[NSString class]]) crumb.category = cat;
-    id msg = d[@"message"]; if ([msg isKindOfClass:[NSString class]]) crumb.message = msg;
-    id type = d[@"type"]; if ([type isKindOfClass:[NSString class]]) crumb.type = type;
+    id cat = d[@"category"];
+    if ([cat isKindOfClass:[NSString class]]) crumb.category = cat;
+    else if (cat == [NSNull null]) crumb.category = nil;
+    id msg = d[@"message"];
+    if ([msg isKindOfClass:[NSString class]]) crumb.message = msg;
+    else if (msg == [NSNull null]) crumb.message = nil;
+    id type = d[@"type"];
+    if ([type isKindOfClass:[NSString class]]) crumb.type = type;
+    else if (type == [NSNull null]) crumb.type = nil;
     id level = d[@"level"]; if ([level respondsToSelector:@selector(integerValue)]) crumb.level = [level integerValue];
     id data = d[@"data"]; if ([data isKindOfClass:[NSDictionary class]]) crumb.data = data;
 }
@@ -1025,6 +1035,42 @@ const char *_bugsee_test_apply_breadcrumb_result(const char *startDataJson, cons
     id data = crumb.data;
     if (!data) return strdup("null");
     NSData *json = [NSJSONSerialization dataWithJSONObject:data options:NSJSONWritingSortedKeys error:nil];
+    NSString *text = json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] : nil;
+    return strdup((text ?: @"unserializable").UTF8String);
+}
+
+// Builds a real SDK log event with the given text and level, applies a filter result the way _bugsee_complete_filter
+// does, and returns {"text":..|null,"level":n} as JSON. Caller frees.
+const char *_bugsee_test_apply_log_result(const char *startText, int startLevel, const char *resultJson)
+{
+    BugseeLogEvent *event = [BugseeLogEvent new];
+    event.text = startText ? [NSString stringWithUTF8String:startText] : nil;
+    event.level = (BugseeLogLevel)startLevel;
+    BugseeUnityApplyLogDict(event, BugseeUnityParseJson(resultJson));
+    NSDictionary *d = @{ @"text": event.text ?: [NSNull null], @"level": @((int)event.level) };
+    NSData *json = [NSJSONSerialization dataWithJSONObject:d options:NSJSONWritingSortedKeys error:nil];
+    NSString *text = json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] : nil;
+    return strdup((text ?: @"unserializable").UTF8String);
+}
+
+// Builds a real SDK breadcrumb (category, message, type, level; a NULL string is nil), applies a filter result the way
+// _bugsee_complete_filter does, and returns its category, message, type and level as JSON (nil as null). Caller frees.
+const char *_bugsee_test_apply_breadcrumb_fields(const char *category, const char *message, const char *type,
+                                                 int level, const char *resultJson)
+{
+    id factory = [Bugsee getExchangeFactory];
+    if (!factory) return NULL;
+    id<BGSBreadcrumb> crumb = [factory createBreadcrumbWithTimestamp:1.0
+                                                            category:category ? [NSString stringWithUTF8String:category] : nil
+                                                               level:(BugseeLogLevel)level
+                                                             message:message ? [NSString stringWithUTF8String:message] : nil
+                                                                type:type ? [NSString stringWithUTF8String:type] : nil
+                                                                data:nil];
+    if (!crumb) return NULL;
+    BugseeUnityApplyBreadcrumbDict(crumb, BugseeUnityParseJson(resultJson));
+    NSDictionary *d = @{ @"category": crumb.category ?: [NSNull null], @"message": crumb.message ?: [NSNull null],
+                         @"type": crumb.type ?: [NSNull null], @"level": @((int)crumb.level) };
+    NSData *json = [NSJSONSerialization dataWithJSONObject:d options:NSJSONWritingSortedKeys error:nil];
     NSString *text = json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] : nil;
     return strdup((text ?: @"unserializable").UTF8String);
 }

@@ -13,6 +13,8 @@ const char *_bugsee_test_copy_wrapper_version(void);
 const char *_bugsee_test_copy_wrapper_build(void);
 int _bugsee_test_wrapper_installed(void);
 const char *_bugsee_test_apply_breadcrumb_result(const char *startDataJson, const char *resultJson);
+const char *_bugsee_test_apply_breadcrumb_fields(const char *category, const char *message, const char *type, int level, const char *resultJson);
+const char *_bugsee_test_apply_log_result(const char *startText, int startLevel, const char *resultJson);
 const char *_bugsee_test_copy_context_value(const char *key);
 const char *_bugsee_test_apply_network_result(const char *startJson, const char *resultJson);
 typedef void (*BugseeDataRequestFn)(int64_t requestId, const char *dataType);
@@ -529,6 +531,34 @@ int main(void)
         const char *emptied = _bugsee_test_apply_breadcrumb_result(start, "{\"data\":{}}");
         expect(emptied != NULL && same(emptied, "{}"), "an empty data object clears the crumb data");
         free((void *)emptied);
+    }
+    // Issue 160: log event and breadcrumb filter results apply only the keys present; a JSON null clears a string.
+    {
+        const char *r;
+        r = _bugsee_test_apply_log_result("orig", 3, "{}");
+        expect(r != NULL && same(r, "{\"level\":3,\"text\":\"orig\"}"), "an empty log result keeps text and level");
+        free((void *)r);
+        r = _bugsee_test_apply_log_result("orig", 3, "{\"level\":5}");
+        expect(r != NULL && same(r, "{\"level\":5,\"text\":\"orig\"}"), "a log result with only a level keeps the text");
+        free((void *)r);
+        r = _bugsee_test_apply_log_result("orig", 3, "{\"message\":\"\"}");
+        expect(r != NULL && same(r, "{\"level\":3,\"text\":\"\"}"), "an empty log message applies as empty");
+        free((void *)r);
+        r = _bugsee_test_apply_log_result("orig", 3, "{\"message\":null}");
+        expect(r != NULL && same(r, "{\"level\":3,\"text\":null}"), "a null log message clears the text");
+        free((void *)r);
+        r = _bugsee_test_apply_breadcrumb_fields("c", "m", "t", 2, "{}");
+        expect(r != NULL && same(r, "{\"category\":\"c\",\"level\":2,\"message\":\"m\",\"type\":\"t\"}"),
+               "an empty breadcrumb result keeps every field");
+        free((void *)r);
+        r = _bugsee_test_apply_breadcrumb_fields(NULL, NULL, NULL, 2, "{\"level\":4}");
+        expect(r != NULL && same(r, "{\"category\":\"\",\"level\":4,\"message\":\"\",\"type\":\"\"}"),
+               "a breadcrumb result with only a level leaves the strings as the SDK stored them (it stores nil as empty)");
+        free((void *)r);
+        r = _bugsee_test_apply_breadcrumb_fields("c", "m", "t", 2, "{\"category\":\"\",\"message\":null}");
+        expect(r != NULL && same(r, "{\"category\":\"\",\"level\":2,\"message\":null,\"type\":\"t\"}"),
+               "a breadcrumb result sets an empty string, clears a null one and keeps the rest");
+        free((void *)r);
     }
     // A report handler result reaches the SDK report as a change set: typed values stay typed, attributes the
     // handler did not touch are left alone, and only an explicit clear replaces the set.
