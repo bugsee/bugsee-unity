@@ -59,9 +59,11 @@ namespace Bugsee.Sample
                 yield return WaitFor(() => Bugsee.Status == BugseeStatus.Launched || Bugsee.Status == BugseeStatus.Stopped, 40f);
             if (Bugsee.Status == BugseeStatus.Stopped) // not while Launching: a second launch would race the first
             {
-                try { var t = Bugsee.LaunchAsync(b.AppToken, b.LastLaunchOptions); }
+                Task<bool> relaunch = null;
+                try { relaunch = Bugsee.LaunchAsync(b.AppToken, b.LastLaunchOptions); }
                 catch (Exception ex) { Debug.Log("[Sample] interactions relaunch in cleanup threw " + ex.Message); }
                 yield return WaitFor(() => Bugsee.IsLaunched, 40f);
+                Check("cleanup relaunch succeeds", ResultOf(relaunch) == true && Bugsee.IsLaunched, Describe(relaunch) + " launched=" + Bugsee.IsLaunched);
             }
             Debug.Log("[Sample] interactions e2e done failures=" + _failures + " launched=" + Bugsee.IsLaunched);
         }
@@ -266,11 +268,17 @@ namespace Bugsee.Sample
             var x = c.Interactions;
             c.Run(BugseeDemoAction.ReportCreate);
             var stale = x.Draft;
+            c.Run(BugseeDemoAction.ApmStart); // a transaction open across the stop
             var stop = Bugsee.StopAsync();
             yield return WaitFor(() => stop.IsCompleted, 20f);
             yield return WaitFor(() => !Bugsee.IsLaunched, 10f);
-            var launch = Bugsee.LaunchAsync(b.AppToken, b.LastLaunchOptions);
+            yield return null; // the Stopped event reaches the sample on the main thread
+            var dropped = x.Draft == null && x.Transaction == null;
+            Bugsee.LaunchAsync(b.AppToken, b.LastLaunchOptions);
             yield return WaitFor(() => Bugsee.IsLaunched, 40f);
+            if (action == BugseeDemoAction.ReportCreate)
+                Check("the Stopped event dropped the draft and the transaction", dropped,
+                    "draft=" + (stale != null && x.Draft == null ? "dropped" : "kept") + " txn=" + (x.Transaction == null ? "dropped" : "kept"));
             c.Run(action);
             var status = c.LastStatus;
             var ok = !status.StartsWith("Error") &&
