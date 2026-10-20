@@ -45,8 +45,19 @@ namespace Bugsee.WrapperPolicy
 
         public int Taken => _taken;
 
-        /// <summary>True when no further node can be taken; the walk should stop looking at siblings.</summary>
-        public bool IsExhausted => _taken >= _maxNodes || (_expired != null && _expired());
+        /// <summary>
+        /// True when no further node can be taken; the walk should stop looking at siblings. Asked while a node is waiting to
+        /// be visited, so a true answer means that node is left out, and it is recorded as <see cref="Truncated"/>.
+        /// </summary>
+        public bool IsExhausted
+        {
+            get
+            {
+                if (_taken < _maxNodes && (_expired == null || !_expired())) return false;
+                Truncated = true;
+                return true;
+            }
+        }
 
         /// <summary>Takes one node at <paramref name="depth"/> (the root is 1), or records that the budget cut it off.</summary>
         public bool TryTake(int depth)

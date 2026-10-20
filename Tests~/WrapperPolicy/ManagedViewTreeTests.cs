@@ -196,6 +196,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(budget.TryTake(1) && budget.TryTake(2) && budget.TryTake(2), Is.True);
             Assert.That(budget.Truncated, Is.False);
             Assert.That(budget.IsExhausted, Is.True);
+            Assert.That(budget.Truncated, Is.True, "a loop that stops on IsExhausted left a node out");
             Assert.That(budget.TryTake(2), Is.False);
             Assert.That(budget.Truncated, Is.True);
             Assert.That(budget.Taken, Is.EqualTo(3));

@@ -51,7 +51,14 @@ namespace Bugsee.Internal
                 var budget = new ManagedViewBudget(expired: () => Clock.ElapsedMilliseconds - startedAt > MaxWalkMs);
                 var root = Read(budget);
                 var count = SecureRectRegistry.Instance.CopyRects(0, ref _secureRects);
-                return ManagedViewTreeJson.Write(root, _secureRects, count, pixelsPerNativeUnit, budget.Truncated);
+                var json = ManagedViewTreeJson.Write(root, _secureRects, count, pixelsPerNativeUnit, budget.Truncated);
+                if (Debug.isDebugBuild)
+                {
+                    Debug.Log("[Bugsee] managed view hierarchy: " + budget.Taken + " nodes, " + (json == null ? 0 : json.Length)
+                        + " chars, " + (Clock.ElapsedMilliseconds - startedAt) + " ms" + (budget.Truncated ? ", truncated" : ""));
+                }
+
+                return json;
             }
             catch (Exception ex)
             {
@@ -168,6 +175,13 @@ namespace Bugsee.Internal
             }
 
             if (float.IsNaN(minX) || float.IsNaN(minY) || float.IsNaN(maxX) || float.IsNaN(maxY)) return;
+            // Sky domes, ground planes and the like project to boxes a thousand screens wide. Keep the structure but not the
+            // absurd numbers: one screen of margin on every side is enough to place anything that can be seen.
+            float w = Screen.width, h = screenHeight;
+            minX = Mathf.Clamp(minX, -w, 2f * w);
+            maxX = Mathf.Clamp(maxX, -w, 2f * w);
+            minY = Mathf.Clamp(minY, -h, 2f * h);
+            maxY = Mathf.Clamp(maxY, -h, 2f * h);
             node.HasBounds = true;
             node.X = minX;
             node.Y = screenHeight - maxY;
