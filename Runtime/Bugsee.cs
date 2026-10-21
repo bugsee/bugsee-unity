@@ -292,7 +292,7 @@ namespace Bugsee
         /// them, as a read-only snapshot (changing it changes nothing). Null while the SDK is not launched. Keys are
         /// the native SDK's own option names and differ between Android and iOS; values are string, bool, long,
         /// double (or a nested dictionary or list); narrower numeric types are widened the same way on both platforms. The
-        /// SDK's internal keys (starting with a double dollar sign) are left out. A value with no such form, such as a
+        /// SDK's internal keys (a double-dollar-sign name, bare or after the <c>com.bugsee.option.</c> prefix) are left out. A value with no such form, such as a
         /// Java array, reads as its text.
         /// </summary>
         public static IReadOnlyDictionary<string, object> GetLaunchOptions()
@@ -567,6 +567,13 @@ namespace Bugsee
 
         public static void CaptureViewHierarchy() => Bridge.CaptureViewHierarchy();
 
+        /// <summary>
+        /// Android: forgets the stored screen-capture (MediaProjection) decision, so the next capture start asks again.
+        /// It matters only with <c>VideoMode.Fullscreen</c> and <c>CaptureVideoFullscreenRememberUserDecision</c>, has no
+        /// effect before launch (the SDK only warns in logcat) and does not change a session that is already capturing.
+        /// iOS: nothing to reset (the SDK needs no capture permission), so the call does nothing and logs a warning once.
+        /// Editor: does nothing.
+        /// </summary>
         public static void ResetVideoCapturePermission() => Bridge.ResetVideoCapturePermission();
 
         public static void SetNetworkEventFilter(EventFilter<INetworkEvent> filter) =>

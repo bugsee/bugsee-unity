@@ -301,17 +301,5 @@ namespace Bugsee.Contracts.Options
         {
             set => Set(Options.PerformanceUploadMode, value);
         }
-
-        // --- Advanced ---
-
-        public bool Debug
-        {
-            set => Set(Options.Debug, value);
-        }
-
-        public string Endpoint
-        {
-            set => Set(Options.Endpoint, value);
-        }
     }
 }
