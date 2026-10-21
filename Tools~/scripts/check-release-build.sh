@@ -33,6 +33,11 @@ fi
 if [[ -n "${ARG}" ]] && ! git -C "${ROOT_DIR}" diff --quiet HEAD; then
   fail "uncommitted changes: the tag lands on HEAD, so check what is committed (commit first)"
 fi
+# A tag that already exists (lightweight or annotated) must name HEAD, the commit that was checked.
+if [[ -n "${ARG}" ]] && git -C "${ROOT_DIR}" rev-parse -q --verify "refs/tags/${ARG}" >/dev/null; then
+  [[ "$(git -C "${ROOT_DIR}" rev-parse "refs/tags/${ARG}^{commit}")" == "$(git -C "${ROOT_DIR}" rev-parse HEAD)" ]] \
+    || fail "tag ${ARG} exists and names a different commit than HEAD, which is what was checked"
+fi
 [[ "${CS}" != dev ]] || fail "the build id is the 'dev' placeholder; run Tools~/scripts/stamp-wrapper-build.sh and commit before tagging"
 [[ "${CS}" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]] || fail "'${CS}' is not a valid build id"
 

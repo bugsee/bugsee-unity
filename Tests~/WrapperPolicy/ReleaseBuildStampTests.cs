@@ -400,11 +400,67 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Check_refuses_a_build_line_changed_beyond_its_value()
         {
             Script("stamp-wrapper-build.sh", out _);
+            var stamped = Head();
             Commit("stamp");
-            File.WriteAllText(Path.Combine(_root, Cs), ReadCs().Replace("\";\n", "\"; // x\n"));
+            File.WriteAllText(Path.Combine(_root, Cs), ReadCs().Replace("Build = \"" + stamped + "\";", "Build = \"" + stamped + "\"; // x"));
             Commit("comment");
             var output = Script("check-release-build.sh", out var exit);
             Assert.That(exit, Is.Not.EqualTo(0), output);
+        }
+
+        [Test]
+        public void Check_accepts_an_existing_lightweight_or_annotated_tag_on_head()
+        {
+            Script("stamp-wrapper-build.sh", out _);
+            Commit("stamp");
+            Git("tag", "v1.2.3");
+            Script("check-release-build.sh", out var exit, "v1.2.3");
+            Assert.That(exit, Is.EqualTo(0), "lightweight tag on HEAD");
+            Git("tag", "-d", "v1.2.3");
+            Git("tag", "-a", "v1.2.3", "-m", "release");
+            var output = Script("check-release-build.sh", out exit, "v1.2.3");
+            Assert.That(exit, Is.EqualTo(0), "annotated tag on HEAD: " + output);
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void Check_refuses_an_existing_tag_on_another_commit(bool annotated)
+        {
+            var other = Head();
+            Script("stamp-wrapper-build.sh", out _);
+            Commit("stamp");
+            if (annotated) Git("tag", "-a", "v1.2.3", "-m", "release", other);
+            else Git("tag", "v1.2.3", other);
+            var output = Script("check-release-build.sh", out var exit, "v1.2.3");
+            Assert.That(exit, Is.Not.EqualTo(0), output);
+            Assert.That(output, Does.Contain("different commit"));
+        }
+
+        [Test]
+        public void Stamp_restores_the_csharp_file_when_the_java_replace_fails()
+        {
+            // A mv that fails for the Java temp file, ahead of the real one in PATH.
+            var shim = Path.Combine(_root, "shim");
+            Directory.CreateDirectory(shim);
+            var path = Path.Combine(shim, "mv");
+            File.WriteAllText(path, "#!/bin/sh\ncase \"$1\" in *UnityWrapperIdentity.java.tmp) exit 1;; esac\nexec /bin/mv \"$@\"\n");
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            var info = new ProcessStartInfo("/bin/bash") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+            info.ArgumentList.Add(Path.Combine(_scripts, "stamp-wrapper-build.sh"));
+            info.ArgumentList.Add("r9");
+            info.Environment["BUGSEE_ROOT"] = _root;
+            info.Environment["PATH"] = shim + ":" + Environment.GetEnvironmentVariable("PATH");
+            using (var process = Process.Start(info))
+            {
+                var o = process.StandardOutput.ReadToEndAsync();
+                var e = process.StandardError.ReadToEndAsync();
+                Assert.That(process.WaitForExit(30000), Is.True);
+                Assert.That(process.ExitCode, Is.Not.EqualTo(0), o.Result + e.Result);
+            }
+            Assert.That(ReadCs(), Is.EqualTo(CsDev), "the C# file must be put back");
+            Assert.That(ReadJava(), Is.EqualTo(JavaDev));
+            Assert.That(Directory.GetFiles(_root, "*.tmp", SearchOption.AllDirectories), Is.Empty);
+            Assert.That(Directory.GetFiles(_root, "*.stamp-backup", SearchOption.AllDirectories), Is.Empty);
         }
 
         [Test]
