@@ -39,7 +39,7 @@ namespace Bugsee.Contracts.Options
         /// <summary>iOS only; Android drops it.</summary>
         public OptionsBuilder SetCrashSignals(CrashSignals signals) => Set(Options.CaptureCrashSignals, (int)signals);
         /// <summary>iOS only; Android drops it.</summary>
-        public OptionsBuilder SetDataEncryption(DataEncryptionMode mode) => Set(Options.ConfigDataEncryption, (int)mode);
+        public OptionsBuilder SetDataEncryption(DataEncryptionMode mode) => Set(Options.DataEncryption, (int)mode);
         /// <summary>iOS only; Android drops it.</summary>
         public OptionsBuilder SetReportingUIStyle(ReportingUIStyle style) => Set(Options.ReportingUIStyle, (int)style);
 

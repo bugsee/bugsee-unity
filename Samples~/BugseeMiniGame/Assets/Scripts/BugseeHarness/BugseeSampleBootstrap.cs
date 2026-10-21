@@ -549,14 +549,13 @@ namespace Bugsee.Sample
             Probe(options, Options.CaptureCameraPreview, true);
             Probe(options, Options.CaptureBluetoothStatus, true);
             Probe(options, Options.CaptureDiskSpace, true);
-            Probe(options, Options.CaptureStatusBarInfo, true);
             Probe(options, Options.CaptureDeviceNetworkNames, true);
             Probe(options, Options.CaptureVideoPrivacyBlur, false);
             Probe(options, Options.CaptureVideoMinFrameRate, 7);
             Probe(options, Options.CaptureVideoMaxFrameRate, 25);
-            Probe(options, Options.ConfigDataEncryption, (int)DataEncryptionMode.OnDevice);
-            Probe(options, Options.ConfigBuildTarget, "OptionsProbe");
-            Probe(options, Options.ConfigBuildType, "probe");
+            Probe(options, Options.DataEncryption, (int)DataEncryptionMode.OnDevice);
+            Probe(options, Options.BuildTarget, "OptionsProbe");
+            Probe(options, Options.BuildType, "probe");
             Probe(options, Options.ReportingUIStyle, (int)ReportingUIStyle.Dusk);
         }
 

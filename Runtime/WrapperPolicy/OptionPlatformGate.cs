@@ -28,14 +28,13 @@ namespace Bugsee.WrapperPolicy
             Options.CaptureCameraPreview,
             Options.CaptureBluetoothStatus,
             Options.CaptureDiskSpace,
-            Options.CaptureStatusBarInfo,
             Options.CaptureDeviceNetworkNames,
             Options.CaptureVideoPrivacyBlur,
             Options.CaptureVideoMinFrameRate,
             Options.CaptureVideoMaxFrameRate,
-            Options.ConfigDataEncryption,
-            Options.ConfigBuildTarget,
-            Options.ConfigBuildType,
+            Options.DataEncryption,
+            Options.BuildTarget,
+            Options.BuildType,
             Options.ReportingUIStyle,
         };
 

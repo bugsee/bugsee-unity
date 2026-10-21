@@ -40,10 +40,11 @@ namespace Bugsee.WrapperPolicy.Tests
         // iOS keys the iOS manifest lists that the wrapper deliberately does not expose. bugsee/bugsee-unity#97 exposed the rest
         // as typed IOSLaunchOptions properties (iOS-only, gated off Android by OptionPlatformGate).
         static readonly Dictionary<string, string> IosNotExposed = Keys("#97: not exposed on purpose",
-            "capture.logs.oslog");
+            "capture.logs.oslog", "capture.status-bar-info");
         static readonly Dictionary<string, string> IosNotExposedReasons = new Dictionary<string, string>
         {
             ["com.bugsee.option.capture.logs.oslog"] = "permanently disabled in the iOS SDK (accepted and ignored): a property would do nothing",
+            ["com.bugsee.option.capture.status-bar-info"] = "read only by a DEBUG build of the SDK, never the published one: a property would do nothing",
         };
 
         // Hidden (internal) options that a public C# constant and setter expose anyway. bugsee/bugsee-unity#108.
@@ -489,7 +490,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 string.Join(", ", extra) + ". They must be dropped from the Android launch (OptionPlatformGate.ForAndroid / IosOnly): update the gate and this test together.");
         }
 
-        // The documented "Default when omitted: true|false" of each bool property of IOSLaunchOptions is the iOS manifest default.
+        // The documented "Default when omitted" of each bool, int and enum property of IOSLaunchOptions is the iOS manifest default.
         [Test]
         public void Ios_bool_property_docs_state_the_manifest_default()
         {
@@ -503,18 +504,37 @@ namespace Bugsee.WrapperPolicy.Tests
             {
                 var trimmed = line.Trim();
                 if (trimmed.StartsWith("///")) { doc.Append(' ').Append(trimmed.Substring(3)); continue; }
-                var m = Regex.Match(trimmed, @"^public bool (\w+)$");
-                if (m.Success)
+                var m = Regex.Match(trimmed, @"^public (\w+) (\w+)$");
+                if (m.Success && m.Groups[1].Value != "string")
                 {
-                    var d = Regex.Match(doc.ToString(), @"Default when omitted:\s*(true|false)\b");
-                    if (!d.Success) problems.Add(m.Groups[1].Value + " does not document its default as `Default when omitted: true|false.`");
-                    else if (!keyOf.TryGetValue(m.Groups[1].Value, out var key) || !Ios.Options.TryGetValue(key, out var o))
-                        problems.Add(m.Groups[1].Value + " is not a typed setter of an iOS manifest key");
-                    else
+                    var type = m.Groups[1].Value;
+                    var prop = m.Groups[2].Value;
+                    var docText = doc.ToString();
+                    if (!keyOf.TryGetValue(prop, out var key) || !Ios.Options.TryGetValue(key, out var o))
+                        problems.Add(prop + " is not a typed setter of an iOS manifest key");
+                    else if (type == "bool" || type == "int")
                     {
-                        checkedCount++;
-                        var def = Ios.Options[key].DefaultText;
-                        if (def != d.Groups[1].Value) problems.Add(m.Groups[1].Value + " documents default " + d.Groups[1].Value + ", the iOS manifest says " + def);
+                        var d = Regex.Match(docText, type == "bool" ? @"Default when omitted:\s*(true|false)\b" : @"Default when omitted:\s*(\d+)\b");
+                        var enumForm = Regex.Match(docText, @"Default when omitted:\s*<c>(\w+)\.(\w+)</c>");
+                        string documented = d.Success ? d.Groups[1].Value : null;
+                        if (documented == null && type == "int" && enumForm.Success)
+                            documented = ((int)Enum.Parse(EnumTypeOf(enumForm.Groups[1].Value), enumForm.Groups[2].Value)).ToString();
+                        if (documented == null) problems.Add(prop + " does not document its default as `Default when omitted: X.`");
+                        else
+                        {
+                            checkedCount++;
+                            if (o.DefaultText != documented) problems.Add(prop + " documents default " + documented + ", the iOS manifest says " + o.DefaultText);
+                        }
+                    }
+                    else if (EnumTypeOf(type) != null)
+                    {
+                        var d = Regex.Match(docText, @"Default when omitted:\s*<c>" + type + @"\.(\w+)</c>");
+                        if (!d.Success) problems.Add(prop + " does not document its default as `Default when omitted: <c>" + type + ".X</c>`");
+                        else
+                        {
+                            checkedCount++;
+                            if (o.Type == "int" ? ((int)Enum.Parse(EnumTypeOf(type), d.Groups[1].Value)).ToString() != o.DefaultText : !string.Equals(o.EnumDefault, d.Groups[1].Value, StringComparison.Ordinal)) problems.Add(prop + " documents default " + d.Groups[1].Value + ", the iOS manifest says " + o.EnumDefault);
+                        }
                     }
                 }
                 doc.Clear();

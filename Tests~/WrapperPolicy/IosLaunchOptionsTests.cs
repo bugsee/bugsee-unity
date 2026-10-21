@@ -18,7 +18,7 @@ namespace Bugsee.WrapperPolicy.Tests
             {
                 CrashHandlerType = CrashHandlerType.Mach,
                 CrashSignals = CrashSignals.Abrt | CrashSignals.Trap,
-                OnDeviceSymbolication = true,
+                CaptureOnDeviceSymbolication = true,
                 CrashSwiftAsyncStackTraces = false,
                 CrashFillEmptyExceptionStacks = true,
                 CaptureWebSocket = false,
@@ -27,7 +27,6 @@ namespace Bugsee.WrapperPolicy.Tests
                 CaptureCameraPreview = true,
                 CaptureBluetoothStatus = true,
                 CaptureDiskSpace = true,
-                CaptureStatusBarInfo = true,
                 CaptureDeviceNetworkNames = true,
                 CaptureVideoPrivacyBlur = false,
                 CaptureVideoMinFrameRate = 5,
@@ -55,14 +54,13 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(d[Options.CaptureCameraPreview], Is.EqualTo(true));
             Assert.That(d[Options.CaptureBluetoothStatus], Is.EqualTo(true));
             Assert.That(d[Options.CaptureDiskSpace], Is.EqualTo(true));
-            Assert.That(d[Options.CaptureStatusBarInfo], Is.EqualTo(true));
             Assert.That(d[Options.CaptureDeviceNetworkNames], Is.EqualTo(true));
             Assert.That(d[Options.CaptureVideoPrivacyBlur], Is.EqualTo(false));
             Assert.That(d[Options.CaptureVideoMinFrameRate], Is.EqualTo(5).And.TypeOf<int>());
             Assert.That(d[Options.CaptureVideoMaxFrameRate], Is.EqualTo(24).And.TypeOf<int>());
-            Assert.That(d[Options.ConfigDataEncryption], Is.EqualTo(1).And.TypeOf<int>());
-            Assert.That(d[Options.ConfigBuildTarget], Is.EqualTo("Game"));
-            Assert.That(d[Options.ConfigBuildType], Is.EqualTo("qa"));
+            Assert.That(d[Options.DataEncryption], Is.EqualTo(1).And.TypeOf<int>());
+            Assert.That(d[Options.BuildTarget], Is.EqualTo("Game"));
+            Assert.That(d[Options.BuildType], Is.EqualTo("qa"));
             Assert.That(d[Options.ReportingUIStyle], Is.EqualTo(1).And.TypeOf<int>());
         }
 
@@ -76,13 +74,10 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void A_null_string_removes_the_key_and_a_negative_frame_rate_is_refused()
+        public void A_null_string_removes_the_key()
         {
             var o = new IOSLaunchOptions { BuildTarget = "x" };
             o.BuildTarget = null;
-            Assert.That(o.ToDictionary().ContainsKey(Options.ConfigBuildTarget), Is.False);
-            Assert.Throws<ArgumentOutOfRangeException>(() => o.CaptureVideoMinFrameRate = -1);
-            Assert.Throws<ArgumentOutOfRangeException>(() => o.CaptureVideoMaxFrameRate = -1);
             Assert.That(o.ToDictionary(), Is.Empty);
         }
 
@@ -103,7 +98,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 .SetDataEncryption(DataEncryptionMode.EndToEnd).SetReportingUIStyle(ReportingUIStyle.Light).ToDictionary();
             Assert.That(d[Options.CaptureCrashHandlerType], Is.EqualTo(1));
             Assert.That(d[Options.CaptureCrashSignals], Is.EqualTo(63));
-            Assert.That(d[Options.ConfigDataEncryption], Is.EqualTo(2));
+            Assert.That(d[Options.DataEncryption], Is.EqualTo(2));
             Assert.That(d[Options.ReportingUIStyle], Is.EqualTo(0));
             Assert.That(OptionPlatformGate.ForAndroid(d), Is.Empty);
         }

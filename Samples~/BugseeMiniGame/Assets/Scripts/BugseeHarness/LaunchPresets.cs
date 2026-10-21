@@ -96,9 +96,8 @@ namespace Bugsee.Sample
                 ios.CaptureCameraPreview = on;
                 ios.CaptureBluetoothStatus = on;
                 ios.CaptureDiskSpace = on;
-                ios.CaptureStatusBarInfo = on;
                 ios.CaptureDeviceNetworkNames = on;
-                ios.OnDeviceSymbolication = on;
+                ios.CaptureOnDeviceSymbolication = on;
                 ios.CrashSwiftAsyncStackTraces = on;
                 ios.CrashFillEmptyExceptionStacks = on;
                 ios.CaptureVideoPrivacyBlur = on;

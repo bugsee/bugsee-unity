@@ -51,30 +51,29 @@ Bugsee.Launch(appToken, options);
 
 ### iOS-only launch options
 
-`IOSLaunchOptions` has typed properties for the iOS SDK 7.0.0-beta7 options that Android has no counterpart for. They are iOS only: on Android the wrapper drops them before launch (`OptionPlatformGate`), so setting one has no effect there. The Android SDK would drop an unknown key too, but the wrapper does not depend on that. The same keys are available as `Options` constants for `OptionsBuilder` and `SetCustomOption`, with the same gating (`OptionsBuilder` also has `SetCrashHandlerType`, `SetCrashSignals`, `SetDataEncryption` and `SetReportingUIStyle`). The iOS SDK drops a host option equal to its default from `GetHostLaunchOptions`; `GetLaunchOptions` always shows the effective value.
+`IOSLaunchOptions` has typed properties for the iOS SDK 7.0.0-beta7 options that Android has no counterpart for. They are iOS only: on Android the wrapper drops them before launch (`OptionPlatformGate`), so setting one has no effect there. The Android SDK would drop an unknown key too, but the wrapper does not depend on that. The same keys are available as `Options` constants for `OptionsBuilder` and `SetCustomOption`, with the same gating (`OptionsBuilder` and `SetCustomOption` do no range checks; `OptionsBuilder` also has `SetCrashHandlerType`, `SetCrashSignals`, `SetDataEncryption` and `SetReportingUIStyle`). The iOS SDK drops a host option equal to its default from the host launch options; `GetLaunchOptions` always shows the effective value.
 
 | Property | Key suffix | Type, default |
 |---|---|---|
 | `CrashHandlerType` | `capture.crash-handler-type` | `CrashHandlerType`, `MachAndBSD` |
 | `CrashSignals` | `capture.crash-signals` | `[Flags] CrashSignals` bit set, `Default` (every signal). Leave `Segv`/`Bus` out only if a hosted runtime handles them itself; leaving out `Abrt` stops uncaught Objective-C exceptions from being reported. `Default` is only honoured on its own |
-| `OnDeviceSymbolication` | `capture.on-device-symbolication` | bool, false |
+| `CaptureOnDeviceSymbolication` | `capture.on-device-symbolication` | bool, false |
 | `CrashSwiftAsyncStackTraces` | `detect.crash.swift_async_stacktraces` | bool, true |
 | `CrashFillEmptyExceptionStacks` | `detect.crash.fill_empty_exception_stacks` | bool, false (can change crash grouping) |
 | `CaptureWebSocket` | `capture.websocket` | bool, true |
-| `CaptureAVPlayer` | `capture.avplayer` | bool, false |
+| `CaptureAVPlayer` | `capture.avplayer` | bool, false. Native AVPlayerLayer only, not Unity's VideoPlayer |
 | `CaptureSampleBufferDisplayLayer` | `capture.sample-buffer-display-layer` | bool, false |
-| `CaptureCameraPreview` | `capture.camera-preview` | bool, false. Privacy: records what the camera sees |
-| `CaptureBluetoothStatus` | `capture.bluetooth-status` | bool, false. Needs `NSBluetoothAlwaysUsageDescription` (Unity: Player Settings, Bluetooth usage description) on iOS 13+, or the app is killed |
+| `CaptureCameraPreview` | `capture.camera-preview` | bool, false. Native AVCaptureVideoPreviewLayer only, not Unity's WebCamTexture. Privacy: records what the camera sees |
+| `CaptureBluetoothStatus` | `capture.bluetooth-status` | bool, false. Reports a status only if the app itself asked for and got Bluetooth permission (the SDK never asks); otherwise unknown or unauthorized |
 | `CaptureDiskSpace` | `capture.disk-space` | bool, false. Apple's reason for the API forbids sending it off the device: use it in development builds |
-| `CaptureStatusBarInfo` | `capture.status-bar-info` | bool, false. Only a DEBUG build of the SDK honours it |
-| `CaptureDeviceNetworkNames` | `capture.device-network-names` | bool, false |
+| `CaptureDeviceNetworkNames` | `capture.device-network-names` | bool, false. Sends the device name and Wi-Fi network name (personal data; redacted otherwise); the Wi-Fi name also needs an Apple entitlement and location permission |
 | `CaptureVideoPrivacyBlur` | `capture.video.privacy-blur` | bool, true. Off, the video freezes for a transition instead of blurring it |
-| `CaptureVideoMinFrameRate`, `CaptureVideoMaxFrameRate` | `capture.video.min-frame-rate`, `capture.video.max-frame-rate` | int fps, not negative (the SDK takes an unsigned value; a negative value throws `ArgumentOutOfRangeException`), 0 |
+| `CaptureVideoMinFrameRate`, `CaptureVideoMaxFrameRate` | `capture.video.min-frame-rate`, `capture.video.max-frame-rate` | int fps, the SDK clamps to 0..30; a minimum needs a maximum at or above it (otherwise it is dropped); 0 = derived from `FrameRate`. Default 0 |
 | `DataEncryption` | `config.data-encryption` | `DataEncryptionMode` (`None`, `OnDevice`, `EndToEnd`), `None`. `EndToEnd` leaves some features out, such as the video preview |
 | `BuildTarget`, `BuildType` | `config.build-target`, `config.build-type` | string, none |
 | `ReportingUIStyle` | `reporting.ui.style` | `ReportingUIStyle` (`Light`, `Dusk`, `BasedOnStatusBar`, `System`), `System` |
 
-`capture.logs.oslog` has no property: the iOS SDK accepts and ignores it (permanently disabled).
+Three keys have no property: `capture.logs.oslog` (the iOS SDK accepts and ignores it, permanently disabled), `capture.status-bar-info` (only a DEBUG build of the SDK reads it; the published SDK never does) and `capture.mach-exceptions` (removed from the SDK, which ignores it with a warning; use `CrashHandlerType`).
 
 ## Lifecycle: Launch, Relaunch, Stop, Delete
 

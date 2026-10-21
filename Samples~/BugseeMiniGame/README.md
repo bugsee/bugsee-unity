@@ -217,8 +217,7 @@ The iOS presets also set the typed iOS-only options of `IOSLaunchOptions` (`Cras
 `CaptureVideoPrivacyBlur`, the frame-rate limits, `DataEncryption`, `ReportingUIStyle`, `BuildTarget`, ... #97); `minimal` and `detect`
 set the booleans to opposite values and the `privacy` preset sets some through `OptionsBuilder`. Android never sets them and drops them
 if they are sent (the `options` scenario sends every one and checks that Android reports none). `detect` turns on
-`CaptureBluetoothStatus`, so the sample's iOS project carries a Bluetooth usage description (without it iOS 13+ would kill the app);
-the first launch with that preset shows the system Bluetooth prompt.
+`CaptureBluetoothStatus`, which only reports a status when the app itself got Bluetooth permission (the sample never asks, so it reads unknown).
 
 ### Filter check (`filters` e2e scenario)
 

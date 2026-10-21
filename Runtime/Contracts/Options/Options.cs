@@ -69,21 +69,19 @@ namespace Bugsee.Contracts.Options
         /// <summary>iOS only: bool.</summary>
         public const string CaptureDiskSpace = "com.bugsee.option.capture.disk-space";
         /// <summary>iOS only: bool.</summary>
-        public const string CaptureStatusBarInfo = "com.bugsee.option.capture.status-bar-info";
-        /// <summary>iOS only: bool.</summary>
         public const string CaptureDeviceNetworkNames = "com.bugsee.option.capture.device-network-names";
         /// <summary>iOS only: bool.</summary>
         public const string CaptureVideoPrivacyBlur = "com.bugsee.option.capture.video.privacy-blur";
-        /// <summary>iOS only: int, a frame rate in frames per second (0 = SDK default).</summary>
+        /// <summary>iOS only: int frames per second, clamped by the SDK to 0..30 (0 = derived from the frame rate).</summary>
         public const string CaptureVideoMinFrameRate = "com.bugsee.option.capture.video.min-frame-rate";
-        /// <summary>iOS only: int, a frame rate in frames per second (0 = SDK default).</summary>
+        /// <summary>iOS only: int frames per second, clamped by the SDK to 0..30 (0 = derived from the frame rate).</summary>
         public const string CaptureVideoMaxFrameRate = "com.bugsee.option.capture.video.max-frame-rate";
         /// <summary>iOS only: a <see cref="DataEncryptionMode"/>, sent as its int value.</summary>
-        public const string ConfigDataEncryption = "com.bugsee.option.config.data-encryption";
+        public const string DataEncryption = "com.bugsee.option.config.data-encryption";
         /// <summary>iOS only: string.</summary>
-        public const string ConfigBuildTarget = "com.bugsee.option.config.build-target";
+        public const string BuildTarget = "com.bugsee.option.config.build-target";
         /// <summary>iOS only: string.</summary>
-        public const string ConfigBuildType = "com.bugsee.option.config.build-type";
+        public const string BuildType = "com.bugsee.option.config.build-type";
         /// <summary>iOS only: a <see cref="Bugsee.Contracts.Options.ReportingUIStyle"/>, sent as its int value.</summary>
         public const string ReportingUIStyle = "com.bugsee.option.reporting.ui.style";
         public const string AdvancedWebViewCapture = "com.bugsee.option.capture.webview.advanced";
