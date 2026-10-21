@@ -402,11 +402,16 @@ Bugsee.SetNetworkEventFilter(e =>
 });
 ```
 
-It returns true when it ran and false on iOS and in the Editor: the iOS SDK (7.0.0-beta7) has no public sanitizer, so there is nothing to call and the filter's own redaction is all there is. The result is also usable on an event you built with `Bugsee.GetExchangeFactory()` (or your own `INetworkEvent`, whose redacted fields are copied back) before `Bugsee.AddNetworkEvent`.
+It returns true when it ran and false on iOS and in the Editor: the iOS SDK (7.0.0-beta7) has no public sanitizer, so there is nothing to call and the filter's own redaction is all there is. Inside the filter it needs nothing else. On an event you built yourself (`Bugsee.GetExchangeFactory()`, or your own `INetworkEvent`) the SDK hands out a native copy only while it is launched with network capture on, so outside that the call redacts nothing and returns false: check the result. A copy that worked has its redacted fields copied back. A failure inside the SDK is logged and also returns false.
 
 ### WebView secure views
 
-An app that embeds a WebView plugin can keep its content out of the video with `Bugsee.AddSecureWebView(handle)` and `Bugsee.RemoveSecureWebView(handle)`. Pass the plugin's native handle: the `android.webkit.WebView` as an `AndroidJavaObject` on Android, the `WKWebView*` as an `IntPtr` on iOS. They return false for anything else (a null, another view type, a managed object) and in the Editor. The call reaches `Bugsee.addSecureWebView` (Android) and `+[Bugsee addSecureWebView:]` (iOS); the iOS SDK also uses it to hide secure areas inside the page. Limits: it marks a native view, so it does nothing for a page drawn into a Unity texture (use `AddSecureRectangle` for that) and nothing while the Android Unity frame pusher is the capture source (it does not know native views, see below). On Android the registration does not survive `Stop()`; register again after a relaunch. Whether a given WebView plugin exposes its native handle is up to the plugin.
+An app that embeds a WebView plugin can keep its content out of the video with `Bugsee.AddSecureWebView(handle)` and `Bugsee.RemoveSecureWebView(handle)`. Pass the plugin's native handle: the `android.webkit.WebView` as an `AndroidJavaObject` on Android, the `WKWebView*` as an `IntPtr` on iOS (typed overloads; a plugin that does not expose its native handle cannot use them). They return false for a null or zero handle, for an object of another class (a plain view) and in the Editor.
+
+- **Android:** calls `Bugsee.addSecureWebView` on the UI thread (the SDK measures the view's geometry on the calling thread) and waits for it. The SDK buffers a registration made before launch. It does not survive `Stop()`: register again after a relaunch.
+- **iOS:** the SDK's `+addSecureWebView:` alone does not hide the view (it protects secure areas inside the page), so the wrapper also calls `+addSecureView:`, which masks the view in the video, as Android's call does. The work runs on the main queue. The SDK masks a view only while it is launched, unlike Android: a call made before the launch finished has no effect on the video, so call it once `Bugsee.IsLaunched` is true. `RemoveSecureWebView` calls `+removeSecureView:`, which also lifts a mask the app set on the same view itself; the page-level protection stays, harmlessly. The pointer must be a live Objective-C object: another class is refused, a stale or non-object pointer is undefined.
+
+Limits: it marks a native view, so it does nothing for a page drawn into a Unity texture (use `AddSecureRectangle` for that) and nothing while the Android Unity frame pusher is the capture source (it does not know native views, see below).
 
 ### Native APIs that are not exposed
 
@@ -414,7 +419,7 @@ Decided in #103 against the Android 7.4.2 and iOS 7.0.0-beta7 public APIs:
 
 - `+[Bugsee logError:]` (iOS `NSError`): an `NSError` can only come from native code, which already calls the SDK directly; Unity code has `Bugsee.LogException`. Android has no counterpart.
 - `+[Bugsee showVideoCapturePreview]` / `hideVideoCapturePreview` (iOS): a developer diagnostic of the SDK's own capture, with no Android counterpart; it shows nothing about the Unity pipeline, which pushes its own frames.
-- The `requiresFiltering` overloads of `log` and `addNetworkEvent`: the wrapper uses its own channel (`BGSWrapperChannel` / `UnityWrapper.channelLog` and `channelAddNetwork`) and `Bugsee.AddNetworkEvent` / `Bugsee.Log` stay on it, which already runs events through the network filter.
+- The `requiresFiltering` overloads of `log` and `addNetworkEvent`: for `log` the wrapper keeps the SDK's default, which skips the log filter on both platforms (Android `Bugsee.Log` calls `Bugsee.log(message, LogLevel)`, iOS `_bugsee_log` calls `+log:level:`), and does not expose the opt-in; this matches #182. Network events from `Bugsee.AddNetworkEvent` already go through the wrapper channel with filtering on, so the network half needs nothing.
 
 ## Native dependencies
 

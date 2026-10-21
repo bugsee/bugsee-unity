@@ -14,6 +14,7 @@ namespace Bugsee.Sample
 #if UNITY_IOS && !UNITY_EDITOR
         [DllImport("__Internal")] static extern IntPtr _sample_create_native_view(int webView);
         [DllImport("__Internal")] static extern void _sample_destroy_native_view(IntPtr view);
+        [DllImport("__Internal")] static extern int _sample_native_view_is_protected(IntPtr view);
 #endif
 
         public static object Create() => CreateView(true);
@@ -51,6 +52,20 @@ namespace Bugsee.Sample
             return null;
 #endif
         }
+
+        /// <summary>iOS: whether the SDK's hidden-view set holds the view (UIView.bugseeProtectedView). Null where the SDK cannot be asked (Android).</summary>
+        public static bool? IsProtected(object view)
+        {
+#if UNITY_IOS && !UNITY_EDITOR
+            if (view is IntPtr ptr) return _sample_native_view_is_protected(ptr) != 0;
+#endif
+            return null;
+        }
+
+        /// <summary>Calls the typed <c>Bugsee.AddSecureWebView</c> overload that matches the platform's native handle.</summary>
+        public static bool Add(object view) => view is IntPtr p ? Bugsee.AddSecureWebView(p) : Bugsee.AddSecureWebView(view as AndroidJavaObject);
+
+        public static bool Remove(object view) => view is IntPtr p ? Bugsee.RemoveSecureWebView(p) : Bugsee.RemoveSecureWebView(view as AndroidJavaObject);
 
         public static void Destroy(object view)
         {

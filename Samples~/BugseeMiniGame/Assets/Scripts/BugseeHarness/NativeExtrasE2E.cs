@@ -109,21 +109,32 @@ namespace Bugsee.Sample
             }
             Bugsee.SetNetworkEventFilter(null);
 
-            // 3. WebView secure views on a real native WebView.
+            // 3. WebView secure views on a real native WebView. On iOS the SDK's hidden-view set can be read back
+            // (UIView.bugseeProtectedView), so the result is checked against the SDK's state, not only against the return value. Android
+            // has no such read-back: its checks are the return values and no failure.
             var handle = NativeExtrasWebView.Create();
             Check("native WebView created", handle != null, NativeExtrasWebView.Describe(handle));
             yield return null;
             if (handle != null)
             {
-                Check("AddSecureWebView accepts a WebView", Bugsee.AddSecureWebView(handle), NativeExtrasWebView.Describe(handle));
-                Check("AddSecureWebView again is harmless", Bugsee.AddSecureWebView(handle), "");
-                Check("RemoveSecureWebView accepts it", Bugsee.RemoveSecureWebView(handle), "");
+                Check("view is not protected before the call", NativeExtrasWebView.IsProtected(handle) != true, "protected=" + NativeExtrasWebView.IsProtected(handle));
+                Check("AddSecureWebView accepts a WebView", NativeExtrasWebView.Add(handle), NativeExtrasWebView.Describe(handle));
+                var prot = NativeExtrasWebView.IsProtected(handle);
+                if (prot.HasValue)
+                    Check("the SDK holds the WebView in its hidden-view set", prot.Value, "bugseeProtectedView=" + prot.Value);
+                Check("AddSecureWebView again is harmless", NativeExtrasWebView.Add(handle), "");
+                Check("RemoveSecureWebView accepts it", NativeExtrasWebView.Remove(handle), "");
+                prot = NativeExtrasWebView.IsProtected(handle);
+                if (prot.HasValue)
+                    Check("the SDK no longer holds the WebView", !prot.Value, "bugseeProtectedView=" + prot.Value);
             }
             var notWeb = NativeExtrasWebView.CreateNotAWebView();
-            Check("a native object that is not a WebView is refused", notWeb != null && !Bugsee.AddSecureWebView(notWeb) && !Bugsee.RemoveSecureWebView(notWeb),
+            Check("a native object that is not a WebView is refused", notWeb != null && !NativeExtrasWebView.Add(notWeb) && !NativeExtrasWebView.Remove(notWeb),
                 NativeExtrasWebView.Describe(notWeb));
-            Check("null is refused", !Bugsee.AddSecureWebView(null) && !Bugsee.RemoveSecureWebView(null), "");
-            Check("an unrelated managed object is refused", !Bugsee.AddSecureWebView("not a web view"), "");
+            Check("a refused view is not protected", NativeExtrasWebView.IsProtected(notWeb) != true, "protected=" + NativeExtrasWebView.IsProtected(notWeb));
+            Check("null and zero handles are refused",
+                !Bugsee.AddSecureWebView((AndroidJavaObject)null) && !Bugsee.RemoveSecureWebView((AndroidJavaObject)null)
+                && !Bugsee.AddSecureWebView(IntPtr.Zero) && !Bugsee.RemoveSecureWebView(IntPtr.Zero), "");
             NativeExtrasWebView.Destroy(handle);
             NativeExtrasWebView.Destroy(notWeb);
             yield return new WaitForSeconds(1f);

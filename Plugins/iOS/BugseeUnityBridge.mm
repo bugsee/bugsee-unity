@@ -784,26 +784,44 @@ void _bugsee_capture_view_hierarchy(void)
     [Bugsee captureViewHierarchy];
 }
 
-// The app's own WKWebView (a native-plugin WebView), handed over as a pointer. Anything that is not a WKWebView is refused, so a
-// stale or wrong pointer type is not passed to the SDK. Unity calls on the main thread, where UIKit objects may be touched.
-int _bugsee_add_secure_web_view(void *view)
+// The app's own WKWebView (a native-plugin WebView), handed over as a pointer.
+// The pointer must be a live Objective-C object: isKindOfClass: on a freed or non-ObjC pointer crashes, so only a valid object of
+// another class is refused. UIKit and the SDK's view bookkeeping run on the main queue whichever thread C# calls from.
+// +addSecureWebView: alone does NOT hide the view (it only lets the SDK hide secure areas inside the page), so the add also calls
+// +addSecureView:, which is what masks it in the video (Android's addSecureWebView does both). Like every view the SDK is asked to
+// hide, the mask is registered only while the SDK is launched.
+static int BugseeSecureWebViewOp(void *view, BOOL add)
 {
     if (view == NULL) return 0;
-    id webView = (__bridge id)view;
-    Class webKitClass = NSClassFromString(@"WKWebView");
-    if (webKitClass == Nil || ![webView isKindOfClass:webKitClass]) return 0;
-    [Bugsee addSecureWebView:webView];
-    return 1;
+    __block int result = 0;
+    void (^work)(void) = ^{
+        id webView = (__bridge id)view;
+        Class webKitClass = NSClassFromString(@"WKWebView");
+        if (webKitClass == Nil || ![webView isKindOfClass:webKitClass]) return;
+        if (add)
+        {
+            [Bugsee addSecureWebView:webView];
+            [Bugsee addSecureView:(UIView *)webView];
+        }
+        else
+        {
+            [Bugsee removeSecureView:(UIView *)webView];
+        }
+        result = 1;
+    };
+    if ([NSThread isMainThread]) work();
+    else dispatch_sync(dispatch_get_main_queue(), work);
+    return result;
+}
+
+int _bugsee_add_secure_web_view(void *view)
+{
+    return BugseeSecureWebViewOp(view, YES);
 }
 
 int _bugsee_remove_secure_web_view(void *view)
 {
-    if (view == NULL) return 0;
-    id webView = (__bridge id)view;
-    Class webKitClass = NSClassFromString(@"WKWebView");
-    if (webKitClass == Nil || ![webView isKindOfClass:webKitClass]) return 0;
-    [Bugsee removeSecureView:(UIView *)webView];
-    return 1;
+    return BugseeSecureWebViewOp(view, NO);
 }
 
 void _bugsee_feedback_show(void)
