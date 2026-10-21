@@ -106,7 +106,7 @@ Other platform differences, not aligned:
 
 **iOS and tvOS simulator:** the SDK's simulator build has no crash reporter (bugsee-cocoa#241), so native crashes (`DetectAndReportCrash`, `Bugsee.TestCrash`), hang detection, `LogError` and managed exceptions, handled (`LogException`, `Debug.LogException`) and unhandled (`LogUnhandledException`, `AppDomain.UnhandledException`), are **not reported** there; they are reported only from a device. Manual bug reports and uploads, logs, events and video still work. The package warns once at the first launch (`[Bugsee] Running on the simulator` in the Unity log, and in the native log). Validate crash and exception reporting on a physical device.
 
-Managed exceptions use the **UnityManagedException** JSON-in-reason contract (`name`, `reason`, `frames[{trace,address?}]`, `signature`, `buildID`, `moduleUUID`, optional nested `cause`).
+Managed exceptions use the **UnityManagedException** JSON-in-reason contract (`name`, `reason`, `frames[{trace,address?}]`, `signature`, `buildID`, `moduleUUID`, optional nested `cause`). The nested `cause` reaches the SDK and the server inside the reason text, but the worker does not read it yet (see the managed-stack notes below): until it does, only the outermost exception is shown, symbolicated and grouped; the inner exceptions are not displayed.
 
 ### How to get C# class + file:line on `LogException`
 
@@ -404,7 +404,7 @@ Wired: Launch/Stop, blackout, log/trace/event, exceptions (JSON-in-reason), Test
 
 ### iOS managed exceptions by SDK version
 
-The bridge builds against both native APIs. From iOS SDK 7.0.0-beta7 a logged exception takes only `domain` (the wrapper passes `UnityManagedException`, as on Android) and `skipFrames`, so `Bugsee.LogException(exception, options)` honours only the `skipFrames` key on iOS. `labels`, `includeVideo` and `mergingRules` are dropped (with a one-time warning in the Unity console and the native log): a logged exception takes no labels and always carries the live capture. (Labels are not attached through a report handler either: nothing on the report identifies it as the exception's, and a wrong label is worse than none.) On the simulator the SDK files no logged exception (see the simulator note above). Exceptions are only validated end to end on a device.
+The bridge builds against both native APIs. From iOS SDK 7.0.0-beta7 a logged exception takes only `domain` (the wrapper passes `UnityManagedException`, as on Android) and `skipFrames` (which Android ignores since the wrapper's Java stack was dropped, #107), so `Bugsee.LogException(exception, options)` honours only the `skipFrames` key on iOS. `labels`, `includeVideo` and `mergingRules` are dropped (with a one-time warning in the Unity console and the native log): a logged exception takes no labels and always carries the live capture. (Labels are not attached through a report handler either: nothing on the report identifies it as the exception's, and a wrong label is worse than none.) On the simulator the SDK files no logged exception (see the simulator note above). Exceptions are only validated end to end on a device.
 
 `DeleteCollectedDataOnDevice` uses the SDK's delete-everything form (it also deletes report bundles not uploaded yet and unsent crashes).
 
