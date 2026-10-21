@@ -370,11 +370,15 @@ namespace Bugsee.WrapperPolicy.Tests
                     bool same = ret == export.Ret && ps.Length == export.Params.Length;
                     for (int i = 0; same && i < ps.Length; i++)
                     {
-                        if (ps[i] == export.Params[i]) continue;
-                        // Another name for the same callback (or an untyped pointer to one): compare the typedef shapes.
-                        testTypedefs.TryGetValue(ps[i], out var a);
-                        typedefs.TryGetValue(export.Params[i], out var b);
-                        same = ps[i] == "void*" && b != null || (a != null && b != null && a[0].SequenceEqual(b[0]));
+                        // A callback parameter: the typedef of the test and of the bridge must have the same shape, whatever
+                        // their names (equal names in two files do not make an equal ABI).
+                        var isCallback = typedefs.TryGetValue(export.Params[i], out var b);
+                        if (isCallback && testTypedefs.TryGetValue(ps[i], out var a))
+                            same = a[0].SequenceEqual(b[0]);
+                        else if (isCallback)
+                            same = ps[i] == "void*"; // an untyped pointer to the callback
+                        else
+                            same = ps[i] == export.Params[i];
                     }
 
                     if (!same) failures.Add(file + ": " + ret + " " + name + "(" + string.Join(", ", ps) + ") vs export " + export);
@@ -382,6 +386,10 @@ namespace Bugsee.WrapperPolicy.Tests
             }
 
             Assert.That(checkedCount, Is.GreaterThanOrEqualTo(50), "the prototype parser found too few prototypes");
+            // Nothing may be skipped silently: every column-0 line that declares a _bugsee_ function was parsed as a prototype.
+            var declared = Directory.GetFiles(RepoFile("Tests~/iOS"), "*.mm").Sum(f =>
+                Regex.Matches(StripComments(File.ReadAllText(f)), @"(?m)^[A-Za-z_][^\n(]*\b_bugsee_\w+\s*\([^\n]*;\s*$").Count);
+            Assert.That(checkedCount, Is.EqualTo(declared), "a _bugsee_ declaration in Tests~/iOS/*.mm was not parsed as a prototype");
             Assert.That(failures, Is.Empty, "Prototypes in Tests~/iOS/*.mm that disagree with the bridge");
         }
 

@@ -63,6 +63,7 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             public string Name;
             public bool Static;
+            public bool Abstract;
             public string Ret; // erased; null for a constructor
             public string[] Params; // erased
             public bool VarArgs;
@@ -171,6 +172,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 {
                     Name = name,
                     Static = Regex.IsMatch(head, @"\bstatic\b"),
+                    Abstract = Regex.IsMatch(head, @"\babstract\b"),
                     Ret = ret.Length == 0 ? null : Erase(ret),
                     Params = args.Select(a => Erase(a.Replace("...", ""))).ToArray(),
                     VarArgs = args.Length > 0 && args[args.Length - 1].EndsWith("..."),
@@ -615,6 +617,15 @@ namespace Bugsee.WrapperPolicy.Tests
             { "AndroidManagedAttachment", new[] { "reporting.Attachment" } },
         };
 
+        // JDK calls made on other objects inside a ReceiverContracts class ("file:method"): enum names, map entries, lists and
+        // the like, not the contract receiver.
+        static readonly HashSet<string> ScopedJdkCalls = new HashSet<string>
+        {
+            "AndroidExchangeEvents.cs:getValue", "AndroidExchangeEvents.cs:name",
+            "AndroidReport.cs:add", "AndroidReport.cs:get", "AndroidReport.cs:getValue", "AndroidReport.cs:size", "AndroidReport.cs:toString",
+            "AndroidReport.cs:write", "AndroidReport.cs:flush", "AndroidReport.cs:close",
+        };
+
         static void AddWithSupers(string cls, Dictionary<string, JavaClass> manifest, List<JavaMethod> into, int depth = 0)
         {
             if (depth > 6 || !manifest.TryGetValue(cls, out var jc)) return;
@@ -664,7 +675,10 @@ namespace Bugsee.WrapperPolicy.Tests
                     var inSdk = candidates.Any(j => j.Name == name
                         && (j.VarArgs ? args.Length >= j.Params.Length - 1 : j.Params.Length == args.Length)
                         && (generic == null || ReturnFits(j, generic)));
-                    var inJdk = JdkMethods.TryGetValue(name, out var arities) && arities.Contains(args.Length);
+                    // Inside a receiver-contract class only the contract counts, except for the JDK objects that class is known to
+                    // call (ScopedJdkCalls: the stream of an attachment, the maps and iterators of a report).
+                    var inJdk = JdkMethods.TryGetValue(name, out var arities) && arities.Contains(args.Length)
+                        && (scope == null || ScopedJdkCalls.Contains(Path.GetFileName(kv.Key) + ":" + name));
                     if (!inSdk && !inJdk)
                         failures.Add(Path.GetFileName(kv.Key) + ": " + name + "/" + args.Length + (scope != null ? " (not on the receiver contract)" : ""));
                 }
@@ -709,10 +723,20 @@ namespace Bugsee.WrapperPolicy.Tests
                 }
 
                 Assert.That(matched, Is.GreaterThanOrEqualTo(1), proxy.Name + " defines no method of " + proxy.Interface);
+
+                // The other direction: Unity dispatches by name and argument count when Java calls, so an abstract method the proxy does
+                // not define fails only then ("No such proxy method"). Every abstract method of the interface needs a definition.
+                var definedKeys = new HashSet<string>(defined.Cast<Match>().Select(d => d.Groups[2].Value + "/" + SplitParams(d.Groups[3].Value).Length));
+                foreach (var j in known.Where(j => j.Abstract || proxy.Interface == "java.lang.Runnable"))
+                    if (!definedKeys.Contains(j.Name + "/" + j.Params.Length) && !UnimplementedProxyMethods.Contains(proxy.Name + "." + j.Name))
+                        failures.Add(proxy.Name + " does not define " + proxy.Interface + "." + j);
             }
 
             Assert.That(failures, Is.Empty);
         }
+
+        // Interface methods a proxy deliberately leaves out ("Proxy.method"); the Java side never calls them on this object.
+        static readonly HashSet<string> UnimplementedProxyMethods = new HashSet<string>();
 
         static string CsParamTypeOf(string parameter) => Regex.Match(parameter.Trim(), @"^(.+?)\s+\w+(?:\s*=.*)?$").Groups[1].Value;
 
