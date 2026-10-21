@@ -219,6 +219,17 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void The_wipe_to_coalesce_into_is_named_by_its_token()
+        {
+            var list = new StopWaitList();
+            var wipe = BeginWipe(list);
+            Assert.That(list.TryCoalesceWipe(out var token), Is.True);
+            Assert.That(token, Is.EqualTo(wipe));
+            list.Complete(wipe, () => 1, Run);
+            Assert.That(list.TryCoalesceWipe(out _), Is.False);
+        }
+
+        [Test]
         public void A_stop_in_flight_is_not_a_wipe_to_coalesce_into()
         {
             var list = new StopWaitList();
