@@ -128,7 +128,7 @@ runs scenarios on one Android device.
 
 | Scenario | What it does |
 |----------|--------------|
-| `interactions`, `actions`, `filters`, `presets` | self-checking (`PASS`/`FAIL` lines), described below |
+| `interactions`, `actions`, `filters`, `presets`, `nested` | self-checking (`PASS`/`FAIL` lines), described below; `nested` sends a handled exception with a three-level `InnerException` chain and checks that its payload has 3 levels and 2 `cause` keys (`[Sample] nested PASS levels=3 causes=2`) |
 | `sig` (default), `handled`, `unhandled`, `pipeline`, `upload`, `labels`, `logerror` | send handled / unhandled exceptions, a pipeline exception, a plain `Upload`, a handled exception with labels, or a Unity `LogError`, to see that a report arrives (`sig` sends three, to check the grouping signature) |
 | `crash`, `native`, `abort`, `fatal`, `java`, `hang` | kill the process (or block the main thread) for the crash matrix; one per run |
 | `sigraise` | raise SIGSEGV (iOS only; does nothing on Android) |
@@ -137,6 +137,7 @@ runs scenarios on one Android device.
 | `severity`, `severitylabels` | reports with no severity must take `ReportingDefaultBugPriority` (`bugsee_bug_priority`), an explicit severity must win; `severitylabels` does it with labels. Logged by a handler; ends on an open report dialog to dismiss |
 | `netfilter` | four network event filters (pass-through, redacting, one that empties the body, one that returns a replacement event) over events from the exchange factory; each logs what it was handed and left, tagged `[NETFILTER]`, and the run ends with `managed checks` (what native applied is not visible from C#) |
 | `options` | logs which launch-option keys the platform gate lets reach the native SDK, tagged `[OPTIONS]` |
+| `sigthreads` | the same managed exception thrown at one site and reported from the main thread and from a worker thread; logs `[SIGTHREADS]` with the client signature and (Android) the SDK's own signature for each, `PASS` (Android only; `INCONCLUSIVE` if the probe could not run, `SKIP` elsewhere) when they agree and the control differs; a plain Java exception is logged as a control that differs per thread |
 | `blackout` | logs `IsBlackout` after StartBlackout, EndBlackout, StartBlackout + Relaunch, StartBlackout + Stop and a fresh Launch, tagged `[BLACKOUT]` |
 | `delete` | `DeleteCollectedDataOnDevice`, a relaunch, then an upload |
 | `apm`, `apmoff`, `apmleak`, `apmpool`, `apmthrnew`, `apmthrjava`, `apmthrui` | APM stress and API-shape checks |
