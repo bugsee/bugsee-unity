@@ -76,6 +76,8 @@ namespace Bugsee.Editor
         /// not the Build Settings checkbox, which a script that builds with explicit options leaves alone).</param>
         internal static void Run(BuildTarget target, string pathToBuiltProject, bool development)
         {
+            // tvOS exports are not covered (nor are the other iOS steps here): an Append export there could list a phase twice
+            // as well; delete the export folder or export with Replace.
             if (target != BuildTarget.iOS)
             {
                 return;
@@ -150,8 +152,17 @@ namespace Bugsee.Editor
             // An export into an existing project (Append) keeps the links an earlier export added; drop them so the
             // package is linked once, whichever way (published tag or local package) the earlier export linked it.
             string existing = File.ReadAllText(projectPath);
+            // Unity's own Append export can list the GameAssembly target's Run Script phase twice (xcodebuild then fails the
+            // archive with "Unexpected duplicate tasks"): list each phase once.
+            existing = XcodeBuildPhaseList.RemoveDuplicates(existing, out int duplicatePhases);
+            if (duplicatePhases > 0)
+            {
+                Debug.Log($"[Bugsee] Removed {duplicatePhases} build phase(s) that Unity's Append export listed twice in a target " +
+                          "(the next archive would fail with 'Unexpected duplicate tasks').");
+            }
+
             string cleaned = XcodeLocalPackage.RemoveBugseePackage(existing, RemoteSpmUrl, LocalPackageFolderName, out var removedPackageIds);
-            if (cleaned != existing)
+            if (cleaned != existing || duplicatePhases > 0)
             {
                 File.WriteAllText(projectPath, cleaned);
             }

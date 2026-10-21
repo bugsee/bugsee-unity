@@ -1,0 +1,22 @@
+/* GameAssembly target of the sample's Unity-iPhone.xcodeproj/project.pbxproj after a Replace export and an Append export
+   with different IL2CPP arguments (Unity 2022.3.62f3, no Bugsee package needed to reproduce). Only the part of the file
+   that matters is kept (the ids and the target body are as Unity wrote them). The "ShellScript" phase is listed twice. */
+		7F4E059F2717216D00A2CBE4 /* GameAssembly */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7F4E05AA2717216D00A2CBE4 /* Build configuration list for PBXNativeTarget "GameAssembly" */;
+			buildPhases = (
+				7F4E059C2717216D00A2CBE4 /* Sources */,
+				7F4E059D2717216D00A2CBE4 /* Frameworks */,
+				7F4E059E2717216D00A2CBE4 /* CopyFiles */,
+				C62A2A42F32E085EF849CF0B /* ShellScript */,
+				C62A2A42F32E085EF849CF0B /* ShellScript */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = GameAssembly;
+			productName = GameAssembly;
+			productReference = 7F4E05A02717216D00A2CBE4 /* libGameAssembly.a */;
+			productType = "com.apple.product-type.library.static";
+		};
