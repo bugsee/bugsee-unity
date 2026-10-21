@@ -53,6 +53,18 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(FeedbackOptIn.AndroidAgpProblem(major, minor, patch) != null, Is.EqualTo(refused));
         }
 
+        [TestCase("8.1.0-rc01", true)]
+        [TestCase("8.1.0-alpha05", true)]
+        [TestCase("8.1.1-rc01", true)]
+        [TestCase("8.1.1", false)]
+        [TestCase("8.1.2-rc01", false)]
+        [TestCase("8.2.0-beta01", false)]
+        public void A_pre_release_agp_counts_as_older_than_its_patch(string agp, bool refused)
+        {
+            string root = "plugins {\n    id 'com.android.application' version '" + agp + "' apply false\n}\n";
+            Assert.That(FeedbackOptIn.AndroidToolchainProblem(root, null, null) != null, Is.EqualTo(refused));
+        }
+
         [TestCase("    compileSdk 36\n", false)]
         [TestCase("    compileSdk = 35\n", false)]
         [TestCase("    compileSdkVersion 35\n", false)]

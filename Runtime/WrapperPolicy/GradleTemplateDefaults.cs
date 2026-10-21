@@ -117,9 +117,14 @@ namespace Bugsee.WrapperPolicy
 
             if (parts.Length > 2)
             {
-                // `8.1.1-rc01`: the digits before the suffix.
-                string digits = new string(Array.FindAll(parts[2].ToCharArray(), char.IsDigit));
-                int.TryParse(digits, out patch);
+                // `8.1.1-rc01`: the leading digits are the patch, and a pre-release is older than that patch, so it counts
+                // as the one before (`8.1.0-rc01` and `8.1.1-rc01` are both below 8.1.1).
+                string segment = parts[2];
+                int end = 0;
+                while (end < segment.Length && char.IsDigit(segment[end])) end++;
+                if (!int.TryParse(segment.Substring(0, end), out patch)) patch = 0;
+                if (end < segment.Length && patch > 0) patch--;
+                else if (end < segment.Length) patch = -1;
             }
 
             return true;
