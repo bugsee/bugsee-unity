@@ -67,8 +67,8 @@ namespace Bugsee.Platform.Android
             if (value is int i) return i;
             if (value is byte by) return by;
             if (value is long l) return (int)l;
-            if (value is Enum e) return Convert.ToInt32(e);
-            return Convert.ToInt32(value);
+            if (value is Enum e) return Convert.ToInt32(e, System.Globalization.CultureInfo.InvariantCulture);
+            return Convert.ToInt32(value, System.Globalization.CultureInfo.InvariantCulture);
         }
 
         static AndroidJavaObject EnumFromInt(string className, string method, int value, int defaultValue)

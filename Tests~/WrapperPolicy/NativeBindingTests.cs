@@ -336,6 +336,64 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(problems, Is.Empty, string.Join("\n", problems));
         }
 
+        /// <summary>
+        /// The native test binaries (Tests~/iOS/*.mm) declare their own prototypes of the exports they call; a prototype
+        /// that drifts from the real export would make the test call it with the wrong ABI and still pass. Each must
+        /// equal the SDK-section export of that name (a function-pointer parameter by the shape of its typedef).
+        /// </summary>
+        [Test]
+        public void Prototypes_in_the_native_tests_match_the_exports()
+        {
+            var exports = AllExports(out var typedefs).Where(e => !e.Stub).GroupBy(e => e.Name).ToDictionary(g => g.Key, g => g.First());
+            var proto = new Regex(@"(?m)^(?:extern\s+""C""\s+)?(?<ret>[A-Za-z_][\w \t\*]*?)\s*(?<name>_bugsee_\w+)\s*\((?<args>[^)]*)\)\s*;");
+            var checkedCount = 0;
+            var failures = new List<string>();
+            foreach (var path in Directory.GetFiles(RepoFile("Tests~/iOS"), "*.mm"))
+            {
+                var mm = StripComments(File.ReadAllText(path));
+                var testTypedefs = new Dictionary<string, List<string[]>>();
+                AddCTypedefs(mm, testTypedefs);
+                // Nothing may be skipped silently, file by file: every column-0 statement that declares a _bugsee_ function
+                // (also over several lines, or after extern "C") was parsed as a prototype.
+                var declaredHere = Regex.Matches(mm, @"(?m)^(?:extern\s+""C""\s+)?[A-Za-z_][^\n(;]*\b_bugsee_\w+\s*\([^)]*\)\s*;").Count;
+                Assert.That(proto.Matches(mm).Count, Is.EqualTo(declaredHere),
+                    Path.GetFileName(path) + ": a _bugsee_ declaration was not parsed as a prototype");
+                foreach (Match m in proto.Matches(mm))
+                {
+                    var name = m.Groups["name"].Value;
+                    var file = Path.GetFileName(path);
+                    if (!exports.TryGetValue(name, out var export))
+                    {
+                        failures.Add(file + ": prototype of " + name + " has no export");
+                        continue;
+                    }
+
+                    checkedCount++;
+                    var args = m.Groups["args"].Value.Trim();
+                    var ps = args == "void" || args.Length == 0 ? new string[0] : SplitTopLevel(args).Select(CParamType).ToArray();
+                    var ret = NormC(m.Groups["ret"].Value);
+                    bool same = ret == export.Ret && ps.Length == export.Params.Length;
+                    for (int i = 0; same && i < ps.Length; i++)
+                    {
+                        // A callback parameter: the typedef of the test and of the bridge must have the same shape, whatever
+                        // their names (equal names in two files do not make an equal ABI).
+                        var isCallback = typedefs.TryGetValue(export.Params[i], out var b);
+                        if (isCallback && testTypedefs.TryGetValue(ps[i], out var a))
+                            same = a[0].SequenceEqual(b[0]);
+                        else if (isCallback)
+                            same = ps[i] == "void*"; // an untyped pointer to the callback
+                        else
+                            same = ps[i] == export.Params[i];
+                    }
+
+                    if (!same) failures.Add(file + ": " + ret + " " + name + "(" + string.Join(", ", ps) + ") vs export " + export);
+                }
+            }
+
+            Assert.That(checkedCount, Is.GreaterThanOrEqualTo(50), "the prototype parser found too few prototypes");
+            Assert.That(failures, Is.Empty, "Prototypes in Tests~/iOS/*.mm that disagree with the bridge");
+        }
+
         [Test]
         public void Every_DllImport_is_defined_in_both_the_sdk_and_the_no_sdk_section()
         {
