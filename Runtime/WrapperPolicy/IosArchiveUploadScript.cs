@@ -402,7 +402,9 @@ if [ -z ""${UUID}"" ]; then
     fi
   fi
 fi
-if [ -n ""${LINEMAP}"" ] && [ -f ""${LINEMAP}"" ] && [ -n ""${UUID}"" ]; then
+if [ -n ""${BUGSEE_NO_IL2CPP_MAPPING+x}"" ]; then
+  echo ""Bugsee: skip il2cpp-linemap (BUGSEE_NO_IL2CPP_MAPPING is set).""
+elif [ -n ""${LINEMAP}"" ] && [ -f ""${LINEMAP}"" ] && [ -n ""${UUID}"" ]; then
   echo ""Bugsee: uploading il2cpp-linemap ${LINEMAP} uuid=${UUID}"" | defang
   LAST_UPLOAD=""${ORIG_LINEMAP}""
   upload ""${CLI}"" debug-files upload ""${LINEMAP}"" --type il2cpp-linemap --version ""${VERSION}"" --build ""${BUILD}"" --uuid ""${UUID}""
