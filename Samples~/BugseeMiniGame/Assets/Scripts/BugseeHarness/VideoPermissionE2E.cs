@@ -36,6 +36,8 @@ namespace Bugsee.Sample
             var expected = Application.platform == RuntimePlatform.IPhonePlayer ? 1 : 0;
             Debug.Log("[VIDPERM] platform=" + Application.platform + " warnings after first=" + afterFirst
                 + " after second=" + afterSecond + " expected=" + expected);
+            if (expected == 1 && afterFirst == 0 && afterSecond == 0)
+                Debug.Log("[VIDPERM] already warned before the scenario started (a Reset call earlier in this process); run it in a fresh process");
             Debug.Log("[VIDPERM] RESULT " + (Bugsee.IsLaunched && afterFirst == expected && afterSecond == expected ? "PASS" : "FAIL"));
         }
     }

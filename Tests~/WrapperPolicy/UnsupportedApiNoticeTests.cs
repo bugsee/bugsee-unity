@@ -17,6 +17,15 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Each_distinct_message_is_logged_once()
+        {
+            var lines = new List<string>();
+            var notice = new UnsupportedApiNotice(lines.Add);
+            notice.Once("a"); notice.Once("b"); notice.Once("a"); notice.Once("b");
+            Assert.That(lines, Is.EqualTo(new[] { "a", "b" }));
+        }
+
+        [Test]
         public void A_throwing_logger_does_not_reach_the_caller()
         {
             var notice = new UnsupportedApiNotice(_ => throw new System.InvalidOperationException());
