@@ -514,7 +514,9 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Archive_script_reads_the_plist_under_target_build_dir()
         {
             NeedsPlistBuddy();
+            // BUILT_PRODUCTS_DIR points elsewhere, so only a TARGET_BUILD_DIR-first lookup finds the plist.
             var env = Settings(true, targetBuildDir: "@ROOT@/Build/Products/Debug-iphoneos");
+            env["BUILT_PRODUCTS_DIR"] = "@ROOT@/elsewhere";
             var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, env: env, plant: root => PlantPlist(root, "3.4.5", "678"));
             Assert.That(DsymCall(run), Does.EndWith("--version 3.4.5 --build 678"), run.Output);
         }
