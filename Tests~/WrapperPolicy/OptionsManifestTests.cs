@@ -533,7 +533,10 @@ namespace Bugsee.WrapperPolicy.Tests
                         else
                         {
                             checkedCount++;
-                            if (o.Type == "int" ? ((int)Enum.Parse(EnumTypeOf(type), d.Groups[1].Value)).ToString() != o.DefaultText : !string.Equals(o.EnumDefault, d.Groups[1].Value, StringComparison.Ordinal)) problems.Add(prop + " documents default " + d.Groups[1].Value + ", the iOS manifest says " + o.EnumDefault);
+                            var documentedDefault = d.Groups[1].Value;
+                            var expected = o.Type == "int" ? o.DefaultText : o.EnumDefault;
+                            var actual = o.Type == "int" ? ((int)Enum.Parse(EnumTypeOf(type), documentedDefault)).ToString() : documentedDefault;
+                            if (!string.Equals(expected, actual, StringComparison.Ordinal)) problems.Add(prop + " documents default " + documentedDefault + " (" + actual + "), the iOS manifest says " + expected);
                         }
                     }
                 }
