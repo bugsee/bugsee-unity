@@ -953,7 +953,12 @@ namespace Bugsee.Sample
                 var depth = 0;
                 for (var p = payload; p != null; p = p.cause)
                     Debug.Log("[BugseeSample] nested level " + depth++ + ": " + p.name + " | " + p.reason + " | frames=" + p.frames.Length);
-                Debug.Log("[BugseeSample] nested levels=" + depth + " json=" + ManagedExceptionPayload.ToJson(payload));
+                var json = ManagedExceptionPayload.ToJson(payload);
+                Debug.Log("[BugseeSample] nested levels=" + depth + " json=" + json);
+                var causes = json.Split(new[] { "\"cause\":" }, StringSplitOptions.None).Length - 1;
+                var ok = depth == 3 && causes == 2;
+                Debug.Log("[Sample] nested " + (ok ? "PASS" : "FAIL") + " levels=" + depth + " causes=" + causes);
+                Debug.Log("[Sample] nested e2e done failures=" + (ok ? 0 : 1));
                 Bugsee.LogException(ex, new Dictionary<string, object> { { "source", "e2e-nested" }, { "marker", marker } });
                 SetStatus("E2E handled nested " + marker);
             }

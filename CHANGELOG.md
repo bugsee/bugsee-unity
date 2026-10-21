@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Docs and sample for the managed `cause` chain (#104): the wrapper's payload is verified correct on a device (Android and iOS: three levels, `cause` nested twice, the whole text reaches the SDK as the exception reason), but the worker reads only the SDK's own `exception.cause`, so the chain is still ignored there; the docs now say so. The sample has a `nested` e2e scenario (a handled exception with a three-level `InnerException` chain; logs each level and the payload JSON).
+- Docs and sample: the managed payload's `cause` chain is not read by the worker yet (#104); the docs say so, and the sample has a `nested` scenario (a handled exception with a three-level `InnerException` chain; self-checking: `[Sample] nested PASS|FAIL`).
 - **iOS:** lifecycle events that arrive before the managed callback is registered (for example from a launch the host made natively before any C# call) are held, up to 128, and replayed in order on the main queue after the registering `Launch` or `Relaunch` call, as on Android, instead of being dropped. `Relaunch` now registers the wrapper like `Launch`.
 - **iOS:** a lifecycle payload that is a dictionary reaches `LifecycleEvent` / `ILifecycleEventListener` as a `Dictionary<string, object>`, as on Android, not as raw JSON text; a one-key dictionary is no longer mistaken for a string.
 
