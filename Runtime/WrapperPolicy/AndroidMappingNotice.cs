@@ -105,7 +105,7 @@ namespace Bugsee.WrapperPolicy
                 {
                     if (i > 0) text.Append("; ");
                     var file = seen[i];
-                    text.Append(file.Path).Append(": ").Append(file.Length > 0 ? "last written " + file.ModifiedUtc.ToString("u") + ", before this build started " + buildStartUtc.ToString("u") + ", so left by an earlier Gradle run" : file.Length < 0 ? "unreadable" : "empty");
+                    text.Append(file.Path).Append(": ").Append(file.Length > 0 ? "last written " + file.ModifiedUtc.ToString("u", System.Globalization.CultureInfo.InvariantCulture) + ", before this build started " + buildStartUtc.ToString("u", System.Globalization.CultureInfo.InvariantCulture) + ", so left by an earlier Gradle run" : file.Length < 0 ? "unreadable" : "empty");
                 }
 
                 text.Append(")");

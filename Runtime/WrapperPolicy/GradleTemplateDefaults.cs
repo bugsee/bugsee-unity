@@ -47,7 +47,7 @@ namespace Bugsee.WrapperPolicy
 
             string v = m.Groups["v"].Value;
             int dot = v.IndexOf('.');
-            return int.TryParse(dot < 0 ? v : v.Substring(0, dot), out int major) ? major : -1;
+            return int.TryParse(dot < 0 ? v : v.Substring(0, dot), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int major) ? major : -1;
         }
 
         /// <summary>
@@ -95,13 +95,13 @@ namespace Bugsee.WrapperPolicy
             }
 
             string[] parts = version.Split('.');
-            if (!int.TryParse(parts[0], out major))
+            if (!int.TryParse(parts[0], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out major))
             {
                 return false;
             }
 
             minor = 0;
-            if (parts.Length > 1 && !int.TryParse(parts[1], out minor))
+            if (parts.Length > 1 && !int.TryParse(parts[1], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out minor))
             {
                 // `8.+` or `8.x`: a range, not a version.
                 major = minor = -1;

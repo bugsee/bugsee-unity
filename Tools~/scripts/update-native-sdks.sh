@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Refresh native SDK pins and artifacts for com.bugsee.unity.
 #
-# - Regenerates Runtime/BugseePackageVersion.cs (also the Android Maven coordinates that
+# - Regenerates Runtime/BugseePackageVersion.cs, keeping its wrapper build id (also the Android Maven coordinates that
 #   Editor/BugseeAndroidMavenDependencies.cs declares in the generated Gradle project)
 # - Rewrites the pins listed in Tools~/scripts/native-pins.txt (docs, CHANGELOG, Tests~/iOS/run-tests.sh, ...)
-# - Verifies the iOS SPM tag on github.com/bugsee/spm (no local xcframework copy)
+# - Verifies the iOS SPM tag on github.com/bugsee/spm (no local xcframework copy; BUGSEE_OFFLINE=1 skips the lookup)
 
 set -euo pipefail
 
@@ -84,6 +84,11 @@ PY
 
 RUNTIME_VERSION_CS="${ROOT_DIR}/Runtime/BugseePackageVersion.cs"
 
+# The wrapper build id is not this script's to choose: a bump on main would stamp a hash that no release is cut
+# from. Keep what the file has (`dev` on main, a real id on a release branch); Tools~/scripts/stamp-wrapper-build.sh sets it.
+WRAPPER_BUILD="$(sed -nE 's/.*public const string Build = "([^"]*)".*/\1/p' "${RUNTIME_VERSION_CS}" 2>/dev/null | head -n 1 || true)"
+WRAPPER_BUILD="${WRAPPER_BUILD:-dev}"
+
 echo "==> Package ${BUGSEE_PACKAGE_VERSION}"
 echo "    Android ${ANDROID_SDK_VERSION}"
 echo "    iOS ${IOS_SDK_REPO} @ ${IOS_SDK_VERSION} (${IOS_SDK_COMMIT})"
@@ -97,7 +102,7 @@ namespace Bugsee
     public static class BugseePackageVersion
     {
         public const string Version = "${BUGSEE_PACKAGE_VERSION}";
-        public const string Build = "$(git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null || echo dev)";
+        public const string Build = "${WRAPPER_BUILD}";
         public const string AndroidSdkVersion = "${ANDROID_SDK_VERSION}";
         public const string AndroidMavenGroup = "${ANDROID_MAVEN_GROUP}";
         public const string AndroidMavenArtifact = "${ANDROID_MAVEN_ARTIFACT}";
@@ -111,7 +116,9 @@ EOF
 echo "Updated ${RUNTIME_VERSION_CS}"
 
 # --- iOS SPM pin (github.com/bugsee/spm) ---
-if command -v git >/dev/null 2>&1; then
+if [[ "${BUGSEE_OFFLINE:-0}" == 1 ]]; then
+  echo "BUGSEE_OFFLINE=1: not checking the iOS SPM tag."
+elif command -v git >/dev/null 2>&1; then
   # Offline or a failing ls-remote must not abort here (set -e/pipefail): the Android identity file below
   # would then never be written and Java and C# would disagree on the version.
   REMOTE_SHA="$(git ls-remote "${IOS_SDK_REPO}" "refs/tags/${IOS_SDK_VERSION}" 2>/dev/null | awk '{print $1}' || true)"
@@ -136,7 +143,7 @@ package com.bugsee.unity;
  */
 final class UnityWrapperIdentity {
     static final String VERSION = "${BUGSEE_PACKAGE_VERSION}";
-    static final String BUILD = "$(git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null || echo dev)";
+    static final String BUILD = "${WRAPPER_BUILD}";
 
     private UnityWrapperIdentity() {}
 }
@@ -166,6 +173,12 @@ fi
 # versions.env). A pin without a published manifest must not undo the bump above: the test then fails until it is vendored.
 if ! "${ROOT_DIR}/Tools~/scripts/update-options-manifest.sh"; then
   echo "WARNING: option manifests not vendored; OptionsManifestTests fails until Tools~/scripts/update-options-manifest.sh succeeds." >&2
+fi
+
+# The Android API snapshot AndroidSdkBindingTests checks the JNI calls against (needs a JDK and the network; the old
+# snapshot is kept when it fails, and the test then fails until Tools~/scripts/update-android-api-manifest.sh succeeds).
+if ! "${ROOT_DIR}/Tools~/scripts/update-android-api-manifest.sh"; then
+  echo "WARNING: Android API snapshot not regenerated; AndroidSdkBindingTests fails until Tools~/scripts/update-android-api-manifest.sh succeeds." >&2
 fi
 
 echo "Done."

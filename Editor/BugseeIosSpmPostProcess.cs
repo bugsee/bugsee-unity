@@ -340,7 +340,7 @@ namespace Bugsee.Editor
             }
 
             value = value.Trim();
-            if (value == "~" || value.StartsWith("~/"))
+            if (value == "~" || value.StartsWith("~/", StringComparison.Ordinal))
             {
                 value = Path.Combine(
                     System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),

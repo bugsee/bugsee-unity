@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>bugsee-cli</AssemblyName>
+    <Nullable>disable</Nullable>
+    <UseAppHost>true</UseAppHost>
+    <SelfContained>false</SelfContained>
+  </PropertyGroup>
+</Project>
