@@ -474,6 +474,15 @@ namespace Bugsee.Sample
                         _pendingE2EFire = "O:options";
                     }
                     break;
+                case "nullref":
+                case "nullrefnochk":
+                    // A .NET null reference must not reach the native crash reporter as a fatal signal (issue #95).
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 99;
+                        StartCoroutine(_e2eScenario == "nullref" ? NullRefE2E.Run(this) : NullRefE2E.RunNoChecks());
+                    }
+                    break;
                 case "blackout":
                     if (_e2ePhase == 0 && _e2eTimer >= 5f)
                     {
@@ -1034,6 +1043,10 @@ namespace Bugsee.Sample
             var crashHandler = Environment.GetEnvironmentVariable("BUGSEE_E2E_CRASH_HANDLER");
             if (int.TryParse(crashHandler, out var handlerType)) // any integer goes to the SDK as given, also an invalid one
                 options.CrashHandlerType = (CrashHandlerType)handlerType;
+            // BUGSEE_E2E_CRASH_SIGNALS = a CrashSignals bit set (Default = 128); unset leaves the SDK's own choice.
+            var crashSignals = Environment.GetEnvironmentVariable("BUGSEE_E2E_CRASH_SIGNALS");
+            if (int.TryParse(crashSignals, out var signals))
+                options.CrashSignals = (CrashSignals)signals;
             if (Environment.GetEnvironmentVariable("BUGSEE_E2E_SCENARIO") == "options")
                 AddGatingProbeOptions(options);
             return options;

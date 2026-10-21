@@ -56,7 +56,7 @@ Bugsee.Launch(appToken, options);
 | Property | Key suffix | Type, default |
 |---|---|---|
 | `CrashHandlerType` | `capture.crash-handler-type` | `CrashHandlerType`, `MachAndBSD` |
-| `CrashSignals` | `capture.crash-signals` | `[Flags] CrashSignals` bit set, `Default` (every signal). Leave `Segv`/`Bus` out only if a hosted runtime handles them itself; leaving out `Abrt` stops uncaught Objective-C exceptions from being reported. `Default` is only honoured on its own |
+| `CrashSignals` | `capture.crash-signals` | `[Flags] CrashSignals` bit set, `Default` (every signal). `Default` (every signal, the SDK drops `Segv`/`Bus` only for its Xamarin/.NET wrappers, not for Unity) is right for Unity: leave it alone, see the note below. Leaving out `Abrt` stops uncaught Objective-C exceptions from being reported. `Default` is only honoured on its own |
 | `CaptureOnDeviceSymbolication` | `capture.on-device-symbolication` | bool, false |
 | `CrashSwiftAsyncStackTraces` | `detect.crash.swift_async_stacktraces` | bool, true |
 | `CrashFillEmptyExceptionStacks` | `detect.crash.fill_empty_exception_stacks` | bool, false (can change crash grouping) |
@@ -72,6 +72,8 @@ Bugsee.Launch(appToken, options);
 | `DataEncryption` | `config.data-encryption` | `DataEncryptionMode` (`None`, `OnDevice`, `EndToEnd`), `None`. `EndToEnd` leaves some features out, such as the video preview |
 | `BuildTarget`, `BuildType` | `config.build-target`, `config.build-type` | string, none |
 | `ReportingUIStyle` | `reporting.ui.style` | `ReportingUIStyle` (`Light`, `Dusk`, `BasedOnStatusBar`, `System`), `System` |
+
+**Null references and `CrashSignals` on iOS.** The iOS SDK's header warns that .NET hosts turn `SIGSEGV`/`SIGBUS` into `NullReferenceException` and that those signals should then be left out. That applies to Mono/.NET runtimes that raise the exception from a signal handler; Unity's IL2CPP player, the only scripting backend on iOS, does not: it compiles an explicit null check before each access, so a null reference (caught or not) is an ordinary managed exception and never reaches the crash reporter as a signal. Verified on an iPhone XS (iOS, Unity 2022.3 IL2CPP, Release build): a caught `NullReferenceException`, one thrown on a coroutine and one in a thread-pool task produced no crash report and no `RelaunchedAfterCrash` on the next launch, and the process kept running. Keep the default (`CrashSignals.Default`, which reports `Segv` and `Bus`): a real fault (a bad native pointer, or a null access in code compiled with IL2CPP's `NullChecks` option switched off, see `Il2CppSetOption`) kills the process with `SIGSEGV`, and without `Segv`/`Bus` in the set that crash is not reported at all (observed: the app died with signal 11, the next launch saw no crash). Android has no such option; the same IL2CPP behaviour was observed on an HONOR WOD-LX1 (Android 14, Unity 2022.3 IL2CPP, Release): no crash for managed null references, a reported crash (`RelaunchedAfterCrash`) for the unchecked access. A Mono Android build (ARMv7 only, which Mono raises the exception from a signal handler) was not tested because the only available phone is 64-bit only. The sample scenarios `nullref` and `nullrefnochk` reproduce both cases.
 
 Three keys have no property: `capture.logs.oslog` (the iOS SDK accepts and ignores it, permanently disabled), `capture.status-bar-info` (only a DEBUG build of the SDK reads it; the published SDK never does) and `capture.mach-exceptions` (removed from the SDK, which ignores it with a warning; use `CrashHandlerType`).
 
