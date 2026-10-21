@@ -62,35 +62,43 @@ fi
 SDK="$(xcrun --sdk iphonesimulator --show-sdk-path)"
 SLICE="$FRAMEWORK/ios-arm64_x86_64-simulator"
 BINARY="$BUILD/bridge-tests"
+EXPORT_BINARY="$BUILD/bridge-export-tests"
 
-clang -x objective-c++ -fobjc-arc -std=c++17 \
-    -target "$TARGET" \
-    -isysroot "$SDK" \
-    -mios-simulator-version-min=15.0 \
-    -DBUGSEE_UNITY_TESTS=1 \
-    -F "$SLICE" \
-    -framework Bugsee \
-    -framework Foundation \
-    -framework UIKit \
-    -framework CoreGraphics \
-    -framework QuartzCore \
-    -framework SystemConfiguration \
-    -framework Security \
-    -framework CFNetwork \
-    -lc++ \
-    -ObjC \
-    "$ROOT/Plugins/iOS/BugseeUnityCallbacks.mm" \
-    "$ROOT/Plugins/iOS/BugseeUnityBridge.mm" \
-    "$ROOT/Tests~/iOS/BridgeTests.mm" \
-    -o "$BINARY"
+build_test() { # test source, output binary
+    clang -x objective-c++ -fobjc-arc -std=c++17 \
+        -target "$TARGET" \
+        -isysroot "$SDK" \
+        -mios-simulator-version-min=15.0 \
+        -DBUGSEE_UNITY_TESTS=1 \
+        -F "$SLICE" \
+        -framework Bugsee \
+        -framework Foundation \
+        -framework UIKit \
+        -framework CoreGraphics \
+        -framework QuartzCore \
+        -framework SystemConfiguration \
+        -framework Security \
+        -framework CFNetwork \
+        -lc++ \
+        -ObjC \
+        "$ROOT/Plugins/iOS/BugseeUnityCallbacks.mm" \
+        "$ROOT/Plugins/iOS/BugseeUnityBridge.mm" \
+        "$1" \
+        -o "$2"
+}
+
+build_test "$ROOT/Tests~/iOS/BridgeTests.mm" "$BINARY"
+build_test "$ROOT/Tests~/iOS/BridgeExportTests.mm" "$EXPORT_BINARY"
 
 rm -rf "$BUILD/Bugsee.framework"
 cp -R "$SLICE/Bugsee.framework" "$BUILD/Bugsee.framework"
-install_name_tool -add_rpath @executable_path "$BINARY"
 codesign --force --sign - "$BUILD/Bugsee.framework" >/dev/null
-codesign --force --sign - "$BINARY" >/dev/null
+for B in "$BINARY" "$EXPORT_BINARY"; do
+    install_name_tool -add_rpath @executable_path "$B"
+    codesign --force --sign - "$B" >/dev/null
+done
 
-UDID="$(python3 - <<'PY'
+UDID="${BUGSEE_TEST_SIMULATOR_UDID:-$(python3 - <<'PY'
 import json, subprocess, sys
 data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
 for runtime, devices in data["devices"].items():
@@ -102,8 +110,9 @@ for runtime, devices in data["devices"].items():
             sys.exit(0)
 sys.exit("No available iPhone simulator")
 PY
-)"
+)}"
 
 xcrun simctl boot "$UDID" >/dev/null 2>&1 || true
 xcrun simctl bootstatus "$UDID" -b >/dev/null
 xcrun simctl spawn "$UDID" "$BINARY"
+xcrun simctl spawn "$UDID" "$EXPORT_BINARY"

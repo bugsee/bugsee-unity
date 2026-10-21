@@ -168,4 +168,10 @@ if ! "${ROOT_DIR}/Tools~/scripts/update-options-manifest.sh"; then
   echo "WARNING: option manifests not vendored; OptionsManifestTests fails until Tools~/scripts/update-options-manifest.sh succeeds." >&2
 fi
 
+# The Android API snapshot AndroidSdkBindingTests checks the JNI calls against (needs a JDK and the network; the old
+# snapshot is kept when it fails, and the test then fails until Tools~/scripts/update-android-api-manifest.sh succeeds).
+if ! "${ROOT_DIR}/Tools~/scripts/update-android-api-manifest.sh"; then
+  echo "WARNING: Android API snapshot not regenerated; AndroidSdkBindingTests fails until Tools~/scripts/update-android-api-manifest.sh succeeds." >&2
+fi
+
 echo "Done."
