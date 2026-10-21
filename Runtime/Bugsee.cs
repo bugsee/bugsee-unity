@@ -322,7 +322,8 @@ namespace Bugsee
         /// <summary>
         /// Delete the data collected on the device, including finished report bundles. Stops the SDK first if it
         /// is not stopped (joining a stop in flight) and leaves it stopped: Launch again to resume. It has no
-        /// result; a failure is logged. On Android it runs in request order with Launch/Relaunch (ones requested
+        /// result; a failure is logged (use <see cref="DeleteCollectedDataOnDeviceAsync"/> for one, or to delete less).
+        /// On Android it runs in request order with Launch/Relaunch (ones requested
         /// earlier run first); on iOS a Launch/Relaunch requested after it waits for the wipe. A delete already
         /// handed to the native SDK can finish after the 10 s warning, and after the 60 s hard deadline an Android
         /// Launch can run while a native delete is still wiping.
@@ -331,6 +332,41 @@ namespace Bugsee
         {
             ForgetPusherSession(); // it stops the SDK
             Bridge.DeleteCollectedDataOnDevice();
+        }
+
+        /// <summary>
+        /// <see cref="DeleteCollectedDataOnDevice()"/> for the data of <paramref name="scope"/> only. The narrower
+        /// scopes keep what the wider one deletes (see <see cref="DeleteScope"/>); the SDK is stopped either way.
+        /// </summary>
+        public static void DeleteCollectedDataOnDevice(DeleteScope scope)
+        {
+            ForgetPusherSession(); // it stops the SDK
+            if (Bridge is ILifecycleResultBridge bridge) bridge.DeleteCollectedData(scope, null);
+            else Bridge.DeleteCollectedDataOnDevice();
+        }
+
+        /// <summary>
+        /// <see cref="DeleteCollectedDataOnDevice(DeleteScope)"/> that completes with the SDK's answer: true when it
+        /// reported the data deleted, false when it refused, gave no answer in time (Android 10 s, iOS 60 s), or on iOS
+        /// the call did not reach the Unity main thread within 5 s. A false after a timeout can still be followed by
+        /// the wipe finishing. Deletes <see cref="DeleteScope.Everything"/> by default, as
+        /// <see cref="DeleteCollectedDataOnDevice()"/>. The SDK is left stopped. In the Editor nothing is collected,
+        /// so it completes true. Awaited from the Unity main thread, the continuation resumes there.
+        /// </summary>
+        public static Task<bool> DeleteCollectedDataOnDeviceAsync(DeleteScope scope = DeleteScope.Everything)
+        {
+            ForgetPusherSession(); // it stops the SDK
+            var result = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (Bridge is ILifecycleResultBridge bridge)
+            {
+                bridge.DeleteCollectedData(scope, wiped => result.TrySetResult(wiped));
+            }
+            else
+            {
+                Bridge.DeleteCollectedDataOnDevice();
+                result.TrySetResult(true);
+            }
+            return result.Task;
         }
 
         public static IReport CreateReport() => Bridge.CreateReport();

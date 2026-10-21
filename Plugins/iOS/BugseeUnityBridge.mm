@@ -923,11 +923,11 @@ void _bugsee_free(char *ptr)
 }
 
 // Deletes after the SDK is stopped, and reports the token back once the SDK says the wipe finished (its files
-// are cleared on a background thread), so the managed side can hold a following Launch until then. wiped is 1
+// are cleared on a background thread), so the managed side can hold a following Launch until then. scope picks how much is deleted (see the call). wiped is 1
 // when the SDK reported the wipe done, 0 when it failed or never ran (the SDK did not finish stopping).
 typedef void (*BugseeDeleteCompletionFn)(int token, int wiped);
 
-void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completion)
+void _bugsee_delete_collected_data(int token, int scope, BugseeDeleteCompletionFn completion)
 {
     BugseeRunOnMain(^{
         void (^runDelete)(void) = ^{
@@ -936,8 +936,14 @@ void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completio
                     completion(token, success ? 1 : 0);
                 }
             };
-            // The flag form keeps the report bundles waiting for upload; this one deletes everything Bugsee collected.
-            [Bugsee deleteCollectedDataOnDevice:done];
+            // scope is the managed DeleteScope: 0 capture only, 1 capture and report snapshots, 2 everything. The flag
+            // form keeps the report bundles waiting for upload; the form without a flag deletes everything Bugsee
+            // collected (also the crashes not reported yet and the performance baselines).
+            if (scope >= 2) {
+                [Bugsee deleteCollectedDataOnDevice:done];
+            } else {
+                [Bugsee deleteCollectedDataOnDevice:(scope == 1) completion:done];
+            }
         };
         // Only a running SDK is stopped: on a stopped one the stop's block may land after a launch that follows
         // this call on the main thread, and the wipe would then be skipped.
@@ -1103,7 +1109,7 @@ int _bugsee_appearance_set_string(const char *propertyName, const char *property
 char *_bugsee_appearance_get_string(const char *propertyName) { (void)propertyName; return NULL; }
 void _bugsee_free(char *ptr) { (void)ptr; }
 typedef void (*BugseeDeleteCompletionFn)(int token, int wiped);
-void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completion) { if (completion) completion(token, 0); }
+void _bugsee_delete_collected_data(int token, int scope, BugseeDeleteCompletionFn completion) { if (completion) completion(token, 0); }
 void _bugsee_invalidate_managed_report_uploads(void) {}
 void _bugsee_upload_managed_report(const char *reportJson,
                                    uint64_t uploadId,

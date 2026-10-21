@@ -217,6 +217,7 @@ namespace Bugsee.Platform.IOS
         static readonly StopWaitList StopWaiters = new StopWaitList();
         static readonly OneShotCallbacks<bool> LaunchResults = new OneShotCallbacks<bool>();
         static readonly OneShotCallbacks<bool> StopCompletions = new OneShotCallbacks<bool>();
+        static readonly WipeCompletions WipeResults = new WipeCompletions();
         const int StopSoftDeadlineMs = 10000;
         const int StopHardDeadlineMs = 60000;
         const int LaunchResultTimeoutMs = 10000;
@@ -289,6 +290,7 @@ namespace Bugsee.Platform.IOS
                 if (!StopWaiters.IsPending(token)) return;
                 Debug.LogWarning("[Bugsee] The SDK has not reported that stop finished after "
                     + StopHardDeadlineMs / 1000 + " s; giving up on it and running what waits for it.");
+                WipeResults.Settle(token, false, RunResult); // a wipe nobody heard of ends false; no-op for a stop
                 CompleteStop(token);
             });
         }
@@ -372,6 +374,7 @@ namespace Bugsee.Platform.IOS
                 {
                     if (wiped == 0)
                         Debug.LogWarning("[Bugsee] DeleteCollectedDataOnDevice did not wipe the collected data: the SDK reported a failure or had not finished stopping.");
+                    WipeResults.Settle(token, wiped != 0, RunResult);
                     CompleteStop(token);
                 });
             }
@@ -467,7 +470,15 @@ namespace Bugsee.Platform.IOS
             }
         }
 
-        public void DeleteCollectedDataOnDevice()
+        public void DeleteCollectedDataOnDevice() => DeleteCollectedData(DeleteScope.Everything, null);
+
+        void ILifecycleResultBridge.DeleteCollectedData(DeleteScope scope, Action<bool> done) =>
+            DeleteCollectedData(scope, done);
+
+        // done (may be null) is answered by the wipe it joins or starts: true when the SDK reported the data
+        // deleted, false when it refused, gave no report within the hard deadline, or the call never reached the
+        // Unity main thread. A Delete of another scope than the wipe in flight waits for it and starts its own.
+        void DeleteCollectedData(DeleteScope scope, Action<bool> done)
         {
             // One path, decided inside the main-thread closure and not on the SDK's state: Launch always installs
             // the managed hooks, even when the SDK then refuses it (status stays Stopped), so they are torn down
@@ -486,11 +497,12 @@ namespace Bugsee.Platform.IOS
                     _openReportHandle = null;
                     _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
                     _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
-                    if (StopWaiters.TryCoalesceWipe()) return;
-                    StopNativeThen(BeginNativeDelete, first: true);
+                    if (TryJoinWipe(scope, done)) return;
+                    StopNativeThen(() => BeginNativeDelete(scope, done), first: true);
                 }))
             {
                 Debug.LogError("[Bugsee] DeleteCollectedDataOnDevice timed out waiting for the Unity main thread.");
+                RunResult(done, false);
             }
         }
 
@@ -500,14 +512,19 @@ namespace Bugsee.Platform.IOS
         // stop, so nothing waits forever; no soft one, as no caller waits for the wipe.
         // A Delete that follows one still wiping is the same wipe, so it starts no second one (two would release a
         // deferred Launch at the later one's report, under the first one's file pass).
-        static void BeginNativeDelete()
+        static void BeginNativeDelete(DeleteScope scope, Action<bool> done)
         {
-            if (StopWaiters.TryCoalesceWipe()) return;
+            if (TryJoinWipe(scope, done)) return;
             var generation = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
             var token = StopWaiters.Begin(null, generation, holdsLaunch: true);
+            WipeResults.Begin(token, scope, done);
             GiveUpIfStopNotReported(token);
-            _bugsee_delete_collected_data(token, OnNativeDeleted);
+            _bugsee_delete_collected_data(token, (int)scope, OnNativeDeleted);
         }
+
+        // The wipe in flight, when it has the same scope and no launch waits behind it: this Delete is that wipe.
+        static bool TryJoinWipe(DeleteScope scope, Action<bool> done) =>
+            StopWaiters.TryCoalesceWipe(out var wipe) && WipeResults.TryJoin(wipe, scope, done);
 
         void CancelManagedReportUpload()
         {
@@ -903,7 +920,7 @@ namespace Bugsee.Platform.IOS
             string message,
             int iosLevel,
             double timestampUnixSeconds);
-        [DllImport("__Internal")] static extern void _bugsee_delete_collected_data(int token, DeleteNativeCallback completion);
+        [DllImport("__Internal")] static extern void _bugsee_delete_collected_data(int token, int scope, DeleteNativeCallback completion);
         [DllImport("__Internal")] static extern void _bugsee_invalidate_managed_report_uploads();
         [DllImport("__Internal")] static extern void _bugsee_upload_managed_report(
             string reportJson,

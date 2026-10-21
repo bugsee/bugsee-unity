@@ -61,7 +61,7 @@ void _bugsee_start_blackout(void);
 void _bugsee_end_blackout(void);
 int _bugsee_is_blackout(void);
 typedef void (*BugseeDeleteCompletionFn)(int token, int wiped);
-void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completion);
+void _bugsee_delete_collected_data(int token, int scope, BugseeDeleteCompletionFn completion);
 const char *_bugsee_test_exception_options(const char *optionsJson);
 int _bugsee_test_simulator_warning_count(void);
 int _bugsee_exceptions_filed(void);
@@ -608,9 +608,17 @@ int main(void)
     expect(waitFor(^{ return gStartedCount == 2 ? 1 : 0; }, 5) && gStartedToken == 42,
            "relaunch reports the SDK's started answer with its token");
     // The wipe reports back with its token once the SDK has finished it (it stops a running SDK first).
-    _bugsee_delete_collected_data(9, OnDeleted);
+    _bugsee_delete_collected_data(9, 2, OnDeleted);
     expect(waitFor(^{ return gDeletedToken == 9 ? 1 : 0; }, 15), "delete reports its completion with its token");
     expect(gDeletedWiped == 1, "delete reports wiped on the normal path");
+    // The narrower scopes (capture only, capture and snapshots) call the flag form and report the same way.
+    for (int scope = 0; scope <= 1; scope++) {
+        int token = 20 + scope;
+        gDeletedWiped = -1;
+        _bugsee_delete_collected_data(token, scope, OnDeleted);
+        expect(waitFor(^{ return gDeletedToken == token ? 1 : 0; }, 15), "a scoped delete reports its completion with its token");
+        expect(gDeletedWiped == 1, "a scoped delete reports wiped on the normal path");
+    }
     _bugsee_launch("00000000-0000-0000-0000-000000000000", NULL, 0, NULL);
     // The tests run on a simulator: the warning that exceptions are not filed there shows once, however many launches.
     expect(_bugsee_test_simulator_warning_count() == 1, "the simulator warning is logged once across launches");

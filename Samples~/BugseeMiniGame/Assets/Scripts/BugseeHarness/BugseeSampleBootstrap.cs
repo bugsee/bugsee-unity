@@ -363,6 +363,14 @@ namespace Bugsee.Sample
                         StartCoroutine(InteractionsE2E.Run(this));
                     }
                     break;
+                case "deletescope":
+                    // Deletes with every DeleteScope and checks the result and what is left on disk (issue #101).
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        StartCoroutine(DeleteScopeE2E.Run(this));
+                    }
+                    break;
                 case "filters":
                     // Turns the sample filters on and checks each one ran on events the sample sends (issue #117).
                     if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))

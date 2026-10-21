@@ -99,10 +99,15 @@ namespace Bugsee.WrapperPolicy
         /// second one. Not a new request, so the intent is unchanged. False when a launch is deferred behind the
         /// wipe: a Delete after that launch is a newer request and joins as usual, cancelling it.
         /// </summary>
-        public bool TryCoalesceWipe()
+        public bool TryCoalesceWipe() => TryCoalesceWipe(out _);
+
+        /// <inheritdoc cref="TryCoalesceWipe()"/>
+        /// <param name="token">The token of that wipe, for the caller to join its result to.</param>
+        public bool TryCoalesceWipe(out int token)
         {
             lock (_gate)
             {
+                token = _inFlightToken;
                 return _inFlightToken != 0
                     && _deferredLaunch == null
                     && _pending.TryGetValue(_inFlightToken, out var pending)

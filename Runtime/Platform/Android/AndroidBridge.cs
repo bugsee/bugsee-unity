@@ -538,19 +538,22 @@ namespace Bugsee.Platform.Android
 
         public void NotifyLifecycle(string eventType) { }
 
-        public void DeleteCollectedDataOnDevice() => DeleteCollectedDataOnDevice(null);
+        public void DeleteCollectedDataOnDevice() => DeleteCollectedDataOnDevice(DeleteScope.Everything, null);
 
-        // Stops the SDK if needed, then deletes with includingBundles=true: the two-argument overload keeps finished
-        // report bundles, including ones not uploaded yet, so a "delete collected data" request would leave data
+        void ILifecycleResultBridge.DeleteCollectedData(DeleteScope scope, Action<bool> done) =>
+            DeleteCollectedDataOnDevice(scope, done);
+
+        // Stops the SDK if needed, then deletes. Everything passes includingBundles=true: the two-argument overload keeps
+        // finished report bundles, including ones not uploaded yet, so a "delete collected data" request would leave data
         // behind. Runs in request order with Launch/Relaunch/Stop, so a later Launch never cancels it.
-        internal void DeleteCollectedDataOnDevice(Action<bool> completion)
+        internal void DeleteCollectedDataOnDevice(DeleteScope scope, Action<bool> completion)
         {
             MainThreadDispatcher.Run(() =>
             {
                 AndroidManagedReportUploadFence.Invalidate();
                 _openReport?.ReleaseSnapshotFiles();
                 _openReport = null;
-                Lifecycle.DeleteCollectedData(completion);
+                Lifecycle.DeleteCollectedData(scope, completion);
             });
         }
 
@@ -580,8 +583,10 @@ namespace Bugsee.Platform.Android
             public void Stop(Action done) =>
                 _bridge._bugsee.CallStatic("stop", new RunnableProxy(() => MainThreadDispatcher.Run(done)));
 
-            public void DeleteCollectedData(Action<bool> done) =>
-                _bridge._bugsee.CallStatic("deleteCollectedDataOnDevice", true, true, new BooleanCallback1Proxy(OnMain(done)));
+            // CaptureOnly and CaptureAndIntermediate keep the finished report bundles (includingBundles=false).
+            public void DeleteCollectedData(DeleteScope scope, Action<bool> done) =>
+                _bridge._bugsee.CallStatic("deleteCollectedDataOnDevice", scope != DeleteScope.CaptureOnly,
+                    scope == DeleteScope.Everything, new BooleanCallback1Proxy(OnMain(done)));
 
             public void InstallHooks(IDictionary<string, object> options)
             {
