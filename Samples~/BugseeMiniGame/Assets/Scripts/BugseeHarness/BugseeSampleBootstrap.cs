@@ -488,6 +488,13 @@ namespace Bugsee.Sample
                         _pendingE2EFire = "D:blackout";
                     }
                     break;
+                case "sigthreads":
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 99;
+                        _pendingE2EFire = "G:e2e-sigthreads-" + _e2eRunId;
+                    }
+                    break;
                 case "none":
                     // Recovery launch: arm nothing, only let the SDK recover and upload what the last run left.
                     break;
@@ -623,6 +630,9 @@ namespace Bugsee.Sample
                     break;
                 case 'D':
                     BlackoutE2E.Run(this, appToken, LastLaunchOptions);
+                    break;
+                case 'G':
+                    SignatureThreadsE2E.Run(this, marker);
                     break;
                 case 'C':
                     SetStatus("E2E native TestCrash");
