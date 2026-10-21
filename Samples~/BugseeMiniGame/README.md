@@ -129,7 +129,7 @@ runs scenarios on one Android device.
 | Scenario | What it does |
 |----------|--------------|
 | `interactions`, `actions`, `filters`, `presets` | self-checking (`PASS`/`FAIL` lines), described below |
-| `vh` | self-checking: calls `Bugsee.CaptureViewHierarchy()` twice and checks the wrapper answered the SDK's `requestData("vh")` with a non-null tree (development build; issue #111) |
+| `vh` | self-checking (issue #111): calls `Bugsee.CaptureViewHierarchy()` twice and checks the native SDK asked and the wrapper built a non-null managed tree within the SDK's 500 ms window (development build only; it stops with a `SKIP` line when the preset turned `CaptureViewHierarchy` off). It does not prove the reply reached a report. Every capture in the sample is truncated (more than 1500 active objects, hard cap 1500 nodes, about 80 ms walk budget), so a complete tree is never seen. Use `WAIT=40` with `Tools~/scripts/e2e-android.sh` (the default 25 s can lose the `done` line) |
 | `sig` (default), `handled`, `unhandled`, `pipeline`, `upload`, `labels`, `logerror` | send handled / unhandled exceptions, a pipeline exception, a plain `Upload`, a handled exception with labels, or a Unity `LogError`, to see that a report arrives (`sig` sends three, to check the grouping signature) |
 | `crash`, `native`, `abort`, `fatal`, `java`, `hang` | kill the process (or block the main thread) for the crash matrix; one per run |
 | `sigraise` | raise SIGSEGV (iOS only; does nothing on Android) |
