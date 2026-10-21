@@ -83,7 +83,7 @@ namespace Bugsee.Platform.IOS
                     continue;
                 }
 
-                parts.Add(JsonWire.String(kv.Key) + ":" + JsonWire.String(kv.Value.ToString()));
+                parts.Add(JsonWire.String(kv.Key) + ":" + JsonWire.String(InvariantText.Of(kv.Value)));
             }
 
             return "{" + string.Join(",", parts.ToArray()) + "}";

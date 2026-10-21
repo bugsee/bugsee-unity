@@ -49,6 +49,32 @@ Bugsee.Launch(appToken, options);
 
 `CaptureManagedExceptions` is independent of `DetectAndReportCrash`. Omit it to keep the default (enabled). `CaptureUnobservedTaskExceptions` (default enabled, needs `CaptureManagedExceptions`) controls whether `TaskScheduler.UnobservedTaskException` is reported; set it to `false` for apps whose fire-and-forget tasks fault on purpose. A `Relaunch` applies a changed value. Unity raises that event only after the faulted `Task` is garbage-collected, so the handled error arrives late and at a time you do not control.
 
+### iOS-only launch options
+
+`IOSLaunchOptions` has typed properties for the iOS SDK 7.0.0-beta7 options that Android has no counterpart for. They are iOS only: on Android the wrapper drops them before launch (`OptionPlatformGate`), so setting one has no effect there. The Android SDK would drop an unknown key too, but the wrapper does not depend on that. The same keys are available as `Options` constants for `OptionsBuilder` and `SetCustomOption`, with the same gating (`OptionsBuilder` and `SetCustomOption` do no range checks; `OptionsBuilder` also has `SetCrashHandlerType`, `SetCrashSignals`, `SetDataEncryption` and `SetReportingUIStyle`). The iOS SDK drops a host option equal to its default from the host launch options; `GetLaunchOptions` always shows the effective value.
+
+| Property | Key suffix | Type, default |
+|---|---|---|
+| `CrashHandlerType` | `capture.crash-handler-type` | `CrashHandlerType`, `MachAndBSD` |
+| `CrashSignals` | `capture.crash-signals` | `[Flags] CrashSignals` bit set, `Default` (every signal). Leave `Segv`/`Bus` out only if a hosted runtime handles them itself; leaving out `Abrt` stops uncaught Objective-C exceptions from being reported. `Default` is only honoured on its own |
+| `CaptureOnDeviceSymbolication` | `capture.on-device-symbolication` | bool, false |
+| `CrashSwiftAsyncStackTraces` | `detect.crash.swift_async_stacktraces` | bool, true |
+| `CrashFillEmptyExceptionStacks` | `detect.crash.fill_empty_exception_stacks` | bool, false (can change crash grouping) |
+| `CaptureWebSocket` | `capture.websocket` | bool, true |
+| `CaptureAVPlayer` | `capture.avplayer` | bool, false. Native AVPlayerLayer only, not Unity's VideoPlayer |
+| `CaptureSampleBufferDisplayLayer` | `capture.sample-buffer-display-layer` | bool, false |
+| `CaptureCameraPreview` | `capture.camera-preview` | bool, false. Native AVCaptureVideoPreviewLayer only, not Unity's WebCamTexture. Privacy: records what the camera sees |
+| `CaptureBluetoothStatus` | `capture.bluetooth-status` | bool, false. Reports a status only if the app itself asked for and got Bluetooth permission (the SDK never asks); otherwise unknown or unauthorized |
+| `CaptureDiskSpace` | `capture.disk-space` | bool, false. Apple's reason for the API forbids sending it off the device: use it in development builds |
+| `CaptureDeviceNetworkNames` | `capture.device-network-names` | bool, false. Sends the device name and Wi-Fi network name (personal data; redacted otherwise); the Wi-Fi name also needs an Apple entitlement and location permission |
+| `CaptureVideoPrivacyBlur` | `capture.video.privacy-blur` | bool, true. Off, the video freezes for a transition instead of blurring it |
+| `CaptureVideoMinFrameRate`, `CaptureVideoMaxFrameRate` | `capture.video.min-frame-rate`, `capture.video.max-frame-rate` | int fps, the SDK clamps to 0..30; a minimum needs a maximum at or above it (otherwise it is dropped); 0 = derived from `FrameRate`. Default 0 |
+| `DataEncryption` | `config.data-encryption` | `DataEncryptionMode` (`None`, `OnDevice`, `EndToEnd`), `None`. `EndToEnd` leaves some features out, such as the video preview |
+| `BuildTarget`, `BuildType` | `config.build-target`, `config.build-type` | string, none |
+| `ReportingUIStyle` | `reporting.ui.style` | `ReportingUIStyle` (`Light`, `Dusk`, `BasedOnStatusBar`, `System`), `System` |
+
+Three keys have no property: `capture.logs.oslog` (the iOS SDK accepts and ignores it, permanently disabled), `capture.status-bar-info` (only a DEBUG build of the SDK reads it; the published SDK never does) and `capture.mach-exceptions` (removed from the SDK, which ignores it with a warning; use `CrashHandlerType`).
+
 ## Lifecycle: Launch, Relaunch, Stop, Delete
 
 `Launch`, `Relaunch`, `Stop` and `DeleteCollectedDataOnDevice` do not wait for the native SDK to finish. They are handed to the Unity main thread. Called from another thread, on Android the call is queued there and never refused (it waits for the main thread). On iOS the caller waits up to 5 s for the main thread to take it; if it does not, the request does not run (an error is logged, `LaunchAsync`/`RelaunchAsync` complete `false`, `StopAsync` faults with `TimeoutException`).
@@ -89,6 +115,8 @@ Other platform differences, not aligned:
 - Before `Launched`, iOS holds network and breadcrumb events in the wrapper and submits them at launch, while Android hands them straight to the SDK.
 - `IReport.Email` set on a report from `CreateReport` is used on Android; on iOS it is dropped with a warning (the managed upload cannot carry it): use `SetUserIdentifier` there.
 - `IAppearance.ToMap()` returns what the SDK reports on Android; on iOS it lists only the properties set through the wrapper that the native theme applied.
+- `ResetVideoCapturePermission()` forgets the stored screen-capture decision on Android; it matters only with `VideoMode.Fullscreen` and `CaptureVideoFullscreenRememberUserDecision`, has no effect before launch (the SDK only warns in logcat), does not change a session that is already capturing, and applies to the next capture start. iOS has no such permission, so the call does nothing there and logs a warning once per process; in the Editor it does nothing.
+- The native per-report screenshot members (both SDKs: display ids, get, set, changed; and `exportVideo`) are not exposed on `IReport` yet, because reports cross the bridge as managed snapshots and only Android's report handler path holds a live native report (tracked in bugsee-unity#224). To omit the SDK's screenshot from reports use `CaptureScreenshot = false`; secure rectangles and blackout only redact what is captured, they do not remove the screenshot. `AddAttachmentFile` / `AddAttachmentBytes` add files; they cannot remove, replace or redact the SDK's screenshot.
 - `Trace(name, value)` with a collection: iOS sends a JSON structure, Android a JSON string (valid JSON, at most 8192 characters), no longer the type name. Other non-primitive values go as culture-invariant text on Android, and `IosNativeCallbacks` still uses `ToString()` for some values (#143).
 
 ## Crash & exception capture

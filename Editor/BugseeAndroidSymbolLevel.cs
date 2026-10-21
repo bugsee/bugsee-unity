@@ -90,12 +90,12 @@ namespace Bugsee.Editor
 
         static int ReadFormat()
         {
-            return NewFormat != null ? Convert.ToInt32(NewFormat.GetValue(null)) : -1;
+            return NewFormat != null ? Convert.ToInt32(NewFormat.GetValue(null), System.Globalization.CultureInfo.InvariantCulture) : -1;
         }
 
         static int ZipFlag()
         {
-            return NewFormat != null ? Convert.ToInt32(Enum.Parse(NewFormat.PropertyType, "Zip")) : 0;
+            return NewFormat != null ? Convert.ToInt32(Enum.Parse(NewFormat.PropertyType, "Zip"), System.Globalization.CultureInfo.InvariantCulture) : 0;
         }
 
         static void Write(string level, int format)
