@@ -543,7 +543,7 @@ namespace Bugsee.Platform.Android
                 if (_removeSecureViewMethod == IntPtr.Zero)
                     _removeSecureViewMethod = AndroidJNIHelper.GetMethodID(_bugsee.GetRawClass(), "removeSecureView", "(Landroid/view/View;)V", true);
                 if (_removeSecureViewMethod == IntPtr.Zero)
-                    throw new AndroidJavaException("removeSecureView(View) not found", string.Empty);
+                    throw new InvalidOperationException("removeSecureView(View) not found");
                 AndroidJNI.CallStaticVoidMethod(_bugsee.GetRawClass(), _removeSecureViewMethod, new[] { new jvalue { l = view.GetRawObject() } });
                 ThrowPendingJavaException();
             });
@@ -558,7 +558,7 @@ namespace Bugsee.Platform.Android
             if (pending == IntPtr.Zero) return;
             AndroidJNI.ExceptionClear();
             AndroidJNI.DeleteLocalRef(pending);
-            throw new AndroidJavaException("Java exception in removeSecureView", string.Empty);
+            throw new InvalidOperationException("Java exception in removeSecureView");
         }
 
         // The SDK measures the view's geometry on the calling thread, so the registration runs on the UI thread. The caller
