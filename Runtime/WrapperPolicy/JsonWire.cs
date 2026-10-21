@@ -41,6 +41,130 @@ namespace Bugsee.WrapperPolicy
 
         public static string Literal(object value) => Literal(value, 0);
 
+        /// <summary>Most values (entries, elements and scalars together) <see cref="Bounded"/> will visit.</summary>
+        public const int MaxNodes = 4096;
+
+        /// <summary>
+        /// A map, list or array as JSON no longer than <paramref name="maxChars"/>. Always valid JSON: when the next
+        /// entry or element would not fit (or <see cref="MaxNodes"/> values were visited) the rest is dropped whole,
+        /// never cut mid-token, so <paramref name="truncated"/> tells the text is a prefix of the data. A collection
+        /// that contains itself writes null where it repeats. Other enumerables (a Unity Transform walks its
+        /// children) are written as text, not iterated. Null map values are omitted, as in <see cref="Value"/>.
+        /// </summary>
+        public static string Bounded(object container, int maxChars, out bool truncated)
+        {
+            var state = new BoundState();
+            var text = BoundedValue(container, 0, maxChars, state) ?? "null";
+            truncated = state.Truncated;
+            return text;
+        }
+
+        /// <summary>True for the values <see cref="Bounded"/> writes as a JSON object or array.</summary>
+        public static bool IsContainer(object value)
+        {
+            if (value == null || value is string || value is byte[]) return false;
+            if (value is IDictionary || value is ICollection || value is IDictionary<string, object>) return true;
+            foreach (var face in value.GetType().GetInterfaces())
+            {
+                if (!face.IsGenericType) continue;
+                var def = face.GetGenericTypeDefinition();
+                if (def == typeof(ICollection<>) || def == typeof(IReadOnlyCollection<>)) return true;
+            }
+
+            return false;
+        }
+
+        sealed class BoundState
+        {
+            public int Nodes;
+            public bool Truncated;
+            public readonly List<object> Path = new List<object>();
+        }
+
+        // Returns null when the value does not fit in budget (the caller drops it and marks the result truncated).
+        static string BoundedValue(object value, int depth, int budget, BoundState state)
+        {
+            if (value == null) return Fit("null", budget);
+            if (++state.Nodes > MaxNodes) { state.Truncated = true; return null; }
+            if (!IsContainer(value))
+            {
+                string leaf = value is IEnumerable && !(value is string) && !(value is byte[])
+                    ? String(Convert.ToString(value, CultureInfo.InvariantCulture))
+                    : Literal(value, 0);
+                return Fit(leaf, budget);
+            }
+
+            if (depth > MaxDepth) return Fit("null", budget);
+            foreach (var seen in state.Path)
+                if (ReferenceEquals(seen, value)) return Fit("null", budget);
+
+            state.Path.Add(value);
+            try
+            {
+                var map = value as IDictionary ?? (value is IDictionary<string, object> typed ? new TypedMap(typed) : null);
+                var sb = new StringBuilder(map != null ? "{" : "[");
+                var closer = map != null ? '}' : ']';
+                var first = true;
+                IDictionaryEnumerator de = map?.GetEnumerator();
+                IEnumerator plain = map == null ? ((IEnumerable)value).GetEnumerator() : null;
+                while (map != null ? de.MoveNext() : plain.MoveNext())
+                {
+                    object item = map != null ? de.Value : plain.Current;
+                    if (map != null && (de.Key == null || item == null)) continue;
+                    var prefix = (first ? "" : ",")
+                        + (map != null ? String(Convert.ToString(de.Key, CultureInfo.InvariantCulture)) + ":" : "");
+                    int room = budget - sb.Length - prefix.Length - 1;
+                    var before = state.Truncated;
+                    var text = room > 0 ? BoundedValue(item, depth + 1, room, state) : null;
+                    if (text == null || text.Length > room) { state.Truncated = true; break; }
+                    sb.Append(prefix).Append(text);
+                    first = false;
+                    // A shortened child ends this level too, so what is written stays a prefix of the data.
+                    if (!before && state.Truncated) break;
+                }
+                return sb.Append(closer).ToString();
+            }
+            finally { state.Path.RemoveAt(state.Path.Count - 1); }
+        }
+
+        // Adapts IDictionary<string, object> (which is not the non-generic IDictionary) to the walk above. Other
+        // generic-only dictionaries are not unpacked: reading their KeyValuePair<K,V> needs reflection, which IL2CPP
+        // managed stripping can break (issue #133), so they are written as an array of "[key, value]" text.
+        sealed class TypedMap : IDictionary
+        {
+            readonly IDictionary<string, object> _map;
+            public TypedMap(IDictionary<string, object> map) { _map = map; }
+            public IDictionaryEnumerator GetEnumerator() => new Walker(_map);
+            IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+            public int Count => _map.Count;
+            public bool IsReadOnly => true;
+            public bool IsFixedSize => true;
+            public bool IsSynchronized => false;
+            public object SyncRoot => this;
+            public ICollection Keys => throw new NotSupportedException();
+            public ICollection Values => throw new NotSupportedException();
+            public object this[object key] { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+            public bool Contains(object key) => throw new NotSupportedException();
+            public void Add(object key, object value) => throw new NotSupportedException();
+            public void Clear() => throw new NotSupportedException();
+            public void Remove(object key) => throw new NotSupportedException();
+            public void CopyTo(Array array, int index) => throw new NotSupportedException();
+
+            sealed class Walker : IDictionaryEnumerator
+            {
+                readonly IEnumerator<KeyValuePair<string, object>> _e;
+                public Walker(IDictionary<string, object> map) { _e = map.GetEnumerator(); }
+                public bool MoveNext() => _e.MoveNext();
+                public void Reset() => throw new NotSupportedException();
+                public object Current => Entry;
+                public DictionaryEntry Entry => new DictionaryEntry(_e.Current.Key, _e.Current.Value);
+                public object Key => _e.Current.Key;
+                public object Value => _e.Current.Value;
+            }
+        }
+
+        static string Fit(string text, int budget) => text.Length <= budget ? text : null;
+
         public static string String(string s)
         {
             if (s == null) return "null";
