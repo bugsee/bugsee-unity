@@ -24,6 +24,11 @@ namespace Bugsee.Sample
         {
             for (var i = 0; i < 120 && !Bugsee.IsLaunched; i++) yield return new WaitForSeconds(0.5f);
             Debug.Log("[VIDPERM] launched=" + Bugsee.IsLaunched + " status=" + Bugsee.Status);
+            if (!Bugsee.IsLaunched)
+            {
+                Debug.Log("[VIDPERM] RESULT FAIL not launched after wait");
+                yield break;
+            }
             _warnings = 0;
             Application.logMessageReceived += OnLog;
             Bugsee.ResetVideoCapturePermission();

@@ -19,12 +19,23 @@ namespace Bugsee.WrapperPolicy
 
         public UnsupportedApiNotice(Action<string> log) { _log = log; }
 
-        /// <summary>Logs <paramref name="message"/> the first time it is seen; true when this call logged it.</summary>
+        /// <summary>Logs <paramref name="message"/> the first time it is seen; true only when this call logged it (false: already said, no logger, or the logger threw, in which case a later call retries).</summary>
         public bool Once(string message)
         {
-            lock (_said) { if (!_said.Add(message ?? "")) return false; }
-            try { _log?.Invoke(message); } catch (Exception) { /* a logger must not break the caller */ }
-            return true;
+            if (_log == null) return false;
+            var key = message ?? "";
+            lock (_said) { if (!_said.Add(key)) return false; }
+            try
+            {
+                _log(message);
+                return true;
+            }
+            catch (Exception)
+            {
+                // A logger must not break the caller; the message was not said, so a later call may try again.
+                lock (_said) { _said.Remove(key); }
+                return false;
+            }
         }
     }
 }
