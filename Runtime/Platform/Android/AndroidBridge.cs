@@ -428,7 +428,7 @@ namespace Bugsee.Platform.Android
         public object GetAttribute(string key)
         {
             using (var value = _bugsee.CallStatic<AndroidJavaObject>("getAttribute", key))
-                return AndroidJavaConverters.Unbox(value);
+                return AndroidJavaConverters.UnboxAttribute(value);
         }
 
         public void ClearAttribute(string key) => _bugsee.CallStatic("clearAttribute", key);
