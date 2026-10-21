@@ -23,8 +23,8 @@ namespace Bugsee.Internal
             /// <summary>
             /// For a thrown exception: return address of this frame as hex, MODULE-RELATIVE to the image named by
             /// the payload's <c>moduleUUID</c> (IL2CPP only); absent when it cannot be paired with certainty
-            /// (see <see cref="ManagedAddressPairing"/>). On the Unity log path (<c>FromUnityLog</c>) a hex found
-            /// in the log text is forwarded as written.
+            /// (see <see cref="ManagedAddressPairing"/>). On the Unity log path (<c>FromUnityLog</c>) there is no
+            /// native trace to pair, so no address is sent (a hex in the log text is never read as one).
             /// </summary>
             public string address;
         }

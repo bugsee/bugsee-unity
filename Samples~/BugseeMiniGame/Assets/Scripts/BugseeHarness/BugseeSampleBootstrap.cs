@@ -458,6 +458,14 @@ namespace Bugsee.Sample
                         _pendingE2EFire = "S:shapes";
                     }
                     break;
+                case "logpath":
+                    // An exception Unity logs itself (uncaught in a coroutine): the log-text frames carry no address (issue #105).
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 99;
+                        _pendingE2EFire = "Y:e2e-logpath-" + _e2eRunId;
+                    }
+                    break;
                 case "attach":
                 case "unobserved":
                     if (_e2ePhase == 0 && _e2eTimer >= 5f)
@@ -588,6 +596,9 @@ namespace Bugsee.Sample
                     break;
                 case 'P':
                     FirePipelineLogException(marker);
+                    break;
+                case 'Y':
+                    StartCoroutine(LogPathScenario(marker));
                     break;
                 case 'O':
                     // GetLaunchOptions is only meaningful once the SDK is launched: wait (bounded), then say so if it never was.
@@ -930,6 +941,44 @@ namespace Bugsee.Sample
                 });
                 SetStatus("E2E unhandled StableA " + marker);
             }
+        }
+
+        // Issue #105: what the log path (ManagedExceptionPayload.FromUnityLog) forwards for an exception Unity logs itself.
+        // Tagged [LOGPATH]: the text Unity handed over, the frames and moduleUUID built from it (no frame may carry an
+        // address), and for comparison the throw path's paired addresses and the image they are relative to.
+        IEnumerator LogPathScenario(string marker)
+        {
+            var seen = false;
+            Application.LogCallback handler = (condition, stackTrace, type) =>
+            {
+                if (type != LogType.Exception || seen || condition == null || condition.IndexOf(marker, StringComparison.Ordinal) < 0) return;
+                seen = true;
+                Debug.Log("[LOGPATH] text=" + (stackTrace ?? "").Replace("\n", " | "));
+                Debug.Log("[LOGPATH] json=" + ManagedExceptionPayload.ToJson(ManagedExceptionPayload.FromUnityLog(condition, stackTrace)));
+            };
+            Application.logMessageReceivedThreaded += handler;
+            try
+            {
+                var thrown = new InvalidOperationException("E2E LogPath thrown " + marker);
+                try { throw thrown; } catch (Exception) { }
+                var native = Il2CppNativeStack.TryCapture(thrown);
+                Debug.Log("[LOGPATH] throwPath image=" + (native?.ImageName ?? "none") + " uuid=" + (native?.ImageUuid ?? "none")
+                    + " json=" + ManagedExceptionPayload.ToJson(ManagedExceptionPayload.FromException(thrown)));
+                yield return null;
+                StartCoroutine(ThrowInCoroutine(marker));
+                for (var i = 0; i < 120 && !seen; i++) yield return null;
+                Debug.Log("[LOGPATH] " + (seen ? "log text received" : "NO log text received"));
+            }
+            finally
+            {
+                Application.logMessageReceivedThreaded -= handler;
+            }
+        }
+
+        static IEnumerator ThrowInCoroutine(string marker)
+        {
+            yield return null;
+            throw new InvalidOperationException("E2E LogPath uncaught " + marker);
         }
 
         void FirePipelineLogException(string marker)

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Managed exceptions the SDK reports from Unity's log text (an exception Unity logs itself, for example uncaught in a coroutine) no longer forward a hex found in that text as a frame address. The log text has no native IPs and cannot say which image a number belongs to (an IL offset, a Mono method start, an absolute address or a `#00 pc` of another library such as `libunity.so`), while the worker resolves `frames[].address` against `moduleUUID` as a module-relative RVA and would file a plausible but wrong C# line. Those frames are now symbolic only. Thrown exceptions are unaffected (their addresses are the module-relative IL2CPP IPs). Fixes #105.
 - **iOS:** lifecycle events that arrive before the managed callback is registered (for example from a launch the host made natively before any C# call) are held, up to 128, and replayed in order on the main queue after the registering `Launch` or `Relaunch` call, as on Android, instead of being dropped. `Relaunch` now registers the wrapper like `Launch`.
 - **iOS:** a lifecycle payload that is a dictionary reaches `LifecycleEvent` / `ILifecycleEventListener` as a `Dictionary<string, object>`, as on Android, not as raw JSON text; a one-key dictionary is no longer mistaken for a string.
 
