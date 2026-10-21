@@ -178,7 +178,7 @@ Logging: `Log`, `Trace`, `Event`, `LogException`, `LogUnhandledException`, `Test
 Reporting: `ShowReportDialog`, `Upload`, `CreateReport`, `SetReportHandler`, `Upload(Report)`  
 Filters: network / log / breadcrumb  
 Exchange: `GetExchangeFactory`, `AddNetworkEvent`, `AddBreadcrumb`  
-Privacy: secure rectangles (Unity-relevant). The native `addSecureActivity`, `addSecureView` and `addSecureWebView` take a native Activity or View that a Unity script does not own, so they are intentionally not exposed; `AddSecureRectangle` covers Unity-drawn content  
+Privacy: secure rectangles (Unity-relevant; `AddSecureRectangle` covers Unity-drawn content). Native `addSecureActivity` (Android only) and `addSecureView` take a native Activity or View a Unity script does not own and are not exposed directly; WebView plugin views go through `AddSecureWebView` where present
 Identity: `SetUserIdentifier` / `Get` / `Clear` (not email-as-primary)  
 Attributes: set/get/clear/clearAll/getAll  
 Appearance: `GetAppearance()`  
@@ -189,7 +189,7 @@ Wrapper: **internal registration only** — not an app-facing `SetWrapper`
 
 ### Contracts to port (public)
 
-`Options` (the `Options.*` key constants, 77 today; `Tests~/WrapperPolicy/OptionsManifestTests.cs` checks them against the native option manifests), option enums, `OptionsBuilder`, `BugseeLaunchOptions` / `AndroidLaunchOptions` / `IOSLaunchOptions`  
+`Options` (the `Options.*` key constants: native keys are checked against the vendored manifests by `Tests~/WrapperPolicy/OptionsManifestTests.cs`, plus wrapper-only `unity.*` keys), option enums, `OptionsBuilder`, `BugseeLaunchOptions` / `AndroidLaunchOptions` / `IOSLaunchOptions`  
 
 `EventFilter`, `NetworkEvent`, `LogEvent`, `Breadcrumb`, `BugseeExchangeFactory`  
 `Report`, `Attachment`, `ReportHandler`, `ReportCreationListener`  
