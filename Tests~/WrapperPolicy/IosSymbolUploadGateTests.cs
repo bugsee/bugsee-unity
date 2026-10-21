@@ -551,6 +551,26 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(run.Calls.Single(c => c.Contains("--type il2cpp-linemap")), Does.Contain("--build 9 --uuid ").And.Not.Contain("--version"), run.Output);
         }
 
+        // A build setting that names another one and was not resolved is no version, whichever source it comes from.
+        [Test]
+        public void Archive_script_omits_unresolved_references_from_every_source()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" },
+                env: Settings(false, marketing: "$(RELEASE_VERSION)", project: "${BUILD_NO}", bugseeVersion: "$(X)", bugseeBuild: "${Y}"));
+            Assert.That(DsymCall(run), Does.EndWith("--type dsym"), run.Output);
+        }
+
+        // The mismatch note is user text in an Xcode log: an error: in it must not fail the archive.
+        [Test]
+        public void Archive_script_defangs_the_mismatch_note()
+        {
+            NeedsPlistBuddy();
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, env: Settings(true, marketing: "error:1", project: "Error:2"),
+                plant: root => PlantPlist(root, "3.4.5", "678"));
+            Assert.That(run.Output, Does.Contain("MARKETING_VERSION (error -1) differs").And.Contain("CURRENT_PROJECT_VERSION (error -2) differs"));
+            Assert.That(run.Output, Does.Not.Match("(?i)error:"));
+        }
+
         [Test]
         public void Archive_script_omits_version_and_build_when_unknown()
         {
@@ -634,6 +654,9 @@ namespace Bugsee.WrapperPolicy.Tests
                 info.Environment["PLATFORM_NAME"] = platform;
                 info.Environment["PROJECT_DIR"] = projectDir;
                 info.Environment.Remove("BUGSEE_SKIP_UPLOAD_ON_DEBUG");
+                // The developer's own overrides must not leak into a run.
+                foreach (var inherited in new[] { "BUGSEE_VERSION", "BUGSEE_BUILD", "TARGET_BUILD_DIR", "INFOPLIST_PATH" })
+                    info.Environment.Remove(inherited);
                 if (tmpDir != null) info.Environment["TMPDIR"] = tmpDir;
                 if (action == null) info.Environment.Remove("ACTION"); else info.Environment["ACTION"] = action;
                 if (env != null)

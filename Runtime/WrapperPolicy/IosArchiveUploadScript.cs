@@ -223,29 +223,36 @@ printf '%s\n' ""Bugsee: using ${CLI}"" | defang
 # Settings' version and build number into it as literals, and a Unity export sets no build settings for them); a build
 # setting that is not in the plist would key the upload to a version the app never reports, so a difference is noted.
 # A value that is still empty (or an unexpanded $(...) reference) is left out: the flag is then not passed at all.
+# Prints $1 unless it holds an unresolved $(...) or ${...} reference (a build setting that names another one).
+resolved() {
+  case ""$1"" in
+    *'$('*|*'${'*) ;;
+    *) printf '%s' ""$1"" ;;
+  esac
+}
 plist_value() {
   PLIST_DIR=""${TARGET_BUILD_DIR:-${BUILT_PRODUCTS_DIR}}""
   [ -n ""${PLIST_DIR}"" ] && [ -n ""${INFOPLIST_PATH}"" ] || return 0
   PLIST_FILE=""${PLIST_DIR}/${INFOPLIST_PATH}""
   [ -f ""${PLIST_FILE}"" ] || return 0
   PLIST_VAL=$(/usr/libexec/PlistBuddy -c ""Print :$1"" ""${PLIST_FILE}"" 2>/dev/null) || PLIST_VAL=""""
-  case ""${PLIST_VAL}"" in
-    *'$('*|*'${'*) PLIST_VAL="""" ;;
-  esac
-  printf '%s' ""${PLIST_VAL}""
+  resolved ""${PLIST_VAL}""
 }
-VERSION=""${BUGSEE_VERSION}""
-BUILD=""${BUGSEE_BUILD}""
+VERSION=$(resolved ""${BUGSEE_VERSION}"")
+BUILD=$(resolved ""${BUGSEE_BUILD}"")
+SETTING_VERSION=$(resolved ""${MARKETING_VERSION}"")
+SETTING_BUILD=$(resolved ""${CURRENT_PROJECT_VERSION}"")
 PLIST_VERSION=$(plist_value CFBundleShortVersionString)
 PLIST_BUILD=$(plist_value CFBundleVersion)
 [ -n ""${VERSION}"" ] || VERSION=""${PLIST_VERSION}""
 [ -n ""${BUILD}"" ] || BUILD=""${PLIST_BUILD}""
-[ -z ""${PLIST_VERSION}"" ] || [ -z ""${MARKETING_VERSION}"" ] || [ ""${PLIST_VERSION}"" = ""${MARKETING_VERSION}"" ] ||
-  echo ""Bugsee: MARKETING_VERSION (${MARKETING_VERSION}) differs from the app's Info.plist (${PLIST_VERSION}), which the SDK reports: not using it.""
-[ -z ""${PLIST_BUILD}"" ] || [ -z ""${CURRENT_PROJECT_VERSION}"" ] || [ ""${PLIST_BUILD}"" = ""${CURRENT_PROJECT_VERSION}"" ] ||
-  echo ""Bugsee: CURRENT_PROJECT_VERSION (${CURRENT_PROJECT_VERSION}) differs from the app's Info.plist (${PLIST_BUILD}), which the SDK reports: not using it.""
-[ -n ""${VERSION}"" ] || VERSION=""${MARKETING_VERSION}""
-[ -n ""${BUILD}"" ] || BUILD=""${CURRENT_PROJECT_VERSION}""
+# Xcode fails an archive on an error: anywhere in a line, and a build setting is the user's text: defang it.
+[ -z ""${PLIST_VERSION}"" ] || [ -z ""${SETTING_VERSION}"" ] || [ ""${PLIST_VERSION}"" = ""${SETTING_VERSION}"" ] ||
+  printf '%s\n' ""Bugsee: MARKETING_VERSION (${SETTING_VERSION}) differs from the app's Info.plist (${PLIST_VERSION}), which the SDK reports: not using it."" | defang
+[ -z ""${PLIST_BUILD}"" ] || [ -z ""${SETTING_BUILD}"" ] || [ ""${PLIST_BUILD}"" = ""${SETTING_BUILD}"" ] ||
+  printf '%s\n' ""Bugsee: CURRENT_PROJECT_VERSION (${SETTING_BUILD}) differs from the app's Info.plist (${PLIST_BUILD}), which the SDK reports: not using it."" | defang
+[ -n ""${VERSION}"" ] || VERSION=""${SETTING_VERSION}""
+[ -n ""${BUILD}"" ] || BUILD=""${SETTING_BUILD}""
 [ -n ""${VERSION}"" ] || echo ""Bugsee: no app version found (set BUGSEE_VERSION): uploading without --version.""
 [ -n ""${BUILD}"" ] || echo ""Bugsee: no app build number found (set BUGSEE_BUILD): uploading without --build.""
 FAILED=0
