@@ -493,7 +493,7 @@ PlayerSettings:
   cameraUsageDescription: 
   locationUsageDescription: 
   microphoneUsageDescription: 
-  bluetoothUsageDescription: 
+  bluetoothUsageDescription: Bugsee records the Bluetooth status (the sample's detect preset sets IOSLaunchOptions.CaptureBluetoothStatus).
   switchNMETAOverride: 
   switchNetLibKey: 
   switchSocketMemoryPoolSize: 6144

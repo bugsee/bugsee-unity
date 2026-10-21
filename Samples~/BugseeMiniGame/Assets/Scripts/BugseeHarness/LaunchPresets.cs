@@ -9,7 +9,7 @@ namespace Bugsee.Sample
     /// complete statement of what it wants: a relaunch REPLACES the SDK's option set, so what a preset does not set goes back to the
     /// SDK default. <c>minimal</c> and <c>detect</c> use the typed properties (<see cref="AndroidLaunchOptions"/>,
     /// <see cref="IOSLaunchOptions"/>) and set every boolean to the opposite value of each other, so each option differs from the SDK
-    /// default in at least one of them; <c>privacy</c> uses <see cref="OptionsBuilder"/>. The <c>presets</c> e2e scenario reads the
+    /// default in at least one of them; <c>privacy</c> uses <see cref="OptionsBuilder"/>. On iOS the presets also set the typed iOS-only options (<see cref="IOSLaunchOptions"/>); the privacy preset's iOS-only keys go through the builder and Android drops them. The <c>presets</c> e2e scenario reads the
     /// options back and compares them (it proves the SDK took the options, and checks two that change behaviour; the rest is not
     /// observable from the sample). Selected with the intent extra <c>bugsee_preset</c> (Android) or the variable
     /// <c>BUGSEE_PRESET</c> (iOS), or from the debug panel. <c>detect</c> makes a logged exception fatal
@@ -87,6 +87,22 @@ namespace Bugsee.Sample
                 android.WebViewReportTrigger = on;
                 android.CaptureRespectFlagSecure = on;
             }
+            // iOS-only options (typed IOSLaunchOptions properties, #97). Android never gets them: they are not set there.
+            if (o is IOSLaunchOptions ios)
+            {
+                ios.CaptureWebSocket = on;
+                ios.CaptureAVPlayer = on;
+                ios.CaptureSampleBufferDisplayLayer = on;
+                ios.CaptureCameraPreview = on;
+                ios.CaptureBluetoothStatus = on;
+                ios.CaptureDiskSpace = on;
+                ios.CaptureStatusBarInfo = on;
+                ios.CaptureDeviceNetworkNames = on;
+                ios.OnDeviceSymbolication = on;
+                ios.CrashSwiftAsyncStackTraces = on;
+                ios.CrashFillEmptyExceptionStacks = on;
+                ios.CaptureVideoPrivacyBlur = on;
+            }
         }
 
         // Nothing optional captured, no trigger, no detector.
@@ -107,7 +123,16 @@ namespace Bugsee.Sample
             if (o is AndroidLaunchOptions android)
                 android.CaptureVideoMode = VideoMode.V1;
             if (o is IOSLaunchOptions ios)
+            {
                 ios.CrashHandlerType = CrashHandlerType.BSD;
+                ios.CrashSignals = CrashSignals.Abrt | CrashSignals.Trap;
+                ios.CaptureVideoMinFrameRate = 5;
+                ios.CaptureVideoMaxFrameRate = 15;
+                ios.DataEncryption = DataEncryptionMode.OnDevice;
+                ios.ReportingUIStyle = ReportingUIStyle.Dusk;
+                ios.BuildTarget = "BugseeMiniGame";
+                ios.BuildType = "minimal";
+            }
         }
 
         // Every detector on, with the hang levels and capture depth at their most sensitive.
@@ -124,7 +149,16 @@ namespace Bugsee.Sample
             if (o is AndroidLaunchOptions android)
                 android.WebViewDomainAllowlist = "example.com";
             if (o is IOSLaunchOptions ios)
+            {
                 ios.CrashHandlerType = CrashHandlerType.MachAndBSD;
+                ios.CrashSignals = CrashSignals.All;
+                ios.CaptureVideoMinFrameRate = 10;
+                ios.CaptureVideoMaxFrameRate = 30;
+                ios.DataEncryption = DataEncryptionMode.None;
+                ios.ReportingUIStyle = ReportingUIStyle.Light;
+                ios.BuildTarget = "BugseeMiniGame";
+                ios.BuildType = "detect";
+            }
         }
 
         // Capture less and ask more of the reporter: scaled video, a small network body limit, a required reporting form.
@@ -154,7 +188,12 @@ namespace Bugsee.Sample
                 .Set(Options.ReportingUILabelsRequired, true)
                 .Set(Options.ReportingUIPrioritySelectorEnabled, true)
                 .Set(Options.PerformanceAdaptiveSampling, false)
-                .Set(Options.PerformanceUploadMode, "realtime");
+                .Set(Options.PerformanceUploadMode, "realtime")
+                // iOS-only keys through the builder: Android's launch drops them (OptionPlatformGate).
+                .SetCrashSignals(CrashSignals.Abrt | CrashSignals.Segv | CrashSignals.Bus | CrashSignals.Trap)
+                .SetReportingUIStyle(ReportingUIStyle.BasedOnStatusBar)
+                .Set(Options.CaptureVideoMaxFrameRate, 20)
+                .Set(Options.ConfigBuildType, "privacy");
             foreach (var pair in builder.ToDictionary())
                 o.SetCustomOption(pair.Key, pair.Value);
             if (o is AndroidLaunchOptions android)

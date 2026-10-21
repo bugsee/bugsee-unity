@@ -201,8 +201,7 @@ only the video options, on iOS nothing).
 `BUGSEE_E2E_SCENARIO=presets` waits for the SDK to launch, relaunches with no options to learn each option's SDK default, then
 relaunches with each preset in turn (`RelaunchAsync`) and compares every option the sample sent with what
 `Bugsee.GetLaunchOptions()` reports (numbers by value; the Android SDK reports enum options by name, such as `V2` or `Verbose`, and
-never reports the Unity-only options, so those are not compared there; the SDK's own `$$` keys and, on iOS, the Android-only options
-are left out; at least 5 keys must be compared). An option whose value equals the SDK default proves nothing, so the scenario counts
+never reports the Unity-only options, so those are not compared there; the SDK's own `$$` keys, on iOS the Android-only options and on Android the iOS-only options (the gate drops them) are left out; at least 5 keys must be compared). An option whose value equals the SDK default proves nothing, so the scenario counts
 only the options that differ from the default: every non-default preset must have at least 8, every option the presets set must
 differ from the default in at least one preset, and each preset must read back differently from the launch before it. It also
 checks that the Relaunch bubble keeps the whole set, that a relaunch with only `Duration` applies it and leaves the others at their
@@ -213,6 +212,13 @@ What this does not prove: on iOS the readback shows the SDK stored the host opti
 checked as such: with `CaptureBreadcrumbs` a breadcrumb reaches the breadcrumb filter and without it none does; with `CaptureNetwork`
 a network event reaches the network filter and without it none does. The effect of the other options is not observable from the sample.
 It logs `[Sample] presets PASS|FAIL ...` lines ending in `presets e2e done failures=N`.
+
+The iOS presets also set the typed iOS-only options of `IOSLaunchOptions` (`CrashSignals`, `CaptureWebSocket`, `CaptureAVPlayer`,
+`CaptureVideoPrivacyBlur`, the frame-rate limits, `DataEncryption`, `ReportingUIStyle`, `BuildTarget`, ... #97); `minimal` and `detect`
+set the booleans to opposite values and the `privacy` preset sets some through `OptionsBuilder`. Android never sets them and drops them
+if they are sent (the `options` scenario sends every one and checks that Android reports none). `detect` turns on
+`CaptureBluetoothStatus`, so the sample's iOS project carries a Bluetooth usage description (without it iOS 13+ would kill the app);
+the first launch with that preset shows the system Bluetooth prompt.
 
 ### Filter check (`filters` e2e scenario)
 
