@@ -178,7 +178,7 @@ namespace Bugsee.Editor
                 var buildSymbols = IosIl2CppOutputSweep.BuildSymbolsDirectory(
                     projectRoot, report.summary.platform == BuildTarget.tvOS ? "tvOS" : "iOS");
                 var result = IosIl2CppOutputSweep.Run(
-                    report.summary.outputPath, buildSymbols, report.summary.buildStartedAt, mayDelete);
+                    report.summary.outputPath, buildSymbols, BuildClock.StartedUtc(report.summary.buildStartedAt), mayDelete);
                 IosAgeCheckSafe = result.AgeCheckSafe;
                 foreach (var action in result.Actions)
                 {
