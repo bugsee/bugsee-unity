@@ -181,6 +181,9 @@ namespace Bugsee.WrapperPolicy.Tests
         static readonly Regex GuidFormat = new Regex(@"^\s*""[NDBPX]""\s*$");
         static readonly Regex FloatLiteralConcat = new Regex(@"[+]\s*-?\d+\.\d+[fFdDmM]?\b|\b\d+\.\d+[fFdDmM]?\s*[+]\s*""");
         static readonly Regex AppendFloatLiteral = new Regex(@"\.Append\(\s*-?\d+\.\d+[fFdDmM]?\s*\)");
+        // Append(x) of a number formats it with the current culture (a negative sign, a decimal comma). Without types the scan can only
+        // judge the argument by its shape: a numeric cast, a DTO field, or a name that is known to hold a number.
+        static readonly Regex NumericAppendArg = new Regex(@"^(\(\s*(int|long|short|byte|sbyte|uint|ulong|ushort|float|double|decimal)\s*\)|_?dto\.\w+$|[\w.]*(severity|Severity|timestamp|Timestamp|Ms|Seconds|Count|Index|Number)$)");
         static readonly Regex NumericHole = new Regex(@"\{[^{}:]+:[FfNnEeGgDdPpRrCc]\d*\}");
 
         /// <summary>The problems one source text has; line numbers are 1-based.</summary>
@@ -228,6 +231,13 @@ namespace Bugsee.WrapperPolicy.Tests
                 Hit(m.Index, "uses the current culture");
             foreach (Match m in FloatLiteralConcat.Matches(blank))
                 Hit(m.Index, "a floating point literal concatenated into text");
+            foreach (Match m in Regex.Matches(blank, @"\.Append\s*\("))
+            {
+                var a = Args(blank, src, m.Index + m.Length - 1);
+                var arg = a.Blanked.Trim();
+                if (!arg.Contains(",") && NumericAppendArg.IsMatch(arg) && !arg.Contains("\""))
+                    Hit(m.Index, "Append(" + arg + ") of a number reads the current culture: append .ToString(CultureInfo.InvariantCulture)");
+            }
             foreach (Match m in AppendFloatLiteral.Matches(blank))
                 Hit(m.Index, "a floating point literal appended to text");
             foreach (var (start, end) in interpolated)
@@ -269,6 +279,9 @@ namespace Bugsee.WrapperPolicy.Tests
         [TestCase("var s = d.ToString(CultureInfo.CurrentCulture);")]
         [TestCase("var s = \"x\" + 1.5;")]
         [TestCase("sb.Append(2.5);")]
+        [TestCase("sb.Append(\"\\\"severity\\\":\").Append(_dto.severity);")]
+        [TestCase("sb.Append((int)level);")]
+        [TestCase("sb.Append(timestampMs);")]
         [TestCase("var s = $\"{d:F1}\";")]
         public void The_scan_catches_what_it_is_meant_to_ban(string code)
         {
@@ -284,6 +297,8 @@ namespace Bugsee.WrapperPolicy.Tests
         [TestCase("// Convert.ToString(v) and 1.5.ToString(\"F2\") in a comment\nvar x = 1;")]
         [TestCase("var s = \"Convert.ToString(v)\";")]
         [TestCase("var s = sb.ToString();")]
+        [TestCase("sb.Append(_dto.severity.ToString(CultureInfo.InvariantCulture));")]
+        [TestCase("sb.Append(name).Append(',');")]
         [TestCase("int.TryParse(x, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n);")]
         public void The_scan_allows_invariant_and_non_culture_uses(string code)
         {
