@@ -70,7 +70,7 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void Managed_exception_options_carry_only_what_the_sdk_reads()
         {
-            // The SDK takes the signature and module UUID from the reason JSON and ignores other option keys (they only land in the
+            // The SDK takes only the signature from the reason JSON (the worker takes the module UUID) and ignores other option keys (they only land in the
             // report's logging options), so the bridge must not send them as options.
             var bridge = File.ReadAllText(Path.Combine(RepoRoot(), "Runtime/Platform/Android/AndroidBridge.cs"));
             Assert.That(bridge, Does.Not.Contain("\"$$signature\""));
@@ -83,7 +83,7 @@ namespace Bugsee.WrapperPolicy.Tests
             // The SDK hashes the Java stack of the throwable into the client signature: capturing it would make the signature
             // depend on the calling thread.
             var java = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins/Android/UnityManagedException.java"));
-            Assert.That(java, Does.Contain("fillInStackTrace()"));
+            Assert.That(java, Does.Match(@"(?m)^\s*public\s+(synchronized\s+)?Throwable\s+fillInStackTrace\(\)"));
         }
     }
 }

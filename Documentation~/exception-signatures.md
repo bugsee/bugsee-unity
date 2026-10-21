@@ -1,7 +1,7 @@
 # Unity managed exception signatures
 
 Design for how the new Unity SDK computes, forwards, and uses **one** merge signature per managed error/crash.  
-Status: **approved for implementation**; the wrapper-side part for Android is implemented (see *What the wrapper sends today*), the SDK and worker parts are not. Appserver merge remains `signatures: { $in: [...] }` per **application** (Android and iOS apps are separate).
+Status: **approved for implementation**; the #107 part (Android: the wrapper's Java stack no longer feeds the SDK signature) is implemented, see *What the wrapper sends today*. The recipe rules (2, 3 and the client hash) remain open in #217; the SDK and worker parts are not implemented. Appserver merge remains `signatures: { $in: [...] }` per **application** (Android and iOS apps are separate).
 
 ## Scope (C′)
 
@@ -80,12 +80,13 @@ Inner/`cause`: hash the **leaf payload already selected** (single-inner unwrap).
 | Cross-backend v1 | No alias | Dual signatures to glue Mono/IL2CPP | Different recipes; AI merge later without growing `signatures` |
 | AI merge (future) | Join issues; survivor keeps size-1 keys | `$each` both signature lists | Weak markers ≠ merge keys |
 | Handled bit | Not in hash | Native-style `"handled"` prefix | Same throw site must not split error vs crash |
-| Create-time | Native uses Unity key only | Android SHA-1 of wrapper + worker replace | Avoided AU-21 dual hashes |
+| Create-time | Native uses Unity key only (target; not true today, see below) | Android SHA-1 of wrapper + worker replace | Avoided AU-21 dual hashes |
 
 ## What the wrapper sends today (Android, issue #107)
 
 Audited against Android SDK 7.4.2 and the worker:
 
-- The SDK ignores every key of the exception options map except `domain` and `skipFrames` (both only affect the client signature). The wrapper no longer sends `$$signature` or `moduleUUID` as options; the worker reads `signature`, `buildID` and `moduleUUID` from the reason JSON.
-- The client signature the SDK files a report under is SHA-1 over: `handled` (only for `logException`), the domain, the throwable class name, the JSON `signature` from the reason, then the Java stack of the throwable. The Java stack used to be the one of the wrapper's `UnityManagedException`, built where the wrapper calls the SDK, so it varied with the calling thread. `UnityManagedException` now captures no Java stack, so the client signature depends only on the managed exception (type, raw frames, build GUID), not on the thread. Checked on a device by comparing the SDK's own signature function for the same exception reported from the main thread and from a worker (sample scenario `sigthreads`).
+- The SDK ignores every key of the exception options map except `domain` and `skipFrames`, which only feed the client signature (`skipFrames` trimmed the Java stack of the throwable; with the wrapper's throwable now stackless it has no effect on Android). `domain` is also written to the report's `crash.json` exception. The wrapper no longer sends `$$signature` or `moduleUUID` as options. The SDK reads only `signature` from the reason JSON (for its client signature; the worker writes it to `additional_signature`, which nothing reads); the worker reads only `moduleUUID` (and `il2cppLinemapId`); `buildID` is read by nothing.
+- The client signature the SDK files a report under is SHA-1 over: `handled` (only for `logException`), the domain, the throwable class name, the JSON `signature` from the reason, then the Java stack of the throwable. The Java stack used to be the one of the wrapper's `UnityManagedException`, built where the wrapper calls the SDK, so it varied with the calling thread. `UnityManagedException` now captures no Java stack, so the SDK's signature no longer depends on the wrapper's Java call site. The payload `signature` it hashes in still varies per thread on Mono (#217). Checked on a device by comparing the SDK's own signature function for the same payload handed over from the main thread and from a worker (sample scenario `sigthreads`).
 - Still different from this design, and not fixable in the wrapper: the SDK mixes `handled` into the hash (`LogException` and `LogUnhandledException` of one throw site get different client signatures, rule 4), the JSON `signature` is still the weak raw-stack hash, which on Mono includes caller frames up to the thread root (rules 2 and 3, tracked in #217), and for issue type `error` the worker replaces the signatures while for `crash` it appends its own (rule 1). Those need the worker (and for `handled`, the SDK) to follow this design; the client key is only the create-time key.
+- **iOS differs:** bugsee-cocoa builds a `logException` signature from a live report (signal name and the calling thread's native frames), not from the domain or the reason-JSON `signature`, so the "Create-time: native uses Unity key only" row does not hold for iOS today. This needs a bugsee-cocoa/worker change; the wrapper cannot supply the key there. Not re-verified at 7.0.0-beta7 in this change.

@@ -10,9 +10,9 @@ namespace Bugsee.Sample
     /// <summary>
     /// Scenario "sigthreads" (issue #107): one managed exception is reported from Unity's main thread and from a worker thread.
     /// On Android the SDK's own signature function (BugseeExceptionProcessor.generateSignature, the one the report is filed under)
-    /// is asked what it computes for the throwable the wrapper hands over, with the SAME payload JSON from each thread:
+    /// is asked (it is an internal SDK class: if it is gone the verdict is INCONCLUSIVE, not PASS) what it computes for the throwable the wrapper hands over, with the SAME payload JSON from each thread:
     ///   [SIGTHREADS] main client=... sdk=... control=...   (and the same for worker)
-    ///   [SIGTHREADS] PASS|FAIL: SDK signatures equal
+    ///   [SIGTHREADS] PASS|FAIL|INCONCLUSIVE (SKIP off Android): SDK signatures equal and the control differs
     /// "control" is a plain java.lang.Exception carrying the same JSON, built where UnityManagedException is: it shows the Java
     /// stack the SDK would have hashed had the wrapper's throwable captured one (it differs per thread). "client" is the payload
     /// signature of each thread's own exception: Mono's StackTrace of a caught exception runs on to the thread's root, so it
@@ -43,12 +43,22 @@ namespace Bugsee.Sample
 
             var clientEqual = worker != null && main.Client == worker.Client;
             var sdkEqual = worker != null && main.Sdk == worker.Sdk;
-            Debug.Log("[SIGTHREADS] " + (sdkEqual ? "PASS" : "FAIL")
+            // PASS only when both SDK signatures are real hashes, equal, and the control (a stack-carrying throwable) differs between the
+            // threads, i.e. the probe could have told. INCONCLUSIVE when the probe did not run; SKIP off Android.
+#if UNITY_ANDROID && !UNITY_EDITOR
+            var real = worker != null && IsHash(main.Sdk) && IsHash(worker.Sdk) && IsHash(main.Control) && IsHash(worker.Control);
+            var verdict = !real ? "INCONCLUSIVE" : (sdkEqual && main.Control != worker.Control ? "PASS" : "FAIL");
+#else
+            var verdict = "SKIP";
+#endif
+            Debug.Log("[SIGTHREADS] " + verdict
                 + ": sdkEqual=" + sdkEqual + " clientEqual(info)=" + clientEqual
                 + " controlEqual=" + (worker != null && main.Control == worker.Control)
                 + " mainSdk=" + main.Sdk + " workerSdk=" + (worker == null ? "-" : worker.Sdk));
             // Observe() made the real reports from both threads already.
         }
+
+        static bool IsHash(string s) => !string.IsNullOrEmpty(s) && s.Length == 40;
 
         sealed class Observed
         {
@@ -62,6 +72,9 @@ namespace Bugsee.Sample
         static Observed Observe(string thread, string marker, string sharedJson)
         {
             var result = new Observed();
+#if UNITY_ANDROID && !UNITY_EDITOR
+            var attached = false;
+#endif
             try { ThrowAtTheSite(marker); }
             catch (Exception ex)
             {
@@ -71,6 +84,7 @@ namespace Bugsee.Sample
                 try
                 {
                     AndroidJNI.AttachCurrentThread();
+                    attached = true;
                     var json = sharedJson ?? ManagedExceptionPayload.ToJson(payload);
                     result.Json = json;
                     result.Sdk = SdkSignature("com.bugsee.unity.UnityManagedException", json, true);
@@ -89,6 +103,10 @@ namespace Bugsee.Sample
                     { "thread", thread },
                 });
             }
+#if UNITY_ANDROID && !UNITY_EDITOR
+            // Only a worker is detached: the main thread belongs to Unity.
+            if (attached && thread != "main") AndroidJNI.DetachCurrentThread();
+#endif
             return result;
         }
 
