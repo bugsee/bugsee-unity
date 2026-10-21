@@ -167,7 +167,9 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(source, Does.Contain("XcodeShellScriptPhase.SetInputs(File.ReadAllText(projectPath), phaseName, DsymInputPaths)"));
             Assert.That(source, Does.Contain("$(DWARF_DSYM_FOLDER_PATH)/$(DWARF_DSYM_FILE_NAME)/Contents/Resources/DWARF/$(EXECUTABLE_NAME)"));
             Assert.That(source, Does.Contain("$(DWARF_DSYM_FOLDER_PATH)/UnityFramework.framework.dSYM/Contents/Resources/DWARF/UnityFramework"));
-            Assert.That(source, Does.Contain("$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)"));
+            // As entries of DsymInputPaths (the quoted entry and the list terminator), not the path in a comment.
+            Assert.That(source, Does.Match(@"\""\$\(TARGET_BUILD_DIR\)/\$\(INFOPLIST_PATH\)"",\s*//[^\n]*\n\s*""\$\(BUILT_PRODUCTS_DIR\)/\$\(INFOPLIST_PATH\)"",\s*\};"),
+                "DsymInputPaths must end with the processed Info.plist under TARGET_BUILD_DIR and BUILT_PRODUCTS_DIR");
             int strip = source.IndexOf("phaseName, null)");
             int add = source.IndexOf("project.AddShellScriptBuildPhase(target, phaseName");
             Assert.That(strip, Is.GreaterThan(0));
