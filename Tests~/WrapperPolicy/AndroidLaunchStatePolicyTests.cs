@@ -57,8 +57,11 @@ namespace Bugsee.WrapperPolicy.Tests
             StopJoiners.Add(done);
         }
 
-        public void DeleteCollectedData(Action<bool> done)
+        public readonly List<DeleteScope> DeleteScopes = new List<DeleteScope>();
+
+        public void DeleteCollectedData(DeleteScope scope, Action<bool> done)
         {
+            DeleteScopes.Add(scope);
             Calls.Add("delete:" + Current);
             PendingDelete = done;
         }
@@ -237,7 +240,7 @@ namespace Bugsee.WrapperPolicy.Tests
             public void Launch(string t, IDictionary<string, object> o, Action<bool> d) => _inner.Launch(t, o, d);
             public void Relaunch(IDictionary<string, object> o, Action<bool> d) => _inner.Calls.Add("relaunch");
             public void Stop(Action d) => _inner.Stop(d);
-            public void DeleteCollectedData(Action<bool> d) => _inner.DeleteCollectedData(d);
+            public void DeleteCollectedData(DeleteScope s, Action<bool> d) => _inner.DeleteCollectedData(s, d);
             public void InstallHooks(IDictionary<string, object> o) => _inner.InstallHooks(o);
             public void UninstallHooks() => _inner.UninstallHooks();
             public void ScheduleTick(TimeSpan d) { }
@@ -809,6 +812,82 @@ namespace Bugsee.WrapperPolicy.Tests
             _machine.Relaunch(OptionsB, ok => result = ok);
             Assert.That(result, Is.False);
             Assert.That(_sdk.Calls, Is.Empty);
+        }
+
+        [Test]
+        public void Delete_passes_its_scope_to_the_sdk_and_answers_with_its_result()
+        {
+            foreach (var scope in new[] { DeleteScope.CaptureOnly, DeleteScope.CaptureAndIntermediate, DeleteScope.Everything })
+            {
+                SetUp();
+                bool? deleted = null;
+                _machine.DeleteCollectedData(scope, ok => deleted = ok);
+                Assert.That(_sdk.DeleteScopes, Is.EqualTo(new[] { scope }));
+                Assert.That(deleted, Is.Null);
+                _sdk.FinishDelete(scope != DeleteScope.CaptureOnly);
+                Assert.That(deleted, Is.EqualTo(scope != DeleteScope.CaptureOnly));
+            }
+        }
+
+        [Test]
+        public void Delete_without_a_scope_is_everything()
+        {
+            _machine.DeleteCollectedData(ok => { });
+            Assert.That(_sdk.DeleteScopes, Is.EqualTo(new[] { DeleteScope.Everything }));
+        }
+
+        [Test]
+        public void Queued_deletes_of_one_scope_share_a_wipe_and_of_two_scopes_run_one_after_the_other()
+        {
+            Launched();
+            var answers = new List<string>();
+            _machine.DeleteCollectedData(DeleteScope.CaptureOnly, ok => answers.Add("a:" + ok)); // active, stopping first
+            _machine.DeleteCollectedData(DeleteScope.Everything, ok => answers.Add("b:" + ok));
+            _machine.DeleteCollectedData(DeleteScope.Everything, ok => answers.Add("c:" + ok));
+            _machine.DeleteCollectedData(DeleteScope.CaptureOnly, ok => answers.Add("d:" + ok));
+            _sdk.FinishStop();
+
+            Assert.That(_sdk.DeleteScopes, Is.EqualTo(new[] { DeleteScope.CaptureOnly }), "the wider one waits its turn");
+            _sdk.FinishDelete(true);
+            Assert.That(answers, Is.EqualTo(new[] { "a:True" }));
+            Assert.That(_sdk.DeleteScopes, Is.EqualTo(new[] { DeleteScope.CaptureOnly, DeleteScope.Everything }));
+            _sdk.FinishDelete(false);
+            Assert.That(answers, Is.EqualTo(new[] { "a:True", "b:False", "c:False" }), "b and c are one wipe");
+            Assert.That(_sdk.DeleteScopes.Count, Is.EqualTo(3));
+            _sdk.FinishDelete(true);
+            Assert.That(answers[3], Is.EqualTo("d:True"));
+        }
+
+        [Test]
+        public void A_narrow_delete_after_a_launch_wipes_that_session_with_its_own_scope()
+        {
+            // Delete(Everything); Launch; Delete(CaptureAndIntermediate): request order, each with its own scope.
+            Launched();
+            var answers = new List<string>();
+            _machine.DeleteCollectedData(DeleteScope.Everything, ok => answers.Add("first:" + ok));
+            _machine.Launch("t2", OptionsA);
+            _machine.DeleteCollectedData(DeleteScope.CaptureAndIntermediate, ok => answers.Add("second:" + ok));
+            _sdk.FinishStop();
+            _sdk.FinishDelete(true);
+            Assert.That(answers, Is.EqualTo(new[] { "first:True" }));
+            Assert.That(_sdk.Calls, Does.Contain("launch:t2"));
+            _sdk.FinishLaunch();
+            _sdk.FinishStop();
+            _sdk.FinishDelete(true);
+
+            Assert.That(_sdk.DeleteScopes, Is.EqualTo(new[] { DeleteScope.Everything, DeleteScope.CaptureAndIntermediate }));
+            Assert.That(answers, Is.EqualTo(new[] { "first:True", "second:True" }));
+        }
+
+        [Test]
+        public void A_scoped_delete_is_answered_false_at_the_soft_deadline_and_a_late_result_is_ignored()
+        {
+            bool? deleted = null;
+            _machine.DeleteCollectedData(DeleteScope.CaptureOnly, ok => deleted = ok);
+            Elapse(AndroidLifecycleMachine.OperationTimeout);
+            Assert.That(deleted, Is.False);
+            _sdk.FinishDelete(true);
+            Assert.That(deleted, Is.False, "answered once");
         }
     }
 }
