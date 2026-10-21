@@ -128,17 +128,19 @@ runs scenarios on one Android device.
 
 | Scenario | What it does |
 |----------|--------------|
-| `interactions`, `actions`, `filters`, `presets` | self-checking (`PASS`/`FAIL` lines), described below |
+| `interactions`, `actions`, `filters`, `presets`, `nested` | self-checking (`PASS`/`FAIL` lines), described below; `nested` sends a handled exception with a three-level `InnerException` chain and checks that its payload has 3 levels and 2 `cause` keys (`[Sample] nested PASS levels=3 causes=2`) |
 | `sig` (default), `handled`, `unhandled`, `pipeline`, `upload`, `labels`, `logerror` | send handled / unhandled exceptions, a pipeline exception, a plain `Upload`, a handled exception with labels, or a Unity `LogError`, to see that a report arrives (`sig` sends three, to check the grouping signature) |
 | `crash`, `native`, `abort`, `fatal`, `java`, `hang` | kill the process (or block the main thread) for the crash matrix; one per run |
 | `sigraise` | raise SIGSEGV (iOS only; does nothing on Android) |
 | `nullderef` | write to an unmapped address, a hardware fault on both platforms |
-| `attrsnoop`, `attrsedit` | a report handler runs on a report with an int, bool, double, string and numeric-looking-string attribute; `attrsedit` also adds, changes and removes attributes. Logged `[ATTRS]` with each attribute's managed type before and after the handler |
+| `attrsnoop`, `attrsedit` | a report handler runs on a report with an int, bool, double, string and numeric-looking-string attribute; `attrsedit` also adds, changes and removes attributes. Logged `[ATTRS]` with each attribute's managed type before and after the handler; `attrsedit` also logs `[ATTRS] check ...` PASS/FAIL lines (integers read back as `long`; a list and a map set in the handler must carry their data: JSON text on Android, a managed container on iOS, never a type name) |
 | `severity`, `severitylabels` | reports with no severity must take `ReportingDefaultBugPriority` (`bugsee_bug_priority`), an explicit severity must win; `severitylabels` does it with labels. Logged by a handler; ends on an open report dialog to dismiss |
 | `netfilter` | four network event filters (pass-through, redacting, one that empties the body, one that returns a replacement event) over events from the exchange factory; each logs what it was handed and left, tagged `[NETFILTER]`, and the run ends with `managed checks` (what native applied is not visible from C#) |
 | `options` | logs which launch-option keys the platform gate lets reach the native SDK, tagged `[OPTIONS]` |
+| `sigthreads` | the same managed exception thrown at one site and reported from the main thread and from a worker thread; logs `[SIGTHREADS]` with the client signature and (Android) the SDK's own signature for each, `PASS` (Android only; `INCONCLUSIVE` if the probe could not run, `SKIP` elsewhere) when they agree and the control differs; a plain Java exception is logged as a control that differs per thread |
 | `blackout` | logs `IsBlackout` after StartBlackout, EndBlackout, StartBlackout + Relaunch, StartBlackout + Stop and a fresh Launch, tagged `[BLACKOUT]` |
 | `delete` | `DeleteCollectedDataOnDevice`, a relaunch, then an upload |
+| `deletescope` | self-checking (`PASS`/`FAIL`): for each `DeleteScope`, makes capture data, a draft report and a report whose upload fails (the SDK is relaunched against a dead endpoint, so its bundle waits for upload), calls `DeleteCollectedDataOnDeviceAsync` and checks the result, the status and the SDK's files left on disk (capture, snapshots, bundles); also the plain call, the default argument, the synchronous scoped overload, two scopes at once and a launch right after the delete |
 | `apm`, `apmoff`, `apmleak`, `apmpool`, `apmthrnew`, `apmthrjava`, `apmthrui` | APM stress and API-shape checks |
 | `shapes` | throw shapes for frame/IP pairing, logged tagged `[SHAPE]` |
 | `none` | arm nothing (recovery launch) |
@@ -225,10 +227,10 @@ if they are sent (the `options` scenario sends every one and checks that Android
 bubble on, and sends what the Network Event and Breadcrumb bubbles send plus, on Android, a Debug line written to logcat. It
 waits for each filter's counter to move: the network filter redacts the `password-reset` URL and the body, the breadcrumb filter
 drops every breadcrumb (the scenario counts its own `e2e` breadcrumbs apart from the SDK's `http` ones), and the log filter drops
-Debug and Verbose lines. `Bugsee.Log` lines skip the log filter on both platforms (the wrapper submits them without filtering), so
-the log filter only sees what the SDK captures itself (the Unity log, logcat on Android); on iOS which Debug lines it drops depends
+Debug and Verbose lines. `Bugsee.Log` lines skip the log filter on both platforms (the native log API defaults to no filtering and the wrapper does not expose the opt-in), so
+the log filter only sees the captured logs (the Unity log the wrapper forwards, logcat on Android); on iOS which Debug lines it drops depends
 on what the SDK logs, so the scenario only requires that it ran there. It then turns the filters off and checks that the SDK calls
-no filter any more (the seen counters stay 0). It logs `[Sample] filters PASS|FAIL ...` lines ending in
+no filter any more (the seen counters stay 0), then runs the filters in pass-through mode (nothing dropped; one breadcrumb is left alone, one has only its message edited) to exercise results that carry only the touched fields (#160); it checks that the filter saw the untouched breadcrumb and edited the marked one (the SDK has no read-back, so the applied values are covered by `BridgeTests`). It logs `[Sample] filters PASS|FAIL ...` lines ending in
 `filters e2e done failures=N`. The sample launches with `CaptureBreadcrumbs = true`: the option is off by default, and without it no
 breadcrumb reaches the breadcrumb filter. The HUD shows the live counters on its `flt on|off nR/S lD/S bD/S` line (redacted or
 dropped / seen, for the network, log and breadcrumb filter); the network and breadcrumb filters also log each redaction or drop.
