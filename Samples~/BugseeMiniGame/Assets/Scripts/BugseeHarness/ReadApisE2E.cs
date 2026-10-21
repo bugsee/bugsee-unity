@@ -54,7 +54,7 @@ namespace Bugsee.Sample
         {
             // 1. Host launch options: only what the app passed, replaced (not merged) by the next relaunch.
             var kept = new Dictionary<string, object>();
-            foreach (var key in new[] { Options.Endpoint, Options.Debug, Options.CaptureVideo, Options.CaptureVideoMode })
+            foreach (var key in new[] { InternalOptionKeys.Endpoint, InternalOptionKeys.Debug, Options.CaptureVideo, Options.CaptureVideoMode })
                 if (b.LastLaunchOptions != null && b.LastLaunchOptions.TryGetValue(key, out var v)) kept[key] = v;
 
             var first = new Dictionary<string, object>(kept)
@@ -75,7 +75,7 @@ namespace Bugsee.Sample
             {
                 if (pair.Key.Contains("$$")) { ok &= !host.ContainsKey(pair.Key); continue; }
                 // The video options are only sent to keep the sample running: the video mode goes as a number and comes back as its
-                // name, and iOS does not take CaptureVideo at all (the SDK keeps only what it accepted).
+                // name, and on iOS an option equal to its default (CaptureVideo true) is dropped from the host options.
                 if (pair.Key == Options.CaptureVideoMode || pair.Key == Options.CaptureVideo) continue;
                 bool same = host.TryGetValue(pair.Key, out var got) && Same(pair.Value, got);
                 if (!same) wrong.Add(pair.Key + " sent " + pair.Value + " (" + pair.Value?.GetType().Name + ") got " + (got == null ? "(none)" : got + " (" + got.GetType().Name + ")"));
@@ -99,6 +99,20 @@ namespace Bugsee.Sample
             try { ((IDictionary<string, object>)host).Clear(); Check("the host snapshot is read-only", false, "Clear succeeded"); }
             catch (NotSupportedException) { Check("the host snapshot is read-only", true, ""); }
 
+            // After Stop the last applied configuration is still described.
+            var stopped = new TaskCompletionSource<bool>();
+            Bugsee.Stop(() => stopped.TrySetResult(true));
+            yield return WaitFor(() => stopped.Task.IsCompleted, WaitSeconds);
+            host = Bugsee.GetHostLaunchOptions();
+            Check("after Stop the host options still describe the last configuration", stopped.Task.IsCompleted && host.ContainsKey(Options.CaptureBreadcrumbs), Dump(host));
+
+            // A relaunch with no options replaces the set with an empty one (the wrapper's own unity.* keys aside, iOS keeps them).
+            task = Bugsee.RelaunchAsync(null);
+            yield return AwaitLaunched(task);
+            host = Bugsee.GetHostLaunchOptions();
+            Check("a relaunch with no options leaves the host options empty",
+                task.IsCompleted && task.Result && host.Keys.All(k => k.StartsWith("com.bugsee.option.unity.")), Dump(host));
+
             // 2. Attributes.
             Bugsee.ClearAllAttributes();
             Check("no attributes: an empty, non-null snapshot", Bugsee.GetAllAttributes() != null && Bugsee.GetAllAttributes().Count == 0,
@@ -110,6 +124,7 @@ namespace Bugsee.Sample
                 ["ra_int"] = 7,
                 ["ra_long"] = 5000000000L,
                 ["ra_double"] = 2.5,
+                ["ra_float"] = 1.1f,
                 ["ra_bool"] = true,
             };
             foreach (var pair in set) Bugsee.SetAttribute(pair.Key, pair.Value);
@@ -118,9 +133,15 @@ namespace Bugsee.Sample
             Check("every attribute set is in the snapshot with its value", set.All(p => attrs.TryGetValue(p.Key, out var g) && Same(p.Value, g)) && attrs.Count == set.Count, Dump(attrs));
             Check("string stays a string, bool a bool, number a long or double",
                 attrs["ra_string"] is string && attrs["ra_numeric_text"] is string && attrs["ra_bool"] is bool
-                && attrs["ra_int"] is long && attrs["ra_long"] is long && attrs["ra_double"] is double,
+                && attrs["ra_int"] is long && attrs["ra_long"] is long && attrs["ra_double"] is double && attrs["ra_float"] is double,
                 string.Join(",", attrs.Select(p => p.Key + ":" + (p.Value == null ? "null" : p.Value.GetType().Name))));
-            Check("each snapshot value equals GetAttribute of the key", attrs.All(p => Same(Bugsee.GetAttribute(p.Key), p.Value)), "");
+            // Not Same(): the type and the exact value must be the ones GetAttribute returns (int vs long, 1.1f as 1.1 and not 1.100000023841858).
+            Check("each snapshot value has the type and value GetAttribute returns",
+                attrs.All(p => { var one = Bugsee.GetAttribute(p.Key); return one != null && one.GetType() == p.Value.GetType() && one.Equals(p.Value); }),
+                string.Join(",", attrs.Select(p => p.Key + "=" + p.Value + ":" + Bugsee.GetAttribute(p.Key))));
+            Check("a float attribute reads as the double 1.1 (the shortest text, as on iOS)", attrs["ra_float"] is double d && d == 1.1, "" + attrs["ra_float"]);
+            try { ((IDictionary<string, object>)attrs).Clear(); Check("the attribute snapshot is read-only", false, "Clear succeeded"); }
+            catch (NotSupportedException) { Check("the attribute snapshot is read-only", true, ""); }
             Bugsee.ClearAttribute("ra_string");
             attrs = Bugsee.GetAllAttributes();
             Check("a cleared attribute leaves the snapshot", !attrs.ContainsKey("ra_string") && attrs.Count == set.Count - 1, Dump(attrs));
@@ -139,10 +160,19 @@ namespace Bugsee.Sample
             Bugsee.AddSecureRectangle(r2);
             Bugsee.AddSecureRectangle(r1);
             var rects = Bugsee.GetAllSecureRectangles();
-            Check("both rectangles read back as added, a duplicate once", rects.Length == 2 && rects.Contains(r1) && rects.Contains(r2), Dump(rects));
+            Check("both rectangles read back, a rectangle added twice once", rects.Length == 2 && rects.Contains(r1) && rects.Contains(r2), Dump(rects));
+            Bugsee.RemoveSecureRectangle(r1);
+            Check("a rectangle added twice survives one removal", Bugsee.GetAllSecureRectangles().Contains(r1), Dump(Bugsee.GetAllSecureRectangles()));
             Bugsee.RemoveSecureRectangle(r1);
             rects = Bugsee.GetAllSecureRectangles();
-            Check("a removed rectangle leaves the list", rects.Length == 1 && rects[0].Equals(r2), Dump(rects));
+            Check("a rectangle leaves the list after as many removals as adds", rects.Length == 1 && rects[0].Equals(r2), Dump(rects));
+            var screen = new Rect(5, 5, 40, 40);
+            Bugsee.AddSecureScreenRectangle(screen);
+            yield return null;
+            yield return null;
+            Check("a screen-space rectangle is not returned", Bugsee.GetAllSecureRectangles().Length == 1, Dump(Bugsee.GetAllSecureRectangles()));
+            Bugsee.RemoveSecureScreenRectangle(screen);
+            yield return null;
             Bugsee.RemoveAllSecureRectangles();
             Check("RemoveAllSecureRectangles empties the list", Bugsee.GetAllSecureRectangles().Length == 0, "");
         }

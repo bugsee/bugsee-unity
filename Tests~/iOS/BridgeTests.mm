@@ -513,7 +513,8 @@ int main(void)
     id parsedHost = hostOptions
         ? [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:hostOptions length:strlen(hostOptions)] options:0 error:nil]
         : nil;
-    expect([parsedHost isKindOfClass:[NSDictionary class]] && [parsedHost count] < [parsedOptions count],
+    expect([parsedHost isKindOfClass:[NSDictionary class]] && [parsedHost count] < [parsedOptions count]
+           && [parsedHost[BugseeMaxRecordingTimeKey] intValue] == 60,
            "host launch options come back as a JSON object without the defaults");
     free(hostOptions);
     // An omitted report severity is the SDK default, High until the host configures ReportingDefaultBugPriority.
