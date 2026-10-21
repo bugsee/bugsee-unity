@@ -933,20 +933,80 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_set_secure_buffer(int display, int[] packed, int packedLength);
         [DllImport("__Internal")] static extern float _bugsee_screen_scale();
         [DllImport("__Internal")] static extern void _bugsee_capture_view_hierarchy();
+        [DllImport("__Internal")] static extern int _bugsee_feedback_available();
         [DllImport("__Internal")] static extern void _bugsee_feedback_show();
         [DllImport("__Internal")] static extern void _bugsee_feedback_set_greeting(string message);
+        [DllImport("__Internal")] static extern void _bugsee_feedback_set_listener(FeedbackReceivedNativeCallback received, FeedbackSentNativeCallback sent);
         [DllImport("__Internal")] static extern int _bugsee_appearance_set_color(string propertyName, int r, int g, int b, int a);
         [DllImport("__Internal")] static extern IntPtr _bugsee_appearance_get_color(string propertyName);
         [DllImport("__Internal")] static extern int _bugsee_appearance_set_string(string propertyName, string propertyValue);
         [DllImport("__Internal")] static extern IntPtr _bugsee_appearance_get_string(string propertyName);
         [DllImport("__Internal")] static extern void _bugsee_free(IntPtr ptr);
 
+        delegate void FeedbackReceivedNativeCallback(string messagesJson);
+        delegate void FeedbackSentNativeCallback(string message);
+
         sealed class IosFeedback : IFeedback
         {
-            public void ShowFeedbackUi() => _bugsee_feedback_show();
-            public void SetDefaultGreeting(string greeting) =>
-                _bugsee_feedback_set_greeting(greeting ?? "");
-            public void SetListener(IFeedbackListener listener) { }
+            static readonly UnsupportedApiNotice Notice = new UnsupportedApiNotice(Debug.LogWarning);
+            // The listener the SDK calls into: one per process, the native side keeps a single listener too.
+            static volatile IFeedbackListener _listener;
+
+            // The BugseeFeedback package is optional (see FeedbackOptIn): without it every call says so, once.
+            static bool Available()
+            {
+                if (_bugsee_feedback_available() != 0) return true;
+                Notice.Once(FeedbackOptIn.IosMissingMessage);
+                return false;
+            }
+
+            public void ShowFeedbackUi()
+            {
+                if (Available()) _bugsee_feedback_show();
+            }
+
+            public void SetDefaultGreeting(string greeting)
+            {
+                if (Available()) _bugsee_feedback_set_greeting(greeting ?? "");
+            }
+
+            public void SetListener(IFeedbackListener listener)
+            {
+                if (!Available()) return;
+                _listener = listener;
+                if (listener == null) _bugsee_feedback_set_listener(null, null);
+                else _bugsee_feedback_set_listener(OnReceived, OnSent);
+            }
+
+            // Native calls these on the main queue; nothing may escape a reverse P/Invoke.
+            [MonoPInvokeCallback(typeof(FeedbackReceivedNativeCallback))]
+            static void OnReceived(string messagesJson)
+            {
+                try
+                {
+                    var listener = _listener;
+                    if (listener == null) return;
+                    var messages = new List<string>();
+                    object raw = null;
+                    JsonRead.Object(messagesJson)?.TryGetValue("messages", out raw);
+                    if (raw is IEnumerable<object> items)
+                        foreach (var item in items) messages.Add(item as string ?? "");
+                    MainThreadDispatcher.Run(() => listener.OnNewMessagesReceived(messages));
+                }
+                catch (Exception ex) { Debug.LogException(ex); }
+            }
+
+            [MonoPInvokeCallback(typeof(FeedbackSentNativeCallback))]
+            static void OnSent(string message)
+            {
+                try
+                {
+                    var listener = _listener;
+                    if (listener == null) return;
+                    MainThreadDispatcher.Run(() => listener.OnNewMessageSent(message));
+                }
+                catch (Exception ex) { Debug.LogException(ex); }
+            }
         }
 
         sealed class IosAppearance : IAppearance

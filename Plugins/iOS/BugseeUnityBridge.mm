@@ -1,5 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#import <objc/message.h>
+#import <objc/runtime.h>
 #include <TargetConditionals.h>
 #include <stdlib.h>
 #include <string.h>
@@ -784,15 +786,104 @@ void _bugsee_capture_view_hierarchy(void)
     [Bugsee captureViewHierarchy];
 }
 
+// Feedback is the optional BugseeFeedback package (github.com/bugsee/feedback-spm), linked only when the project opts
+// in. The bridge looks it up by name at run time so it builds and runs without the package; its +load registers it with
+// the core SDK. Nil when the package is not in the app.
+// A Swift class is registered under its module-qualified name ("BugseeFeedback.BugseeFeedback"), not the plain name its
+// generated header uses.
+static Class BugseeFeedbackClass(void)
+{
+    Class type = NSClassFromString(@"BugseeFeedback.BugseeFeedback");
+    return type != Nil ? type : NSClassFromString(@"BugseeFeedback");
+}
+
+static id BugseeFeedbackExt(void)
+{
+    Class type = BugseeFeedbackClass();
+    if (type == Nil) return nil;
+    id ext = [Bugsee ext:type];
+    SEL registerSelector = NSSelectorFromString(@"register");
+    if (ext == nil && [type respondsToSelector:registerSelector])
+    {
+        ((void (*)(id, SEL))objc_msgSend)(type, registerSelector);
+        ext = [Bugsee ext:type];
+    }
+    return ext;
+}
+
+int _bugsee_feedback_available(void)
+{
+    return BugseeFeedbackExt() != nil ? 1 : 0;
+}
+
 void _bugsee_feedback_show(void)
 {
-    NSLog(@"[Bugsee] Feedback UI is not in the core 7.x SPM package; install the Feedback module to enable it.");
+    id ext = BugseeFeedbackExt();
+    SEL selector = NSSelectorFromString(@"showFeedbackUI");
+    if (ext != nil && [ext respondsToSelector:selector]) ((void (*)(id, SEL))objc_msgSend)(ext, selector);
 }
 
 void _bugsee_feedback_set_greeting(const char *message)
 {
-    (void)message;
-    NSLog(@"[Bugsee] Feedback greeting is not in the core 7.x SPM package; install the Feedback module to enable it.");
+    id ext = BugseeFeedbackExt();
+    SEL selector = NSSelectorFromString(@"setGreeting:");
+    if (ext != nil && [ext respondsToSelector:selector])
+        ((void (*)(id, SEL, id))objc_msgSend)(ext, selector, message ? [NSString stringWithUTF8String:message] : nil);
+}
+
+typedef void (*BugseeFeedbackReceivedFn)(const char *messagesJson);
+typedef void (*BugseeFeedbackSentFn)(const char *message);
+
+// The package's listener is a Swift @objc protocol the bridge cannot import, so this class adopts it at run time.
+@interface BugseeUnityFeedbackListener : NSObject
+@property (nonatomic) BugseeFeedbackReceivedFn received;
+@property (nonatomic) BugseeFeedbackSentFn sent;
+@end
+
+@implementation BugseeUnityFeedbackListener
+- (void)onNewMessagesReceived:(NSArray *)messages
+{
+    BugseeFeedbackReceivedFn received = self.received;
+    if (received == NULL) return;
+    NSData *data = [NSJSONSerialization dataWithJSONObject:@{ @"messages": messages ?: @[] } options:0 error:nil];
+    NSString *json = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
+    if (json != nil) received(json.UTF8String);
+}
+
+- (void)onNewMessageSent:(NSString *)message
+{
+    BugseeFeedbackSentFn sent = self.sent;
+    if (sent != NULL && message != nil) sent(message.UTF8String);
+}
+@end
+
+// The package holds its listener weakly: this keeps the one the wrapper installed alive.
+static BugseeUnityFeedbackListener *sFeedbackListener;
+
+// Both callbacks NULL clears the listener.
+void _bugsee_feedback_set_listener(BugseeFeedbackReceivedFn received, BugseeFeedbackSentFn sent)
+{
+    id ext = BugseeFeedbackExt();
+    SEL selector = NSSelectorFromString(@"setListener:");
+    if (ext == nil || ![ext respondsToSelector:selector]) return;
+    if (received == NULL && sent == NULL)
+    {
+        ((void (*)(id, SEL, id))objc_msgSend)(ext, selector, nil);
+        sFeedbackListener = nil;
+        return;
+    }
+
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Protocol *protocol = NSProtocolFromString(@"BugseeFeedback.BugseeFeedbackListener");
+        if (protocol == nil) protocol = NSProtocolFromString(@"BugseeFeedbackListener");
+        if (protocol != nil) class_addProtocol([BugseeUnityFeedbackListener class], protocol);
+    });
+    BugseeUnityFeedbackListener *listener = [BugseeUnityFeedbackListener new];
+    listener.received = received;
+    listener.sent = sent;
+    sFeedbackListener = listener;
+    ((void (*)(id, SEL, id))objc_msgSend)(ext, selector, listener);
 }
 
 // Unity property name -> BugseeTheme property (the 7.x iOS theme API; there is no BGSAppearance object).
@@ -1095,8 +1186,12 @@ void _bugsee_set_secure_buffer(int display, int *packed, int packedLength)
     (void)packedLength;
 }
 void _bugsee_capture_view_hierarchy(void) {}
+int _bugsee_feedback_available(void) { return 0; }
 void _bugsee_feedback_show(void) {}
 void _bugsee_feedback_set_greeting(const char *message) { (void)message; }
+typedef void (*BugseeFeedbackReceivedFn)(const char *messagesJson);
+typedef void (*BugseeFeedbackSentFn)(const char *message);
+void _bugsee_feedback_set_listener(BugseeFeedbackReceivedFn received, BugseeFeedbackSentFn sent) { (void)received; (void)sent; }
 int _bugsee_appearance_set_color(const char *propertyName, int r, int g, int b, int a) { (void)propertyName; (void)r; (void)g; (void)b; (void)a; return 0; }
 char *_bugsee_appearance_get_color(const char *propertyName) { (void)propertyName; return NULL; }
 int _bugsee_appearance_set_string(const char *propertyName, const char *propertyValue) { (void)propertyName; (void)propertyValue; return 0; }

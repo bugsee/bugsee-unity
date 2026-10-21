@@ -52,11 +52,25 @@ namespace Bugsee.WrapperPolicy
         /// <param name="removedPackageIds">The ids of the package references that were removed, for <see cref="RepointProducts"/>.</param>
         public static string RemoveBugseePackage(string pbxproj, string repositoryUrl, string relativePath, out ISet<string> removedPackageIds)
         {
+            return RemoveBugseePackage(pbxproj, repositoryUrl, relativePath, "Bugsee", out removedPackageIds);
+        }
+
+        /// <summary>
+        /// Removes the links to another package of ours, such as the Feedback add-on (<paramref name="productName"/>
+        /// <c>BugseeFeedback</c>): only remote references to <paramref name="repositoryUrl"/> exist for it, never a local one.
+        /// </summary>
+        public static string RemovePackageProduct(string pbxproj, string repositoryUrl, string productName)
+        {
+            return RemoveBugseePackage(pbxproj, repositoryUrl, null, productName, out _);
+        }
+
+        static string RemoveBugseePackage(string pbxproj, string repositoryUrl, string relativePath, string productName, out ISet<string> removedPackageIds)
+        {
             var references = new HashSet<string>();
             removedPackageIds = references;
             var localReferences = new HashSet<string>();
             string text = RemoveBlocks(pbxproj, RemoteBlock(repositoryUrl), references, null);
-            text = RemoveBlocks(text, LocalBlock(relativePath), references, localReferences);
+            if (relativePath != null) text = RemoveBlocks(text, LocalBlock(relativePath), references, localReferences);
 
             // A remote package's products name it in `package`; a local one's name no package, so only the product
             // Bugsee (what the export links) is taken for ours, and only when a local reference of ours was removed.
@@ -66,7 +80,7 @@ namespace Bugsee.WrapperPolicy
                 string package = match.Groups["package"].Value;
                 // Only the Bugsee product is the export's own. Another product of the same package (BugseeSwiftUI,
                 // added in Xcode) is the user's: it stays, with its build file, and RepointProducts moves it to the new reference.
-                bool ours = match.Groups["name"].Value == "Bugsee" &&
+                bool ours = match.Groups["name"].Value == productName &&
                     (package.Length > 0 ? references.Contains(package) : localReferences.Count > 0);
                 if (!ours)
                 {

@@ -37,5 +37,10 @@
 -keep interface com.bugsee.library.contracts.lifecycle.LifecycleEventListener { *; }
 -keep interface com.bugsee.library.contracts.common.Callback1 { *; }
 -keep interface com.bugsee.library.contracts.feedback.FeedbackListener { *; }
+# The optional Feedback AAR (see FeedbackOptIn): C# calls the contract's methods and the registration entry point by name.
+-keep interface com.bugsee.library.contracts.extensions.Feedback { *; }
+-keep class com.bugsee.library.BugseeFeedback {
+    public static void registerFeedbackExtension();
+}
 -keep interface com.bugsee.library.contracts.common.DataRequestProvider { *; }
 -keep interface com.bugsee.library.contracts.common.DataRequestResultCallback { *; }

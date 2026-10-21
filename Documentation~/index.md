@@ -396,9 +396,20 @@ A `RectTransform` corner from `GetWorldCorners` in a screen-space overlay canvas
 - **Android:** Maven `com.bugsee:bugsee-android:7.4.2` + `com.bugsee:bugsee-android-ndk:7.4.2`, declared in the generated Gradle project by `Editor/BugseeAndroidMavenDependencies.cs` (Gradle plugin `4.0.8`, patched into the generated project when it pins AGP 8.6+). Native symbols for upload come from Unity's `symbols.zip` (Player Settings > Publishing Settings > Create symbols.zip). Unity 6 defaults it to Disabled and Public holds symbol tables only; native/IL2CPP file:line symbolication needs Debugging (about ten times larger, mind Google Play's limits). The build warns when a Bugsee app token is set and the level is not Debugging; `Bugsee > Android > Use Full Native Symbols (Debugging) For Symbol Upload` (or `BUGSEE_ANDROID_FULL_SYMBOLS=1`) builds with Debugging and restores the setting. On 2021.3 release builds also get `debugSymbolLevel 'FULL'`. Core publishes no transitives; NDK is a separate artifact and must be declared. Fragment secure-view overloads are typed as `Object`, so Unity JNI does not need `androidx.fragment`.
 - **iOS:** SPM-only. Xcode resolves [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta7` (iOS 15+). C bridge: `Plugins/iOS/BugseeUnityBridge.mm` + `BugseeUnityCallbacks.mm`.
 
+### Feedback (in-app chat)
+
+`Bugsee.Feedback` (`ShowFeedbackUi`, `SetDefaultGreeting`, `SetListener`) drives the native Feedback add-on. It is off by default: the add-on is a separate native module on both SDKs, and the wrapper links it only when you ask, so an app that does not use it carries no chat code.
+
+To turn it on, add the scripting define `BUGSEE_FEEDBACK` to Player Settings > Other Settings > Scripting Define Symbols for Android and/or iOS, or set the environment variable `BUGSEE_FEEDBACK=1` for the build (CI), and rebuild. Then:
+
+- **Android:** `com.bugsee:bugsee-android-feedback:7.4.2` is declared in the generated `unityLibrary/build.gradle` next to the core and NDK artifacts. The AAR needs Android Gradle plugin 8.1.1 or newer (it pulls Material 1.13 and `androidx.dynamicanimation` 1.1.0): Unity 2021.3 and 2022.3 generate AGP 7.4.2, where the export refuses the define with that reason instead of failing later in Gradle; use Unity 6. The wrapper registers the extension itself on first use, because the Bugsee Gradle plugin strips the AAR's own registration provider and, in the Unity 6000.0.84f1 build checked, its replacement was not injected. A project that declares the artifact itself (EDM4U, a custom template) needs no define.
+- **iOS:** the Xcode export links the `BugseeFeedback` product of [`bugsee/feedback-spm`](https://github.com/bugsee/feedback-spm) (same version as the core package, iOS 15+) into `UnityFramework`; it registers itself with the SDK at load. It is not linked next to a local core package (`BUGSEE_IOS_SDK_LOCAL_PACKAGE`): the add-on builds against the published core, and the export says so. The chat is native UIKit/SwiftUI/Android UI shown over the Unity view.
+
+Without the add-on, each of the three calls does nothing and the wrapper logs a warning once per process saying how to enable it. In the Editor the calls also do nothing and log once. `SetListener` callbacks (`OnNewMessagesReceived`, `OnNewMessageSent`) arrive on the Unity main thread. The Feedback appearance properties (`IAppearance`) are independent of this switch; they only affect a Feedback UI that is present.
+
 ### iOS bridge status
 
-Wired: Launch/Stop, blackout, log/trace/event, exceptions (JSON-in-reason), TestCrash, report/upload (+ labels), identity (email API), attributes, secure rects, appearance colors/strings, feedback UI, network/log/breadcrumb filters, report handler (via `BugseeWrapper`), lifecycle listener (via wrapper `onLifecycleEvent` → `Bugsee.LifecycleEvent` / `ILifecycleEventListener`).
+Wired: Launch/Stop, blackout, log/trace/event, exceptions (JSON-in-reason), TestCrash, report/upload (+ labels), identity (email API), attributes, secure rects, appearance colors/strings, feedback (opt-in, see [Feedback](#feedback-in-app-chat)), network/log/breadcrumb filters, report handler (via `BugseeWrapper`), lifecycle listener (via wrapper `onLifecycleEvent` → `Bugsee.LifecycleEvent` / `ILifecycleEventListener`).
 
 ### iOS managed exceptions by SDK version
 

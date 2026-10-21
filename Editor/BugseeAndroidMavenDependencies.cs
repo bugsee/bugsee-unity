@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using Bugsee.WrapperPolicy;
+using UnityEditor;
 using UnityEditor.Android;
 using UnityEditor.Build;
 using UnityEngine;
@@ -35,11 +36,21 @@ namespace Bugsee.Editor
     /// </summary>
     sealed class BugseeAndroidMavenDependencies : IPostGenerateGradleAndroidProject
     {
-        static readonly string[] Artifacts =
+        static readonly string[] CoreArtifacts =
         {
             BugseePackageVersion.AndroidMavenArtifact,
             BugseePackageVersion.AndroidNdkArtifact,
         };
+
+        // The Feedback AAR is opt-in (see FeedbackOptIn): declared next to the others only when the project asks for it.
+        static string[] Artifacts => FeedbackEnabled()
+            ? new[] { CoreArtifacts[0], CoreArtifacts[1], FeedbackOptIn.AndroidArtifact }
+            : CoreArtifacts;
+
+        static bool FeedbackEnabled() =>
+            FeedbackOptIn.IsEnabled(
+                PlayerSettings.GetScriptingDefineSymbols(NamedBuildTarget.Android),
+                Environment.GetEnvironmentVariable(FeedbackOptIn.EnvVar));
 
         // Late, so other post-generate steps that add their own declarations run first.
         public int callbackOrder => 1000;
@@ -48,6 +59,7 @@ namespace Bugsee.Editor
         {
             try
             {
+                CheckFeedbackToolchain(Path.GetDirectoryName(Path.GetFullPath(unityLibraryPath)));
                 InjectDependencies(unityLibraryPath);
                 EnsureMavenCentral(Path.GetDirectoryName(Path.GetFullPath(unityLibraryPath)));
             }
@@ -56,6 +68,19 @@ namespace Bugsee.Editor
                 // Without these dependencies the app builds but Bugsee cannot start: fail loudly instead.
                 throw new BuildFailedException("[Bugsee] Could not add the Bugsee Android SDK to the Gradle project: " + ex);
             }
+        }
+
+        // An opt-in that cannot build is refused here with the reason, not left to a Gradle failure about AAR metadata.
+        static void CheckFeedbackToolchain(string projectRoot)
+        {
+            if (!FeedbackEnabled()) return;
+            string rootPath = FindGradleFile(projectRoot, "build");
+            if (rootPath == null) return;
+            string catalogPath = Path.Combine(projectRoot, "gradle", "libs.versions.toml");
+            string catalog = File.Exists(catalogPath) ? File.ReadAllText(catalogPath) : null;
+            if (!GradleTemplateDefaults.TryGetAgpVersion(File.ReadAllText(rootPath), catalog, out int major, out int minor)) return;
+            string problem = FeedbackOptIn.AndroidAgpProblem(major, minor);
+            if (problem != null) throw new BuildFailedException(problem);
         }
 
         static readonly string[] GradleExtensions = { ".gradle", ".gradle.kts" };
