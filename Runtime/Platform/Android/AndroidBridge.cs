@@ -504,7 +504,10 @@ namespace Bugsee.Platform.Android
                 }
 
                 using (var sanitizer = _bugsee.CallStatic<AndroidJavaObject>("getDefaultNetworkSanitizer"))
+                {
+                    if (sanitizer == null) return false;
                     sanitizer.Call("sanitize", androidEvent.Native);
+                }
                 if (temp != null)
                 {
                     networkEvent.Url = temp.Url;
@@ -518,8 +521,9 @@ namespace Bugsee.Platform.Android
                 }
                 return true;
             }
-            catch (AndroidJavaException ex)
+            catch (Exception ex) when (ex is AndroidJavaException || ex is ObjectDisposedException || ex is InvalidOperationException || ex is NullReferenceException)
             {
+                // An event kept past its filter callback throws ObjectDisposedException; none of these may escape into a filter.
                 Debug.LogWarning("[Bugsee] default network sanitizer failed: " + ex.Message);
                 return false;
             }
@@ -573,13 +577,25 @@ namespace Bugsee.Platform.Android
                     if (activity == null) return false;
                     Exception failure = null;
                     var done = new System.Threading.ManualResetEvent(false);
+                    // 0 queued, 1 running, 2 abandoned: a request that timed out must not run later, so false means "not done".
+                    int state = 0;
                     activity.Call("runOnUiThread", new AndroidJavaRunnable(() =>
                     {
+                        if (System.Threading.Interlocked.CompareExchange(ref state, 1, 0) != 0) return;
                         try { work(); }
                         catch (Exception ex) { failure = ex; }
                         finally { done.Set(); }
                     }));
-                    if (!done.WaitOne(3000)) return false;
+                    if (!done.WaitOne(3000))
+                    {
+                        if (System.Threading.Interlocked.CompareExchange(ref state, 2, 0) == 0)
+                        {
+                            Debug.LogWarning("[Bugsee] secure WebView call timed out waiting for the UI thread; it was dropped, call it again.");
+                            return false;
+                        }
+                        // Already running: let it finish rather than report a state that is about to change.
+                        if (!done.WaitOne(3000)) return false;
+                    }
                     if (failure != null)
                     {
                         Debug.LogWarning("[Bugsee] secure WebView call failed: " + failure.Message);

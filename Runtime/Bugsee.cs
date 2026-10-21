@@ -531,7 +531,7 @@ namespace Bugsee
 
         /// <summary>
         /// Android: marks an <c>android.webkit.WebView</c> secure, so its area is redacted in the captured video. Pass the WebView
-        /// plugin's native handle. The call is made on the UI thread and returns when it is done; false when the argument is null
+        /// plugin's native handle. The call is made on the UI thread and returns when it is done (a request the UI thread does not reach within 3 s is dropped, logged, and returns false: call it again); false when the argument is null
         /// or not a WebView, or on a failure (logged), and in the Editor. A registration made before the SDK launches is
         /// buffered by the SDK; it does not survive <see cref="Stop"/>, so register again after a relaunch.
         /// <para>
