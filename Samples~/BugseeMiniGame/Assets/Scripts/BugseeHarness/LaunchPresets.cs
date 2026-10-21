@@ -192,7 +192,7 @@ namespace Bugsee.Sample
                 .SetCrashSignals(CrashSignals.Abrt | CrashSignals.Segv | CrashSignals.Bus | CrashSignals.Trap)
                 .SetReportingUIStyle(ReportingUIStyle.BasedOnStatusBar)
                 .Set(Options.CaptureVideoMaxFrameRate, 20)
-                .Set(Options.ConfigBuildType, "privacy");
+                .Set(Options.BuildType, "privacy");
             foreach (var pair in builder.ToDictionary())
                 o.SetCustomOption(pair.Key, pair.Value);
             if (o is AndroidLaunchOptions android)
