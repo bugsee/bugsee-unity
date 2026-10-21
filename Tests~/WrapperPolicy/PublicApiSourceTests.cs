@@ -27,6 +27,9 @@ namespace Bugsee.WrapperPolicy.Tests
             int start = source.IndexOf(signature, StringComparison.Ordinal);
             Assert.That(start, Is.GreaterThanOrEqualTo(0), "Method missing: " + signature);
             int arrow = source.IndexOf("=>", start, StringComparison.Ordinal);
+            int brace = source.IndexOf('{', start);
+            Assert.That(arrow, Is.GreaterThan(start), "Not expression-bodied: " + signature);
+            Assert.That(brace < 0 || arrow < brace, "Not expression-bodied (a block comes first): " + signature);
             int end = source.IndexOf(';', arrow);
             Assert.That(end, Is.GreaterThan(arrow));
             return source.Substring(start, end - start + 1);
