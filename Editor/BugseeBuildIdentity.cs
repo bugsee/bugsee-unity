@@ -93,7 +93,7 @@ namespace Bugsee.Editor
                 Debug.LogWarning($"Bugsee: could not read the generated launcher's version: {ex.Message}");
             }
 
-            var appId = AndroidUploadIdentity.SelectAppAssetId(ReadAppAssetIds(report?.summary.outputPath, report == null ? DateTime.MinValue : report.summary.buildStartedAt.ToUniversalTime()), out var conflict);
+            var appId = AndroidUploadIdentity.SelectAppAssetId(ReadAppAssetIds(report?.summary.outputPath, report == null ? DateTime.MinValue : BuildClock.StartedUtc(report.summary.buildStartedAt)), out var conflict);
             if (conflict != null)
             {
                 Debug.LogWarning("Bugsee: " + conflict);

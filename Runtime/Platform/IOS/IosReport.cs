@@ -266,7 +266,7 @@ namespace Bugsee.Platform.IOS
             if (_dto.severity != 0)
             {
                 sb.Append(',');
-                sb.Append("\"severity\":").Append(_dto.severity);
+                sb.Append("\"severity\":").Append(_dto.severity.ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
 
             if (_labelsDirty)
