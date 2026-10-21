@@ -578,7 +578,7 @@ namespace Bugsee.WrapperPolicy.Tests
                     doc.Clear();
                 }
             }
-            Assert.That(checkedCount, Is.GreaterThanOrEqualTo(9));
+            Assert.That(checkedCount, Is.GreaterThanOrEqualTo(9), "fewer than the 9 properties that document `Default when omitted:` (seven AndroidLaunchOptions ones, MaxDataSize, NotifyFlushDelay) were checked: a property or its doc line was removed, update this floor");
             Assert.That(problems, Is.Empty, string.Join("\n", problems));
         }
 
