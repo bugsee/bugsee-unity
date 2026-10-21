@@ -259,9 +259,84 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void Log_event_escapes_control_characters()
         {
-            var json = new IosLogEvent(new IosLogDto { message = "a\tb\\c" }).ToResultJson();
+            var ev = new IosLogEvent(new IosLogDto());
+            ev.Message = "a\tb\\c";
+            var json = ev.ToResultJson();
 
             Assert.That(json, Does.Contain("\"message\":\"a\\tb\\\\c\""));
+        }
+
+        // Issue 160: only what the filter set goes back (JsonUtility wrote every null string as "").
+        [Test]
+        public void Log_event_result_of_an_untouched_event_is_empty()
+        {
+            var ev = new IosLogEvent(new IosLogDto { message = null, level = (int)LogLevel.Warning });
+
+            Assert.That(ev.ToResultJson(), Is.EqualTo("{}"));
+        }
+
+        [Test]
+        public void Log_event_result_keeps_null_and_empty_message_distinct_and_one_field_alone()
+        {
+            var ev = new IosLogEvent(new IosLogDto { message = "m", level = 3 });
+            ev.Message = null;
+            Assert.That(ev.ToResultJson(), Is.EqualTo("{\"message\":null}"));
+            ev.Message = "";
+            Assert.That(ev.ToResultJson(), Is.EqualTo("{\"message\":\"\"}"));
+        }
+
+        [Test]
+        public void Breadcrumb_result_of_an_untouched_crumb_is_empty()
+        {
+            var crumb = new IosBreadcrumb(new IosBreadcrumbDto { timestamp = 5, level = 2 }, null);
+
+            Assert.That(crumb.ToResultJson(), Is.EqualTo("{}"));
+        }
+
+        [Test]
+        public void Breadcrumb_result_carries_only_the_touched_fields()
+        {
+            var crumb = new IosBreadcrumb(new IosBreadcrumbDto { category = "c", message = "m", type = "t", level = 2 }, null);
+            crumb.Category = null;
+            crumb.Message = "";
+            crumb.Level = null;
+
+            Assert.That(crumb.ToResultJson(), Is.EqualTo("{\"category\":null,\"message\":\"\",\"level\":0}"));
+
+            crumb = new IosBreadcrumb(new IosBreadcrumbDto(), null);
+            crumb.Type = "x";
+            crumb.Level = LogLevel.Error;
+            Assert.That(crumb.ToResultJson(), Is.EqualTo("{\"type\":\"x\",\"level\":" + (int)LogLevel.Error + "}"));
+        }
+
+        [Test]
+        public void Breadcrumb_result_adds_touched_data_after_the_fields()
+        {
+            var crumb = new IosBreadcrumb(new IosBreadcrumbDto(), null);
+            crumb.Message = "m";
+            crumb.Data["k"] = 1;
+
+            Assert.That(crumb.ToResultJson(), Is.EqualTo("{\"message\":\"m\",\"data\":{\"k\":1}}"));
+        }
+
+        [Test]
+        public void Log_and_breadcrumb_results_do_not_serialize_the_dto_with_JsonUtility()
+        {
+            var dir = NUnit.Framework.TestContext.CurrentContext.TestDirectory;
+            while (!System.IO.File.Exists(System.IO.Path.Combine(dir, "package.json"))) dir = System.IO.Directory.GetParent(dir).FullName;
+            var src = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "Runtime/Platform/IOS/IosExchangeEvents.cs"));
+            Assert.That(src, Does.Not.Contain("JsonUtility.ToJson(_dto)"));
+        }
+
+        [Test]
+        public void Replacement_results_write_every_field()
+        {
+            var log = new IosLogEvent(new IosLogDto { message = "m", level = 3 });
+            Assert.That(log.ToReplacementJson(), Is.EqualTo("{\"message\":\"m\",\"level\":3}"));
+
+            var crumb = new IosBreadcrumb(new IosBreadcrumbDto { category = "c", type = "t", level = 2 }, null);
+            Assert.That(crumb.ToReplacementJson(), Is.EqualTo(
+                "{\"category\":\"c\",\"message\":null,\"type\":\"t\",\"level\":2,\"data\":{}}"));
         }
     }
 }
