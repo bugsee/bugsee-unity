@@ -109,7 +109,7 @@ namespace Bugsee.Platform.EditorStub
             readonly UnsupportedApiNotice _notice = new UnsupportedApiNotice(Debug.LogWarning);
 
             // There is no Feedback UI in the Editor: say so once instead of doing nothing silently.
-            void Say() => _notice.Once(FeedbackOptIn.EditorMessage);
+            void Say() => _notice.Once(Application.isEditor ? FeedbackOptIn.EditorMessage : FeedbackOptIn.PlayerMessage);
 
             public void ShowFeedbackUi() => Say();
             public void SetDefaultGreeting(string greeting) => Say();

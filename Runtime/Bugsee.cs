@@ -36,6 +36,7 @@ namespace Bugsee
         /// <summary>Raised for every native lifecycle event (all 7.x <see cref="LifecycleEvents"/> strings).</summary>
         public static event Action<string, object> LifecycleEvent;
 
+        /// <summary>The in-app feedback chat. Opt-in native add-on: see <see cref="IFeedback"/>.</summary>
         public static IFeedback Feedback => Bridge.Feedback;
 
         public static IAppearance Appearance => Bridge.GetAppearance();

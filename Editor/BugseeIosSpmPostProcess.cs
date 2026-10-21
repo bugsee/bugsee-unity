@@ -219,9 +219,7 @@ namespace Bugsee.Editor
         /// </summary>
         static void LinkFeedback(PBXProject project, string frameworkTargetGuid, bool localCore)
         {
-            if (!FeedbackOptIn.IsEnabled(
-                    PlayerSettings.GetScriptingDefineSymbols(NamedBuildTarget.iOS),
-                    Environment.GetEnvironmentVariable(FeedbackOptIn.EnvVar)))
+            if (!BugseeFeedbackSwitch.IsEnabled(NamedBuildTarget.iOS))
             {
                 return;
             }

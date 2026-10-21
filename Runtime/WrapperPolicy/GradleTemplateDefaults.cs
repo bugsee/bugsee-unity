@@ -74,7 +74,14 @@ namespace Bugsee.WrapperPolicy
         /// </summary>
         public static bool TryGetAgpVersion(string text, string catalog, out int major, out int minor)
         {
+            return TryGetAgpVersion(text, catalog, out major, out minor, out _);
+        }
+
+        /// <summary>As above, also the patch number (0 when the version has none or it is not a plain number).</summary>
+        public static bool TryGetAgpVersion(string text, string catalog, out int major, out int minor, out int patch)
+        {
             major = minor = -1;
+            patch = 0;
             if (text == null)
             {
                 return false;
@@ -106,6 +113,13 @@ namespace Bugsee.WrapperPolicy
                 // `8.+` or `8.x`: a range, not a version.
                 major = minor = -1;
                 return false;
+            }
+
+            if (parts.Length > 2)
+            {
+                // `8.1.1-rc01`: the digits before the suffix.
+                string digits = new string(Array.FindAll(parts[2].ToCharArray(), char.IsDigit));
+                int.TryParse(digits, out patch);
             }
 
             return true;

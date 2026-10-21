@@ -34,7 +34,7 @@ namespace Bugsee.WrapperPolicy.Tests
         [TestCase(7, 4, true)]
         [TestCase(7, 0, true)]
         [TestCase(8, 0, true)]
-        [TestCase(8, 1, false)]
+        [TestCase(8, 1, true)]
         [TestCase(8, 3, false)]
         [TestCase(8, 7, false)]
         [TestCase(9, 0, false)]
@@ -43,6 +43,81 @@ namespace Bugsee.WrapperPolicy.Tests
             string problem = FeedbackOptIn.AndroidAgpProblem(major, minor);
             Assert.That(problem != null, Is.EqualTo(refused));
             if (refused) Assert.That(problem, Does.Contain(major + "." + minor).And.Contain("8.1.1"));
+        }
+
+        [TestCase(8, 1, 0, true)]
+        [TestCase(8, 1, 1, false)]
+        [TestCase(8, 2, 0, false)]
+        public void The_agp_patch_counts(int major, int minor, int patch, bool refused)
+        {
+            Assert.That(FeedbackOptIn.AndroidAgpProblem(major, minor, patch) != null, Is.EqualTo(refused));
+        }
+
+        [TestCase("    compileSdk 36\n", false)]
+        [TestCase("    compileSdk = 35\n", false)]
+        [TestCase("    compileSdkVersion 35\n", false)]
+        [TestCase("    compileSdk 34\n", true)]
+        [TestCase("    compileSdkVersion 33\n", true)]
+        [TestCase("    compileSdk = 30\n", true)]
+        [TestCase("    // compileSdk 30\n    compileSdk 36\n", false)]
+        [TestCase("    compileSdk libs.versions.sdk.get().toInteger()\n", false)]
+        [TestCase("    compileSdkVersion **APIVERSION**\n", false)]
+        [TestCase("", false)]
+        [TestCase(null, false)]
+        public void The_feedback_aar_is_refused_below_compile_sdk_35(string gradle, bool refused)
+        {
+            string problem = FeedbackOptIn.AndroidCompileSdkProblem(gradle);
+            Assert.That(problem != null, Is.EqualTo(refused));
+            if (refused) Assert.That(problem, Does.Contain("35"));
+        }
+
+        static string Fixture(string dir, string file) =>
+            File.ReadAllText(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", dir, file));
+
+        [Test]
+        public void The_unity_2022_layout_is_refused_for_its_agp()
+        {
+            string problem = FeedbackOptIn.AndroidToolchainProblem(
+                Fixture("Unity2022.3.62f3-default", "root.build.gradle"), null, Fixture("Unity2022.3.62f3-default", "unityLibrary.build.gradle"));
+            Assert.That(problem, Does.Contain("7.4.2").And.Contain("8.1.1"));
+        }
+
+        [Test]
+        public void The_unity_6_layouts_pass_in_groovy_and_kotlin()
+        {
+            Assert.That(FeedbackOptIn.AndroidToolchainProblem(
+                Fixture("Unity6000.0.84f1-default", "root.build.gradle"), null, Fixture("Unity6000.0.84f1-default", "unityLibrary.build.gradle")), Is.Null);
+            Assert.That(FeedbackOptIn.AndroidToolchainProblem(
+                Fixture("Unity6000.0.84f1-kotlin-dsl", "root.build.gradle.kts"), null, null), Is.Null);
+            Assert.That(FeedbackOptIn.AndroidToolchainProblem(
+                Fixture("Unity6000.0.84f1-kotlin-dsl-catalog", "root.build.gradle.kts"), Fixture("Unity6000.0.84f1-kotlin-dsl-catalog", "libs.versions.toml"), null), Is.Null);
+        }
+
+        [Test]
+        public void A_good_agp_with_an_old_compile_sdk_is_refused_for_the_sdk()
+        {
+            string library = Fixture("Unity6000.0.84f1-default", "unityLibrary.build.gradle").Replace("compileSdk 36", "compileSdk 34");
+            string problem = FeedbackOptIn.AndroidToolchainProblem(Fixture("Unity6000.0.84f1-default", "root.build.gradle"), null, library);
+            Assert.That(problem, Does.Contain("API 34"));
+        }
+
+        [Test]
+        public void An_unreadable_project_is_not_refused()
+        {
+            Assert.That(FeedbackOptIn.AndroidToolchainProblem(null, null, null), Is.Null);
+            Assert.That(FeedbackOptIn.AndroidToolchainProblem("plugins { }", null, "android { }"), Is.Null);
+        }
+
+        [Test]
+        public void The_feedback_line_is_written_in_the_kotlin_dsl_and_a_unity_6_library()
+        {
+            var all = new[] { "bugsee-android", "bugsee-android-ndk", FeedbackOptIn.AndroidArtifact };
+            string unity6 = Fixture("Unity6000.0.84f1-default", "unityLibrary.build.gradle");
+            string groovy = GradleMavenInjection.ApplyDependencies(unity6, "com.bugsee", all, "7.4.2").Text;
+            Assert.That(groovy, Does.Contain("implementation 'com.bugsee:bugsee-android-feedback:7.4.2'"));
+
+            string kts = GradleMavenInjection.ApplyDependencies("plugins { }\n\ndependencies {\n}\n", "com.bugsee", all, "7.4.2", GradleMavenInjection.GradleDsl.Kotlin).Text;
+            Assert.That(kts, Does.Contain("implementation(\"com.bugsee:bugsee-android-feedback:7.4.2\")"));
         }
 
         [Test]
@@ -123,7 +198,8 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(ios, Does.Contain("FeedbackOptIn.IosMissingMessage"));
             Assert.That(ios, Does.Contain("_bugsee_feedback_set_listener(OnReceived, OnSent)"));
             Assert.That(android, Does.Contain("FeedbackOptIn.AndroidMissingMessage"));
-            Assert.That(editor, Does.Contain("FeedbackOptIn.EditorMessage"));
+            Assert.That(editor, Does.Contain("FeedbackOptIn.EditorMessage").And.Contain("FeedbackOptIn.PlayerMessage"));
+            Assert.That(ios, Does.Contain("_bugsee_feedback_set_greeting(greeting)"));
             // The old iOS bridge only logged; the call has to reach the package now.
             Assert.That(native, Does.Not.Contain("is not in the core 7.x SPM package"));
             Assert.That(native, Does.Contain("showFeedbackUI"));
@@ -136,10 +212,11 @@ namespace Bugsee.WrapperPolicy.Tests
             string android = Read("Editor", "BugseeAndroidMavenDependencies.cs");
             string ios = Read("Editor", "BugseeIosSpmPostProcess.cs");
             foreach (string source in new[] { android, ios })
-            {
-                Assert.That(source, Does.Contain("FeedbackOptIn.IsEnabled("));
-                Assert.That(source, Does.Contain("FeedbackOptIn.EnvVar"));
-            }
+                Assert.That(source, Does.Contain("BugseeFeedbackSwitch.IsEnabled("));
+            string sw = Read("Editor", "BugseeFeedbackSwitch.cs");
+            Assert.That(sw, Does.Contain("FeedbackOptIn.IsEnabled(").And.Contain("FeedbackOptIn.EnvVar"));
+            Assert.That(sw, Does.Contain("GetActiveBuildProfile"));
+            Assert.That(android, Does.Contain("FeedbackOptIn.AndroidToolchainProblem"));
 
             Assert.That(android, Does.Contain("FeedbackOptIn.AndroidArtifact"));
             Assert.That(ios, Does.Contain("FeedbackOptIn.IosPackageUrl"));

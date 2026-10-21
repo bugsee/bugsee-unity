@@ -967,7 +967,7 @@ namespace Bugsee.Platform.IOS
 
             public void SetDefaultGreeting(string greeting)
             {
-                if (Available()) _bugsee_feedback_set_greeting(greeting ?? "");
+                if (Available()) _bugsee_feedback_set_greeting(greeting);
             }
 
             public void SetListener(IFeedbackListener listener)

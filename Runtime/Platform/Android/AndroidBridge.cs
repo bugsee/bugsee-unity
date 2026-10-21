@@ -793,6 +793,8 @@ namespace Bugsee.Platform.Android
 
         readonly AndroidJavaClass _bugsee;
         AndroidJavaObject _ext;
+        // The AAR is part of the APK or it is not: look once.
+        bool _aarMissing;
         // Kept so the SDK's weak reference to the listener does not let it go.
         FeedbackListenerProxy _listener;
 
@@ -804,10 +806,12 @@ namespace Bugsee.Platform.Android
         AndroidJavaObject Ext()
         {
             if (_ext != null) return _ext;
+            if (_aarMissing) return null;
             AndroidJavaClass feedbackClass;
             try { feedbackClass = new AndroidJavaClass(FeedbackExtensionClass); }
             catch (Exception)
             {
+                _aarMissing = true;
                 // The bugsee-android-feedback AAR is not in the app (it is optional, see FeedbackOptIn).
                 Notice.Once(FeedbackOptIn.AndroidMissingMessage);
                 return null;

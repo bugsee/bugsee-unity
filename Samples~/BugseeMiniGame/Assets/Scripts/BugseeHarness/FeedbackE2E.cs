@@ -9,8 +9,8 @@ namespace Bugsee.Sample
     /// <summary>
     /// Scenario "feedback" (tagged "[FEEDBACK]", issue #98): calls Bugsee.Feedback.SetDefaultGreeting, SetListener and
     /// ShowFeedbackUi, then shows what happened. Feedback is an opt-in native add-on, so the expectation is passed in:
-    /// bugsee_feedback / BUGSEE_E2E_FEEDBACK = on (the build has the add-on: no "Feedback is not available" warning,
-    /// the native UI opens) or off (the build has no add-on: the wrapper says so once for the three calls).
+    /// bugsee_feedback / BUGSEE_E2E_FEEDBACK = on (the build has the add-on: no "Feedback is not available" warning and
+    /// the native UI opens, which the scenario asserts) or off (the build has no add-on: the wrapper says so once for the three calls).
     /// Ends with "RESULT PASS" or "RESULT FAIL". The UI itself is checked by the run script (screenshot / dumpsys).
     /// </summary>
     public static class FeedbackE2E
@@ -43,6 +43,14 @@ namespace Bugsee.Sample
                 Debug.Log("[FEEDBACK] listener sent: " + message);
         }
 
+        static bool _shownEvent;
+        static string _lastPresented = "";
+
+        static void OnLifecycle(string type, object data)
+        {
+            if (type != null && type.EndsWith("AfterFeedbackShown")) _shownEvent = true;
+        }
+
         static void OnLog(string condition, string stack, LogType type)
         {
             if (type == LogType.Warning && condition != null && condition.Contains(Needle)) Warnings.Add(condition);
@@ -57,7 +65,10 @@ namespace Bugsee.Sample
             Debug.Log("[FEEDBACK] platform=" + Application.platform + " launched=" + Bugsee.IsLaunched
                 + " status=" + Bugsee.Status + " expected add-on=" + (expected ?? "(unset)"));
             Warnings.Clear();
+            _shownEvent = false;
+            _lastPresented = "";
             Application.logMessageReceived += OnLog;
+            Bugsee.LifecycleEvent += OnLifecycle;
             Bugsee.Feedback.SetDefaultGreeting("Hello from the anteater fields!");
             Bugsee.Feedback.SetListener(new Listener());
             Debug.Log("[FEEDBACK] greeting and listener set, warnings so far=" + Warnings.Count);
@@ -67,12 +78,17 @@ namespace Bugsee.Sample
             for (var i = 1; i <= 3; i++)
             {
                 yield return new WaitForSeconds(1f);
-                Debug.Log("[FEEDBACK] +" + i + "s focused=" + Application.isFocused + " presented=" + Presented());
+                Debug.Log("[FEEDBACK] +" + i + "s focused=" + Application.isFocused + " presented=" + (_lastPresented = Presented()));
             }
             Application.logMessageReceived -= OnLog;
+            Bugsee.LifecycleEvent -= OnLifecycle;
+            // On: the native UI really opened. Android reports it as the AfterFeedbackShown lifecycle event (the chat is another
+            // activity); iOS shows it as a presented view controller of the add-on.
+            var uiOpened = Application.platform == RuntimePlatform.Android ? _shownEvent : _lastPresented.Contains("BugseeFeedback");
+            Debug.Log("[FEEDBACK] native UI opened=" + uiOpened + " (shown event=" + _shownEvent + ", presented=" + _lastPresented + ")");
             foreach (var w in Warnings) Debug.Log("[FEEDBACK] warning: " + w);
             // On: nothing to warn about. Off: the three calls produce the one warning (once per process).
-            var ok = Bugsee.IsLaunched && (on ? Warnings.Count == 0 : Warnings.Count == 1);
+            var ok = Bugsee.IsLaunched && (on ? Warnings.Count == 0 && uiOpened : Warnings.Count == 1 && !uiOpened);
             Debug.Log("[FEEDBACK] RESULT " + (ok ? "PASS" : "FAIL") + " addon=" + (on ? "on" : "off") + " warnings=" + Warnings.Count);
         }
     }

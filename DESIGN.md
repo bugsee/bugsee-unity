@@ -12,7 +12,7 @@ Legacy foundation: `cross/unity`. Min Unity: **2021.3**.
 
 ## Assumptions
 
-1. Android pin: Maven `com.bugsee:bugsee-android:7.4.2` + `bugsee-android-ndk:7.4.2`, injected into the generated `unityLibrary/build.gradle` by an `IPostGenerateGradleAndroidProject` step (no EDM4U, no custom templates); Gradle plugin `4.0.8`. Core publishes no transitives (no kotlin-stdlib / fragment pull); NDK must be declared. Feedback AAR stays optional.
+1. Android pin: Maven `com.bugsee:bugsee-android:7.4.2` + `bugsee-android-ndk:7.4.2`, injected into the generated `unityLibrary/build.gradle` by an `IPostGenerateGradleAndroidProject` step (no EDM4U, no custom templates); Gradle plugin `4.0.8`. Core publishes no transitives (no kotlin-stdlib / fragment pull); NDK must be declared. Feedback AAR stays optional: opt-in with the scripting define `BUGSEE_FEEDBACK` (or env `BUGSEE_FEEDBACK=1`), which also links the iOS `BugseeFeedback` package; see Documentation~/index.md.
 2. iOS: SPM-only. Pin [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0-beta7` (`IOS_SDK_VERSION` in `Tools~/versions.env`). Xcode resolves the remote package at export; no CocoaPods and no vendored xcframework.
 3. Public C# surface mirrors Android 7.0; intentional C#/.NET deviations allowed (see below).
 4. SDK-internal contracts (`capture` aggregators, most `contracts.internal.*` except what wrappers need for `BugseeWrapper`) are **not** public C# API.
