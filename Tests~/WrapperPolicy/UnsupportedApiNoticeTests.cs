@@ -42,8 +42,9 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void The_iOS_bridge_goes_through_the_notice_rather_than_an_empty_body()
         {
-            var src = System.IO.File.ReadAllText(System.IO.Path.Combine(TestContext.CurrentContext.TestDirectory,
-                "..", "..", "..", "..", "..", "Runtime", "Platform", "IOS", "IOSBridge.cs"));
+            var dir = TestContext.CurrentContext.TestDirectory;
+            while (!System.IO.File.Exists(System.IO.Path.Combine(dir, "package.json"))) dir = System.IO.Directory.GetParent(dir).FullName;
+            var src = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "Runtime", "Platform", "IOS", "IOSBridge.cs"));
             Assert.That(src, Does.Contain("_resetPermissionNotice.Once(UnsupportedApiNotice.ResetVideoCapturePermissionMessage)"));
             Assert.That(src, Does.Not.Contain("ResetVideoCapturePermission() { }"));
         }
