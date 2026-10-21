@@ -816,6 +816,46 @@ int _bugsee_feedback_available(void)
     return BugseeFeedbackExt() != nil ? 1 : 0;
 }
 
+// The app's own WKWebView (a native-plugin WebView), handed over as a pointer.
+// The pointer must be a live Objective-C object: isKindOfClass: on a freed or non-ObjC pointer crashes, so only a valid object of
+// another class is refused. UIKit and the SDK's view bookkeeping run on the main queue whichever thread C# calls from.
+// +addSecureWebView: alone does NOT hide the view (it only lets the SDK hide secure areas inside the page), so the add also calls
+// +addSecureView:, which is what masks it in the video (Android's addSecureWebView does both). Like every view the SDK is asked to
+// hide, the mask is registered only while the SDK is launched.
+static int BugseeSecureWebViewOp(void *view, BOOL add)
+{
+    if (view == NULL) return 0;
+    __block int result = 0;
+    void (^work)(void) = ^{
+        id webView = (__bridge id)view;
+        Class webKitClass = NSClassFromString(@"WKWebView");
+        if (webKitClass == Nil || ![webView isKindOfClass:webKitClass]) return;
+        if (add)
+        {
+            [Bugsee addSecureWebView:webView];
+            [Bugsee addSecureView:(UIView *)webView];
+        }
+        else
+        {
+            [Bugsee removeSecureView:(UIView *)webView];
+        }
+        result = 1;
+    };
+    if ([NSThread isMainThread]) work();
+    else dispatch_sync(dispatch_get_main_queue(), work);
+    return result;
+}
+
+int _bugsee_add_secure_web_view(void *view)
+{
+    return BugseeSecureWebViewOp(view, YES);
+}
+
+int _bugsee_remove_secure_web_view(void *view)
+{
+    return BugseeSecureWebViewOp(view, NO);
+}
+
 void _bugsee_feedback_show(void)
 {
     id ext = BugseeFeedbackExt();
@@ -1187,6 +1227,8 @@ void _bugsee_set_secure_buffer(int display, int *packed, int packedLength)
 }
 void _bugsee_capture_view_hierarchy(void) {}
 int _bugsee_feedback_available(void) { return 0; }
+int _bugsee_add_secure_web_view(void *view) { (void)view; return 0; }
+int _bugsee_remove_secure_web_view(void *view) { (void)view; return 0; }
 void _bugsee_feedback_show(void) {}
 void _bugsee_feedback_set_greeting(const char *message) { (void)message; }
 typedef void (*BugseeFeedbackReceivedFn)(const char *messagesJson);

@@ -518,6 +518,59 @@ namespace Bugsee
         public static void SetNetworkEventFilter(EventFilter<INetworkEvent> filter) =>
             Bridge.SetNetworkEventFilter(filter);
 
+        /// <summary>
+        /// Android only. Runs the SDK's built-in network sanitizer on the event, in place: sensitive URL query values and
+        /// <c>user:password@</c> credentials, sensitive header values (<c>Authorization</c>, <c>Cookie</c>, ...), sensitive body
+        /// fields (<c>password</c>, ...) and the error texts. Returns true when it ran; false on iOS and in the Editor, where the
+        /// SDK has no public sanitizer, for a null event, and when the sanitizer could not run (see below).
+        /// <para>
+        /// Why it exists: on Android a filter set with <see cref="SetNetworkEventFilter"/> (or a manifest one) turns the built-in
+        /// redaction off, so everything the filter does not redact is recorded as is. Call this first inside the filter to keep
+        /// it. On the event the filter was handed (valid only inside the callback) it needs nothing else and works on any thread.
+        /// </para>
+        /// <para>
+        /// An event the app built itself (<see cref="GetExchangeFactory"/>, or its own <see cref="INetworkEvent"/>) is sanitized
+        /// through a native copy, whose redacted fields are copied back. The SDK hands out such a copy only while it is launched
+        /// with network capture on: otherwise nothing is redacted and the result is false, so check it.
+        /// </para>
+        /// </summary>
+        public static bool ApplyDefaultNetworkSanitizer(INetworkEvent networkEvent) =>
+            Bridge.ApplyDefaultNetworkSanitizer(networkEvent);
+
+        /// <summary>
+        /// Android: marks an <c>android.webkit.WebView</c> secure, so its area is redacted in the captured video. Pass the WebView
+        /// plugin's native handle. The call is made on the UI thread and returns when it is done (a request the UI thread does not reach within 3 s is dropped, logged, and returns false: call it again); false when the argument is null
+        /// or not a WebView, or on a failure (logged), and in the Editor. A registration made before the SDK launches is
+        /// buffered by the SDK; it does not survive <see cref="Stop"/>, so register again after a relaunch.
+        /// <para>
+        /// Only a native view the SDK sees is affected: nothing for a page drawn into a Unity texture (use
+        /// <see cref="AddSecureRectangle"/>), and nothing while the Android Unity frame pusher is the capture source.
+        /// </para>
+        /// </summary>
+        public static bool AddSecureWebView(AndroidJavaObject nativeWebView) =>
+            Bridge.AddSecureWebView(nativeWebView);
+
+        /// <summary>
+        /// iOS: marks a <c>WKWebView*</c> secure. The SDK masks the view in the video and also protects secure areas inside the
+        /// page. The pointer must be a live Objective-C object (false for another class of object, undefined for a stale or
+        /// non-object pointer); the work runs on the main queue. Unlike Android, the SDK masks a view only while it is launched:
+        /// a call made before the launch finished has no effect on the video, so call it after <see cref="IsLaunched"/> is true.
+        /// Returns false for <see cref="IntPtr.Zero"/> and in the Editor.
+        /// </summary>
+        public static bool AddSecureWebView(IntPtr nativeWebView) =>
+            Bridge.AddSecureWebView(nativeWebView);
+
+        /// <summary>Takes a WebView passed to <see cref="AddSecureWebView(AndroidJavaObject)"/> off the secure list. Same rules and result.</summary>
+        public static bool RemoveSecureWebView(AndroidJavaObject nativeWebView) =>
+            Bridge.RemoveSecureWebView(nativeWebView);
+
+        /// <summary>
+        /// iOS: takes a <c>WKWebView*</c> off the secure list (<c>+removeSecureView:</c>, which also lifts a mask the app set itself
+        /// with <c>addSecureView:</c> on the same view). The SDK's page-level protection added by the add call stays in place, harmlessly.
+        /// </summary>
+        public static bool RemoveSecureWebView(IntPtr nativeWebView) =>
+            Bridge.RemoveSecureWebView(nativeWebView);
+
         public static void SetLogEventFilter(EventFilter<ILogEvent> filter) =>
             Bridge.SetLogEventFilter(filter);
 
