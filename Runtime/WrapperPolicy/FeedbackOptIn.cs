@@ -52,7 +52,7 @@ namespace Bugsee.WrapperPolicy
             bool ok = agpMajor > 8 || (agpMajor == 8 && (agpMinor > 1 || (agpMinor == 1 && agpPatch >= 1)));
             if (ok) return null;
             return "[Bugsee] " + Define + " is set, but the generated Gradle project uses Android Gradle plugin " + agpMajor + "." + agpMinor
-                + "." + agpPatch + ", and bugsee-android-feedback needs 8.1.1 or newer (androidx.dynamicanimation 1.1.0, pulled in by "
+                + "." + Math.Max(agpPatch, 0) + " (a pre-release counts as older than its patch), and bugsee-android-feedback needs 8.1.1 or newer (androidx.dynamicanimation 1.1.0, pulled in by "
                 + "Material 1.13): the Gradle build would fail in checkDebugAarMetadata. Unity 2021.3 and 2022.3 generate AGP 4.0.1 to "
                 + "7.4.2; use Unity 6 (AGP 8.3 and newer), or remove the define for this build.";
         }
