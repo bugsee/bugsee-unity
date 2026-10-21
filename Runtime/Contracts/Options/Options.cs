@@ -132,8 +132,6 @@ namespace Bugsee.Contracts.Options
         public const string PerformanceSampleRate = "com.bugsee.option.performance.sample-rate";
         public const string PerformanceAdaptiveSampling = "com.bugsee.option.performance.adaptive-sampling";
         public const string PerformanceUploadMode = "com.bugsee.option.performance.upload-mode";
-        public const string Debug = "com.bugsee.option.$$DEBUG";
-        public const string Endpoint = "com.bugsee.option.$$ENDPOINT";
 
         /// <summary>
         /// Unity-only: capture managed exceptions via ExceptionPipeline.

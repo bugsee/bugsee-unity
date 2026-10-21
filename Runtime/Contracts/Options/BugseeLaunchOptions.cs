@@ -207,6 +207,11 @@ namespace Bugsee.Contracts.Options
             set => Set(Options.CaptureViewHierarchy, value);
         }
 
+        /// <summary>
+        /// Record breadcrumbs. Off by default on both native SDKs. While it is off,
+        /// <see cref="Bugsee.AddBreadcrumb"/> records nothing and the breadcrumb filter
+        /// (<see cref="Bugsee.SetBreadcrumbFilter"/>) is never called: set it to true to use either.
+        /// </summary>
         public bool CaptureBreadcrumbs
         {
             set => Set(Options.CaptureBreadcrumbs, value);
@@ -315,18 +320,6 @@ namespace Bugsee.Contracts.Options
         public string PerformanceUploadMode
         {
             set => Set(Options.PerformanceUploadMode, value);
-        }
-
-        // --- Advanced ---
-
-        public bool Debug
-        {
-            set => Set(Options.Debug, value);
-        }
-
-        public string Endpoint
-        {
-            set => Set(Options.Endpoint, value);
         }
     }
 }

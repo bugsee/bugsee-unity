@@ -9,6 +9,10 @@ namespace Bugsee.WrapperPolicy.Tests
 {
     public class OptionPlatformGateTests
     {
+        // SDK-internal keys with no public constant (#108): a staging or test build sets them with SetCustomOption.
+        const string Endpoint = "com.bugsee.option.$$ENDPOINT"; // hidden on both SDKs
+        const string Debug = "com.bugsee.option.$$DEBUG";       // Android only (the iOS manifest has no $$DEBUG)
+
         // wrapper_info is added after the platform gate, so Android-only keys are still stripped first.
         const string ForIosJsonCall = "ToJsonObject(WithWrapperInfo(OptionPlatformGate.ForIos(options)))";
 
@@ -35,6 +39,7 @@ namespace Bugsee.WrapperPolicy.Tests
         // wrapper); iOS would keep them verbatim.
         static readonly string[] RawAndroidOnlyKeys =
         {
+            Debug,
             "com.bugsee.option.detect.memory_leaks", "com.bugsee.option.detect.memory_leaks.mode",
             "com.bugsee.option.detect.memory_leaks.deep_sample_rate", "com.bugsee.option.detect.thread_leaks"
         };
@@ -63,7 +68,7 @@ namespace Bugsee.WrapperPolicy.Tests
             nameof(Options.ReportingUIEmailRequired), nameof(Options.ReportingUILabelsEnabled),
             nameof(Options.ReportingUILabelsRequired), nameof(Options.ReportingUIPrioritySelectorEnabled),
             nameof(Options.PerformanceMonitoring), nameof(Options.PerformanceSampleRate),
-            nameof(Options.PerformanceAdaptiveSampling), nameof(Options.Debug), nameof(Options.Endpoint)
+            nameof(Options.PerformanceAdaptiveSampling)
         };
 
         // Read by the wrapper from the managed dictionary; passed to native unchanged on both platforms.
@@ -120,13 +125,13 @@ namespace Bugsee.WrapperPolicy.Tests
                 [Options.DetectAndReportExit] = false,
                 [Options.DetectAndReportExitLowMemory] = true,
                 [Options.ReportingTriggerByNotification] = true,
-                [Options.Endpoint] = "https://example.test"
+                [Endpoint] = "https://example.test"
             };
 
             var ios = OptionPlatformGate.ForIos(options);
 
             Assert.That(ios.ContainsKey(Options.CaptureVideo), Is.True);
-            Assert.That(ios.ContainsKey(Options.Endpoint), Is.True);
+            Assert.That(ios.ContainsKey(Endpoint), Is.True);
             Assert.That(ios.ContainsKey(Options.DetectAndReportExit), Is.True);
             Assert.That(ios[Options.DetectAndReportExit], Is.EqualTo(false));
             Assert.That(ios.ContainsKey(Options.DetectAndReportExitLowMemory), Is.False);
@@ -171,18 +176,19 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Debug_and_unknown_keys_pass_through_with_copied_values()
+        public void Unknown_keys_pass_through_with_copied_values_and_the_android_only_debug_key_is_dropped_on_ios()
         {
             var sentinel = new object();
             var options = new Dictionary<string, object>
             {
-                [Options.Debug] = true,
+                [Debug] = true,
                 ["com.bugsee.option.custom.unknown"] = sentinel
             };
 
             var ios = OptionPlatformGate.ForIos(options);
 
-            Assert.That(ios[Options.Debug], Is.EqualTo(true));
+            Assert.That(ios.ContainsKey(Debug), Is.False);
+            Assert.That(OptionPlatformGate.ForAndroid(options)[Debug], Is.EqualTo(true));
             Assert.That(ios["com.bugsee.option.custom.unknown"], Is.SameAs(sentinel));
         }
 
@@ -193,7 +199,7 @@ namespace Bugsee.WrapperPolicy.Tests
             {
                 [Options.DetectAndReportExit] = true,
                 [Options.ReportingTriggerByBroadcast] = false,
-                [Options.Endpoint] = "https://example.test"
+                [Endpoint] = "https://example.test"
             };
 
             var copyCount = options.Count;

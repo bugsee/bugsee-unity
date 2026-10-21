@@ -641,7 +641,7 @@ namespace Bugsee.Capture
         string AvgMs(long ticks)
         {
             long n = Interlocked.Read(ref _timedFrames);
-            return n > 0 ? (ticks * 1000.0 / System.Diagnostics.Stopwatch.Frequency / n).ToString("F1") : "-";
+            return n > 0 ? (ticks * 1000.0 / System.Diagnostics.Stopwatch.Frequency / n).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) : "-";
         }
 
         // Colour of the centre pixel of the first and last buffer rows, to tell which row is the screen's top.

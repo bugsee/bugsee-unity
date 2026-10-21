@@ -44,9 +44,9 @@ namespace Bugsee.WrapperPolicy.Tests
             ["com.bugsee.option.capture.status-bar-info"] = "read only by a DEBUG build of the SDK, never the published one: a property would do nothing",
         };
 
-        // Hidden (internal) options that a public C# constant and setter expose anyway. bugsee/bugsee-unity#108.
-        static readonly Dictionary<string, string> HiddenButExposed = Keys("#108: hidden option exposed publicly",
-            "$$DEBUG", "$$ENDPOINT");
+        // Hidden (internal) options that a public C# constant and setter expose anyway. Empty since bugsee/bugsee-unity#108 removed
+        // Debug and Endpoint: a staging or test build sets the raw key with SetCustomOption. Keep it empty.
+        static readonly Dictionary<string, string> HiddenButExposed = Keys("hidden option exposed publicly");
 
         // Wrapper-only keys (not native options, not in any manifest): the wrapper reads them from the launch
         // options and they must never be forwarded as if the SDK knew them.
@@ -530,7 +530,10 @@ namespace Bugsee.WrapperPolicy.Tests
                         else
                         {
                             checkedCount++;
-                            if (o.Type == "int" ? ((int)Enum.Parse(EnumTypeOf(type), d.Groups[1].Value)).ToString() != o.DefaultText : !string.Equals(o.EnumDefault, d.Groups[1].Value, StringComparison.Ordinal)) problems.Add(prop + " documents default " + d.Groups[1].Value + ", the iOS manifest says " + o.EnumDefault);
+                            var documentedDefault = d.Groups[1].Value;
+                            var expected = o.Type == "int" ? o.DefaultText : o.EnumDefault;
+                            var actual = o.Type == "int" ? ((int)Enum.Parse(EnumTypeOf(type), documentedDefault)).ToString() : documentedDefault;
+                            if (!string.Equals(expected, actual, StringComparison.Ordinal)) problems.Add(prop + " documents default " + documentedDefault + " (" + actual + "), the iOS manifest says " + expected);
                         }
                     }
                 }
