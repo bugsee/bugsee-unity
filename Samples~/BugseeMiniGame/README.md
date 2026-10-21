@@ -228,6 +228,17 @@ no filter any more (the seen counters stay 0). It logs `[Sample] filters PASS|FA
 breadcrumb reaches the breadcrumb filter. The HUD shows the live counters on its `flt on|off nR/S lD/S bD/S` line (redacted or
 dropped / seen, for the network, log and breadcrumb filter); the network and breadcrumb filters also log each redaction or drop.
 
+### Native extras check (`extras` e2e scenario)
+
+`BUGSEE_E2E_SCENARIO=extras` (iOS env var, Android intent extra `bugsee_e2e`) waits for the SDK to launch, then checks
+`Bugsee.ApplyDefaultNetworkSanitizer` on a hand-built event with a `token=` query value, `user:password@` credentials, an
+`Authorization` header and a `password` body field (redacted on Android, left as is with a `false` result on iOS), and inside a
+network filter (on Android a filter without it records the raw values, one that calls it does not). It then creates a real
+`android.webkit.WebView` (or, on iOS, a `WKWebView` from `Assets/Plugins/iOS/BugseeSampleNativeViews.mm`) and passes it to
+`Bugsee.AddSecureWebView` and `RemoveSecureWebView`, and checks that a plain native view, null and a managed object are refused. It
+logs `[Sample] extras PASS|FAIL ...` lines ending in `extras e2e done failures=N`. Whether the secure view redacts the video is not
+observable from the scenario.
+
 ### Action check (`actions` e2e scenario)
 
 `BUGSEE_E2E_SCENARIO=actions` (iOS env var, Android intent extra `bugsee_e2e`) waits for the SDK to launch, then runs the same

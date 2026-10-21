@@ -510,6 +510,39 @@ namespace Bugsee
         public static void SetNetworkEventFilter(EventFilter<INetworkEvent> filter) =>
             Bridge.SetNetworkEventFilter(filter);
 
+        /// <summary>
+        /// Android only. Runs the SDK's built-in network sanitizer on the event, in place: sensitive URL query values and
+        /// <c>user:password@</c> credentials, sensitive header values (<c>Authorization</c>, <c>Cookie</c>, ...), sensitive body
+        /// fields (<c>password</c>, ...) and the error texts. Returns true when it ran; false on iOS and in the Editor, where the
+        /// SDK has no public sanitizer, and for a null event.
+        /// <para>
+        /// Why it exists: on Android a filter set with <see cref="SetNetworkEventFilter"/> (or a manifest one) turns the built-in
+        /// redaction off, so everything the filter does not redact is recorded as is. Call this first inside the filter to keep
+        /// it. It is stateless and needs no launched SDK. It works on the event the filter was handed (the event is valid only
+        /// inside the callback) and on an event built by hand with <see cref="GetExchangeFactory"/> or your own
+        /// <see cref="INetworkEvent"/> (its redacted fields are copied back).
+        /// </para>
+        /// </summary>
+        public static bool ApplyDefaultNetworkSanitizer(INetworkEvent networkEvent) =>
+            Bridge.ApplyDefaultNetworkSanitizer(networkEvent);
+
+        /// <summary>
+        /// Marks a native WebView secure, so its area is redacted in the captured video, for apps that embed a WebView plugin.
+        /// Pass the plugin's native handle: on Android the <c>android.webkit.WebView</c> as an <c>AndroidJavaObject</c>, on iOS
+        /// the <c>WKWebView*</c> as an <c>IntPtr</c>. Returns false when the argument is not one (or is null), and in the Editor.
+        /// <para>
+        /// Only a native view the SDK sees is affected: it has no effect on a page drawn into a Unity texture, which
+        /// <see cref="SecureRect"/>/<see cref="SecureRectRegistry"/> style secure areas cover. On Android the registration does not survive
+        /// <see cref="Stop"/>; register again after a relaunch.
+        /// </para>
+        /// </summary>
+        public static bool AddSecureWebView(object nativeWebView) =>
+            Bridge.AddSecureWebView(nativeWebView);
+
+        /// <summary>Takes a WebView passed to <see cref="AddSecureWebView"/> off the secure list. Same argument types and result.</summary>
+        public static bool RemoveSecureWebView(object nativeWebView) =>
+            Bridge.RemoveSecureWebView(nativeWebView);
+
         public static void SetLogEventFilter(EventFilter<ILogEvent> filter) =>
             Bridge.SetLogEventFilter(filter);
 

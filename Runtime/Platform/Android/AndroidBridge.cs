@@ -482,6 +482,64 @@ namespace Bugsee.Platform.Android
             _networkFilterProxy.SetFilter(filter);
         }
 
+        public bool ApplyDefaultNetworkSanitizer(INetworkEvent networkEvent)
+        {
+            if (networkEvent == null) return false;
+            var androidEvent = networkEvent as AndroidNetworkEvent;
+            INetworkEvent temp = null;
+            if (androidEvent == null)
+            {
+                // An event the app built itself: sanitize a native copy and write the result back.
+                var factory = GetExchangeFactory();
+                if (factory == null) return false;
+                temp = factory.CreateNetworkEvent(
+                    DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), networkEvent.Stage,
+                    string.IsNullOrEmpty(networkEvent.Id) ? null : networkEvent.Id, networkEvent.Mechanism, networkEvent.Method);
+                androidEvent = temp as AndroidNetworkEvent;
+                if (androidEvent == null) return false;
+                CopyNetworkFields(networkEvent, androidEvent);
+            }
+
+            using (var sanitizer = _bugsee.CallStatic<AndroidJavaObject>("getDefaultNetworkSanitizer"))
+                sanitizer.Call("sanitize", androidEvent.Native);
+            if (temp != null)
+            {
+                networkEvent.Url = temp.Url;
+                networkEvent.Body = temp.Body;
+                networkEvent.ErrorShortMessage = temp.ErrorShortMessage;
+                networkEvent.ErrorDescription = temp.ErrorDescription;
+                networkEvent.Headers = temp.Headers;
+            }
+            return true;
+        }
+
+        public bool AddSecureWebView(object nativeWebView)
+        {
+            var view = AsWebView(nativeWebView);
+            if (view == null) return false;
+            _bugsee.CallStatic("addSecureWebView", view);
+            return true;
+        }
+
+        public bool RemoveSecureWebView(object nativeWebView)
+        {
+            var view = AsWebView(nativeWebView);
+            if (view == null) return false;
+            // Bugsee has two removeSecureView overloads (View and Object, the fragment one). Name the View one by
+            // signature so the lookup cannot land on the one that ignores a WebView.
+            var method = AndroidJNIHelper.GetMethodID(_bugsee.GetRawClass(), "removeSecureView", "(Landroid/view/View;)V", true);
+            AndroidJNI.CallStaticVoidMethod(_bugsee.GetRawClass(), method, new[] { new jvalue { l = view.GetRawObject() } });
+            return true;
+        }
+
+        static AndroidJavaObject AsWebView(object nativeWebView)
+        {
+            var view = nativeWebView as AndroidJavaObject;
+            if (view == null || view.GetRawObject() == IntPtr.Zero) return null;
+            using (var webViewClass = new AndroidJavaClass("android.webkit.WebView"))
+                return AndroidJNI.IsInstanceOf(view.GetRawObject(), webViewClass.GetRawClass()) ? view : null;
+        }
+
         public void SetLogEventFilter(EventFilter<ILogEvent> filter)
         {
             if (filter == null)

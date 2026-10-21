@@ -371,6 +371,14 @@ namespace Bugsee.Sample
                         StartCoroutine(FiltersE2E.Run(this));
                     }
                     break;
+                case "extras":
+                    // Default network sanitizer and WebView secure views on real native objects (issue #103).
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        StartCoroutine(NativeExtrasE2E.Run(this));
+                    }
+                    break;
                 case "presets":
                     // Relaunches with each launch preset and reads the launch options back (issue #118).
                     if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))

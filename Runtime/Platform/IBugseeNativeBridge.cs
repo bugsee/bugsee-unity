@@ -77,6 +77,15 @@ namespace Bugsee.Platform
         IFeedback Feedback { get; }
 
         void SetNetworkEventFilter(EventFilter<INetworkEvent> filter);
+
+        /// <summary>Runs the Android SDK's default network sanitizer on the event, in place. False where the SDK has none (iOS, Editor).</summary>
+        bool ApplyDefaultNetworkSanitizer(INetworkEvent networkEvent);
+
+        /// <summary>Marks a native WebView secure (Android: android.webkit.WebView as AndroidJavaObject; iOS: WKWebView* as IntPtr). False when it is not one.</summary>
+        bool AddSecureWebView(object nativeWebView);
+
+        /// <summary>Takes a WebView marked by <see cref="AddSecureWebView"/> off the secure list. Same argument types.</summary>
+        bool RemoveSecureWebView(object nativeWebView);
         void SetLogEventFilter(EventFilter<ILogEvent> filter);
         void SetBreadcrumbFilter(EventFilter<IBreadcrumb> filter);
         void SetReportHandler(IReportHandler handler);

@@ -784,6 +784,28 @@ void _bugsee_capture_view_hierarchy(void)
     [Bugsee captureViewHierarchy];
 }
 
+// The app's own WKWebView (a native-plugin WebView), handed over as a pointer. Anything that is not a WKWebView is refused, so a
+// stale or wrong pointer type is not passed to the SDK. Unity calls on the main thread, where UIKit objects may be touched.
+int _bugsee_add_secure_web_view(void *view)
+{
+    if (view == NULL) return 0;
+    id webView = (__bridge id)view;
+    Class webKitClass = NSClassFromString(@"WKWebView");
+    if (webKitClass == Nil || ![webView isKindOfClass:webKitClass]) return 0;
+    [Bugsee addSecureWebView:webView];
+    return 1;
+}
+
+int _bugsee_remove_secure_web_view(void *view)
+{
+    if (view == NULL) return 0;
+    id webView = (__bridge id)view;
+    Class webKitClass = NSClassFromString(@"WKWebView");
+    if (webKitClass == Nil || ![webView isKindOfClass:webKitClass]) return 0;
+    [Bugsee removeSecureView:(UIView *)webView];
+    return 1;
+}
+
 void _bugsee_feedback_show(void)
 {
     NSLog(@"[Bugsee] Feedback UI is not in the core 7.x SPM package; install the Feedback module to enable it.");
@@ -1095,6 +1117,8 @@ void _bugsee_set_secure_buffer(int display, int *packed, int packedLength)
     (void)packedLength;
 }
 void _bugsee_capture_view_hierarchy(void) {}
+int _bugsee_add_secure_web_view(void *view) { (void)view; return 0; }
+int _bugsee_remove_secure_web_view(void *view) { (void)view; return 0; }
 void _bugsee_feedback_show(void) {}
 void _bugsee_feedback_set_greeting(const char *message) { (void)message; }
 int _bugsee_appearance_set_color(const char *propertyName, int r, int g, int b, int a) { (void)propertyName; (void)r; (void)g; (void)b; (void)a; return 0; }

@@ -760,6 +760,15 @@ namespace Bugsee.Platform.IOS
 
         public void ResetVideoCapturePermission() { }
 
+        // The SDK has no public default network sanitizer on iOS.
+        public bool ApplyDefaultNetworkSanitizer(INetworkEvent networkEvent) => false;
+
+        public bool AddSecureWebView(object nativeWebView) =>
+            nativeWebView is IntPtr view && view != IntPtr.Zero && _bugsee_add_secure_web_view(view) != 0;
+
+        public bool RemoveSecureWebView(object nativeWebView) =>
+            nativeWebView is IntPtr view && view != IntPtr.Zero && _bugsee_remove_secure_web_view(view) != 0;
+
         public IAppearance GetAppearance() =>
             _appearance ?? (_appearance = new IosAppearance());
 
@@ -929,6 +938,8 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_set_secure_buffer(int display, int[] packed, int packedLength);
         [DllImport("__Internal")] static extern float _bugsee_screen_scale();
         [DllImport("__Internal")] static extern void _bugsee_capture_view_hierarchy();
+        [DllImport("__Internal")] static extern int _bugsee_add_secure_web_view(IntPtr view);
+        [DllImport("__Internal")] static extern int _bugsee_remove_secure_web_view(IntPtr view);
         [DllImport("__Internal")] static extern void _bugsee_feedback_show();
         [DllImport("__Internal")] static extern void _bugsee_feedback_set_greeting(string message);
         [DllImport("__Internal")] static extern int _bugsee_appearance_set_color(string propertyName, int r, int g, int b, int a);
