@@ -31,6 +31,8 @@ namespace Bugsee.WrapperPolicy.Tests
     /// name, type and staticness.
     /// The one class it uses outside the snapshot (internal TimeUtils) is listed in RawJniNotInSnapshot.
     ///
+    /// Managed static field reads (GetStatic) are covered only for SpanStatus (above); other GetStatic reads are not parsed.
+    ///
     /// Limits (follow-up #205): an argument whose C# type cannot be told from the text (a member access, a
     /// conditional, an `object`, an enum) is accepted for any parameter; an instance Call outside the ReceiverContracts classes is matched against every
     /// class, and inside them an enum argument (LogEvent.setLevel(LogLevel) vs Breadcrumb.setLevel(Breadcrumb.Level)) is
@@ -740,6 +742,19 @@ namespace Bugsee.WrapperPolicy.Tests
 
         static string CsParamTypeOf(string parameter) => Regex.Match(parameter.Trim(), @"^(.+?)\s+\w+(?:\s*=.*)?$").Groups[1].Value;
 
+
+        [Test]
+        public void Every_SpanStatus_constant_the_wrapper_reads_is_a_static_field_of_the_sdk_enum()
+        {
+            // AndroidSpanHandle reads the constant by name (GetStatic<AndroidJavaObject>(SpanPolicy.AndroidStatusName(status))).
+            var fields = Manifest()["com.bugsee.library.contracts.performance.SpanStatus"].Fields;
+            foreach (Contracts.Apm.SpanStatus status in Enum.GetValues(typeof(Contracts.Apm.SpanStatus)))
+            {
+                var name = SpanPolicy.AndroidStatusName(status);
+                Assert.That(fields.TryGetValue(name, out var field) && field.isStatic && field.type == "com.bugsee.library.contracts.performance.SpanStatus",
+                    Is.True, status + " -> " + name + " is not a static SpanStatus constant in the snapshot");
+            }
+        }
 
         // ---- raw JNI (AndroidJNI.GetMethodID & co.) in the frame capturer ----------------------------------------------------
 

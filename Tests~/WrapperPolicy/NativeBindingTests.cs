@@ -345,7 +345,7 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Prototypes_in_the_native_tests_match_the_exports()
         {
             var exports = AllExports(out var typedefs).Where(e => !e.Stub).GroupBy(e => e.Name).ToDictionary(g => g.Key, g => g.First());
-            var proto = new Regex(@"(?m)^(?<ret>[A-Za-z_][\w \t\*]*?)\s*(?<name>_bugsee_\w+)\s*\((?<args>[^)]*)\)\s*;");
+            var proto = new Regex(@"(?m)^(?:extern\s+""C""\s+)?(?<ret>[A-Za-z_][\w \t\*]*?)\s*(?<name>_bugsee_\w+)\s*\((?<args>[^)]*)\)\s*;");
             var checkedCount = 0;
             var failures = new List<string>();
             foreach (var path in Directory.GetFiles(RepoFile("Tests~/iOS"), "*.mm"))
@@ -353,6 +353,11 @@ namespace Bugsee.WrapperPolicy.Tests
                 var mm = StripComments(File.ReadAllText(path));
                 var testTypedefs = new Dictionary<string, List<string[]>>();
                 AddCTypedefs(mm, testTypedefs);
+                // Nothing may be skipped silently, file by file: every column-0 statement that declares a _bugsee_ function
+                // (also over several lines, or after extern "C") was parsed as a prototype.
+                var declaredHere = Regex.Matches(mm, @"(?m)^(?:extern\s+""C""\s+)?[A-Za-z_][^\n(;]*\b_bugsee_\w+\s*\([^)]*\)\s*;").Count;
+                Assert.That(proto.Matches(mm).Count, Is.EqualTo(declaredHere),
+                    Path.GetFileName(path) + ": a _bugsee_ declaration was not parsed as a prototype");
                 foreach (Match m in proto.Matches(mm))
                 {
                     var name = m.Groups["name"].Value;
@@ -386,10 +391,6 @@ namespace Bugsee.WrapperPolicy.Tests
             }
 
             Assert.That(checkedCount, Is.GreaterThanOrEqualTo(50), "the prototype parser found too few prototypes");
-            // Nothing may be skipped silently: every column-0 line that declares a _bugsee_ function was parsed as a prototype.
-            var declared = Directory.GetFiles(RepoFile("Tests~/iOS"), "*.mm").Sum(f =>
-                Regex.Matches(StripComments(File.ReadAllText(f)), @"(?m)^[A-Za-z_][^\n(]*\b_bugsee_\w+\s*\([^\n]*;\s*$").Count);
-            Assert.That(checkedCount, Is.EqualTo(declared), "a _bugsee_ declaration in Tests~/iOS/*.mm was not parsed as a prototype");
             Assert.That(failures, Is.Empty, "Prototypes in Tests~/iOS/*.mm that disagree with the bridge");
         }
 
