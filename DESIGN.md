@@ -178,7 +178,7 @@ Logging: `Log`, `Trace`, `Event`, `LogException`, `LogUnhandledException`, `Test
 Reporting: `ShowReportDialog`, `Upload`, `CreateReport`, `SetReportHandler`, `Upload(Report)`  
 Filters: network / log / breadcrumb  
 Exchange: `GetExchangeFactory`, `AddNetworkEvent`, `AddBreadcrumb`  
-Privacy: secure rectangles (Unity-relevant; `AddSecureRectangle` covers Unity-drawn content). Native `addSecureActivity` (Android only) and `addSecureView` take a native Activity or View a Unity script does not own and are not exposed directly; WebView plugin views go through `AddSecureWebView` where present
+Privacy: secure rectangles (Unity-relevant; `AddSecureRectangle` covers Unity-drawn content). Native `addSecureActivity` (Android only) and `addSecureView` take a native Activity or View a Unity script does not own and are not exposed directly; a WebView plugin's view has no dedicated API on this branch (see #220)
 Identity: `SetUserIdentifier` / `Get` / `Clear` (not email-as-primary)  
 Attributes: set/get/clear/clearAll/getAll  
 Appearance: `GetAppearance()`  
