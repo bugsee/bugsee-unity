@@ -140,6 +140,7 @@ runs scenarios on one Android device.
 | `sigthreads` | the same managed exception thrown at one site and reported from the main thread and from a worker thread; logs `[SIGTHREADS]` with the client signature and (Android) the SDK's own signature for each, `PASS` (Android only; `INCONCLUSIVE` if the probe could not run, `SKIP` elsewhere) when they agree and the control differs; a plain Java exception is logged as a control that differs per thread |
 | `blackout` | logs `IsBlackout` after StartBlackout, EndBlackout, StartBlackout + Relaunch, StartBlackout + Stop and a fresh Launch, tagged `[BLACKOUT]` |
 | `delete` | `DeleteCollectedDataOnDevice`, a relaunch, then an upload |
+| `deletescope` | self-checking (`PASS`/`FAIL`): for each `DeleteScope`, makes capture data, a draft report and a report whose upload fails (the SDK is relaunched against a dead endpoint, so its bundle waits for upload), calls `DeleteCollectedDataOnDeviceAsync` and checks the result, the status and the SDK's files left on disk (capture, snapshots, bundles); also the plain call, the default argument, the synchronous scoped overload, two scopes at once and a launch right after the delete |
 | `apm`, `apmoff`, `apmleak`, `apmpool`, `apmthrnew`, `apmthrjava`, `apmthrui` | APM stress and API-shape checks |
 | `shapes` | throw shapes for frame/IP pairing, logged tagged `[SHAPE]` |
 | `none` | arm nothing (recovery launch) |
