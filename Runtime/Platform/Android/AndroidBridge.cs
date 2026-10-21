@@ -609,8 +609,13 @@ namespace Bugsee.Platform.Android
                             Debug.LogWarning("[Bugsee] secure WebView call timed out waiting for the UI thread; it was dropped, call it again.");
                             return false;
                         }
-                        // Already running: let it finish rather than report a state that is about to change.
-                        if (!done.WaitOne(3000)) return false;
+                        // Already running: let it finish rather than report a state that is about to change. The SDK call is short,
+                        // so a wait this long means it is stuck; the outcome is then unknown and the result is false.
+                        if (!done.WaitOne(30000))
+                        {
+                            Debug.LogWarning("[Bugsee] secure WebView call is still running on the UI thread after 33 s; its outcome is unknown.");
+                            return false;
+                        }
                     }
                     if (failure != null)
                     {
