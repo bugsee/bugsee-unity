@@ -144,6 +144,7 @@ runs scenarios on one Android device.
 | `delete` | `DeleteCollectedDataOnDevice`, a relaunch, then an upload |
 | `deletescope` | self-checking (`PASS`/`FAIL`): for each `DeleteScope`, makes capture data, a draft report and a report whose upload fails (the SDK is relaunched against a dead endpoint, so its bundle waits for upload), calls `DeleteCollectedDataOnDeviceAsync` and checks the result, the status and the SDK's files left on disk (capture, snapshots, bundles); also the plain call, the default argument, the synchronous scoped overload, two scopes at once and a launch right after the delete |
 | `apm`, `apmoff`, `apmleak`, `apmpool`, `apmthrnew`, `apmthrjava`, `apmthrui` | APM stress and API-shape checks |
+| `logpath` | self-checking (`PASS`/`FAIL`): feeds `ManagedExceptionPayload.FromUnityLog` the text Unity really rendered for a logged exception, plus synthetic frames with IL offsets, Mono method starts, `#00 pc` and absolute `0x` values, and checks no frame carries an address and `moduleUUID` is set on IL2CPP. It tests `FromUnityLog` itself, not the payload the SDK sent (a normal `Debug.LogException` takes the throw path); also logs the throw path's payload and image, tagged `[LOGPATH]` (issue #105) |
 | `shapes` | throw shapes for frame/IP pairing, logged tagged `[SHAPE]` |
 | `none` | arm nothing (recovery launch) |
 

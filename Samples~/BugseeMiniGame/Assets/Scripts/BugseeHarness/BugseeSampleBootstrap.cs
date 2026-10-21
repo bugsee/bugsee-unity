@@ -481,6 +481,14 @@ namespace Bugsee.Sample
                         _pendingE2EFire = "S:shapes";
                     }
                     break;
+                case "logpath":
+                    // FromUnityLog on the text Unity renders for a logged exception: its frames carry no address (issue #105).
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 99;
+                        _pendingE2EFire = "Y:e2e-logpath-" + _e2eRunId;
+                    }
+                    break;
                 case "attach":
                 case "unobserved":
                     if (_e2ePhase == 0 && _e2eTimer >= 5f)
@@ -647,6 +655,9 @@ namespace Bugsee.Sample
                     break;
                 case 'P':
                     FirePipelineLogException(marker);
+                    break;
+                case 'Y':
+                    StartCoroutine(LogPathScenario(marker));
                     break;
                 case 'O':
                     // GetLaunchOptions is only meaningful once the SDK is launched: wait (bounded), then say so if it never was.
@@ -995,6 +1006,78 @@ namespace Bugsee.Sample
                 });
                 SetStatus("E2E unhandled StableA " + marker);
             }
+        }
+
+        // Issue #105: ManagedExceptionPayload.FromUnityLog, the payload built when Unity's text is the only copy of an
+        // exception (a normal Debug.LogException or uncaught exception takes the throw path instead, whose text copy
+        // is dropped as an echo). It is fed the text Unity really rendered for a logged exception, captured from
+        // logMessageReceivedThreaded, and synthetic frames with every kind of hex a log line can hold. Logs
+        // [Sample] logpath PASS|FAIL; the throw path's payload and image are logged for comparison, tagged [LOGPATH].
+        IEnumerator LogPathScenario(string marker)
+        {
+            var failures = 0;
+            Action<string, bool, string> check = (name, ok, detail) =>
+            {
+                if (!ok) failures++;
+                Debug.Log("[Sample] logpath " + (ok ? "PASS " : "FAIL ") + name + " :: " + detail);
+            };
+            string text = null, condition = null;
+            Application.LogCallback handler = (c, stackTrace, type) =>
+            {
+                if (type != LogType.Exception || text != null || c == null || c.IndexOf(marker, StringComparison.Ordinal) < 0) return;
+                condition = c;
+                text = stackTrace ?? "";
+            };
+            Application.logMessageReceivedThreaded += handler;
+            try
+            {
+                var thrown = new InvalidOperationException("E2E LogPath " + marker);
+                try { E2EThrowStableA(marker + "-x"); } catch (Exception) { }
+                try { throw thrown; } catch (Exception) { }
+                var native = Il2CppNativeStack.TryCapture(thrown);
+                Debug.Log("[LOGPATH] throwPath image=" + (native?.ImageName ?? "none") + " uuid=" + (native?.ImageUuid ?? "none")
+                    + " json=" + ManagedExceptionPayload.ToJson(ManagedExceptionPayload.FromException(thrown)));
+                yield return null;
+                Debug.LogException(thrown);
+                for (var i = 0; i < 120 && text == null; i++) yield return null;
+            }
+            finally
+            {
+                Application.logMessageReceivedThreaded -= handler;
+            }
+
+            var expectModule = Il2CppNativeStack.IsSupported;
+            if (text == null)
+            {
+                check("Unity text received", false, "no LogType.Exception callback within 120 frames");
+            }
+            else
+            {
+                Debug.Log("[LOGPATH] text=" + text.Replace("\n", " | "));
+                CheckLogPathPayload(check, "unity text", ManagedExceptionPayload.FromUnityLog(condition, text), expectModule);
+            }
+            var synthetic = string.Join("\n", new[]
+            {
+                "Ns.C.Run () (at /proj/Assets/C.cs:12)",
+                "Ns.C.Run () [0x00023] in <0123456789abcdef0123456789abcdef>:0",
+                "Ns.C.Run () <0x104a125e0 + 0x34> in <0123456789abcdef0123456789abcdef>:0",
+                "#00 pc 000000000012abcd /data/app/lib/arm64/libil2cpp.so",
+                "#01 pc 00000000004f3a10 /data/app/lib/arm64/libunity.so",
+                "0x0000000104a125e0 in UnityFramework",
+            });
+            CheckLogPathPayload(check, "synthetic hex", ManagedExceptionPayload.FromUnityLog("System.Exception: " + marker, synthetic), expectModule);
+            Debug.Log("[Sample] logpath e2e done failures=" + failures);
+            SetStatus("E2E logpath failures=" + failures);
+        }
+
+        static void CheckLogPathPayload(Action<string, bool, string> check, string label, ManagedExceptionPayload.Payload payload, bool expectModule)
+        {
+            var frames = payload?.frames ?? new ManagedExceptionPayload.Frame[0];
+            var withAddress = 0;
+            foreach (var f in frames) if (!string.IsNullOrEmpty(f.address)) withAddress++;
+            check(label + ": frames present", frames.Length > 0, frames.Length + " frames");
+            check(label + ": no frame carries an address", withAddress == 0, withAddress + " with an address");
+            check(label + ": moduleUUID", !expectModule || !string.IsNullOrEmpty(payload?.moduleUUID), payload?.moduleUUID ?? "null");
         }
 
         // A three-level InnerException chain (issue #104): the payload's `cause` nesting on a device. The JSON logged here is
