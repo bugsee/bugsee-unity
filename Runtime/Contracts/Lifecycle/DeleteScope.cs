@@ -2,7 +2,9 @@ namespace Bugsee.Contracts.Lifecycle
 {
     /// <summary>
     /// How much <c>Bugsee.DeleteCollectedDataOnDevice</c> deletes. Each value maps to one call of the native SDK
-    /// on both platforms; the default of the facade is <see cref="Everything"/>.
+    /// on both platforms; the default of the facade is <see cref="Everything"/>. "Keeps" below means the native SDK's
+    /// data on disk: the SDK is stopped by every scope, and as with <c>Stop</c> an unfinished managed report and an
+    /// in-flight managed upload are dropped.
     /// </summary>
     public enum DeleteScope
     {
