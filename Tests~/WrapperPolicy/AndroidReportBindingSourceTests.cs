@@ -66,5 +66,24 @@ namespace Bugsee.WrapperPolicy.Tests
             string contract = File.ReadAllText(Path.Combine(root, "Runtime/Contracts/Exchange/INetworkEvent.cs"));
             Assert.That(contract, Does.Contain("bool IsOverride { get; set; }"));
         }
+
+        [Test]
+        public void Managed_exception_options_carry_only_what_the_sdk_reads()
+        {
+            // The SDK takes the signature and module UUID from the reason JSON and ignores other option keys (they only land in the
+            // report's logging options), so the bridge must not send them as options.
+            var bridge = File.ReadAllText(Path.Combine(RepoRoot(), "Runtime/Platform/Android/AndroidBridge.cs"));
+            Assert.That(bridge, Does.Not.Contain("\"$$signature\""));
+            Assert.That(bridge, Does.Not.Contain("\"moduleUUID\""));
+        }
+
+        [Test]
+        public void Managed_exception_class_captures_no_java_stack()
+        {
+            // The SDK hashes the Java stack of the throwable into the client signature: capturing it would make the signature
+            // depend on the calling thread.
+            var java = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins/Android/UnityManagedException.java"));
+            Assert.That(java, Does.Contain("fillInStackTrace()"));
+        }
     }
 }

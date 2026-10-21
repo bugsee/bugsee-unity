@@ -325,14 +325,9 @@ namespace Bugsee.Platform.Android
                     }
                 }
                 map.Call<AndroidJavaObject>("put", "domain", "UnityManagedException");
-                if (!string.IsNullOrEmpty(payload.signature))
-                {
-                    map.Call<AndroidJavaObject>("put", "$$signature", payload.signature);
-                }
-                if (!string.IsNullOrEmpty(payload.moduleUUID))
-                {
-                    map.Call<AndroidJavaObject>("put", "moduleUUID", payload.moduleUUID);
-                }
+                // Nothing more goes in the map: the SDK reads the signature and the module UUID from the reason JSON, and
+                // ignores other keys (they only end up in the report's logging options). The thread-independent signature
+                // comes from UnityManagedException having no Java stack, see Plugins/Android/UnityManagedException.java.
                 // The SDK files the report on this thread and, for the managed view hierarchy, waits for a reply that only this
                 // thread could give (Unity's main thread, now inside this call). Telling the wrapper lets it answer "none" at once
                 // instead of making the SDK time out and the game stall. Only when this is Unity's thread: from any other the reply
