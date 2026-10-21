@@ -52,7 +52,7 @@ namespace Bugsee.WrapperPolicy
             var m = SourceLocation.Match(line);
             if (!m.Success) return false;
             int number;
-            return int.TryParse(m.Groups["line"].Value, out number) && number > 0;
+            return int.TryParse(m.Groups["line"].Value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out number) && number > 0;
         }
 
         public static string FormatAddress(ulong moduleRelative)

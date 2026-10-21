@@ -386,6 +386,14 @@ namespace Bugsee.Sample
                         StartCoroutine(FiltersE2E.Run(this));
                     }
                     break;
+                case "culture":
+                    // Sends floating point, decimal and bool values under de-DE and ru-RU (issue #143).
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        StartCoroutine(CultureE2E.Run(this));
+                    }
+                    break;
                 case "presets":
                     // Relaunches with each launch preset and reads the launch options back (issue #118).
                     if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
@@ -567,7 +575,26 @@ namespace Bugsee.Sample
             Probe(options, Options.DetectAndReportExitOther, true);
             Probe(options, Options.ReportHandlerCallbackTimeout, 7000);
 #endif
+            // Every iOS-only key, type-correct and non-default: iOS must report each as sent, Android must drop each (#97).
             Probe(options, Options.CaptureCrashHandlerType, 3);
+            Probe(options, Options.CaptureCrashSignals, (int)(CrashSignals.Abrt | CrashSignals.Trap));
+            Probe(options, Options.CaptureOnDeviceSymbolication, true);
+            Probe(options, Options.DetectCrashSwiftAsyncStackTraces, false);
+            Probe(options, Options.DetectCrashFillEmptyExceptionStacks, true);
+            Probe(options, Options.CaptureWebSocket, false);
+            Probe(options, Options.CaptureAVPlayer, true);
+            Probe(options, Options.CaptureSampleBufferDisplayLayer, true);
+            Probe(options, Options.CaptureCameraPreview, true);
+            Probe(options, Options.CaptureBluetoothStatus, true);
+            Probe(options, Options.CaptureDiskSpace, true);
+            Probe(options, Options.CaptureDeviceNetworkNames, true);
+            Probe(options, Options.CaptureVideoPrivacyBlur, false);
+            Probe(options, Options.CaptureVideoMinFrameRate, 7);
+            Probe(options, Options.CaptureVideoMaxFrameRate, 25);
+            Probe(options, Options.DataEncryption, (int)DataEncryptionMode.OnDevice);
+            Probe(options, Options.BuildTarget, "OptionsProbe");
+            Probe(options, Options.BuildType, "probe");
+            Probe(options, Options.ReportingUIStyle, (int)ReportingUIStyle.Dusk);
         }
 
         static void LogGatingProbe()
@@ -586,9 +613,9 @@ namespace Bugsee.Sample
                 var got = has ? Convert.ToString(launched[key]) : "absent";
 #if UNITY_IOS
                 // iOS: an Android-only key must be absent, the iOS-only key must come back as sent.
-                var ok = key == Options.CaptureCrashHandlerType ? got == sent : !has;
+                var ok = System.Linq.Enumerable.Contains(OptionPlatformGate.IosOnly, key) ? got == sent : !has;
 #else
-                var ok = key == Options.CaptureCrashHandlerType ? !has : sent == "-" || string.Equals(sent, got, StringComparison.OrdinalIgnoreCase);
+                var ok = System.Linq.Enumerable.Contains(OptionPlatformGate.IosOnly, key) ? !has : sent == "-" || string.Equals(sent, got, StringComparison.OrdinalIgnoreCase);
 #endif
                 if (!ok) mismatches++;
                 Debug.Log("[OPTIONS] " + key + " sent=" + sent + " native=" + got + (ok ? " ok" : " MISMATCH"));

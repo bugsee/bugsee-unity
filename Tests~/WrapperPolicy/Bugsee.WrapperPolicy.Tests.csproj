@@ -20,6 +20,9 @@
     <Compile Include="..\..\Runtime\Contracts\Options\FrameRate.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\VideoQuality.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\CrashHandlerType.cs" />
+    <Compile Include="..\..\Runtime\Contracts\Options\CrashSignals.cs" />
+    <Compile Include="..\..\Runtime\Contracts\Options\DataEncryptionMode.cs" />
+    <Compile Include="..\..\Runtime\Contracts\Options\ReportingUIStyle.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\IssueSeverity.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\IssueType.cs" />
     <Compile Include="..\..\Runtime\Contracts\Lifecycle\BugseeStatus.cs" />
@@ -32,6 +35,10 @@
     <Compile Include="..\..\Editor\LocalPackageCopy.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\LogLevel.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\Options.cs" />
+    <Compile Include="..\..\Runtime\Contracts\Options\BugseeLaunchOptions.cs" />
+    <Compile Include="..\..\Runtime\Contracts\Options\IOSLaunchOptions.cs" />
+    <Compile Include="..\..\Runtime\Contracts\Options\AndroidLaunchOptions.cs" />
+    <Compile Include="..\..\Runtime\Contracts\Options\OptionsBuilder.cs" />
     <Compile Include="UnityEngineJsonStub.cs" />
     <Compile Include="**\*Tests.cs" />
     <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" LinkBase="Fixtures" />
