@@ -21,12 +21,12 @@ namespace Bugsee.Sample
         const float WaitSeconds = 40f;
         static int _failures;
 
-        public static IEnumerator Run(BugseeSampleBootstrap b)
+        public static IEnumerator Run(BugseeSampleBootstrap b, string appToken)
         {
             _failures = 0;
             var original = b.LaunchPreset;
             Debug.Log("[Sample] readapis e2e start launched=" + Bugsee.IsLaunched + " status=" + Bugsee.Status);
-            var body = Body(b);
+            var body = Body(b, appToken);
             while (true)
             {
                 bool more;
@@ -50,7 +50,7 @@ namespace Bugsee.Sample
             Debug.Log("[Sample] readapis e2e done failures=" + _failures + " launched=" + Bugsee.IsLaunched);
         }
 
-        static IEnumerator Body(BugseeSampleBootstrap b)
+        static IEnumerator Body(BugseeSampleBootstrap b, string appToken)
         {
             // 1. Host launch options: only what the app passed, replaced (not merged) by the next relaunch.
             var kept = new Dictionary<string, object>();
@@ -105,6 +105,11 @@ namespace Bugsee.Sample
             yield return WaitFor(() => stopped.Task.IsCompleted, WaitSeconds);
             host = Bugsee.GetHostLaunchOptions();
             Check("after Stop the host options still describe the last configuration", stopped.Task.IsCompleted && host.ContainsKey(Options.CaptureBreadcrumbs), Dump(host));
+
+            // A fresh Launch after the Stop (a Relaunch of a stopped SDK is not a launch), with the same options as before.
+            Bugsee.Launch(appToken, second);
+            yield return WaitFor(() => Bugsee.IsLaunched && Bugsee.Status == BugseeStatus.Launched, WaitSeconds);
+            yield return null;
 
             // A relaunch with no options replaces the set with an empty one (the wrapper's own unity.* keys aside, iOS keeps them).
             task = Bugsee.RelaunchAsync(null);

@@ -384,7 +384,7 @@ namespace Bugsee.Sample
                     if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
                     {
                         _e2ePhase = 99;
-                        StartCoroutine(ReadApisE2E.Run(this));
+                        StartCoroutine(ReadApisE2E.Run(this, appToken));
                     }
                     break;
                 case "actions":

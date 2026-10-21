@@ -514,7 +514,7 @@ int main(void)
         ? [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:hostOptions length:strlen(hostOptions)] options:0 error:nil]
         : nil;
     expect([parsedHost isKindOfClass:[NSDictionary class]] && [parsedHost count] < [parsedOptions count]
-           && [parsedHost[BugseeMaxRecordingTimeKey] intValue] == 60,
+           && !parsedHost[BugseeMaxRecordingTimeKey], // 60 is the SDK default, which beta7 drops from the host options
            "host launch options come back as a JSON object without the defaults");
     free(hostOptions);
     // An omitted report severity is the SDK default, High until the host configures ReportingDefaultBugPriority.
