@@ -134,8 +134,8 @@ namespace Bugsee.Contracts.Options
         /// Detect and report native (NDK) crashes. Default when omitted: true. Also off whenever
         /// <see cref="BugseeLaunchOptions.DetectAndReportCrash"/> is false. The key belongs to the <c>bugsee-android-ndk</c>
         /// extension, which the wrapper always declares: the SDK knows it only once that extension has registered,
-        /// otherwise it is dropped. On Unity 6 builds that get the Bugsee Gradle plugin (AGP 8.6+) the extension is
-        /// currently not registered (bugsee-unity#226), so this option has no effect there.
+        /// otherwise it is dropped. On Unity 6 builds that get the Bugsee Gradle plugin the extension was not
+        /// registered (observed on AGP 9.0; 8.6 to 8.10 unverified, bugsee-unity#226), so this option has no effect there.
         /// </summary>
         public bool DetectAndReportCrashNdk
         {
@@ -144,7 +144,7 @@ namespace Bugsee.Contracts.Options
 
         /// <summary>
         /// Include the OS tombstone's raw log buffers in a native crash report. Default when omitted: false. Privacy: these
-        /// buffers bypass Bugsee's log filters and can hold other apps' log lines and sensitive data, so they are uploaded
+        /// buffers skip Bugsee's log filters and redaction and can include text logged in-process by system or third-party libraries, so they are uploaded
         /// unredacted. Same NDK-extension registration caveat as <see cref="DetectAndReportCrashNdk"/> (#226).
         /// </summary>
         public bool CrashNdkIncludeTombstoneLogs

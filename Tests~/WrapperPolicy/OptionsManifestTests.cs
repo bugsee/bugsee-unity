@@ -579,6 +579,17 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(problems, Is.Empty, string.Join("\n", problems));
         }
 
+        // MaxDataSize is shared and its default differs per platform; the doc names both ("150 on Android, 50 on iOS").
+        [Test]
+        public void Shared_max_data_size_docs_state_the_ios_default()
+        {
+            var text = File.ReadAllText(RepoFile("Runtime/Contracts/Options/BugseeLaunchOptions.cs"));
+            var m = Regex.Match(text, @"Default when omitted:\s*(\d+) on Android,\s*(\d+) on iOS");
+            Assert.That(m.Success, Is.True, "MaxDataSize must document `Default when omitted: N on Android, M on iOS`");
+            Assert.That(Android.Options["com.bugsee.option.config.max-data-size"].DefaultText, Is.EqualTo(m.Groups[1].Value));
+            Assert.That(Ios.Options["com.bugsee.option.config.max-data-size"].DefaultText, Is.EqualTo(m.Groups[2].Value));
+        }
+
         [Test]
         public void Ios_not_exposed_keys_have_a_reason()
         {

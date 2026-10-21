@@ -590,8 +590,9 @@ namespace Bugsee.Sample
 #else
                 var ok = System.Linq.Enumerable.Contains(OptionPlatformGate.IosOnly, key) ? !has : sent == "-" || string.Equals(sent, got, StringComparison.OrdinalIgnoreCase);
 #endif
-#if UNITY_ANDROID
-                // The NDK keys exist only once the NDK extension registered (not on Unity 6 builds with the Gradle plugin, #226).
+#if UNITY_ANDROID && UNITY_6000_0_OR_NEWER
+                // Only the Unity 6 build (Gradle plugin) is the #226 case where the NDK extension is not registered; on older Unity the
+                // extension registers itself, so an absent NDK key there is a mismatch.
                 if (!ok && !has && (key == Options.DetectAndReportCrashNdk || key == Options.CrashNdkIncludeTombstoneLogs))
                 {
                     Debug.Log("[OPTIONS] " + key + " sent=" + sent + " native=absent ndk-extension-not-registered (#226)");
@@ -601,7 +602,8 @@ namespace Bugsee.Sample
                 if (!ok) mismatches++;
                 Debug.Log("[OPTIONS] " + key + " sent=" + sent + " native=" + got + (ok ? " ok" : " MISMATCH"));
             }
-            // Shared keys: not gated, so each must be reported with the value sent, on both platforms.
+            // Shared keys: not gated, so each must be reported with the value sent, on both platforms. On iOS 7.0.0-beta7 this only proves
+            // the key is echoed back: the iOS SDK registers max-data-size but does not enforce it.
             foreach (var key in new[] { Options.MaxDataSize, Options.NotifyFlushDelay })
             {
                 var has = launched != null && launched.ContainsKey(key);

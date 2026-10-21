@@ -60,9 +60,10 @@ namespace Bugsee.Contracts.Options
         }
 
         /// <summary>
-        /// Megabytes of disk the reports waiting to be sent may occupy; the SDK raises a value below 10 to 10.
-        /// Default when omitted: 150 on Android, 50 on iOS. When exceeded, pending reports are deleted (Android: errors first, then bug
-        /// reports, then crashes, oldest first, never the newest crash or a report being sent; iOS: oldest recordings).
+        /// Megabytes of disk the reports waiting to be sent may occupy.
+        /// Default when omitted: 150 on Android, 50 on iOS. Android: a value below 10 is raised to 10, and when exceeded pending
+        /// reports are deleted (errors first, then bug reports, then crashes, oldest first, never the newest crash or a report
+        /// being sent). iOS 7.0.0-beta7: the key is accepted and reported by <c>GetLaunchOptions</c> but not enforced (no effect).
         /// </summary>
         public int MaxDataSize
         {

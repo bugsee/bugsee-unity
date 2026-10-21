@@ -81,7 +81,7 @@ These Android 7.4.2 options (#96) have typed properties and `Options` constants.
 
 | Property | Key suffix | Type, default |
 |---|---|---|
-| `MaxDataSize` (both) | `config.max-data-size` | int MB, Android 150, iOS 50; the SDK raises a value below 10 to 10. Over the limit whole pending reports are deleted (Android: errors first, then bug reports, then crashes, oldest first, never the newest crash or a report being sent). A low value loses reports sooner |
+| `MaxDataSize` (both) | `config.max-data-size` | int MB, Android 150, iOS 50. Android: a value below 10 is raised to 10; over the limit whole pending reports are deleted (errors first, then bug reports, then crashes, oldest first, never the newest crash or a report being sent), so a low value loses reports sooner. iOS 7.0.0-beta7: accepted and reported by `GetLaunchOptions` but not enforced (no effect) |
 | `NotifyFlushDelay` (both) | `config.notify-flush-delay` | int ms, 0. Coalescing window before the queue of `Bugsee.Notify` calls drains; 0 posts as soon as the item is on disk |
 | `MaxPendingReports` | `config.max-pending-reports` | int, 30; below 1 is raised to 1. Evicts in the same order as `MaxDataSize` |
 | `MaxPendingReportAge` | `config.max-pending-report-age` | int days, 30. Older pending reports are deleted whatever their type; 0 or negative disables aging |
@@ -91,7 +91,7 @@ These Android 7.4.2 options (#96) have typed properties and `Options` constants.
 | `DetectAndReportCrashNdk` | `detect.crash-ndk` | bool, true; also off when `DetectAndReportCrash` is false |
 | `CrashNdkIncludeTombstoneLogs` | `crash-ndk.tombstone-logs` | bool, false. Privacy: the OS tombstone's raw log buffers bypass Bugsee's log filters and are uploaded unredacted |
 
-The two NDK keys belong to the `bugsee-android-ndk` extension. The Android SDK knows them only once that extension has registered, and drops them otherwise (they are then missing from `GetLaunchOptions`). On Unity 6 builds that get the Bugsee Gradle plugin (AGP 8.6+) the extension is currently not registered ([#226](https://github.com/bugsee/bugsee-unity/issues/226)), so both options have no effect there and native crash capture is off whatever `DetectAndReportCrashNdk` says.
+The two NDK keys belong to the `bugsee-android-ndk` extension. The Android SDK knows them only once that extension has registered, and drops them otherwise (they are then missing from `GetLaunchOptions`). On Unity 6 builds that get the Bugsee Gradle plugin (observed on AGP 9.0 with Unity 6000.0.84f1; AGP 8.6 to 8.10 unverified) the extension is currently not registered ([#226](https://github.com/bugsee/bugsee-unity/issues/226)), so both options have no effect there and native crash capture is off whatever `DetectAndReportCrashNdk` says. An app that adds `bugsee-android-leak` itself can set the leak keys on Android with `SetCustomOption`.
 
 The memory-leak and thread-leak options (`detect.memory_leaks*`, `detect.thread_leaks`) belong to the `bugsee-android-leak` module, which the wrapper does not ship; they have no property and the wrapper drops them from an iOS launch.
 
