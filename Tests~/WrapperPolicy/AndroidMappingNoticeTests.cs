@@ -124,6 +124,24 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(all, Does.Not.Contain("--token").And.Not.Contain("--app-token").And.Not.Contain("BUGSEE_APP_TOKEN="));
         }
 
+        // buildStartedAt is UTC ticks with Kind Unspecified: every Editor use must go through
+        // BuildClock.StartedUtc(report.summary.buildStartedAt), since ToUniversalTime, ToLocalTime,
+        // DateTimeOffset or a copy into a variable would each shift or lose the meaning of the value.
+        [Test]
+        public void Every_editor_use_of_buildStartedAt_goes_through_BuildClock()
+        {
+            var dir = new System.IO.DirectoryInfo(TestContext.CurrentContext.TestDirectory);
+            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "package.json"))) dir = dir.Parent;
+            Assert.That(dir, Is.Not.Null, "package.json not found above the test directory");
+            var bare = new System.Text.RegularExpressions.Regex(@"(?<!BuildClock\.StartedUtc\(report\.summary\.)\bbuildStartedAt\b");
+            var files = System.IO.Directory.GetFiles(System.IO.Path.Combine(dir.FullName, "Editor"), "*.cs", System.IO.SearchOption.AllDirectories);
+            Assert.That(files, Is.Not.Empty);
+            foreach (var file in files)
+            {
+                Assert.That(bare.Matches(System.IO.File.ReadAllText(file)).Count, Is.EqualTo(0), file);
+            }
+        }
+
         // BuildSummary.buildStartedAt: UTC ticks, Kind Unspecified.
         [TestCase(-8)]
         [TestCase(0)]

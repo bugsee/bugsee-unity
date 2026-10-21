@@ -28,7 +28,7 @@ namespace Bugsee.Editor
 
         public void OnPostprocessBuild(BuildReport report)
         {
-            exportStartEpoch = BuildArtifactChoice.UnixSeconds(report.summary.buildStartedAt);
+            exportStartEpoch = BuildArtifactChoice.UnixSeconds(BuildClock.StartedUtc(report.summary.buildStartedAt));
             if (report.summary.platform == BuildTarget.iOS || report.summary.platform == BuildTarget.tvOS)
             {
                 // The Run Script's age check is safe only where the export step could compare the exported maps with this build's
