@@ -20,17 +20,21 @@ namespace Bugsee.WrapperPolicy.Tests
     /// subclass through the interface it names in base("...")) and whose return type fits the call (plain
     /// CallStatic = void, CallStatic&lt;bool|int|long|float|double|string&gt; = that primitive or String,
     /// CallStatic&lt;AndroidJavaObject&gt; = any reference). Also: every com.bugsee.library class named in the C# is in the
-    /// snapshot, every AndroidJavaProxy subclass names a snapshot (or JDK) interface and only defines methods that
-    /// interface has with that arity, and every instance Call/Set names a method that exists with that arity (and a
-    /// compatible return type) in the SDK contracts or a short JDK list.
+    /// snapshot, every AndroidJavaProxy subclass names a snapshot (or JDK) interface and each lower-camel method it
+    /// defines is one of that interface's with a void return and parameter types the Java ones can bind to, and every
+    /// instance Call/Set names a method that exists with that arity (and a compatible return type) on the receiver's
+    /// contract inside the wrapper classes listed in ReceiverContracts (event, breadcrumb, span, report, attachment),
+    /// elsewhere in any SDK contract, or in a short JDK list.
     ///
     /// The raw AndroidJNI lookups of Runtime/Capture/BugseeFrameCapturer.cs (GetMethodID / GetStaticMethodID /
-    /// GetStaticFieldID, with JNI descriptors) are checked for exact name, parameter and return types, and field names.
+    /// GetStaticFieldID, with JNI descriptors) are checked for exact name, parameter and return types, and for fields the
+    /// name, type and staticness.
     /// The one class it uses outside the snapshot (internal TimeUtils) is listed in RawJniNotInSnapshot.
     ///
     /// Limits (follow-up #205): an argument whose C# type cannot be told from the text (a member access, a
-    /// conditional, an `object`, an enum) is accepted for any parameter; an instance Call is matched against every
-    /// class, not its receiver's, because the receiver is an untyped AndroidJavaObject; generic parameters are
+    /// conditional, an `object`, an enum) is accepted for any parameter; an instance Call outside the ReceiverContracts classes is matched against every
+    /// class, and inside them an enum argument (LogEvent.setLevel(LogLevel) vs Breadcrumb.setLevel(Breadcrumb.Level)) is
+    /// not typed, because the receiver and the argument are untyped AndroidJavaObjects; generic parameters are
     /// compared by their erased type and varargs by their element type; the Java side of UnityWrapper is
     /// NativeBindingTests'.
     /// </summary>
@@ -71,7 +75,7 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             public string Name;
             public bool IsEnum;
-            public HashSet<string> Fields = new HashSet<string>();
+            public Dictionary<string, (string type, bool isStatic)> Fields = new Dictionary<string, (string, bool)>();
             public List<string> Supers = new List<string>(); // extended / implemented types, erased
             public List<JavaMethod> Methods = new List<JavaMethod>();
         }
@@ -151,7 +155,8 @@ namespace Bugsee.WrapperPolicy.Tests
                 var open = raw.IndexOf('(');
                 if (open < 0)
                 {
-                    current.Fields.Add(raw.Trim().TrimEnd(';').Split(' ').Last());
+                    var words = Erase(raw).Trim().TrimEnd(';').Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    current.Fields[words[words.Length - 1]] = (words[words.Length - 2], words.Contains("static"));
                     continue;
                 }
 
@@ -186,7 +191,7 @@ namespace Bugsee.WrapperPolicy.Tests
             { "byteValue", new[] { 0 } }, { "floatValue", new[] { 0 } }, { "doubleValue", new[] { 0 } },
             { "booleanValue", new[] { 0 } }, { "charValue", new[] { 0 } }, { "getClass", new[] { 0 } },
             { "getName", new[] { 0 } }, { "getMessage", new[] { 0 } }, { "openStream", new[] { 0 } },
-            { "write", new[] { 1, 3 } }, { "close", new[] { 0 } },
+            { "write", new[] { 1, 3 } }, { "flush", new[] { 0 } }, { "close", new[] { 0 } },
         };
 
         static IEnumerable<string> AndroidSources() =>
@@ -454,6 +459,31 @@ namespace Bugsee.WrapperPolicy.Tests
             return manifest.TryGetValue(iface, out var cls) && cls.Supers.Any(s => InterfaceReaches(s, target, manifest));
         }
 
+        /// <summary>The java types a C# type binds to (Unity maps it by its run-time type); null for an enum, a struct or `object`.</summary>
+        static Func<string, bool> CsTypePredicate(string type, Dictionary<string, Proxy> proxies, Dictionary<string, JavaClass> manifest)
+        {
+            Func<string, bool> Prim(string name) => p => p == name;
+            type = Regex.Replace(type.Trim().TrimEnd('?'), "<.*>$", "");
+            switch (type)
+            {
+                case "bool": return Prim("boolean");
+                case "int": return Prim("int");
+                case "long": return Prim("long");
+                case "float": return Prim("float");
+                case "double": return Prim("double");
+                case "short": return Prim("short");
+                case "char": return Prim("char");
+                case "sbyte": return Prim("byte");
+                case "string": return p => p == "java.lang.String" || p == "java.lang.CharSequence" || p == "java.lang.Object";
+                case "AndroidJavaObject":
+                case "AndroidJavaClass": return IsReference;
+            }
+
+            if (proxies.TryGetValue(type, out var proxy))
+                return p => p == "java.lang.Object" || InterfaceReaches(proxy.Interface, p, manifest);
+            return null;
+        }
+
         /// <summary>
         /// The java parameter types an argument can bind to, from its C# type; null when the text does not tell it.
         /// </summary>
@@ -465,29 +495,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Func<string, bool> Prim(string name) => p => p == name;
             Func<string, bool> Str = p => p == "java.lang.String" || p == "java.lang.CharSequence" || p == "java.lang.Object";
             Func<string, bool> Ref = IsReference;
-
-            Func<string, Func<string, bool>> FromCsType = type =>
-            {
-                type = Regex.Replace(type.Trim().TrimEnd('?'), "<.*>$", "");
-                switch (type)
-                {
-                    case "bool": return Prim("boolean");
-                    case "int": return Prim("int");
-                    case "long": return Prim("long");
-                    case "float": return Prim("float");
-                    case "double": return Prim("double");
-                    case "short": return Prim("short");
-                    case "char": return Prim("char");
-                    case "sbyte": return Prim("byte");
-                    case "string": return Str;
-                    case "AndroidJavaObject":
-                    case "AndroidJavaClass": return Ref;
-                }
-
-                if (proxies.TryGetValue(type, out var proxy))
-                    return p => p == "java.lang.Object" || InterfaceReaches(proxy.Interface, p, manifest);
-                return null; // an enum, a struct, `object`: Unity boxes it by its run-time type
-            };
+            Func<string, Func<string, bool>> FromCsType = type => CsTypePredicate(type, proxies, manifest);
 
             if (expr == "true" || expr == "false") return Prim("boolean");
             if (Regex.IsMatch(expr, @"^-?\d+$")) return Prim("int");
@@ -593,44 +601,82 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(typed, Is.GreaterThanOrEqualTo(total * 8 / 10), typed + " of " + total + " argument types known");
         }
 
+        // The wrapper classes whose native receiver is one SDK contract (any of the listed ones): inside such a class an
+        // instance Call must name a method of that contract (or of a type it extends), not just of some class.
+        static readonly Dictionary<string, string[]> ReceiverContracts = new Dictionary<string, string[]>
+        {
+            { "AndroidNetworkEvent", new[] { "exchange.NetworkEvent" } },
+            { "AndroidLogEvent", new[] { "exchange.LogEvent" } },
+            { "AndroidBreadcrumb", new[] { "exchange.Breadcrumb" } },
+            { "AndroidSpanHandle", new[] { "performance.Span", "performance.Transaction" } },
+            { "AndroidReport", new[] { "reporting.Report" } },
+            { "AndroidManagedReport", new[] { "reporting.Report" } },
+            { "AndroidAttachment", new[] { "reporting.Attachment" } },
+            { "AndroidManagedAttachment", new[] { "reporting.Attachment" } },
+        };
+
+        static void AddWithSupers(string cls, Dictionary<string, JavaClass> manifest, List<JavaMethod> into, int depth = 0)
+        {
+            if (depth > 6 || !manifest.TryGetValue(cls, out var jc)) return;
+            into.AddRange(jc.Methods.Where(m => !m.Static));
+            foreach (var super in jc.Supers) AddWithSupers(super, manifest, into, depth + 1);
+        }
+
         [Test]
-        public void Every_instance_Call_names_a_method_of_the_sdk_contracts_or_the_jdk_with_that_arity()
+        public void Every_instance_Call_names_a_method_of_its_receiver_contract_or_the_sdk_or_the_jdk_with_that_arity()
         {
             var manifest = Manifest();
-            var sdk = new Dictionary<string, List<JavaMethod>>();
-            foreach (var m in manifest.Values.SelectMany(c => c.Methods).Where(m => !m.Static))
-            {
-                if (!sdk.TryGetValue(m.Name, out var list)) sdk[m.Name] = list = new List<JavaMethod>();
-                list.Add(m);
-            }
-
+            var allSdk = new List<JavaMethod>();
+            foreach (var c in manifest.Values) allSdk.AddRange(c.Methods.Where(m => !m.Static));
             var failures = new List<string>();
             var seen = 0;
-            // Call("name", ...), Call<T>("name", ...) and the helper wrappers that take the method name first. The receiver of
-            // these is an untyped AndroidJavaObject, so the name and argument count are matched against every class.
+            var scoped = 0;
+            // Call("name", ...), Call<T>("name", ...) and the helper wrappers that take the method name first.
             var callRe = new Regex(@"(?<![\w])(?:Call|Set|CallVoid|CallObject)(?:<([^>]+)>)?\s*\(\s*""(\w+)""");
             foreach (var kv in Sources())
             {
+                // Class bodies of the wrapper classes with a known receiver contract: [start, end) -> methods of that contract.
+                var scopes = new List<(int start, int end, List<JavaMethod> methods)>();
+                foreach (var rc in ReceiverContracts)
+                {
+                    var cm = Regex.Match(kv.Value, @"\bclass\s+" + rc.Key + @"\b");
+                    if (!cm.Success) continue;
+                    var methods = new List<JavaMethod>();
+                    foreach (var c in rc.Value)
+                    {
+                        Assert.That(manifest.ContainsKey("com.bugsee.library.contracts." + c), Is.True, c + " is not in the snapshot");
+                        AddWithSupers("com.bugsee.library.contracts." + c, manifest, methods);
+                    }
+
+                    var open = kv.Value.IndexOf('{', cm.Index);
+                    scopes.Add((open, open + ClassBody(kv.Value, cm.Index).Length, methods));
+                }
+
                 foreach (Match m in callRe.Matches(kv.Value))
                 {
                     seen++;
                     var name = m.Groups[2].Value;
                     var args = SplitArgs(BalancedArgs(kv.Value, m.Index + m.Value.IndexOf('(') + 1)).Skip(1).ToArray();
                     var generic = m.Groups[1].Success ? m.Groups[1].Value.Trim() : null;
-                    var where = Path.GetFileName(kv.Key) + ": " + name + "/" + args.Length;
-                    var inSdk = sdk.TryGetValue(name, out var methods) && methods.Any(j =>
-                        (j.VarArgs ? args.Length >= j.Params.Length - 1 : j.Params.Length == args.Length) && (generic == null || ReturnFits(j, generic)));
+                    var scope = scopes.Where(sc => m.Index > sc.start && m.Index < sc.end).Select(sc => sc.methods).FirstOrDefault();
+                    if (scope != null) scoped++;
+                    var candidates = scope ?? allSdk;
+                    var inSdk = candidates.Any(j => j.Name == name
+                        && (j.VarArgs ? args.Length >= j.Params.Length - 1 : j.Params.Length == args.Length)
+                        && (generic == null || ReturnFits(j, generic)));
                     var inJdk = JdkMethods.TryGetValue(name, out var arities) && arities.Contains(args.Length);
-                    if (!inSdk && !inJdk) failures.Add(where);
+                    if (!inSdk && !inJdk)
+                        failures.Add(Path.GetFileName(kv.Key) + ": " + name + "/" + args.Length + (scope != null ? " (not on the receiver contract)" : ""));
                 }
             }
 
             Assert.That(seen, Is.GreaterThanOrEqualTo(80));
-            Assert.That(failures, Is.Empty, "Instance calls with no such method and argument count in the SDK snapshot or the JDK list");
+            Assert.That(scoped, Is.GreaterThanOrEqualTo(60), "the receiver scopes matched too few calls");
+            Assert.That(failures, Is.Empty, "Instance calls with no such method and argument count on the receiver contract, the SDK snapshot or the JDK list");
         }
 
         [Test]
-        public void Every_AndroidJavaProxy_implements_an_sdk_or_jdk_interface_with_the_methods_it_defines()
+        public void Every_AndroidJavaProxy_implements_an_sdk_or_jdk_interface_with_the_signatures_it_defines()
         {
             var manifest = Manifest();
             var proxies = Proxies(Sources());
@@ -638,23 +684,28 @@ namespace Bugsee.WrapperPolicy.Tests
             var failures = new List<string>();
             foreach (var proxy in proxies.Values)
             {
-                // Methods of the interface and of the interfaces it extends, by name and arity.
-                var known = new HashSet<string>();
-                if (proxy.Interface == "java.lang.Runnable") known.Add("run/0");
-                else if (manifest.ContainsKey(proxy.Interface)) CollectAbstract(proxy.Interface, manifest, known, 0);
+                // Methods of the interface and of the interfaces it extends.
+                var known = new List<JavaMethod>();
+                if (proxy.Interface == "java.lang.Runnable") known.Add(new JavaMethod { Name = "run", Params = new string[0], Ret = "void" });
+                else if (manifest.ContainsKey(proxy.Interface)) AddWithSupers(proxy.Interface, manifest, known);
                 else failures.Add(proxy.Name + ": interface " + proxy.Interface + " is not in the snapshot");
                 if (known.Count == 0) continue;
 
                 // Public instance methods with a Java-style (lower camel) name are the ones Unity matches against the interface
-                // by name and argument count; PascalCase ones (SetFilter, ...) are the C# side's own API.
-                var defined = Regex.Matches(proxy.Body, @"\bpublic\s+(?!override\b|static\b)[\w<>\[\]?.]+\s+(\w+)\s*\(([^)]*)\)\s*(?:\{|=>)");
-                Assert.That(defined.Count, Is.GreaterThanOrEqualTo(1), proxy.Name + ": no public method found");
+                // by name and argument types; PascalCase ones (SetFilter, ...) are the C# side's own API. A C# method returning
+                // something other than void, or taking a type the Java parameter cannot be, is not found by Unity.
+                var defined = Regex.Matches(proxy.Body, @"\bpublic\s+(?!override\b|static\b)([\w<>\[\]?.]+)\s+(\w+)\s*\(([^)]*)\)\s*(?:\{|=>)");
                 var matched = 0;
-                foreach (Match d in defined.Cast<Match>().Where(d => char.IsLower(d.Groups[1].Value[0])))
+                foreach (var d in defined.Cast<Match>().Where(d => char.IsLower(d.Groups[2].Value[0])))
                 {
                     matched++;
-                    var key = d.Groups[1].Value + "/" + SplitParams(d.Groups[2].Value).Length;
-                    if (!known.Contains(key)) failures.Add(proxy.Name + "." + key + " is not a method of " + proxy.Interface);
+                    var name = d.Groups[2].Value;
+                    var csParams = SplitParams(d.Groups[3].Value).Select(CsParamTypeOf).ToArray();
+                    var ok = known.Any(j => j.Name == name && j.Params.Length == csParams.Length && j.Ret == "void" && d.Groups[1].Value == "void"
+                        && csParams.Select((t, i) => CsTypePredicate(t, proxies, manifest)?.Invoke(j.Params[i]) ?? true).All(x => x));
+                    if (!ok)
+                        failures.Add(proxy.Name + "." + d.Groups[1].Value + " " + name + "(" + string.Join(", ", csParams) + ") does not implement "
+                                     + proxy.Interface + ": " + string.Join(" | ", known.Where(j => j.Name == name)));
                 }
 
                 Assert.That(matched, Is.GreaterThanOrEqualTo(1), proxy.Name + " defines no method of " + proxy.Interface);
@@ -663,12 +714,8 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(failures, Is.Empty);
         }
 
-        static void CollectAbstract(string iface, Dictionary<string, JavaClass> manifest, HashSet<string> into, int depth)
-        {
-            if (depth > 6 || !manifest.TryGetValue(iface, out var cls)) return;
-            foreach (var m in cls.Methods.Where(m => !m.Static)) into.Add(m.Name + "/" + m.Params.Length);
-            foreach (var super in cls.Supers) CollectAbstract(super, manifest, into, depth + 1);
-        }
+        static string CsParamTypeOf(string parameter) => Regex.Match(parameter.Trim(), @"^(.+?)\s+\w+(?:\s*=.*)?$").Groups[1].Value;
+
 
         // ---- raw JNI (AndroidJNI.GetMethodID & co.) in the frame capturer ----------------------------------------------------
 
@@ -773,7 +820,11 @@ namespace Bugsee.WrapperPolicy.Tests
                         checkedCount++;
                         if (m.Groups[1].Value.EndsWith("FieldID"))
                         {
-                            if (!jc.Fields.Contains(name)) failures.Add(file + ": " + cls + " has no field " + name);
+                            var (_, fieldType) = ParseDescriptor("()" + descriptor);
+                            var isStaticField = m.Groups[1].Value.StartsWith("GetStatic");
+                            if (!jc.Fields.TryGetValue(name, out var field) || field.type != fieldType || field.isStatic != isStaticField)
+                                failures.Add(file + ": " + (isStaticField ? "static " : "") + cls + "." + name + " : " + descriptor + " is not in the snapshot"
+                                             + (jc.Fields.TryGetValue(name, out field) ? "; has " + (field.isStatic ? "static " : "") + field.type : "; no such field"));
                             continue;
                         }
 
