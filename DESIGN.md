@@ -172,7 +172,7 @@ Always register (Flutter-style), regardless of whether the app subscribed yet:
 
 ### Facade (`Bugsee`)
 
-Lifecycle: `Launch`, `Relaunch`, `Stop`, `GetLaunched`/`Status`, `GetLaunchOptions`, `DeleteCollectedDataOnDevice`  
+Lifecycle: `Launch`, `Relaunch`, `Stop`, `GetLaunched`/`Status`, `GetLaunchOptions`, `DeleteCollectedDataOnDevice` (also `DeleteCollectedDataOnDeviceAsync` and a `DeleteScope`)  
 Blackout: `StartBlackout`, `EndBlackout`, `IsBlackout` (obsolete Pause/Resume → blackout if shimmed)  
 Logging: `Log`, `Trace`, `Event`, `LogException`, `LogUnhandledException`, `TestCrash`  
 Reporting: `ShowReportDialog`, `Upload`, `CreateReport`, `SetReportHandler`, `Upload(Report)`  
@@ -223,6 +223,15 @@ Feedback: `FeedbackListener`, …
 7. Appearance + exchange factory + APM
 8. iOS bridge against nextgen SPM (**crash/identity/filters/handler/lifecycle wired**; remote SPM when published)
 9. Optional legacy `BugseePlugin` compat shim (if product needs it)
+
+## Releasing (wrapper build id)
+
+`environment.sdk.wrapper.build` is the build id stamped into the package; `main` keeps the placeholder `dev`, which the wrapper reports as no build.
+
+1. Branch from `main` at the commit to release (`git switch -c release/vX.Y.Z origin/main`). Bump the version in `Tools~/versions.env` and run `Tools~/scripts/update-native-sdks.sh` if it changes, and update `CHANGELOG.md`; commit.
+2. `Tools~/scripts/stamp-wrapper-build.sh` writes the short hash of that commit (it refuses a dirty tree) into the C# and Java constants; commit it. The id names the commit before the stamp commit, so after it only CHANGELOG and the build/version lines of the two constant files, `package.json` and `versions.env` may change (an SDK pin or other code change fails the check; re-stamp instead).
+3. `Tools~/scripts/check-release-build.sh vX.Y.Z`, then `git tag vX.Y.Z` and `git push origin vX.Y.Z`. Run the check before pushing the tag: the `Release check` workflow runs it again on the pushed `v<digit>*` tag, but it only reports, it cannot stop a tag that exists. A prerelease tag (`v0.1.0-rc1`) needs `package.json` `"version": "0.1.0-rc1"`.
+4. Do not merge the release branch into `main`: that would make `main` report the release hash. The CI job "Wrapper build id is the dev placeholder" fails a push or PR that does. Carry release-only edits (CHANGELOG) to `main` by cherry-pick.
 
 ## Risks
 
