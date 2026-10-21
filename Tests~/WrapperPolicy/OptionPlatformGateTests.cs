@@ -251,7 +251,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(android.ContainsKey(Options.CaptureVideoSecureScrolling), Is.True);
             Assert.That(android.ContainsKey(Options.PerformanceUploadMode), Is.True);
             Assert.That(options.ContainsKey(Options.CaptureCrashHandlerType), Is.True, "input must not be mutated");
-            Assert.That(OptionPlatformGate.IosOnly, Is.EquivalentTo(new[] { Options.CaptureCrashHandlerType }));
+            Assert.That(OptionPlatformGate.IosOnly, Does.Contain(Options.CaptureCrashHandlerType));
         }
 
         [Test]

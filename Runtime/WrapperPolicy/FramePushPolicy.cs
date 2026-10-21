@@ -184,10 +184,10 @@ namespace Bugsee.WrapperPolicy
             if (parts.Length < 3) return false;
             int end = 0;
             while (end < parts[2].Length && char.IsDigit(parts[2][end])) end++;
-            return int.TryParse(parts[0], out major)
-                && int.TryParse(parts[1], out minor)
+            return int.TryParse(parts[0], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out major)
+                && int.TryParse(parts[1], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out minor)
                 && end > 0
-                && int.TryParse(parts[2].Substring(0, end), out patch);
+                && int.TryParse(parts[2].Substring(0, end), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out patch);
         }
 
         /// <summary>

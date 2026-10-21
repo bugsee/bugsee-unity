@@ -784,7 +784,11 @@ namespace Bugsee.Platform.IOS
 
         public void CaptureViewHierarchy() => _bugsee_capture_view_hierarchy();
 
-        public void ResetVideoCapturePermission() { }
+        static readonly UnsupportedApiNotice _resetPermissionNotice = new UnsupportedApiNotice(Debug.LogWarning);
+
+        // iOS 7.0.0-beta7 has no video capture permission to reset: say so once instead of doing nothing silently.
+        public void ResetVideoCapturePermission() =>
+            _resetPermissionNotice.Once(UnsupportedApiNotice.ResetVideoCapturePermissionMessage);
 
         public IAppearance GetAppearance() =>
             _appearance ?? (_appearance = new IosAppearance());

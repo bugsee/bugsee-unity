@@ -71,6 +71,21 @@ jobs:
           Write-Host "Windows smoke tests passed: $passed of $($r.Count)"
           if ($passed -lt 12) { Write-Error "Expected at least 12 executed WindowsNativeSmokeTests results, got $passed"; exit 1 }
 
+  wrapper-build-placeholder:
+    name: Wrapper build id is the dev placeholder
+    # Only a release branch carries a stamped id (Tools~/scripts/stamp-wrapper-build.sh); one merged into main would
+    # make every later build report that release's hash.
+    if: github.event_name == 'push' || github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check
+        run: bash Tools~/scripts/check-release-build.sh --dev
+
   unity-compile:
     name: Unity C# compile check
     runs-on: ubuntu-latest
