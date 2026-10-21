@@ -79,6 +79,19 @@ namespace Bugsee.WrapperPolicy.Tests
             });
         }
 
+        [Test]
+        public void The_mapping_notice_writes_gregorian_dates_under_every_culture()
+        {
+            var start = new DateTime(2026, 10, 20, 12, 0, 0, DateTimeKind.Utc);
+            var stale = new MappingFileInfo("/out/mapping.txt", 10, start.AddMinutes(-5));
+            UnderEachCulture(() =>
+            {
+                var text = AndroidMappingNotice.MissingMapping(true, AndroidOutputFormat.ExportProject, "Game_mapping.txt",
+                    new[] { "/out" }, new[] { stale }, start, "1.2.3", "45");
+                Assert.That(text, Does.Contain("last written 2026-10-20 11:55:00Z").And.Contain("started 2026-10-20 12:00:00Z"));
+            });
+        }
+
         // ---- source scan (best effort, see the class comment) --------------------------------------------------------
 
         static string RepoRoot()

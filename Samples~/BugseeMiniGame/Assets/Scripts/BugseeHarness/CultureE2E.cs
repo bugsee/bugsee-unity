@@ -54,6 +54,7 @@ namespace Bugsee.Sample
                 // Also when the coroutine is stopped part way: the rest of the sample must not run under de-DE.
                 CultureInfo.CurrentCulture = saved;
                 CultureInfo.DefaultThreadCurrentCulture = savedDefault;
+                Bugsee.SetBreadcrumbFilter(null); // also when stopped part way, so the filter cannot rewrite later breadcrumbs
             }
             Debug.Log("[Sample] culture e2e done failures=" + _failures);
         }
@@ -101,7 +102,6 @@ namespace Bugsee.Sample
             Check(culture, "SMOKE ONLY: event, trace, exception and breadcrumb calls went through", ok, "no exception, what native stored is not checked");
             yield return new WaitForSeconds(3f);
             Debug.Log("[Sample] culture INFO breadcrumb filter " + (_crumbData ?? "did not run (breadcrumb capture may be off)"));
-            Bugsee.SetBreadcrumbFilter(null);
         }
 
         static void Expect(string culture, string name, object actual, object expected)
