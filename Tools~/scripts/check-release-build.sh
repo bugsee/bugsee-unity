@@ -6,7 +6,7 @@
 #
 # Release checks: C# and Java constants agree; not `dev`; a valid shape; when hash-shaped, that commit is an ANCESTOR of
 # HEAD and HEAD differs from it only in what a release edits (CHANGELOG.md and the build/version lines of the two constant
-# files, package.json and Tools~/versions.env), so the id really names the code that was tagged; the package.json, C# and Java versions agree, and the tag is v<that version>
+# files, package.json and Tools~/versions.env), so the id really names the code that was tagged; the package.json, C#, Java and versions.env versions agree, and the tag is v<that version>
 # (a prerelease tag such as v0.1.0-rc1 needs package.json "0.1.0-rc1").
 # Run it before `git push --tags`; the release-check workflow repeats it after the push and can only report.
 set -euo pipefail
@@ -63,8 +63,10 @@ fi
 VERSION="$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' "${ROOT_DIR}/package.json" | head -n 1)"
 CS_VERSION="$(read_const Runtime/BugseePackageVersion.cs 'public const string Version = ')"
 JAVA_VERSION="$(read_const Plugins/Android/UnityWrapperIdentity.java 'static final String VERSION = ')"
-[[ -n "${VERSION}" && "${VERSION}" == "${CS_VERSION}" && "${VERSION}" == "${JAVA_VERSION}" ]] \
-  || fail "the versions disagree: package.json '${VERSION}', C# '${CS_VERSION}', Java '${JAVA_VERSION}' (the wrapper reports the C#/Java one)"
+# versions.env is the source the other three are generated from.
+ENV_VERSION="$(sed -nE 's/^BUGSEE_PACKAGE_VERSION="([^"]*)".*/\1/p' "${ROOT_DIR}/Tools~/versions.env" 2>/dev/null | head -n 1)"
+[[ -n "${VERSION}" && "${VERSION}" == "${CS_VERSION}" && "${VERSION}" == "${JAVA_VERSION}" && "${VERSION}" == "${ENV_VERSION}" ]] \
+  || fail "the versions disagree: package.json '${VERSION}', C# '${CS_VERSION}', Java '${JAVA_VERSION}', versions.env '${ENV_VERSION}' (the wrapper reports the C#/Java one)"
 if [[ -n "${ARG}" ]]; then
   [[ "${ARG}" == "v${VERSION}" ]] || fail "tag ${ARG} does not match package.json version ${VERSION}"
 fi

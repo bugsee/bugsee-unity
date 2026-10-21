@@ -1,6 +1,8 @@
 #if UNITY_ANDROID && !UNITY_EDITOR
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using Bugsee.WrapperPolicy;
 using UnityEngine;
 
 namespace Bugsee.Platform.Android
@@ -10,6 +12,7 @@ namespace Bugsee.Platform.Android
     {
         public static AndroidJavaObject Box(object value)
         {
+            value = AttributeWire.ToNative(value);
             if (value == null) return null;
             if (value is string s) return new AndroidJavaObject("java.lang.String", s);
             if (value is bool b) return new AndroidJavaObject("java.lang.Boolean", b);
@@ -19,10 +22,18 @@ namespace Bugsee.Platform.Android
             if (value is double d) return new AndroidJavaObject("java.lang.Double", d);
             if (value is byte by) return new AndroidJavaObject("java.lang.Byte", (sbyte)by);
             if (value is short sh) return new AndroidJavaObject("java.lang.Short", sh);
-            return new AndroidJavaObject("java.lang.String", value.ToString());
+            return new AndroidJavaObject("java.lang.String", Convert.ToString(value, CultureInfo.InvariantCulture));
         }
 
-        public static object Unbox(AndroidJavaObject javaObject)
+        /// <summary>
+        /// Unbox for attribute values: integers read back as long and floating point as double, the kinds iOS returns,
+        /// whatever width was set.
+        /// </summary>
+        public static object UnboxAttribute(AndroidJavaObject javaObject) => Unbox(javaObject, true);
+
+        public static object Unbox(AndroidJavaObject javaObject) => Unbox(javaObject, false);
+
+        static object Unbox(AndroidJavaObject javaObject, bool widen)
         {
             if (javaObject == null) return null;
 
@@ -40,32 +51,42 @@ namespace Bugsee.Platform.Android
                 case "java.lang.Boolean":
                     return javaObject.Call<bool>("booleanValue");
                 case "java.lang.Integer":
-                    return javaObject.Call<int>("intValue");
+                    return widen ? (object)(long)javaObject.Call<int>("intValue") : javaObject.Call<int>("intValue");
                 case "java.lang.Long":
                     return javaObject.Call<long>("longValue");
                 case "java.lang.Float":
-                    return javaObject.Call<float>("floatValue");
+                    return widen ? (object)WidenFloat(javaObject.Call<float>("floatValue")) : javaObject.Call<float>("floatValue");
                 case "java.lang.Double":
                     return javaObject.Call<double>("doubleValue");
                 case "java.lang.Byte":
-                    return (byte)javaObject.Call<sbyte>("byteValue");
+                    return widen ? (object)(long)(byte)javaObject.Call<sbyte>("byteValue") : (byte)javaObject.Call<sbyte>("byteValue");
                 case "java.lang.Short":
-                    return javaObject.Call<short>("shortValue");
+                    return widen ? (object)(long)javaObject.Call<short>("shortValue") : javaObject.Call<short>("shortValue");
                 case "java.lang.Character":
                     return javaObject.Call<char>("charValue");
             }
 
             if (LooksLikeMap(name) || HasEntrySet(javaObject))
-                return MapToDictionary(javaObject);
+                return MapToDictionary(javaObject, widen);
 
             // Lifecycle payloads are typically String snapshot/request ids;
             // other objects fall back to toString for a usable managed value.
             return javaObject.Call<string>("toString");
         }
 
+        // 1.1f as a double is 1.100000023841858; iOS reads the 1.1 the SDK stored, so use the shortest text that round-trips.
+        static double WidenFloat(float f) =>
+            float.IsNaN(f) || float.IsInfinity(f)
+                ? f
+                : double.Parse(f.ToString("R", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
+
         public static object UnboxLifecycleData(AndroidJavaObject data) => Unbox(data);
 
-        public static Dictionary<string, object> MapToDictionary(AndroidJavaObject map)
+        public static Dictionary<string, object> MapToDictionary(AndroidJavaObject map) => MapToDictionary(map, false);
+
+        public static Dictionary<string, object> AttributesToDictionary(AndroidJavaObject map) => MapToDictionary(map, true);
+
+        static Dictionary<string, object> MapToDictionary(AndroidJavaObject map, bool widen)
         {
             var result = new Dictionary<string, object>();
             if (map == null) return result;
@@ -79,7 +100,7 @@ namespace Bugsee.Platform.Android
                     {
                         var key = entry.Call<AndroidJavaObject>("getKey")?.Call<string>("toString");
                         if (string.IsNullOrEmpty(key)) continue;
-                        result[key] = Unbox(entry.Call<AndroidJavaObject>("getValue"));
+                        result[key] = Unbox(entry.Call<AndroidJavaObject>("getValue"), widen);
                     }
                 }
             }

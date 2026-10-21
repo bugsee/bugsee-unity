@@ -86,6 +86,8 @@ namespace Bugsee.WrapperPolicy.Tests
             File.WriteAllText(Path.Combine(_root, Java), JavaDev);
             File.WriteAllText(Path.Combine(_root, "package.json"), "{\n  \"name\": \"com.bugsee.unity\",\n  \"version\": \"1.2.3\"\n}\n");
             File.WriteAllText(Path.Combine(_root, "CHANGELOG.md"), "x\n");
+            Directory.CreateDirectory(Path.Combine(_root, "Tools~"));
+            File.WriteAllText(Path.Combine(_root, "Tools~", "versions.env"), "# pins\nBUGSEE_PACKAGE_VERSION=\"1.2.3\"\nANDROID_SDK_VERSION=\"7.4.2\"\n");
             Git("init", "-q");
             Commit("base");
         }
@@ -323,6 +325,7 @@ namespace Bugsee.WrapperPolicy.Tests
             File.WriteAllText(Path.Combine(_root, Cs), ReadCs().Replace("Version = \"1.2.3\"", "Version = \"1.2.4\""));
             File.WriteAllText(Path.Combine(_root, Java), ReadJava().Replace("VERSION = \"1.2.3\"", "VERSION = \"1.2.4\""));
             File.WriteAllText(Path.Combine(_root, "package.json"), "{\n  \"name\": \"com.bugsee.unity\",\n  \"version\": \"1.2.4\"\n}\n");
+            File.WriteAllText(Path.Combine(_root, "Tools~", "versions.env"), "# pins\nBUGSEE_PACKAGE_VERSION=\"1.2.4\"\nANDROID_SDK_VERSION=\"7.4.2\"\n");
             Commit("bump version");
             var output = Script("check-release-build.sh", out var exit, "v1.2.4");
             Assert.That(exit, Is.EqualTo(0), output);
@@ -350,6 +353,17 @@ namespace Bugsee.WrapperPolicy.Tests
             var output = Script("check-release-build.sh", out var exit, "v1.2.4");
             Assert.That(exit, Is.Not.EqualTo(0), output);
             Assert.That(output, Does.Contain("versions disagree"));
+        }
+
+        [Test]
+        public void Check_refuses_a_versions_env_version_that_the_others_do_not_follow()
+        {
+            Script("stamp-wrapper-build.sh", out _);
+            File.WriteAllText(Path.Combine(_root, "Tools~", "versions.env"), "# pins\nBUGSEE_PACKAGE_VERSION=\"1.2.4\"\nANDROID_SDK_VERSION=\"7.4.2\"\n");
+            Commit("versions.env only");
+            var output = Script("check-release-build.sh", out var exit, "v1.2.3");
+            Assert.That(exit, Is.Not.EqualTo(0), output);
+            Assert.That(output, Does.Contain("versions.env '1.2.4'"));
         }
 
         [Test]
