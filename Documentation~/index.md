@@ -49,6 +49,32 @@ Bugsee.Launch(appToken, options);
 
 `CaptureManagedExceptions` is independent of `DetectAndReportCrash`. Omit it to keep the default (enabled). `CaptureUnobservedTaskExceptions` (default enabled, needs `CaptureManagedExceptions`) controls whether `TaskScheduler.UnobservedTaskException` is reported; set it to `false` for apps whose fire-and-forget tasks fault on purpose. A `Relaunch` applies a changed value. Unity raises that event only after the faulted `Task` is garbage-collected, so the handled error arrives late and at a time you do not control.
 
+### iOS-only launch options
+
+`IOSLaunchOptions` has typed properties for the iOS SDK 7.0.0-beta7 options that Android has no counterpart for. They are iOS only: on Android the wrapper drops them before launch (`OptionPlatformGate`), so setting one has no effect there. The Android SDK would drop an unknown key too, but the wrapper does not depend on that. The same keys are available as `Options` constants for `OptionsBuilder` and `SetCustomOption`, with the same gating (`OptionsBuilder` and `SetCustomOption` do no range checks; `OptionsBuilder` also has `SetCrashHandlerType`, `SetCrashSignals`, `SetDataEncryption` and `SetReportingUIStyle`). The iOS SDK drops a host option equal to its default from the host launch options; `GetLaunchOptions` always shows the effective value.
+
+| Property | Key suffix | Type, default |
+|---|---|---|
+| `CrashHandlerType` | `capture.crash-handler-type` | `CrashHandlerType`, `MachAndBSD` |
+| `CrashSignals` | `capture.crash-signals` | `[Flags] CrashSignals` bit set, `Default` (every signal). Leave `Segv`/`Bus` out only if a hosted runtime handles them itself; leaving out `Abrt` stops uncaught Objective-C exceptions from being reported. `Default` is only honoured on its own |
+| `CaptureOnDeviceSymbolication` | `capture.on-device-symbolication` | bool, false |
+| `CrashSwiftAsyncStackTraces` | `detect.crash.swift_async_stacktraces` | bool, true |
+| `CrashFillEmptyExceptionStacks` | `detect.crash.fill_empty_exception_stacks` | bool, false (can change crash grouping) |
+| `CaptureWebSocket` | `capture.websocket` | bool, true |
+| `CaptureAVPlayer` | `capture.avplayer` | bool, false. Native AVPlayerLayer only, not Unity's VideoPlayer |
+| `CaptureSampleBufferDisplayLayer` | `capture.sample-buffer-display-layer` | bool, false |
+| `CaptureCameraPreview` | `capture.camera-preview` | bool, false. Native AVCaptureVideoPreviewLayer only, not Unity's WebCamTexture. Privacy: records what the camera sees |
+| `CaptureBluetoothStatus` | `capture.bluetooth-status` | bool, false. Reports a status only if the app itself asked for and got Bluetooth permission (the SDK never asks); otherwise unknown or unauthorized |
+| `CaptureDiskSpace` | `capture.disk-space` | bool, false. Apple's reason for the API forbids sending it off the device: use it in development builds |
+| `CaptureDeviceNetworkNames` | `capture.device-network-names` | bool, false. Sends the device name and Wi-Fi network name (personal data; redacted otherwise); the Wi-Fi name also needs an Apple entitlement and location permission |
+| `CaptureVideoPrivacyBlur` | `capture.video.privacy-blur` | bool, true. Off, the video freezes for a transition instead of blurring it |
+| `CaptureVideoMinFrameRate`, `CaptureVideoMaxFrameRate` | `capture.video.min-frame-rate`, `capture.video.max-frame-rate` | int fps, the SDK clamps to 0..30; a minimum needs a maximum at or above it (otherwise it is dropped); 0 = derived from `FrameRate`. Default 0 |
+| `DataEncryption` | `config.data-encryption` | `DataEncryptionMode` (`None`, `OnDevice`, `EndToEnd`), `None`. `EndToEnd` leaves some features out, such as the video preview |
+| `BuildTarget`, `BuildType` | `config.build-target`, `config.build-type` | string, none |
+| `ReportingUIStyle` | `reporting.ui.style` | `ReportingUIStyle` (`Light`, `Dusk`, `BasedOnStatusBar`, `System`), `System` |
+
+Three keys have no property: `capture.logs.oslog` (the iOS SDK accepts and ignores it, permanently disabled), `capture.status-bar-info` (only a DEBUG build of the SDK reads it; the published SDK never does) and `capture.mach-exceptions` (removed from the SDK, which ignores it with a warning; use `CrashHandlerType`).
+
 ## Lifecycle: Launch, Relaunch, Stop, Delete
 
 `Launch`, `Relaunch`, `Stop` and `DeleteCollectedDataOnDevice` do not wait for the native SDK to finish. They are handed to the Unity main thread. Called from another thread, on Android the call is queued there and never refused (it waits for the main thread). On iOS the caller waits up to 5 s for the main thread to take it; if it does not, the request does not run (an error is logged, `LaunchAsync`/`RelaunchAsync` complete `false`, `StopAsync` faults with `TimeoutException`).
@@ -62,7 +88,7 @@ What each call guarantees:
 
 - **Stop**: its completion runs when the SDK has reported the stop finished, or at the soft deadline. A `Launch`/`Relaunch` requested during the stop waits for it, and the completion runs before that `Launch` does. If the completion itself calls `Launch`, that later request replaces the waiting one (it completes `false`) and is the one that starts. On iOS the completion is dropped only if the call never ran (the 5 s hand-off) or an earlier completion of the same stop already launched; `StopAsync` completes either way. To change the token or options of a running SDK, call `Stop` and launch from its completion.
 - **Launch / Relaunch**: starts a session when the SDK accepts it. A Launch while the SDK is already running ignores the new token and native options. On Android it also leaves the managed capture hooks unchanged; on iOS the managed capture options are applied again, so a repeated `Launch` with different capture options can change (or switch off) managed capture of a running session. Android ignores a `Relaunch` unless the SDK is `Launched`.
-- **DeleteCollectedDataOnDevice**: stops the SDK if needed (joining a stop in flight), then deletes the data collected on the device, including finished report bundles, and leaves the SDK stopped: call `Launch` again to resume. It has no result. A failure is only logged: on iOS a warning when the SDK reports the wipe failed or had not finished stopping, on Android a warning when the native delete fails or does not answer in time.
+- **DeleteCollectedDataOnDevice**: stops the SDK if needed (joining a stop in flight), then deletes the data collected on the device, including finished report bundles, and leaves the SDK stopped: call `Launch` again to resume. It has no result. A failure is only logged: on iOS a warning when the SDK reports the wipe failed or had not finished stopping, on Android a warning when the native delete fails or does not answer in time. To be told the result, or to delete less, use `DeleteCollectedDataOnDeviceAsync(DeleteScope scope = DeleteScope.Everything)` (a `Task<bool>`) or the synchronous `DeleteCollectedDataOnDevice(DeleteScope scope)`. `DeleteScope.CaptureOnly` deletes the recorded capture and keeps the report snapshots and the report bundles waiting for upload (Android `includingIntermediate=false, includingBundles=false`, iOS `includingIntermediate:NO`); `CaptureAndIntermediate` also deletes the report snapshots (Android `true, false`, iOS `includingIntermediate:YES`); `Everything` is the default and what the plain call does. The task completes true when the SDK reported the data deleted and false when it refused, gave no answer in time or, on iOS, the call did not reach the Unity main thread within 5 s (nothing was started). A timeout is a false, not a `TimeoutException` as with `StopAsync`. On Android the time is counted from when this delete starts (after the operations requested before it) and includes its stop: 10 s. On iOS the stop and the wipe each give up after 60 s, so up to about 120 s, more behind another wipe. The wipe can still finish after a false. The SDK is left stopped either way. A value that is not a `DeleteScope` throws `ArgumentOutOfRangeException`. Requests run in request order. On iOS, when no launch is deferred behind the wipe, a delete of the same scope as the wipe in flight shares that wipe and its result (a launch requested before it is cancelled by it, and it then gets its own wipe), and one of another scope waits for it and then starts its own (never two native wipes at once while the first is within its 60 s hard deadline: after that give-up a queued wipe of another scope may begin while the abandoned native wipe is still running), so a narrow request is never widened. "Kept" means the native SDK's data on disk only: as with `Stop`, an unfinished managed `IReport` and an in-flight managed upload are dropped by every scope. On Android a delete queued behind one that has not started shares its wipe when it has the same scope; one that arrives while another is already running is a wipe of its own. On the other players, the Editor included, nothing is collected and the task completes true.
 
 Async variants:
 
@@ -108,7 +134,7 @@ Other platform differences, not aligned:
 
 **iOS and tvOS simulator:** the SDK's simulator build has no crash reporter (bugsee-cocoa#241), so native crashes (`DetectAndReportCrash`, `Bugsee.TestCrash`), hang detection, `LogError` and managed exceptions, handled (`LogException`, `Debug.LogException`) and unhandled (`LogUnhandledException`, `AppDomain.UnhandledException`), are **not reported** there; they are reported only from a device. Manual bug reports and uploads, logs, events and video still work. The package warns once at the first launch (`[Bugsee] Running on the simulator` in the Unity log, and in the native log). Validate crash and exception reporting on a physical device.
 
-Managed exceptions use the **UnityManagedException** JSON-in-reason contract (`name`, `reason`, `frames[{trace,address?}]`, `signature`, `buildID`, `moduleUUID`, optional nested `cause`).
+Managed exceptions use the **UnityManagedException** JSON-in-reason contract (`name`, `reason`, `frames[{trace,address?}]`, `signature`, `buildID`, `moduleUUID`, optional nested `cause`). The nested `cause` reaches the SDK and the server inside the reason text, but the worker does not read it yet (see the managed-stack notes below): until it does, only the outermost exception is shown, symbolicated and grouped; the inner exceptions are not displayed.
 
 ### How to get C# class + file:line on `LogException`
 
@@ -406,7 +432,7 @@ Wired: Launch/Stop, blackout, log/trace/event, exceptions (JSON-in-reason), Test
 
 The bridge builds against both native APIs. From iOS SDK 7.0.0-beta7 a logged exception takes only `domain` (the wrapper passes `UnityManagedException`, as on Android) and `skipFrames` (which Android ignores since the wrapper's Java stack was dropped, #107), so `Bugsee.LogException(exception, options)` honours only the `skipFrames` key on iOS. `labels`, `includeVideo` and `mergingRules` are dropped (with a one-time warning in the Unity console and the native log): a logged exception takes no labels and always carries the live capture. (Labels are not attached through a report handler either: nothing on the report identifies it as the exception's, and a wrong label is worse than none.) On the simulator the SDK files no logged exception (see the simulator note above). Exceptions are only validated end to end on a device.
 
-`DeleteCollectedDataOnDevice` uses the SDK's delete-everything form (it also deletes report bundles not uploaded yet and unsent crashes).
+`DeleteCollectedDataOnDevice` and `DeleteScope.Everything` use the SDK's delete-everything form (it also deletes report bundles not uploaded yet and unsent crashes); the narrower scopes call `deleteCollectedDataOnDevice:completion:` with `includingIntermediate` NO or YES, which keeps the bundles and the unsent crashes.
 
 ### Developing against an unreleased iOS SDK
 

@@ -128,7 +128,7 @@ runs scenarios on one Android device.
 
 | Scenario | What it does |
 |----------|--------------|
-| `interactions`, `actions`, `filters`, `presets` | self-checking (`PASS`/`FAIL` lines), described below |
+| `interactions`, `actions`, `filters`, `presets`, `nested` | self-checking (`PASS`/`FAIL` lines), described below; `nested` sends a handled exception with a three-level `InnerException` chain and checks that its payload has 3 levels and 2 `cause` keys (`[Sample] nested PASS levels=3 causes=2`) |
 | `sig` (default), `handled`, `unhandled`, `pipeline`, `upload`, `labels`, `logerror` | send handled / unhandled exceptions, a pipeline exception, a plain `Upload`, a handled exception with labels, or a Unity `LogError`, to see that a report arrives (`sig` sends three, to check the grouping signature) |
 | `crash`, `native`, `abort`, `fatal`, `java`, `hang` | kill the process (or block the main thread) for the crash matrix; one per run |
 | `sigraise` | raise SIGSEGV (iOS only; does nothing on Android) |
@@ -141,6 +141,7 @@ runs scenarios on one Android device.
 | `blackout` | logs `IsBlackout` after StartBlackout, EndBlackout, StartBlackout + Relaunch, StartBlackout + Stop and a fresh Launch, tagged `[BLACKOUT]` |
 | `videoperm` | calls `ResetVideoCapturePermission` twice and counts the wrapper's warning for the iOS no-op (expected: iOS one, Android none); logs `[VIDPERM] RESULT PASS` or `FAIL`; the iOS warning is once per process, so run it in a fresh process (an earlier Reset call from the debug panel makes it report `already warned` and FAIL) |
 | `delete` | `DeleteCollectedDataOnDevice`, a relaunch, then an upload |
+| `deletescope` | self-checking (`PASS`/`FAIL`): for each `DeleteScope`, makes capture data, a draft report and a report whose upload fails (the SDK is relaunched against a dead endpoint, so its bundle waits for upload), calls `DeleteCollectedDataOnDeviceAsync` and checks the result, the status and the SDK's files left on disk (capture, snapshots, bundles); also the plain call, the default argument, the synchronous scoped overload, two scopes at once and a launch right after the delete |
 | `apm`, `apmoff`, `apmleak`, `apmpool`, `apmthrnew`, `apmthrjava`, `apmthrui` | APM stress and API-shape checks |
 | `shapes` | throw shapes for frame/IP pairing, logged tagged `[SHAPE]` |
 | `none` | arm nothing (recovery launch) |
@@ -203,8 +204,7 @@ only the video options, on iOS nothing).
 `BUGSEE_E2E_SCENARIO=presets` waits for the SDK to launch, relaunches with no options to learn each option's SDK default, then
 relaunches with each preset in turn (`RelaunchAsync`) and compares every option the sample sent with what
 `Bugsee.GetLaunchOptions()` reports (numbers by value; the Android SDK reports enum options by name, such as `V2` or `Verbose`, and
-never reports the Unity-only options, so those are not compared there; the SDK's own `$$` keys and, on iOS, the Android-only options
-are left out; at least 5 keys must be compared). An option whose value equals the SDK default proves nothing, so the scenario counts
+never reports the Unity-only options, so those are not compared there; the SDK's own `$$` keys, on iOS the Android-only options and on Android the iOS-only options (the gate drops them) are left out; at least 5 keys must be compared). An option whose value equals the SDK default proves nothing, so the scenario counts
 only the options that differ from the default: every non-default preset must have at least 8, every option the presets set must
 differ from the default in at least one preset, and each preset must read back differently from the launch before it. It also
 checks that the Relaunch bubble keeps the whole set, that a relaunch with only `Duration` applies it and leaves the others at their
@@ -215,6 +215,12 @@ What this does not prove: on iOS the readback shows the SDK stored the host opti
 checked as such: with `CaptureBreadcrumbs` a breadcrumb reaches the breadcrumb filter and without it none does; with `CaptureNetwork`
 a network event reaches the network filter and without it none does. The effect of the other options is not observable from the sample.
 It logs `[Sample] presets PASS|FAIL ...` lines ending in `presets e2e done failures=N`.
+
+The iOS presets also set the typed iOS-only options of `IOSLaunchOptions` (`CrashSignals`, `CaptureWebSocket`, `CaptureAVPlayer`,
+`CaptureVideoPrivacyBlur`, the frame-rate limits, `DataEncryption`, `ReportingUIStyle`, `BuildTarget`, ... #97); `minimal` and `detect`
+set the booleans to opposite values and the `privacy` preset sets some through `OptionsBuilder`. Android never sets them and drops them
+if they are sent (the `options` scenario sends every one and checks that Android reports none). `detect` turns on
+`CaptureBluetoothStatus`, which only reports a status when the app itself got Bluetooth permission (the sample never asks, so it reads unknown).
 
 ### Filter check (`filters` e2e scenario)
 

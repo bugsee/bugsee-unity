@@ -306,6 +306,13 @@ namespace Bugsee.Sample
                         _pendingE2EFire = "A:e2e-handled-" + _e2eRunId;
                     }
                     break;
+                case "nested":
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 99;
+                        _pendingE2EFire = "E:e2e-nested-" + _e2eRunId;
+                    }
+                    break;
                 case "unhandled":
                     if (_e2ePhase == 0 && _e2eTimer >= 5f)
                     {
@@ -361,6 +368,14 @@ namespace Bugsee.Sample
                     {
                         _e2ePhase = 99;
                         StartCoroutine(InteractionsE2E.Run(this));
+                    }
+                    break;
+                case "deletescope":
+                    // Deletes with every DeleteScope and checks the result and what is left on disk (issue #101).
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        StartCoroutine(DeleteScopeE2E.Run(this));
                     }
                     break;
                 case "filters":
@@ -551,7 +566,26 @@ namespace Bugsee.Sample
             Probe(options, Options.DetectAndReportExitOther, true);
             Probe(options, Options.ReportHandlerCallbackTimeout, 7000);
 #endif
+            // Every iOS-only key, type-correct and non-default: iOS must report each as sent, Android must drop each (#97).
             Probe(options, Options.CaptureCrashHandlerType, 3);
+            Probe(options, Options.CaptureCrashSignals, (int)(CrashSignals.Abrt | CrashSignals.Trap));
+            Probe(options, Options.CaptureOnDeviceSymbolication, true);
+            Probe(options, Options.DetectCrashSwiftAsyncStackTraces, false);
+            Probe(options, Options.DetectCrashFillEmptyExceptionStacks, true);
+            Probe(options, Options.CaptureWebSocket, false);
+            Probe(options, Options.CaptureAVPlayer, true);
+            Probe(options, Options.CaptureSampleBufferDisplayLayer, true);
+            Probe(options, Options.CaptureCameraPreview, true);
+            Probe(options, Options.CaptureBluetoothStatus, true);
+            Probe(options, Options.CaptureDiskSpace, true);
+            Probe(options, Options.CaptureDeviceNetworkNames, true);
+            Probe(options, Options.CaptureVideoPrivacyBlur, false);
+            Probe(options, Options.CaptureVideoMinFrameRate, 7);
+            Probe(options, Options.CaptureVideoMaxFrameRate, 25);
+            Probe(options, Options.DataEncryption, (int)DataEncryptionMode.OnDevice);
+            Probe(options, Options.BuildTarget, "OptionsProbe");
+            Probe(options, Options.BuildType, "probe");
+            Probe(options, Options.ReportingUIStyle, (int)ReportingUIStyle.Dusk);
         }
 
         static void LogGatingProbe()
@@ -570,9 +604,9 @@ namespace Bugsee.Sample
                 var got = has ? Convert.ToString(launched[key]) : "absent";
 #if UNITY_IOS
                 // iOS: an Android-only key must be absent, the iOS-only key must come back as sent.
-                var ok = key == Options.CaptureCrashHandlerType ? got == sent : !has;
+                var ok = System.Linq.Enumerable.Contains(OptionPlatformGate.IosOnly, key) ? got == sent : !has;
 #else
-                var ok = key == Options.CaptureCrashHandlerType ? !has : sent == "-" || string.Equals(sent, got, StringComparison.OrdinalIgnoreCase);
+                var ok = System.Linq.Enumerable.Contains(OptionPlatformGate.IosOnly, key) ? !has : sent == "-" || string.Equals(sent, got, StringComparison.OrdinalIgnoreCase);
 #endif
                 if (!ok) mismatches++;
                 Debug.Log("[OPTIONS] " + key + " sent=" + sent + " native=" + got + (ok ? " ok" : " MISMATCH"));
@@ -596,6 +630,9 @@ namespace Bugsee.Sample
                 case 'B':
                     FireHandledStableB(marker);
                     SetStatus("E2E signature matrix sent (A,A,B)");
+                    break;
+                case 'E':
+                    FireHandledNested(marker);
                     break;
                 case 'U':
                     FireUnhandledStableA(marker);
@@ -950,6 +987,40 @@ namespace Bugsee.Sample
                 });
                 SetStatus("E2E unhandled StableA " + marker);
             }
+        }
+
+        // A three-level InnerException chain (issue #104): the payload's `cause` nesting on a device. The JSON logged here is
+        // what the bridge sends as the exception's reason.
+        void FireHandledNested(string marker)
+        {
+            try { E2EThrowNested(marker); }
+            catch (Exception ex)
+            {
+                var payload = ManagedExceptionPayload.FromException(ex);
+                var depth = 0;
+                for (var p = payload; p != null; p = p.cause)
+                    Debug.Log("[BugseeSample] nested level " + depth++ + ": " + p.name + " | " + p.reason + " | frames=" + p.frames.Length);
+                var json = ManagedExceptionPayload.ToJson(payload);
+                Debug.Log("[BugseeSample] nested levels=" + depth + " json=" + json);
+                var causes = json.Split(new[] { "\"cause\":" }, StringSplitOptions.None).Length - 1;
+                var ok = depth == 3 && causes == 2;
+                Debug.Log("[Sample] nested " + (ok ? "PASS" : "FAIL") + " levels=" + depth + " causes=" + causes);
+                Debug.Log("[Sample] nested e2e done failures=" + (ok ? 0 : 1));
+                Bugsee.LogException(ex, new Dictionary<string, object> { { "source", "e2e-nested" }, { "marker", marker } });
+                SetStatus("E2E handled nested " + marker);
+            }
+        }
+
+        static void E2EThrowNested(string marker)
+        {
+            try { E2EThrowMiddle(marker); }
+            catch (Exception ex) { throw new InvalidOperationException("E2E nested outer " + marker, ex); }
+        }
+
+        static void E2EThrowMiddle(string marker)
+        {
+            try { throw new ArgumentException("E2E nested inner " + marker); }
+            catch (Exception ex) { throw new ApplicationException("E2E nested middle " + marker, ex); }
         }
 
         void FirePipelineLogException(string marker)
