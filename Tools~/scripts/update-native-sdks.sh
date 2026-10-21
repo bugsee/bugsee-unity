@@ -4,7 +4,7 @@
 # - Regenerates Runtime/BugseePackageVersion.cs, keeping its wrapper build id (also the Android Maven coordinates that
 #   Editor/BugseeAndroidMavenDependencies.cs declares in the generated Gradle project)
 # - Rewrites the pins listed in Tools~/scripts/native-pins.txt (docs, CHANGELOG, Tests~/iOS/run-tests.sh, ...)
-# - Verifies the iOS SPM tag on github.com/bugsee/spm (no local xcframework copy)
+# - Verifies the iOS SPM tag on github.com/bugsee/spm (no local xcframework copy; BUGSEE_OFFLINE=1 skips the lookup)
 
 set -euo pipefail
 
@@ -116,7 +116,9 @@ EOF
 echo "Updated ${RUNTIME_VERSION_CS}"
 
 # --- iOS SPM pin (github.com/bugsee/spm) ---
-if command -v git >/dev/null 2>&1; then
+if [[ "${BUGSEE_OFFLINE:-0}" == 1 ]]; then
+  echo "BUGSEE_OFFLINE=1: not checking the iOS SPM tag."
+elif command -v git >/dev/null 2>&1; then
   # Offline or a failing ls-remote must not abort here (set -e/pipefail): the Android identity file below
   # would then never be written and Java and C# would disagree on the version.
   REMOTE_SHA="$(git ls-remote "${IOS_SDK_REPO}" "refs/tags/${IOS_SDK_VERSION}" 2>/dev/null | awk '{print $1}' || true)"

@@ -50,7 +50,7 @@ if [[ "${CS}" =~ ^[0-9a-f]{7,40}$ ]]; then
       CHANGELOG.md) continue ;;
       Runtime/BugseePackageVersion.cs) filter='/(public const string Build|public const string Version) = /d' ;;
       Plugins/Android/UnityWrapperIdentity.java) filter='/(static final String BUILD|static final String VERSION) = /d' ;;
-      package.json) filter='/^[[:space:]]*"version":/d' ;;
+      package.json) filter='s/("version":[[:space:]]*)"[^"]*"/\1""/' ;;
       Tools~/versions.env) filter='/^BUGSEE_PACKAGE_VERSION=/d' ;;
       *) fail "build id ${CS} does not describe this commit: ${file} changed after it (stamp again from the release commit's parent)" ;;
     esac

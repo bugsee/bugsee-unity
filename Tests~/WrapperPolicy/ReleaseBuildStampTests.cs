@@ -416,6 +416,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 }
 
                 var info = new ProcessStartInfo("/bin/bash") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+                info.Environment["BUGSEE_OFFLINE"] = "1"; // no git ls-remote against github.com
                 info.ArgumentList.Add(Path.Combine(scratch, "Tools~", "scripts", "update-native-sdks.sh"));
                 using (var process = Process.Start(info))
                 {
