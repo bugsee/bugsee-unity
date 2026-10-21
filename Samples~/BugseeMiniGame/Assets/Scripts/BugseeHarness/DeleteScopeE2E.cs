@@ -236,7 +236,7 @@ namespace Bugsee.Sample
         static Task<bool> LaunchTask(BugseeSampleBootstrap b, bool deadEndpoint)
         {
             var options = b.LastLaunchOptions != null ? new Dictionary<string, object>(b.LastLaunchOptions) : new Dictionary<string, object>();
-            if (deadEndpoint) options[Options.Endpoint] = DeadEndpoint;
+            if (deadEndpoint) options[InternalOptionKeys.Endpoint] = DeadEndpoint;
             return Bugsee.LaunchAsync(b.AppToken, options);
         }
 

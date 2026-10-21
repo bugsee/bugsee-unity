@@ -44,6 +44,8 @@ namespace Bugsee.WrapperPolicy
         {
             return new HashSet<string>
             {
+                // SDK-internal debug switch (hidden in the Android manifest, absent from the iOS one; iOS logging reads another key).
+                "com.bugsee.option.$$DEBUG",
                 Options.DetectAndReportExitLowMemory,
                 Options.DetectAndReportExitNotResponding,
                 Options.DetectAndReportExitNotRespondingAsCrash,
