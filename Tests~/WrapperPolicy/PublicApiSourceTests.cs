@@ -21,6 +21,17 @@ namespace Bugsee.WrapperPolicy.Tests
             throw new InvalidOperationException("Could not locate repo root (package.json).");
         }
 
+        /// <summary>An expression-bodied member (=&gt;): from its signature to the terminating semicolon.</summary>
+        static string ExtractExpressionBody(string source, string signature)
+        {
+            int start = source.IndexOf(signature, StringComparison.Ordinal);
+            Assert.That(start, Is.GreaterThanOrEqualTo(0), "Method missing: " + signature);
+            int arrow = source.IndexOf("=>", start, StringComparison.Ordinal);
+            int end = source.IndexOf(';', arrow);
+            Assert.That(end, Is.GreaterThan(arrow));
+            return source.Substring(start, end - start + 1);
+        }
+
         static string ExtractMethodBody(string source, string methodSignature)
         {
             int start = source.IndexOf(methodSignature, StringComparison.Ordinal);
@@ -128,10 +139,10 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Facade_read_apis_are_never_null_read_only_and_answered_per_source()
         {
             string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));
-            string host = ExtractMethodBody(facade, "public static IReadOnlyDictionary<string, object> GetHostLaunchOptions()");
+            string host = ExtractExpressionBody(facade, "public static IReadOnlyDictionary<string, object> GetHostLaunchOptions()");
             Assert.That(host, Does.Contain("Bridge.GetHostLaunchOptions()"));
             Assert.That(host, Does.Contain("new ReadOnlyDictionary<string, object>"));
-            string all = ExtractMethodBody(facade, "public static IReadOnlyDictionary<string, object> GetAllAttributes()");
+            string all = ExtractExpressionBody(facade, "public static IReadOnlyDictionary<string, object> GetAllAttributes()");
             Assert.That(all, Does.Contain("Bridge.GetAllAttributes()"));
             Assert.That(all, Does.Not.Contain("LaunchOptionsWire"), "attributes are not launch options: no key filtering");
             string rects = ExtractMethodBody(facade, "public static RectInt[] GetAllSecureRectangles()");
