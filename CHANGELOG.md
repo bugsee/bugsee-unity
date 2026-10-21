@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Android:** the split-APK build id read compared file times with a build start shifted by the machine's UTC offset; it now reads `buildStartedAt` as UTC (#169).
 - **iOS:** lifecycle events that arrive before the managed callback is registered (for example from a launch the host made natively before any C# call) are held, up to 128, and replayed in order on the main queue after the registering `Launch` or `Relaunch` call, as on Android, instead of being dropped. `Relaunch` now registers the wrapper like `Launch`.
 - **iOS:** a lifecycle payload that is a dictionary reaches `LifecycleEvent` / `ILifecycleEventListener` as a `Dictionary<string, object>`, as on Android, not as raw JSON text; a one-key dictionary is no longer mistaken for a string.
 
