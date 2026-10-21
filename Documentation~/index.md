@@ -106,7 +106,7 @@ Other platform differences, not aligned:
 
 **iOS and tvOS simulator:** the SDK's simulator build has no crash reporter (bugsee-cocoa#241), so native crashes (`DetectAndReportCrash`, `Bugsee.TestCrash`), hang detection, `LogError` and managed exceptions, handled (`LogException`, `Debug.LogException`) and unhandled (`LogUnhandledException`, `AppDomain.UnhandledException`), are **not reported** there; they are reported only from a device. Manual bug reports and uploads, logs, events and video still work. The package warns once at the first launch (`[Bugsee] Running on the simulator` in the Unity log, and in the native log). Validate crash and exception reporting on a physical device.
 
-Managed exceptions use the **UnityManagedException** JSON-in-reason contract (`name`, `reason`, `frames[{trace,address?}]`, `signature`, `buildID`, `moduleUUID`, optional nested `cause`).
+Managed exceptions use the **UnityManagedException** JSON-in-reason contract (`name`, `reason`, `frames[{trace,address?}]`, `signature`, `buildID`, `moduleUUID`, optional nested `cause`). The nested `cause` reaches the SDK and the server inside the reason text, but the worker does not read it yet (see the managed-stack notes below): until it does, only the outermost exception is shown, symbolicated and grouped; the inner exceptions are not displayed.
 
 ### How to get C# class + file:line on `LogException`
 
