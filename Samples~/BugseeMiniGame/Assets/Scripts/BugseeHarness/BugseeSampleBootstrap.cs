@@ -1041,6 +1041,8 @@ namespace Bugsee.Sample
             check(label + ": frames present", frames.Length > 0, frames.Length + " frames");
             check(label + ": no frame carries an address", withAddress == 0, withAddress + " with an address");
             check(label + ": moduleUUID", !expectModule || !string.IsNullOrEmpty(payload?.moduleUUID), payload?.moduleUUID ?? "null");
+        }
+
         // A three-level InnerException chain (issue #104): the payload's `cause` nesting on a device. The JSON logged here is
         // what the bridge sends as the exception's reason.
         void FireHandledNested(string marker)
