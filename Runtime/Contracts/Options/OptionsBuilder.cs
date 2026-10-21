@@ -34,6 +34,15 @@ namespace Bugsee.Contracts.Options
         public OptionsBuilder SetDefaultErrorPriority(IssueSeverity s) => Set(Options.ReportingDefaultErrorPriority, (int)s);
         public OptionsBuilder SetDefaultBugPriority(IssueSeverity s) => Set(Options.ReportingDefaultBugPriority, (int)s);
 
+        /// <summary>iOS only; Android drops it.</summary>
+        public OptionsBuilder SetCrashHandlerType(CrashHandlerType type) => Set(Options.CaptureCrashHandlerType, (int)type);
+        /// <summary>iOS only; Android drops it.</summary>
+        public OptionsBuilder SetCrashSignals(CrashSignals signals) => Set(Options.CaptureCrashSignals, (int)signals);
+        /// <summary>iOS only; Android drops it.</summary>
+        public OptionsBuilder SetDataEncryption(DataEncryptionMode mode) => Set(Options.DataEncryption, (int)mode);
+        /// <summary>iOS only; Android drops it.</summary>
+        public OptionsBuilder SetReportingUIStyle(ReportingUIStyle style) => Set(Options.ReportingUIStyle, (int)style);
+
         public OptionsBuilder Duration(int seconds) => Set(Options.Duration, seconds);
         public OptionsBuilder CaptureVideo(bool enabled) => Set(Options.CaptureVideo, enabled);
         public OptionsBuilder CaptureNetwork(bool enabled) => Set(Options.CaptureNetwork, enabled);

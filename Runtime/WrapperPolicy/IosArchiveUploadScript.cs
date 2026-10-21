@@ -218,8 +218,43 @@ if [ -z ""${CLI}"" ]; then
 fi
 [ -z ""${TRIED}"" ] || printf '%s\n' ""Bugsee: passed over:${TRIED}"" | defang
 printf '%s\n' ""Bugsee: using ${CLI}"" | defang
-VERSION=""${BUGSEE_VERSION:-${MARKETING_VERSION}}""
-BUILD=""${BUGSEE_BUILD:-${CURRENT_PROJECT_VERSION}}""
+# Version and build: BUGSEE_VERSION / BUGSEE_BUILD, then the built app's Info.plist, then MARKETING_VERSION /
+# CURRENT_PROJECT_VERSION. The plist comes first because it is what the SDK reports at run time (Unity writes the Player
+# Settings' version and build number into it as literals, and a Unity export sets no build settings for them); a build
+# setting that is not in the plist would key the upload to a version the app never reports, so a difference is noted.
+# A value that is still empty (or an unexpanded $(...) reference) is left out: the flag is then not passed at all.
+# Prints $1 unless it holds an unresolved $(...) or ${...} reference (a build setting that names another one).
+resolved() {
+  case ""$1"" in
+    *'$('*|*'${'*) ;;
+    *) printf '%s' ""$1"" ;;
+  esac
+}
+plist_value() {
+  PLIST_DIR=""${TARGET_BUILD_DIR:-${BUILT_PRODUCTS_DIR}}""
+  [ -n ""${PLIST_DIR}"" ] && [ -n ""${INFOPLIST_PATH}"" ] || return 0
+  PLIST_FILE=""${PLIST_DIR}/${INFOPLIST_PATH}""
+  [ -f ""${PLIST_FILE}"" ] || return 0
+  PLIST_VAL=$(/usr/libexec/PlistBuddy -c ""Print :$1"" ""${PLIST_FILE}"" 2>/dev/null) || PLIST_VAL=""""
+  resolved ""${PLIST_VAL}""
+}
+VERSION=$(resolved ""${BUGSEE_VERSION}"")
+BUILD=$(resolved ""${BUGSEE_BUILD}"")
+SETTING_VERSION=$(resolved ""${MARKETING_VERSION}"")
+SETTING_BUILD=$(resolved ""${CURRENT_PROJECT_VERSION}"")
+PLIST_VERSION=$(plist_value CFBundleShortVersionString)
+PLIST_BUILD=$(plist_value CFBundleVersion)
+[ -n ""${VERSION}"" ] || VERSION=""${PLIST_VERSION}""
+[ -n ""${BUILD}"" ] || BUILD=""${PLIST_BUILD}""
+# Xcode fails an archive on an error: anywhere in a line, and a build setting is the user's text: defang it.
+[ -z ""${PLIST_VERSION}"" ] || [ -z ""${SETTING_VERSION}"" ] || [ ""${PLIST_VERSION}"" = ""${SETTING_VERSION}"" ] ||
+  printf '%s\n' ""Bugsee: MARKETING_VERSION (${SETTING_VERSION}) differs from the app's Info.plist (${PLIST_VERSION}), which the SDK reports: not using it."" | defang
+[ -z ""${PLIST_BUILD}"" ] || [ -z ""${SETTING_BUILD}"" ] || [ ""${PLIST_BUILD}"" = ""${SETTING_BUILD}"" ] ||
+  printf '%s\n' ""Bugsee: CURRENT_PROJECT_VERSION (${SETTING_BUILD}) differs from the app's Info.plist (${PLIST_BUILD}), which the SDK reports: not using it."" | defang
+[ -n ""${VERSION}"" ] || VERSION=""${SETTING_VERSION}""
+[ -n ""${BUILD}"" ] || BUILD=""${SETTING_BUILD}""
+[ -n ""${VERSION}"" ] || echo ""Bugsee: no app version found (set BUGSEE_VERSION): uploading without --version.""
+[ -n ""${BUILD}"" ] || echo ""Bugsee: no app build number found (set BUGSEE_BUILD): uploading without --build.""
 FAILED=0
 # Says why a CLI exit code is a failure (the bugsee-cli exit-code contract); the build is never failed.
 cli_failure() {
@@ -261,7 +296,7 @@ if [ -n ""${DWARF_DSYM_FOLDER_PATH}"" ] && [ -d ""${DWARF_DSYM_FOLDER_PATH}"" ];
     [ -d ""${DSYM}"" ] || continue
     echo ""Bugsee: uploading dSYM ${DSYM}"" | defang
     LAST_UPLOAD=""${DSYM}""
-    upload ""${CLI}"" debug-files upload ""${DSYM}"" --type dsym --version ""${VERSION}"" --build ""${BUILD}""
+    upload ""${CLI}"" debug-files upload ""${DSYM}"" --type dsym ${VERSION:+--version ""${VERSION}""} ${BUILD:+--build ""${BUILD}""}
   done
 fi
 # Fallback for a layout where Xcode did not copy the SDK's dSYM next to the app's: take it from the xcframework
@@ -280,7 +315,7 @@ if [ ! -d ""${DWARF_DSYM_FOLDER_PATH}/Bugsee.framework.dSYM"" ]; then
   if [ -n ""${SDK_DSYM}"" ]; then
     echo ""Bugsee: uploading SDK dSYM ${SDK_DSYM}"" | defang
     LAST_UPLOAD=""${SDK_DSYM}""
-    upload ""${CLI}"" debug-files upload ""${SDK_DSYM}"" --type dsym --version ""${VERSION}"" --build ""${BUILD}""
+    upload ""${CLI}"" debug-files upload ""${SDK_DSYM}"" --type dsym ${VERSION:+--version ""${VERSION}""} ${BUILD:+--build ""${BUILD}""}
   fi
 fi
 if [ ! -d ""${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}"" ] && [ ! -d ""${DWARF_DSYM_FOLDER_PATH}/UnityFramework.framework.dSYM"" ]; then
@@ -401,7 +436,7 @@ fi
 if [ -n ""${LINEMAP}"" ] && [ -f ""${LINEMAP}"" ] && [ -n ""${UUID}"" ]; then
   echo ""Bugsee: uploading il2cpp-linemap ${LINEMAP} uuid=${UUID}"" | defang
   LAST_UPLOAD=""${ORIG_LINEMAP}""
-  upload ""${CLI}"" debug-files upload ""${LINEMAP}"" --type il2cpp-linemap --version ""${VERSION}"" --build ""${BUILD}"" --uuid ""${UUID}""
+  upload ""${CLI}"" debug-files upload ""${LINEMAP}"" --type il2cpp-linemap ${VERSION:+--version ""${VERSION}""} ${BUILD:+--build ""${BUILD}""} --uuid ""${UUID}""
 else
   echo ""Bugsee: skip il2cpp-linemap (map='${LINEMAP}' uuid='${UUID}')${STALE_MAPS:+, older than this export:${STALE_MAPS}}"" | defang
 fi

@@ -48,6 +48,42 @@ namespace Bugsee.Contracts.Options
         public const string CaptureBreadcrumbsExtras = "com.bugsee.option.capture.breadcrumbs.extras";
         /// <summary>iOS only: a <see cref="CrashHandlerType"/>, sent as its int value.</summary>
         public const string CaptureCrashHandlerType = "com.bugsee.option.capture.crash-handler-type";
+        /// <summary>iOS only: a <see cref="CrashSignals"/> bit set, sent as its int value.</summary>
+        public const string CaptureCrashSignals = "com.bugsee.option.capture.crash-signals";
+        /// <summary>iOS only: bool.</summary>
+        public const string CaptureOnDeviceSymbolication = "com.bugsee.option.capture.on-device-symbolication";
+        /// <summary>iOS only: bool.</summary>
+        public const string DetectCrashSwiftAsyncStackTraces = "com.bugsee.option.detect.crash.swift_async_stacktraces";
+        /// <summary>iOS only: bool.</summary>
+        public const string DetectCrashFillEmptyExceptionStacks = "com.bugsee.option.detect.crash.fill_empty_exception_stacks";
+        /// <summary>iOS only: bool.</summary>
+        public const string CaptureWebSocket = "com.bugsee.option.capture.websocket";
+        /// <summary>iOS only: bool.</summary>
+        public const string CaptureAVPlayer = "com.bugsee.option.capture.avplayer";
+        /// <summary>iOS only: bool.</summary>
+        public const string CaptureSampleBufferDisplayLayer = "com.bugsee.option.capture.sample-buffer-display-layer";
+        /// <summary>iOS only: bool.</summary>
+        public const string CaptureCameraPreview = "com.bugsee.option.capture.camera-preview";
+        /// <summary>iOS only: bool.</summary>
+        public const string CaptureBluetoothStatus = "com.bugsee.option.capture.bluetooth-status";
+        /// <summary>iOS only: bool.</summary>
+        public const string CaptureDiskSpace = "com.bugsee.option.capture.disk-space";
+        /// <summary>iOS only: bool.</summary>
+        public const string CaptureDeviceNetworkNames = "com.bugsee.option.capture.device-network-names";
+        /// <summary>iOS only: bool.</summary>
+        public const string CaptureVideoPrivacyBlur = "com.bugsee.option.capture.video.privacy-blur";
+        /// <summary>iOS only: int frames per second, clamped by the SDK to 0..30 (0 = derived from the frame rate).</summary>
+        public const string CaptureVideoMinFrameRate = "com.bugsee.option.capture.video.min-frame-rate";
+        /// <summary>iOS only: int frames per second, clamped by the SDK to 0..30 (0 = derived from the frame rate).</summary>
+        public const string CaptureVideoMaxFrameRate = "com.bugsee.option.capture.video.max-frame-rate";
+        /// <summary>iOS only: a <see cref="DataEncryptionMode"/>, sent as its int value.</summary>
+        public const string DataEncryption = "com.bugsee.option.config.data-encryption";
+        /// <summary>iOS only: string.</summary>
+        public const string BuildTarget = "com.bugsee.option.config.build-target";
+        /// <summary>iOS only: string.</summary>
+        public const string BuildType = "com.bugsee.option.config.build-type";
+        /// <summary>iOS only: a <see cref="Bugsee.Contracts.Options.ReportingUIStyle"/>, sent as its int value.</summary>
+        public const string ReportingUIStyle = "com.bugsee.option.reporting.ui.style";
         public const string AdvancedWebViewCapture = "com.bugsee.option.capture.webview.advanced";
         public const string WebViewDomainAllowlist = "com.bugsee.option.capture.webview.domain-allowlist";
         public const string WebViewReportTrigger = "com.bugsee.option.capture.webview.report-trigger";
