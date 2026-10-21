@@ -577,7 +577,15 @@ namespace Bugsee.Sample
         /// <see cref="LogMarker"/> (<see cref="LogMarkerDropped"/>) are counted apart, so a check can tell its own events from the SDK's.
         /// </summary>
         public static volatile string BreadcrumbMarker;
+
+        /// <summary>When set, a breadcrumb in that category keeps flowing but its message is edited (the only field touched).</summary>
+        public static volatile string BreadcrumbEditMarker;
         public static volatile string LogMarker;
+
+        /// <summary>Breadcrumbs of category "e2e-pass" the filter let through and of "e2e-edit" whose message it edited (filters scenario, phase 3).</summary>
+        public static int PassSeen => Volatile.Read(ref _passSeen);
+        public static int EditApplied => Volatile.Read(ref _editApplied);
+        static int _passSeen, _editApplied;
         static int _breadcrumbMarkerDropped, _logMarkerDropped;
         public static int BreadcrumbMarkerDropped => Volatile.Read(ref _breadcrumbMarkerDropped);
         public static int LogMarkerDropped => Volatile.Read(ref _logMarkerDropped);
@@ -605,6 +613,8 @@ namespace Bugsee.Sample
             Interlocked.Exchange(ref _breadcrumbDropped, 0);
             Interlocked.Exchange(ref _breadcrumbMarkerDropped, 0);
             Interlocked.Exchange(ref _logMarkerDropped, 0);
+            Interlocked.Exchange(ref _passSeen, 0);
+            Interlocked.Exchange(ref _editApplied, 0);
         }
 
         public static INetworkEvent NetworkFilter(INetworkEvent e)
@@ -660,6 +670,13 @@ namespace Bugsee.Sample
                 Debug.Log("[BugseeSample] breadcrumb filter dropped #" + n + " category=" + e.Category);
                 return null;
             }
+            var editMarker = BreadcrumbEditMarker;
+            if (editMarker != null && e.Category == editMarker)
+            {
+                e.Message = "[edited]";
+                Interlocked.Increment(ref _editApplied);
+            }
+            else if (e.Category == "e2e-pass") Interlocked.Increment(ref _passSeen);
             return e;
         }
     }

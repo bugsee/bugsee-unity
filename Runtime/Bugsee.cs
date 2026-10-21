@@ -313,6 +313,7 @@ namespace Bugsee
         [Obsolete("Use StartBlackout/EndBlackout instead.")]
         public static void Resume() => EndBlackout();
 
+        /// <summary>Write a line to the Bugsee log. It skips the log filter (<see cref="SetLogEventFilter"/>): the native default; the wrapper does not expose the opt-in.</summary>
         public static void Log(string message, LogLevel level = LogLevel.Info) =>
             Bridge.Log(message, level);
 
@@ -322,7 +323,8 @@ namespace Bugsee
         /// <summary>
         /// Delete the data collected on the device, including finished report bundles. Stops the SDK first if it
         /// is not stopped (joining a stop in flight) and leaves it stopped: Launch again to resume. It has no
-        /// result; a failure is logged. On Android it runs in request order with Launch/Relaunch (ones requested
+        /// result; a failure is logged (use <see cref="DeleteCollectedDataOnDeviceAsync"/> for one, or to delete less).
+        /// On Android it runs in request order with Launch/Relaunch (ones requested
         /// earlier run first); on iOS a Launch/Relaunch requested after it waits for the wipe. A delete already
         /// handed to the native SDK can finish after the 10 s warning, and after the 60 s hard deadline an Android
         /// Launch can run while a native delete is still wiping.
@@ -333,11 +335,71 @@ namespace Bugsee
             Bridge.DeleteCollectedDataOnDevice();
         }
 
+        /// <summary>
+        /// <see cref="DeleteCollectedDataOnDevice()"/> for the data of <paramref name="scope"/> only. The narrower
+        /// scopes keep what the wider one deletes (see <see cref="DeleteScope"/>); the SDK is stopped either way.
+        /// </summary>
+        public static void DeleteCollectedDataOnDevice(DeleteScope scope)
+        {
+            CheckScope(scope);
+            ForgetPusherSession(); // it stops the SDK
+            if (Bridge is ILifecycleResultBridge bridge) bridge.DeleteCollectedData(scope, null);
+            else Bridge.DeleteCollectedDataOnDevice();
+        }
+
+        /// <summary>
+        /// <see cref="DeleteCollectedDataOnDevice(DeleteScope)"/> that completes with the SDK's answer: true when it
+        /// reported the data deleted, false when it refused, gave no answer in time, or on iOS the call did not reach
+        /// the Unity main thread within 5 s (a delete that was never started). It never completes with a
+        /// <see cref="TimeoutException"/> as <see cref="StopAsync"/> does: a timeout is a false. The time is counted
+        /// on Android from when this delete starts, after the operations requested before it, and includes its stop
+        /// (10 s); on iOS the stop and the wipe each give up after 60 s, so up to about 120 s, more behind another
+        /// wipe. A false after a timeout can still be followed by the wipe finishing. Deletes
+        /// <see cref="DeleteScope.Everything"/> by default, as <see cref="DeleteCollectedDataOnDevice()"/>. The SDK is
+        /// left stopped. On the other players, the Editor included, nothing is collected, so it completes true. A
+        /// value that is not a <see cref="DeleteScope"/> throws <see cref="ArgumentOutOfRangeException"/>. A failure of
+        /// the call is carried by the Task. Awaited from the Unity main thread, the continuation resumes there.
+        /// </summary>
+        public static Task<bool> DeleteCollectedDataOnDeviceAsync(DeleteScope scope = DeleteScope.Everything)
+        {
+            CheckScope(scope);
+            ForgetPusherSession(); // it stops the SDK
+            var result = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            try
+            {
+                if (Bridge is ILifecycleResultBridge bridge)
+                {
+                    bridge.DeleteCollectedData(scope, wiped => result.TrySetResult(wiped));
+                }
+                else
+                {
+                    Bridge.DeleteCollectedDataOnDevice();
+                    result.TrySetResult(true);
+                }
+            }
+            catch (Exception ex)
+            {
+                result.TrySetException(ex); // a failure of the call is carried by the Task, not thrown from the Async method
+            }
+            return result.Task;
+        }
+
+        // An undefined value, such as (DeleteScope)5, is refused: no native SDK may read it as one of the three, least of all as the widest.
+        static void CheckScope(DeleteScope scope)
+        {
+            if (!Enum.IsDefined(typeof(DeleteScope), scope))
+                throw new ArgumentOutOfRangeException(nameof(scope), scope, "Not a DeleteScope value.");
+        }
+
         public static IReport CreateReport() => Bridge.CreateReport();
 
         /// <summary>Release a report from <see cref="CreateReport"/> without uploading.</summary>
         public static void Discard(IReport report) => Bridge.DiscardReport(report);
 
+        /// <summary>
+        /// Add a breadcrumb to the report. Does nothing unless the launch option <c>CaptureBreadcrumbs</c> is true:
+        /// both native SDKs default it to false, and the breadcrumb filter is not called either.
+        /// </summary>
         public static void AddBreadcrumb(string category, string message, string levelName) =>
             Bridge.AddBreadcrumb(category, message, levelName);
 
@@ -510,9 +572,19 @@ namespace Bugsee
         public static void SetNetworkEventFilter(EventFilter<INetworkEvent> filter) =>
             Bridge.SetNetworkEventFilter(filter);
 
+        /// <summary>
+        /// Filter the captured logs: the Unity log the wrapper forwards, and logcat on Android (both need
+        /// <c>CaptureLogs</c>). Lines written with <see cref="Log"/> skip this filter (the native default; the wrapper
+        /// does not expose the opt-in).
+        /// </summary>
         public static void SetLogEventFilter(EventFilter<ILogEvent> filter) =>
             Bridge.SetLogEventFilter(filter);
 
+        /// <summary>
+        /// Filter breadcrumbs before they are recorded. The filter is called only while the launch option
+        /// <c>CaptureBreadcrumbs</c> is true; both native SDKs default it to false, so with the default no
+        /// breadcrumb (from <see cref="AddBreadcrumb"/> or the SDK) reaches it.
+        /// </summary>
         public static void SetBreadcrumbFilter(EventFilter<IBreadcrumb> filter) =>
             Bridge.SetBreadcrumbFilter(filter);
 
