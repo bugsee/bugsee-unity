@@ -9,7 +9,8 @@ package com.bugsee.unity;
  * client signature of the report, and this one is only ever built by the wrapper, at the point it hands the
  * payload over: that stack (the JNI entry, Unity's player loop, whichever thread called) says nothing about
  * the managed exception, and it differs with the calling thread. Without it the signature is the class name,
- * the domain and the payload's own {@code signature}, which come from the managed exception alone.
+ * the domain, {@code handled} (the SDK adds it for a handled report, so a handled and an unhandled report of one
+ * exception still differ) and the payload's own {@code signature}, which comes from the managed exception alone.
  */
 public final class UnityManagedException extends Exception {
     private static final long serialVersionUID = 1L;

@@ -23,7 +23,12 @@ namespace Bugsee.Sample
     {
         public static void Run(MonoBehaviour host, string marker)
         {
+#if UNITY_ANDROID && !UNITY_EDITOR
             host.StartCoroutine(Routine(marker));
+#else
+            // Nothing to probe off Android: send no reports.
+            Debug.Log("[SIGTHREADS] SKIP: Android only");
+#endif
         }
 
         static IEnumerator Routine(string marker)
@@ -47,7 +52,9 @@ namespace Bugsee.Sample
             // threads, i.e. the probe could have told. INCONCLUSIVE when the probe did not run; SKIP off Android.
 #if UNITY_ANDROID && !UNITY_EDITOR
             var real = worker != null && IsHash(main.Sdk) && IsHash(worker.Sdk) && IsHash(main.Control) && IsHash(worker.Control);
-            var verdict = !real ? "INCONCLUSIVE" : (sdkEqual && main.Control != worker.Control ? "PASS" : "FAIL");
+            var controlDiffers = real && main.Control != worker.Control;
+            // Equal SDK signatures with equal controls: the probe could not have told, so neither PASS nor FAIL.
+            var verdict = !real || (sdkEqual && !controlDiffers) ? "INCONCLUSIVE" : (sdkEqual ? "PASS" : "FAIL");
 #else
             var verdict = "SKIP";
 #endif
