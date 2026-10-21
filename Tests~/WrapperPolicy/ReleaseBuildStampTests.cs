@@ -366,6 +366,47 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(output, Does.Contain("versions.env '1.2.4'"));
         }
 
+        // The comparison masks only the quoted value: anything else on those lines is code (or, in versions.env, shell).
+        [TestCase("cs", "; static void Evil() {}")]
+        [TestCase("java", " + System.getProperty(\"x\")")]
+        public void Check_refuses_content_appended_to_a_build_or_version_line(string file, string appended)
+        {
+            Script("stamp-wrapper-build.sh", out _);
+            Commit("stamp");
+            var path = Path.Combine(_root, file == "cs" ? Cs : Java);
+            var text = File.ReadAllText(path);
+            var marker = file == "cs" ? "Version = \"1.2.3\"" : "VERSION = \"1.2.3\"";
+            File.WriteAllText(path, text.Replace(marker, marker + appended));
+            Commit("appended");
+            var output = Script("check-release-build.sh", out var exit);
+            Assert.That(exit, Is.Not.EqualTo(0), output);
+            Assert.That(output, Does.Contain("beyond its build/version lines"));
+        }
+
+        [Test]
+        public void Check_refuses_shell_appended_to_the_versions_env_version_line()
+        {
+            Script("stamp-wrapper-build.sh", out _);
+            Commit("stamp");
+            File.WriteAllText(Path.Combine(_root, "Tools~", "versions.env"),
+                "# pins\nBUGSEE_PACKAGE_VERSION=\"1.2.3\"; touch /tmp/pwned\nANDROID_SDK_VERSION=\"7.4.2\"\n");
+            Commit("shell");
+            var output = Script("check-release-build.sh", out var exit);
+            Assert.That(exit, Is.Not.EqualTo(0), output);
+            Assert.That(output, Does.Contain("beyond its build/version lines"));
+        }
+
+        [Test]
+        public void Check_refuses_a_build_line_changed_beyond_its_value()
+        {
+            Script("stamp-wrapper-build.sh", out _);
+            Commit("stamp");
+            File.WriteAllText(Path.Combine(_root, Cs), ReadCs().Replace("\";\n", "\"; // x\n"));
+            Commit("comment");
+            var output = Script("check-release-build.sh", out var exit);
+            Assert.That(exit, Is.Not.EqualTo(0), output);
+        }
+
         [Test]
         public void Check_refuses_other_package_json_edits_after_the_stamp()
         {

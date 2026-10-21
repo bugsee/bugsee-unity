@@ -39,10 +39,22 @@ for pair in "${CS_REL}|${CS_PREFIX}" "${JAVA_REL}|${JAVA_PREFIX}"; do
   grep -Eq "${pair#*|}\"[^\"]*\"" "${ROOT_DIR}/${pair%%|*}" || { echo "No build constant in ${pair%%|*}" >&2; exit 1; }
 done
 
-trap 'rm -f "${ROOT_DIR}/${CS_REL}.tmp" "${ROOT_DIR}/${JAVA_REL}.tmp"' EXIT
+CS_BACKUP="${ROOT_DIR}/${CS_REL}.stamp-backup"
+CS_REPLACED=0
+cleanup() {
+  local status=$?
+  # The C# file was replaced but the Java one was not: put the C# file back so the tree is not half-stamped.
+  if (( status != 0 && CS_REPLACED )); then mv -f "${CS_BACKUP}" "${ROOT_DIR}/${CS_REL}" || status=1; fi
+  rm -f "${ROOT_DIR}/${CS_REL}.tmp" "${ROOT_DIR}/${JAVA_REL}.tmp" "${CS_BACKUP}"
+  exit "${status}"
+}
+trap cleanup EXIT
 # `sed -i` differs between macOS and GNU: write temp files, then move both into place.
 sed -E "s/(${CS_PREFIX})\"[^\"]*\"/\1\"${BUILD}\"/" "${ROOT_DIR}/${CS_REL}" > "${ROOT_DIR}/${CS_REL}.tmp"
 sed -E "s/(${JAVA_PREFIX})\"[^\"]*\"/\1\"${BUILD}\"/" "${ROOT_DIR}/${JAVA_REL}" > "${ROOT_DIR}/${JAVA_REL}.tmp"
+cp -p "${ROOT_DIR}/${CS_REL}" "${CS_BACKUP}"
 mv "${ROOT_DIR}/${CS_REL}.tmp" "${ROOT_DIR}/${CS_REL}"
+CS_REPLACED=1
 mv "${ROOT_DIR}/${JAVA_REL}.tmp" "${ROOT_DIR}/${JAVA_REL}"
+CS_REPLACED=0
 echo "Stamped ${CS_REL} and ${JAVA_REL} -> ${BUILD}"

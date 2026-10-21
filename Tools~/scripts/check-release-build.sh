@@ -43,15 +43,15 @@ if [[ "${CS}" =~ ^[0-9a-f]{7,40}$ ]]; then
     || fail "build id ${CS} is not an ancestor of the tagged commit (it names a commit on another branch)"
   changed="$(git -C "${ROOT_DIR}" diff --name-only "${CS}" HEAD)"
   while IFS= read -r file; do
-    # Besides CHANGELOG.md, a release may change only the build and the package version lines of these files;
+    # Besides CHANGELOG.md, a release may change only the quoted build and package version values on those lines of these files; anything else on a line counts;
     # the native SDK pins and Maven coordinates beside them are code.
     case "${file}" in
       "") continue ;;
       CHANGELOG.md) continue ;;
-      Runtime/BugseePackageVersion.cs) filter='/(public const string Build|public const string Version) = /d' ;;
-      Plugins/Android/UnityWrapperIdentity.java) filter='/(static final String BUILD|static final String VERSION) = /d' ;;
+      Runtime/BugseePackageVersion.cs) filter='s/((public const string Build|public const string Version) = ")[^"]*"/\1"/' ;;
+      Plugins/Android/UnityWrapperIdentity.java) filter='s/((static final String BUILD|static final String VERSION) = ")[^"]*"/\1"/' ;;
       package.json) filter='s/("version":[[:space:]]*)"[^"]*"/\1""/' ;;
-      Tools~/versions.env) filter='/^BUGSEE_PACKAGE_VERSION=/d' ;;
+      Tools~/versions.env) filter='s/^(BUGSEE_PACKAGE_VERSION=")[^"]*"/\1"/' ;;
       *) fail "build id ${CS} does not describe this commit: ${file} changed after it (stamp again from the release commit's parent)" ;;
     esac
     if [[ "$(git -C "${ROOT_DIR}" show "${CS}:${file}" | sed -E "${filter}")" != "$(git -C "${ROOT_DIR}" show "HEAD:${file}" | sed -E "${filter}")" ]]; then
