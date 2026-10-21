@@ -129,6 +129,7 @@ runs scenarios on one Android device.
 | Scenario | What it does |
 |----------|--------------|
 | `interactions`, `actions`, `filters`, `presets` | self-checking (`PASS`/`FAIL` lines), described below |
+| `vh` | self-checking: calls `Bugsee.CaptureViewHierarchy()` twice and checks the wrapper answered the SDK's `requestData("vh")` with a non-null tree (development build; issue #111) |
 | `sig` (default), `handled`, `unhandled`, `pipeline`, `upload`, `labels`, `logerror` | send handled / unhandled exceptions, a pipeline exception, a plain `Upload`, a handled exception with labels, or a Unity `LogError`, to see that a report arrives (`sig` sends three, to check the grouping signature) |
 | `crash`, `native`, `abort`, `fatal`, `java`, `hang` | kill the process (or block the main thread) for the crash matrix; one per run |
 | `sigraise` | raise SIGSEGV (iOS only; does nothing on Android) |
