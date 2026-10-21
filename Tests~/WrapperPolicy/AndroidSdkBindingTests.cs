@@ -31,7 +31,7 @@ namespace Bugsee.WrapperPolicy.Tests
     /// name, type and staticness.
     /// The one class it uses outside the snapshot (internal TimeUtils) is listed in RawJniNotInSnapshot.
     ///
-    /// Managed static field reads (GetStatic) are covered only for SpanStatus (above); other GetStatic reads are not parsed.
+    /// Managed static field reads (GetStatic) are covered only for the SpanStatus constants (Every_SpanStatus_constant_...); other GetStatic reads are not parsed. ScopedJdkCalls allows a JDK-named call by file and method name, not by receiver.
     ///
     /// Limits (follow-up #205): an argument whose C# type cannot be told from the text (a member access, a
     /// conditional, an `object`, an enum) is accepted for any parameter; an instance Call outside the ReceiverContracts classes is matched against every
