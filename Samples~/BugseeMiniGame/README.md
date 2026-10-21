@@ -140,7 +140,7 @@ runs scenarios on one Android device.
 | `blackout` | logs `IsBlackout` after StartBlackout, EndBlackout, StartBlackout + Relaunch, StartBlackout + Stop and a fresh Launch, tagged `[BLACKOUT]` |
 | `delete` | `DeleteCollectedDataOnDevice`, a relaunch, then an upload |
 | `apm`, `apmoff`, `apmleak`, `apmpool`, `apmthrnew`, `apmthrjava`, `apmthrui` | APM stress and API-shape checks |
-| `logpath` | an exception thrown uncaught in a coroutine, which Unity logs itself and the log path (`FromUnityLog`) reports from its text; logs, tagged `[LOGPATH]`, that text, the frames and `moduleUUID` built from it (no frame may carry an address) and, for comparison, the throw path's payload and image (issue #105) |
+| `logpath` | self-checking (`PASS`/`FAIL`): feeds `ManagedExceptionPayload.FromUnityLog` the text Unity really rendered for a logged exception, plus synthetic frames with IL offsets, Mono method starts, `#00 pc` and absolute `0x` values, and checks no frame carries an address and `moduleUUID` is set on IL2CPP. It tests `FromUnityLog` itself, not the payload the SDK sent (a normal `Debug.LogException` takes the throw path); also logs the throw path's payload and image, tagged `[LOGPATH]` (issue #105) |
 | `shapes` | throw shapes for frame/IP pairing, logged tagged `[SHAPE]` |
 | `none` | arm nothing (recovery launch) |
 

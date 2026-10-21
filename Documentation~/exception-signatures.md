@@ -43,7 +43,7 @@ Inner/`cause`: hash the **leaf payload already selected** (single-inner unwrap).
 
 | Recipe | Input |
 |--------|--------|
-| Addresses | `type` + `moduleUUID` + ordered RVAs of user frames that have offsets (cap ~8, throw-site first) |
+| Addresses | `type` + `moduleUUID` + ordered RVAs of user frames that have offsets (cap ~8, throw-site first). Payloads built from Unity's log text (`FromUnityLog`) carry no addresses, so they cannot qualify for this recipe. |
 | File:line | `type` + ordered `(filename, line)` for those user frames (cap ~8). No directory, no IL `[0x…]` |
 | Weak fallback | `type` + ordered canonical user method tokens (`Type.Method` only). Same algorithm on client **or** worker, not both. Optional app **version** fence only — never `buildGUID`, never exception message, never raw stack strings |
 

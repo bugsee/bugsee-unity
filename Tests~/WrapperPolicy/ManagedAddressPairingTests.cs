@@ -126,14 +126,6 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Mono_method_start_is_stripped_so_it_is_never_read_as_an_address()
-        {
-            var s = ManagedAddressPairing.StripMonoMethodStarts("at A.B () <0x104a125e0 + 0x34> in <hash>:0");
-            Assert.That(s, Does.Not.Contain("0x104a125e0"));
-            Assert.That(s, Does.Contain("in <hash>:0"));
-        }
-
-        [Test]
         public void Thrown_exception_frames_take_addresses_only_from_the_pairing_never_from_text()
         {
             var text = Line("A.Throw () 0x0000000104a125e0") + "\n" + Line("B.Caller () <0x104a125e0 + 0x34>") + "\n";
