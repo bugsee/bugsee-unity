@@ -374,7 +374,7 @@ namespace Bugsee.Editor
             if (backupDir == null)
             {
                 string project = Path.GetDirectoryName(Path.GetFullPath(Application.dataPath));
-                backupDir = Path.Combine(project, "Library", "Bugsee", "legacy-templates", DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+                backupDir = Path.Combine(project, "Library", "Bugsee", "legacy-templates", DateTime.Now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture));
                 Directory.CreateDirectory(backupDir);
             }
 

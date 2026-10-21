@@ -86,14 +86,14 @@ namespace Bugsee.Platform.Android
             get
             {
                 using (var map = _report.Call<AndroidJavaObject>("getAttributes"))
-                    return AndroidJavaConverters.MapToDictionary(map);
+                    return AndroidJavaConverters.AttributesToDictionary(map);
             }
         }
 
         public object GetAttribute(string name)
         {
             using (var value = _report.Call<AndroidJavaObject>("getAttribute", name))
-                return AndroidJavaConverters.Unbox(value);
+                return AndroidJavaConverters.UnboxAttribute(value);
         }
 
         public void SetAttribute(string name, object value)

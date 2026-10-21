@@ -48,7 +48,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(Capture("Runtime/WrapperPolicy/IosHostPolicy.cs", "build == \"([^\"]*)\""), Is.EqualTo(placeholder));
             Assert.That(Capture("Plugins/Android/UnityWrapperProvider.java", "build.equals\\(\"([^\"]*)\"\\)"), Is.EqualTo(placeholder));
             Assert.That(Capture("Plugins/iOS/BugseeUnityCallbacks.mm", "isEqualToString:@\"([^\"]*)\"\\]\\) \\? nil : buildString"), Is.EqualTo(placeholder));
-            Assert.That(Capture("Tools~/scripts/update-native-sdks.sh", "\\|\\| echo ([a-z]+)\\)"), Is.EqualTo(placeholder),
+            Assert.That(Capture("Tools~/scripts/update-native-sdks.sh", "WRAPPER_BUILD:-([a-z]+)\\}"), Is.EqualTo(placeholder),
                 "the generator's fallback id");
         }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Bugsee.Contracts.Lifecycle;
 
 namespace Bugsee.Platform
 {
@@ -21,5 +22,11 @@ namespace Bugsee.Platform
         /// soft deadline (10 s from the call) or, on iOS, when the main thread did not take it. Android queues the call to
         /// the main thread and never refuses it: a stalled main thread leaves <paramref name="finished"/> pending.</summary>
         void Stop(Action<bool> finished);
+
+        /// <summary>Deletes the data of <paramref name="scope"/>, stopping the SDK first when it is not stopped.
+        /// <paramref name="done"/> (may be null) runs once, with true when the SDK reported the data deleted and false when it
+        /// refused or never answered (the soft deadline on Android, the hard one on iOS) or, on iOS, when the main thread did not
+        /// take the call.</summary>
+        void DeleteCollectedData(DeleteScope scope, Action<bool> done);
     }
 }

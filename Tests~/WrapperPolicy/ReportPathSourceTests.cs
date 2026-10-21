@@ -91,7 +91,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
             string stop = ExtractMethodBody(ios, "public void Stop(Action completion = null)");
             Assert.That(stop, Does.Contain("_openReport?.ReleaseSnapshotFiles()"));
-            string delete = ExtractMethodBody(ios, "public void DeleteCollectedDataOnDevice()");
+            string delete = ExtractMethodBody(ios, "void DeleteCollectedData(DeleteScope scope, Action<bool> done)");
             Assert.That(delete, Does.Contain("_openReport?.ReleaseSnapshotFiles()"));
         }
 
