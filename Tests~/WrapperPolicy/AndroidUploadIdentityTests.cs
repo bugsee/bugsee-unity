@@ -107,6 +107,16 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void The_icon_is_announced_only_for_arguments_that_carry_one()
+        {
+            Assert.That(AndroidUploadIdentity.IconNotice(AndroidUploadIdentity.MappingArguments(App, "/p/app_icon.png")),
+                Is.EqualTo("Bugsee: attaching launcher icon /p/app_icon.png to the mapping upload."));
+            Assert.That(AndroidUploadIdentity.IconNotice(AndroidUploadIdentity.MappingArguments(App, null)), Is.Null);
+            Assert.That(AndroidUploadIdentity.IconNotice(new[] { "--icon" }), Is.Null);
+            Assert.That(AndroidUploadIdentity.IconNotice(null), Is.Null);
+        }
+
+        [Test]
         public void The_apk_version_is_read_from_the_generated_launcher()
         {
             string gradle = "android {\n    defaultConfig {\n        versionCode 2\n        versionName '0.1.0'\n    }\n}\n";

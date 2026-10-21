@@ -119,13 +119,9 @@ namespace Bugsee.Editor
             // Said only when a mapping is actually uploaded under it (R8 off: nothing to match).
             var identityWarning = identity.Warning != null && identity.Source != BuildIdSource.None ? "Bugsee: " + identity.Warning : null;
 
-            // The Gradle plugin attaches the launcher icon to the mapping (the app's icon in the dashboard).
+            // The Gradle plugin attaches the launcher icon to the mapping (the app's icon in the dashboard). It is
+            // logged by UploadIfFound, only once a mapping is really about to be uploaded with it.
             var icon = FindLauncherIcon();
-            if (icon != null)
-            {
-                Debug.Log($"Bugsee: attaching launcher icon {icon} to the mapping upload.");
-            }
-
             var mappingExtra = AndroidUploadIdentity.MappingArguments(identity.Uuid, icon);
             var seen = new List<MappingFileInfo>();
             var found = UploadIfFound(roots, "*mapping.txt", "proguard", version, build,
@@ -264,6 +260,12 @@ namespace Bugsee.Editor
             };
             if (extraArgs != null)
             {
+                var notice = AndroidUploadIdentity.IconNotice(extraArgs);
+                if (notice != null)
+                {
+                    Debug.Log(notice);
+                }
+
                 args.AddRange(extraArgs);
             }
 
