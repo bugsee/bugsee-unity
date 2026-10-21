@@ -769,13 +769,13 @@ namespace Bugsee.Platform.IOS
             if (scale <= 0f || screenWidth <= 0 || screenHeight <= 0) return false;
             if (_bugsee_unity_view_region(rect) == 0)
             {
-                // Not readable: report the whole screen (points times scale, from Unity's width over pixels per point) as the
-                // fallback, with false, so the caller can use it as the display's real size.
-                float perPoint = _bugsee_pixels_per_point(screenWidth);
-                if (perPoint > 0f)
+                // Not readable: report the whole screen (points times scale) as the fallback, with false, so the caller can use
+                // it as the display's real size. Each axis comes from the screen itself: Unity may render at another aspect.
+                var size = new float[2];
+                if (_bugsee_screen_points(size) != 0)
                 {
-                    width = Mathf.RoundToInt(screenWidth * scale / perPoint);
-                    height = Mathf.RoundToInt(screenHeight * scale / perPoint);
+                    width = Mathf.RoundToInt(size[0] * scale);
+                    height = Mathf.RoundToInt(size[1] * scale);
                 }
                 return false;
             }
@@ -958,7 +958,7 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern IntPtr _bugsee_get_email();
         [DllImport("__Internal")] static extern void _bugsee_clear_email();
         [DllImport("__Internal")] static extern int _bugsee_unity_view_region(float[] outRect);
-        [DllImport("__Internal")] static extern float _bugsee_pixels_per_point(int unityPixelWidth);
+        [DllImport("__Internal")] static extern int _bugsee_screen_points(float[] outWH);
         [DllImport("__Internal")] static extern void _bugsee_set_secure_buffer(int display, int[] packed, int packedLength);
         [DllImport("__Internal")] static extern float _bugsee_screen_scale();
         [DllImport("__Internal")] static extern void _bugsee_capture_view_hierarchy();

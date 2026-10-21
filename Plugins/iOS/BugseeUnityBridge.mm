@@ -779,6 +779,17 @@ float _bugsee_pixels_per_point(int unityPixelWidth)
     return (float)[UIScreen mainScreen].scale;
 }
 
+// The screen's size in points (interface orientation) into outWH; 0 when unusable. The fallback surface when Unity's view is not found.
+int _bugsee_screen_points(float *outWH)
+{
+    if (!outWH) return 0;
+    CGSize size = [UIScreen mainScreen].bounds.size;
+    if (size.width <= 0 || size.height <= 0) return 0;
+    outWH[0] = (float)size.width;
+    outWH[1] = (float)size.height;
+    return 1;
+}
+
 static UIWindow *BugseeUnityKeyWindow(void)
 {
     UIApplication *app = [UIApplication sharedApplication];
@@ -1130,6 +1141,7 @@ void _bugsee_clear_email(void) {}
 float _bugsee_screen_scale(void) { return 1.f; }
 float _bugsee_pixels_per_point(int unityPixelWidth) { (void)unityPixelWidth; return 1.f; }
 int _bugsee_unity_view_region(float *outRect) { (void)outRect; return 0; }
+int _bugsee_screen_points(float *outWH) { (void)outWH; return 0; }
 void _bugsee_set_secure_buffer(int display, int *packed, int packedLength)
 {
     (void)display;
