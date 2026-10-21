@@ -28,14 +28,11 @@ namespace Bugsee.WrapperPolicy.Tests
     {
         // ---- Allow-lists (key -> reason) ----
 
-        // Android keys the manifest lists with no C# constant and no typed setter. bugsee/bugsee-unity#96.
-        // Add a constant and a setter (and gate it per platform) to remove an entry.
-        const string NoConstantAndroid = "#96: Android key without a C# constant";
-        static readonly Dictionary<string, string> AndroidNotExposed = Keys(NoConstantAndroid,
-            "config.max-data-size", "config.max-pending-report-age", "config.max-pending-reports", "config.notify-flush-delay", "crash-ndk.tombstone-logs",
-            "detect.anr.sampling", "detect.crash-ndk", "detect.exit.bg_low_memory_as_error", "detect.hang.sampling",
-            "detect.memory_leaks", "detect.memory_leaks.deep_sample_rate", "detect.memory_leaks.mode",
-            "detect.thread_leaks");
+        // Android keys the manifest lists that the wrapper deliberately does not expose. bugsee/bugsee-unity#96 exposed the
+        // rest (data limits, pending reports, sampling, NDK) as typed properties and constants.
+        const string NoLeakModule = "#96: option of the bugsee-android-leak module, which the wrapper does not ship (the SDK does not know the key without it)";
+        static readonly Dictionary<string, string> AndroidNotExposed = Keys(NoLeakModule,
+            "detect.memory_leaks", "detect.memory_leaks.deep_sample_rate", "detect.memory_leaks.mode", "detect.thread_leaks");
 
         // iOS keys the iOS manifest lists that the wrapper deliberately does not expose. bugsee/bugsee-unity#97 exposed the rest
         // as typed IOSLaunchOptions properties (iOS-only, gated off Android by OptionPlatformGate).
@@ -540,6 +537,45 @@ namespace Bugsee.WrapperPolicy.Tests
                 doc.Clear();
             }
             Assert.That(checkedCount, Is.GreaterThan(10));
+            Assert.That(problems, Is.Empty, string.Join("\n", problems));
+        }
+
+        // The documented "Default when omitted" of each bool and int property that documents one (the #96 options on
+        // AndroidLaunchOptions, plus the shared MaxDataSize and NotifyFlushDelay, whose first number is the Android default) is
+        // the Android manifest default.
+        [Test]
+        public void Android_property_docs_state_the_manifest_default()
+        {
+            var keyOf = new Dictionary<string, string>();
+            foreach (var kv in Setters())
+                keyOf[kv.Value.Property] = Constants()[kv.Key];
+            var problems = new List<string>();
+            var doc = new StringBuilder();
+            int checkedCount = 0;
+            foreach (var file in new[] { "AndroidLaunchOptions.cs", "BugseeLaunchOptions.cs" })
+            {
+                doc.Clear();
+                foreach (var line in File.ReadAllLines(RepoFile("Runtime/Contracts/Options/" + file)))
+                {
+                    var trimmed = line.Trim();
+                    if (trimmed.StartsWith("///")) { doc.Append(' ').Append(trimmed.Substring(3)); continue; }
+                    var m = Regex.Match(trimmed, @"^public (bool|int) (\w+)$");
+                    var d = Regex.Match(doc.ToString(), @"Default when omitted:\s*(true|false|\d+)\b");
+                    if (m.Success && d.Success)
+                    {
+                        var prop = m.Groups[2].Value;
+                        if (!keyOf.TryGetValue(prop, out var key) || !Android.Options.TryGetValue(key, out var o))
+                            problems.Add(prop + " documents a default but is not a typed setter of an Android manifest key");
+                        else
+                        {
+                            checkedCount++;
+                            if (o.DefaultText != d.Groups[1].Value) problems.Add(prop + " documents default " + d.Groups[1].Value + ", the Android manifest says " + o.DefaultText);
+                        }
+                    }
+                    doc.Clear();
+                }
+            }
+            Assert.That(checkedCount, Is.GreaterThanOrEqualTo(9));
             Assert.That(problems, Is.Empty, string.Join("\n", problems));
         }
 

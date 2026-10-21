@@ -260,6 +260,14 @@ namespace Bugsee.Sample
         {
             if (key.Contains("$$")) return true;
 #if UNITY_ANDROID && !UNITY_EDITOR
+            // The NDK keys exist only once the NDK extension has registered (not on Unity 6 builds with the Gradle plugin, #226).
+            if (key == Options.DetectAndReportCrashNdk || key == Options.CrashNdkIncludeTombstoneLogs)
+            {
+                var native = Bugsee.GetLaunchOptions();
+                if (native == null || !native.ContainsKey(key)) return true;
+            }
+#endif
+#if UNITY_ANDROID && !UNITY_EDITOR
             if (key.StartsWith("com.bugsee.option.unity.", StringComparison.Ordinal)) return true;
             // iOS-only options (the privacy preset sets some through the builder): the platform gate drops them, so they never come back.
             if (System.Linq.Enumerable.Contains(OptionPlatformGate.IosOnly, key)) return true;

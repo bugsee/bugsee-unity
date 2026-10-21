@@ -31,21 +31,18 @@ namespace Bugsee.WrapperPolicy.Tests
             return Path.GetFullPath(Path.Combine(FindRepoRoot(), relative));
         }
 
-        // Android SDK 7.4.2 keys that Options has no constant for (#96); iOS would keep them verbatim.
+        // Android SDK 7.4.2 keys that Options has no constant for: the leak module's (bugsee-android-leak, not shipped by the
+        // wrapper); iOS would keep them verbatim.
         static readonly string[] RawAndroidOnlyKeys =
         {
-            "com.bugsee.option.detect.crash-ndk", "com.bugsee.option.crash-ndk.tombstone-logs",
-            "com.bugsee.option.detect.anr.sampling", "com.bugsee.option.detect.hang.sampling",
             "com.bugsee.option.detect.memory_leaks", "com.bugsee.option.detect.memory_leaks.mode",
-            "com.bugsee.option.detect.memory_leaks.deep_sample_rate", "com.bugsee.option.detect.thread_leaks",
-            "com.bugsee.option.detect.exit.bg_low_memory_as_error", "com.bugsee.option.config.max-pending-reports",
-            "com.bugsee.option.config.max-pending-report-age"
+            "com.bugsee.option.detect.memory_leaks.deep_sample_rate", "com.bugsee.option.detect.thread_leaks"
         };
 
         // Keys both SDKs know: never gated.
         static readonly string[] SharedConstants =
         {
-            nameof(Options.Duration), nameof(Options.WifiOnlyUpload), nameof(Options.DetectAndReportExit),
+            nameof(Options.Duration), nameof(Options.WifiOnlyUpload), nameof(Options.MaxDataSize), nameof(Options.NotifyFlushDelay), nameof(Options.DetectAndReportExit),
             nameof(Options.DetectAndReportHang), nameof(Options.DetectAndReportHangFairLevel),
             nameof(Options.DetectAndReportHangMediumLevel), nameof(Options.DetectAndReportHangSevereLevel),
             nameof(Options.DetectAndReportCrash), nameof(Options.DetectAndReportMainThreadMisuse),
@@ -103,6 +100,12 @@ namespace Bugsee.WrapperPolicy.Tests
             expected.Add(Options.PerformanceUploadMode);
             expected.Add(Options.ReportProcessingInProcess);
             expected.Add(Options.WebViewDomainAllowlist);
+            expected.Add(Options.MaxPendingReports);
+            expected.Add(Options.MaxPendingReportAge);
+            expected.Add(Options.DetectAndReportCrashNdk);
+            expected.Add(Options.CrashNdkIncludeTombstoneLogs);
+            expected.Add(Options.DetectAndReportHangSampling);
+            expected.Add(Options.DetectAndReportAnrSampling);
             foreach (var raw in RawAndroidOnlyKeys)
                 expected.Add(raw);
             return expected;

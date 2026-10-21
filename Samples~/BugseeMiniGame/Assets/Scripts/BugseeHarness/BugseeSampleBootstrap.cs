@@ -536,7 +536,18 @@ namespace Bugsee.Sample
             Probe(options, Options.DetectAndReportExitUserRequested, true);
             Probe(options, Options.DetectAndReportExitOther, true);
             Probe(options, Options.ReportHandlerCallbackTimeout, 7000);
+            // Android 7.4.2 keys with typed properties (#96), non-default and type-correct: each must come back as sent.
+            Probe(options, Options.MaxPendingReports, 9);
+            Probe(options, Options.MaxPendingReportAge, 11);
+            Probe(options, Options.DetectAndReportExitLowMemoryBackgroundAsError, true);
+            Probe(options, Options.DetectAndReportHangSampling, false);
+            Probe(options, Options.DetectAndReportAnrSampling, false);
+            Probe(options, Options.DetectAndReportCrashNdk, false);
+            Probe(options, Options.CrashNdkIncludeTombstoneLogs, true);
 #endif
+            // Keys both SDKs know (#96): they must reach each native SDK as sent (the defaults differ: Android 150, iOS 50).
+            Probe(options, Options.MaxDataSize, 77);
+            Probe(options, Options.NotifyFlushDelay, 321);
             // Every iOS-only key, type-correct and non-default: iOS must report each as sent, Android must drop each (#97).
             Probe(options, Options.CaptureCrashHandlerType, 3);
             Probe(options, Options.CaptureCrashSignals, (int)(CrashSignals.Abrt | CrashSignals.Trap));
@@ -579,8 +590,26 @@ namespace Bugsee.Sample
 #else
                 var ok = System.Linq.Enumerable.Contains(OptionPlatformGate.IosOnly, key) ? !has : sent == "-" || string.Equals(sent, got, StringComparison.OrdinalIgnoreCase);
 #endif
+#if UNITY_ANDROID
+                // The NDK keys exist only once the NDK extension registered (not on Unity 6 builds with the Gradle plugin, #226).
+                if (!ok && !has && (key == Options.DetectAndReportCrashNdk || key == Options.CrashNdkIncludeTombstoneLogs))
+                {
+                    Debug.Log("[OPTIONS] " + key + " sent=" + sent + " native=absent ndk-extension-not-registered (#226)");
+                    continue;
+                }
+#endif
                 if (!ok) mismatches++;
                 Debug.Log("[OPTIONS] " + key + " sent=" + sent + " native=" + got + (ok ? " ok" : " MISMATCH"));
+            }
+            // Shared keys: not gated, so each must be reported with the value sent, on both platforms.
+            foreach (var key in new[] { Options.MaxDataSize, Options.NotifyFlushDelay })
+            {
+                var has = launched != null && launched.ContainsKey(key);
+                var sent = ProbeSent.TryGetValue(key, out var sv) ? sv.ToString() : "-";
+                var got = has ? Convert.ToString(launched[key]) : "absent";
+                var ok = sent != "-" && has && string.Equals(sent, got, StringComparison.OrdinalIgnoreCase);
+                if (!ok) mismatches++;
+                Debug.Log("[OPTIONS] " + key + " sent=" + sent + " native=" + got + " shared" + (ok ? " ok" : " MISMATCH"));
             }
             Debug.Log("[OPTIONS] launched=" + Bugsee.IsLaunched + " total-native-keys=" + (launched == null ? -1 : launched.Count)
                 + " gated-keys-present=" + present + "/" + keys.Count + " mismatches=" + mismatches);

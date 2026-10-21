@@ -219,6 +219,8 @@ set the booleans to opposite values and the `privacy` preset sets some through `
 if they are sent (the `options` scenario sends every one and checks that Android reports none). `detect` turns on
 `CaptureBluetoothStatus`, which only reports a status when the app itself got Bluetooth permission (the sample never asks, so it reads unknown).
 
+The presets also set the Android 7.4.2 options with typed properties (#96): `MaxDataSize` and `NotifyFlushDelay` on both platforms, and on Android `MaxPendingReports`, `MaxPendingReportAge`, the hang and ANR sampling switches, `DetectAndReportExitLowMemoryBackgroundAsError`, `DetectAndReportCrashNdk` and `CrashNdkIncludeTombstoneLogs`. The two NDK keys are skipped in the comparison when the SDK does not report them (the NDK extension is not registered on Unity 6 with the Gradle plugin, #226). The `options` scenario sends each at a non-default value and logs `[OPTIONS] key sent=... native=...`.
+
 ### Filter check (`filters` e2e scenario)
 
 `BUGSEE_E2E_SCENARIO=filters` (iOS env var, Android intent extra `bugsee_e2e`) waits for the SDK to launch, turns the Filters
