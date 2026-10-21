@@ -80,7 +80,7 @@ fi
 # PATH, /opt/homebrew/bin, /usr/local/bin, ~/.local/bin, ~/.cargo/bin, ~/.bugsee/bin, then the package's download cache.
 # BUGSEE_CLI_PATH and the baked path are used as given. A discovered candidate must run, print a version and be MIN_VERSION or
 # newer (a pre-release such as 0.8.0-beta.1 counts, as in the Editor). Never downloads. (BUGSEE_CLI_SYSTEM_DIRS replaces the two system directories and
-# BUGSEE_CLI_PROBE_TIMEOUT the 15 s limit of a --version probe; tests.)
+# BUGSEE_CLI_PROBE_TIMEOUT the 15 s limit of a --version probe and BUGSEE_CLI_PROBE_KILL_GRACE the 2 s between TERM and KILL; tests.)
 BAKED_CLI=''
 PINNED_VERSION=''
 MIN_VERSION=''
@@ -92,7 +92,7 @@ note() {
   return 0
 }
 # Prints what ""$1 --version"" writes to stdout; fails when it fails or runs longer than the limit: a probe that reads
-# stdin, hangs or ignores SIGTERM must not hold the build (the watchdog sends TERM, then KILL two seconds later).
+# stdin, hangs or ignores SIGTERM must not hold the build (the watchdog sends TERM, then KILL after the grace period).
 probe_version() {
   PROBE_DIR=""${TMPDIR:-/tmp}""
   [ -d ""${PROBE_DIR}"" ] && [ -w ""${PROBE_DIR}"" ] || PROBE_DIR=/tmp
@@ -102,7 +102,7 @@ probe_version() {
   trap 'exit 1' HUP INT TERM
   ""$1"" --version </dev/null >""${PROBE_OUT}"" 2>/dev/null &
   PROBE_PID=$!
-  ( sleep ""${BUGSEE_CLI_PROBE_TIMEOUT:-15}"" || :; kill ""${PROBE_PID}"" 2>/dev/null || :; sleep 2 || :; kill -9 ""${PROBE_PID}"" 2>/dev/null || : ) >/dev/null 2>&1 &
+  ( sleep ""${BUGSEE_CLI_PROBE_TIMEOUT:-15}"" || :; kill ""${PROBE_PID}"" 2>/dev/null || :; sleep ""${BUGSEE_CLI_PROBE_KILL_GRACE:-2}"" || :; kill -9 ""${PROBE_PID}"" 2>/dev/null || : ) >/dev/null 2>&1 &
   PROBE_WATCHDOG=$!
   PROBE_RC=0
   wait ""${PROBE_PID}"" 2>/dev/null || PROBE_RC=$?
