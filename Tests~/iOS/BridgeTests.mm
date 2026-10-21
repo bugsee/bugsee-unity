@@ -63,6 +63,8 @@ int _bugsee_is_blackout(void);
 typedef void (*BugseeDeleteCompletionFn)(int token, int wiped);
 void _bugsee_delete_collected_data(int token, int scope, BugseeDeleteCompletionFn completion);
 const char *_bugsee_test_exception_options(const char *optionsJson);
+int _bugsee_test_last_delete_form(void);
+void _bugsee_test_reset_delete_form(void);
 int _bugsee_test_simulator_warning_count(void);
 int _bugsee_exceptions_filed(void);
 void _bugsee_logException(const char *name, const char *reason, bool handled, const char *optionsJson);
@@ -608,9 +610,11 @@ int main(void)
     expect(waitFor(^{ return gStartedCount == 2 ? 1 : 0; }, 5) && gStartedToken == 42,
            "relaunch reports the SDK's started answer with its token");
     // The wipe reports back with its token once the SDK has finished it (it stops a running SDK first).
+    _bugsee_test_reset_delete_form();
     _bugsee_delete_collected_data(9, 2, OnDeleted);
     expect(waitFor(^{ return gDeletedToken == 9 ? 1 : 0; }, 15), "delete reports its completion with its token");
     expect(gDeletedWiped == 1, "delete reports wiped on the normal path");
+    expect(_bugsee_test_last_delete_form() == 2, "scope 2 runs the SDK's form without a flag");
     // The narrower scopes (capture only, capture and snapshots) call the flag form and report the same way.
     for (int scope = 0; scope <= 1; scope++) {
         int token = 20 + scope;
@@ -618,6 +622,18 @@ int main(void)
         _bugsee_delete_collected_data(token, scope, OnDeleted);
         expect(waitFor(^{ return gDeletedToken == token ? 1 : 0; }, 15), "a scoped delete reports its completion with its token");
         expect(gDeletedWiped == 1, "a scoped delete reports wiped on the normal path");
+        expect(_bugsee_test_last_delete_form() == scope, "a narrow scope runs the flag form, never the form without a flag");
+    }
+    // An undefined scope deletes nothing: it is reported as not wiped and no SDK delete form runs.
+    for (int bad = 0; bad < 2; bad++) {
+        int scope = bad == 0 ? 5 : -1;
+        int token = 30 + bad;
+        gDeletedWiped = -1;
+        _bugsee_test_reset_delete_form();
+        _bugsee_delete_collected_data(token, scope, OnDeleted);
+        expect(waitFor(^{ return gDeletedToken == token ? 1 : 0; }, 15), "an invalid scope still reports its completion");
+        expect(gDeletedWiped == 0, "an invalid scope reports not wiped");
+        expect(_bugsee_test_last_delete_form() == -1, "an invalid scope runs no SDK delete form");
     }
     _bugsee_launch("00000000-0000-0000-0000-000000000000", NULL, 0, NULL);
     // The tests run on a simulator: the warning that exceptions are not filed there shows once, however many launches.

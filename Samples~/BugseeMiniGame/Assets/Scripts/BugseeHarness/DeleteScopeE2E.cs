@@ -67,12 +67,19 @@ namespace Bugsee.Sample
             // 0. A scope maps to one wire value; the default of the facade is the widest.
             Check("DeleteScope values", (int)DeleteScope.CaptureOnly == 0 && (int)DeleteScope.CaptureAndIntermediate == 1 && (int)DeleteScope.Everything == 2, "");
 
+            // An undefined scope is refused before anything runs: it must never be read as the widest wipe.
+            var statusBefore = Bugsee.Status;
+            var refused = false;
+            try { Bugsee.DeleteCollectedDataOnDeviceAsync((DeleteScope)5); } catch (ArgumentOutOfRangeException) { refused = true; }
+            try { Bugsee.DeleteCollectedDataOnDevice((DeleteScope)(-1)); refused &= false; } catch (ArgumentOutOfRangeException) { }
+            Check("an undefined scope throws ArgumentOutOfRangeException and stops nothing", refused && Bugsee.Status == statusBefore, "status=" + Bugsee.Status);
+
             var scopes = new[] { DeleteScope.CaptureOnly, DeleteScope.CaptureAndIntermediate, DeleteScope.Everything };
             foreach (var scope in scopes)
             {
                 var name = scope.ToString();
                 Census before = null;
-                yield return Prepare(b, c => before = c);
+                yield return Prepare(b, c => before = c, true);
                 Task<bool> task = null;
                 try { task = Bugsee.DeleteCollectedDataOnDeviceAsync(scope); }
                 catch (Exception ex) { Check(name + " call did not throw", false, ex.ToString()); continue; }
@@ -88,10 +95,13 @@ namespace Bugsee.Sample
             // 1. The plain call is still the widest wipe.
             {
                 Census before = null;
-                yield return Prepare(b, c => before = c);
+                yield return Prepare(b, c => before = c, true);
                 Bugsee.DeleteCollectedDataOnDevice();
-                yield return WaitFor(() => Bugsee.Status == BugseeStatus.Stopped, 40f);
-                yield return new WaitForSeconds(4f); // the SDK clears its files on a background thread; the plain call has no result to wait for
+                // The plain call has no result, and the SDK clears its files on a background thread; a delete of the same scope after it is a
+                // barrier (it shares the running wipe on iOS and queues behind it on Android), so the census never reads a folder being deleted.
+                var barrier = Bugsee.DeleteCollectedDataOnDeviceAsync(DeleteScope.Everything);
+                yield return WaitFor(() => barrier.IsCompleted, 60f);
+                Check("plain: the barrier delete completes true", barrier.IsCompleted && !barrier.IsFaulted && barrier.Result, Describe(barrier));
                 var after = Count();
                 Debug.Log("[Sample] deletescope plain before: " + before + " | after: " + after);
                 CheckEffect("plain DeleteCollectedDataOnDevice()", DeleteScope.Everything, before, after);
@@ -100,7 +110,7 @@ namespace Bugsee.Sample
             // 2. The default argument of the Task overload is the widest wipe too.
             {
                 Census before = null;
-                yield return Prepare(b, c => before = c);
+                yield return Prepare(b, c => before = c, true);
                 var task = Bugsee.DeleteCollectedDataOnDeviceAsync();
                 yield return WaitFor(() => task.IsCompleted, 40f);
                 var after = Count();
@@ -111,35 +121,36 @@ namespace Bugsee.Sample
             // 3. The synchronous scoped overload has no result; its effect is the same.
             {
                 Census before = null;
-                yield return Prepare(b, c => before = c);
+                yield return Prepare(b, c => before = c, true);
                 Bugsee.DeleteCollectedDataOnDevice(DeleteScope.CaptureAndIntermediate);
-                yield return WaitFor(() => Bugsee.Status == BugseeStatus.Stopped, 40f);
-                yield return new WaitForSeconds(4f);
+                var barrier = Bugsee.DeleteCollectedDataOnDeviceAsync(DeleteScope.CaptureAndIntermediate);
+                yield return WaitFor(() => barrier.IsCompleted, 60f);
+                Check("sync scoped: the barrier delete completes true", barrier.IsCompleted && !barrier.IsFaulted && barrier.Result, Describe(barrier));
                 var after = Count();
                 Debug.Log("[Sample] deletescope sync scoped before: " + before + " | after: " + after);
                 CheckEffect("sync scoped overload", DeleteScope.CaptureAndIntermediate, before, after);
             }
 
-            // 4. Two deletes of different scopes at once: both answered true, in request order, the narrow one never widened.
+            // 4. Two deletes of different scopes at once, the SDK running: both answered true, in request order, the narrow one never
+            // widened. The order is recorded on the main thread (the continuations run there).
             {
-                Census before = null;
-                yield return Prepare(b, c => before = c);
+                yield return Prepare(b, null, false);
                 var order = new List<string>();
+                var main = TaskScheduler.FromCurrentSynchronizationContext();
                 var narrow = Bugsee.DeleteCollectedDataOnDeviceAsync(DeleteScope.CaptureOnly);
                 var wide = Bugsee.DeleteCollectedDataOnDeviceAsync(DeleteScope.Everything);
-                narrow.ContinueWith(t => { lock (order) order.Add("narrow"); });
-                wide.ContinueWith(t => { lock (order) order.Add("wide"); });
-                yield return WaitFor(() => narrow.IsCompleted && wide.IsCompleted, 60f);
-                yield return null;
+                narrow.ContinueWith(t => order.Add("narrow"), main);
+                wide.ContinueWith(t => order.Add("wide"), main);
+                yield return WaitFor(() => order.Count == 2, 120f);
                 Check("two scopes at once: both complete true", narrow.IsCompleted && wide.IsCompleted && !narrow.IsFaulted && !wide.IsFaulted && narrow.Result && wide.Result,
                     "narrow " + Describe(narrow) + ", wide " + Describe(wide));
-                lock (order) Check("two scopes at once: the earlier request is answered first", order.Count == 2 && order[0] == "narrow", string.Join(",", order));
-                CheckEffect("two scopes at once", DeleteScope.Everything, before, Count());
+                Check("two scopes at once: the earlier request is answered first", order.Count == 2 && order[0] == "narrow", string.Join(",", order));
+                CheckEffect("two scopes at once", DeleteScope.Everything, null, Count());
             }
 
             // 5. Two deletes of the same scope at once share one wipe and are both answered.
             {
-                yield return Prepare(b, null);
+                yield return Prepare(b, null, false);
                 var one = Bugsee.DeleteCollectedDataOnDeviceAsync(DeleteScope.CaptureOnly);
                 var two = Bugsee.DeleteCollectedDataOnDeviceAsync(DeleteScope.CaptureOnly);
                 yield return WaitFor(() => one.IsCompleted && two.IsCompleted, 60f);
@@ -149,7 +160,7 @@ namespace Bugsee.Sample
 
             // 6. A launch made right after the call waits for the wipe and the SDK runs again.
             {
-                yield return Prepare(b, null);
+                yield return Prepare(b, null, false);
                 var del = Bugsee.DeleteCollectedDataOnDeviceAsync(DeleteScope.Everything);
                 var launch = LaunchTask(b, false);
                 yield return WaitFor(() => del.IsCompleted && launch.IsCompleted, 60f);
@@ -159,7 +170,7 @@ namespace Bugsee.Sample
         }
 
         // The SDK is launched against a dead endpoint, data is made, and the SDK is left running with its files on disk.
-        static IEnumerator Prepare(BugseeSampleBootstrap b, Action<Census> done)
+        static IEnumerator Prepare(BugseeSampleBootstrap b, Action<Census> done, bool stopForCensus)
         {
             ReleaseHeld();
             if (Bugsee.Status == BugseeStatus.Launched || Bugsee.Status == BugseeStatus.Launching)
@@ -179,16 +190,25 @@ namespace Bugsee.Sample
             var draft = Bugsee.CreateReport(); // report snapshots: set aside, not bundled yet
             Bugsee.SetReportHandler(null);
             Bugsee.Upload("deletescope-report", "a report whose upload fails: its bundle waits for upload");
-            yield return WaitFor(() => Bugsee.Status != BugseeStatus.Launched || Count().Bundles > 0, 45f, 2f);
+            // No census while the SDK runs: it creates and removes folders, and il2cpp's directory walk aborts the process when a folder
+            // goes away under it (iOS). Fixed waits instead.
+            yield return new WaitForSeconds(8f); // the failed upload leaves a bundle
             // A second report is held in the report handler: its snapshot (the data set aside for it) is on disk, but it is not bundled.
             Held.Clear();
             Bugsee.SetReportHandler(new HoldingHandler());
             Bugsee.Upload("deletescope-held", "a report held in the report handler: its snapshot is on disk, not bundled");
-            yield return WaitFor(() => Count().Snapshots > 0, 20f, 2f);
-            yield return new WaitForSeconds(2f);
-            var census = Count();
-            Debug.Log("[Sample] deletescope prepared: " + census + " capture files: " + string.Join(" ; ", Files("capture", 6))
-                + " snapshot files: " + string.Join(" ; ", Files("snapshots", 6)) + " bundle files: " + string.Join(" ; ", Files("bundles", 6)));
+            yield return new WaitForSeconds(5f);
+            Census census = null;
+            if (stopForCensus)
+            {
+                var stop = Bugsee.StopAsync();
+                yield return WaitFor(() => stop.IsCompleted, 30f);
+                Check("prepare: the SDK stops before the census", stop.IsCompleted && !stop.IsFaulted && Bugsee.Status == BugseeStatus.Stopped, "status=" + Bugsee.Status);
+                yield return new WaitForSeconds(1f);
+                census = Count();
+                Debug.Log("[Sample] deletescope prepared: " + census + " capture files: " + string.Join(" ; ", Files("capture", 6))
+                    + " snapshot files: " + string.Join(" ; ", Files("snapshots", 6)) + " bundle files: " + string.Join(" ; ", Files("bundles", 6)));
+            }
             Debug.Log("[Sample] deletescope draft report id=" + (draft != null ? draft.Id : "(null)"));
             done?.Invoke(census);
         }
@@ -222,13 +242,16 @@ namespace Bugsee.Sample
 
         static void CheckEffect(string name, DeleteScope scope, Census before, Census after)
         {
-            if (before == null) { Check(name + " had data to delete", false, "no census before"); return; }
-            Check(name + ": there was capture data to delete", before.Capture > 0, before.ToString());
-            Check(name + ": there was a bundle waiting for upload", before.Bundles > 0, before.ToString());
+            if (before != null)
+            {
+                Check(name + ": there was capture data to delete", before.Capture > 0, before.ToString());
+                Check(name + ": there was a bundle waiting for upload", before.Bundles > 0, before.ToString());
+                Check(name + ": there was a report snapshot to delete", before.Snapshots > 0, before.ToString());
+            }
             if (after.Capture != 0) Debug.Log("[Sample] deletescope leftover capture files: " + string.Join(" ; ", Files("capture", 12)));
             Check(name + ": the capture is deleted", after.Capture == 0, after.ToString());
             if (scope == DeleteScope.CaptureOnly)
-                Check(name + ": snapshots are kept", after.Snapshots == before.Snapshots, "before " + before.Snapshots + " after " + after.Snapshots);
+                Check(name + ": snapshots are kept", before != null ? after.Snapshots == before.Snapshots : after.Snapshots > 0, (before != null ? "before " + before.Snapshots + " " : "") + "after " + after.Snapshots);
             else
             {
                 if (after.Snapshots != 0) Debug.Log("[Sample] deletescope leftover snapshot files: " + string.Join(" ; ", Files("snapshots", 12)));
@@ -237,7 +260,7 @@ namespace Bugsee.Sample
             if (scope == DeleteScope.Everything)
                 Check(name + ": bundles are deleted", after.Bundles == 0, after.ToString());
             else
-                Check(name + ": bundles are kept", after.Bundles == before.Bundles, "before " + before.Bundles + " after " + after.Bundles);
+                Check(name + ": bundles are kept", before != null ? after.Bundles == before.Bundles : after.Bundles > 0, (before != null ? "before " + before.Bundles + " " : "") + "after " + after.Bundles);
         }
 
         static string DataRoot()

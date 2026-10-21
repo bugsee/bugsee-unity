@@ -116,6 +116,33 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>
+        /// Queues <paramref name="waiter"/> as a first waiter on the wipe in flight (one begun with
+        /// <c>holdsLaunch</c>), for a Delete that must not run beside it. False when no wipe is in flight. A wipe
+        /// waiter is not a new request (the intent is unchanged), so a launch deferred behind the wipe stays
+        /// deferred, and runs after the waiter's own wipe; except that a launch already waiting is older than this
+        /// Delete and is cancelled (it comes back in <paramref name="cancelledLaunch"/>, for the caller to call with
+        /// <c>false</c> outside any lock), as <see cref="TryJoin"/> does.
+        /// </summary>
+        public bool TryQueueBehindWipe(Action waiter, out Action<bool> cancelledLaunch)
+        {
+            lock (_gate)
+            {
+                cancelledLaunch = null;
+                if (_inFlightToken == 0
+                    || !_pending.TryGetValue(_inFlightToken, out var pending)
+                    || !pending.HoldsLaunch)
+                    return false;
+                if (_deferredLaunch != null)
+                {
+                    _intent++;
+                    cancelledLaunch = TakeDeferredLaunch();
+                }
+                Add(pending, waiter, null, first: true);
+                return true;
+            }
+        }
+
+        /// <summary>
         /// Defers <paramref name="launch"/> until the native stop in flight finishes. False when none is in
         /// flight: the caller launches now. A launch deferred earlier is replaced and comes back in
         /// <paramref name="cancelledLaunch"/>. <paramref name="launch"/> is later called with <c>true</c> to

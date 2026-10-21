@@ -584,9 +584,13 @@ namespace Bugsee.Platform.Android
                 _bridge._bugsee.CallStatic("stop", new RunnableProxy(() => MainThreadDispatcher.Run(done)));
 
             // CaptureOnly and CaptureAndIntermediate keep the finished report bundles (includingBundles=false).
-            public void DeleteCollectedData(DeleteScope scope, Action<bool> done) =>
+            public void DeleteCollectedData(DeleteScope scope, Action<bool> done)
+            {
+                // An undefined scope deletes nothing; it is never read as one of the three.
+                if (!Enum.IsDefined(typeof(DeleteScope), scope)) { done(false); return; }
                 _bridge._bugsee.CallStatic("deleteCollectedDataOnDevice", scope != DeleteScope.CaptureOnly,
                     scope == DeleteScope.Everything, new BooleanCallback1Proxy(OnMain(done)));
+            }
 
             public void InstallHooks(IDictionary<string, object> options)
             {

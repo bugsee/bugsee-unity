@@ -218,6 +218,7 @@ namespace Bugsee.Platform.IOS
         static readonly OneShotCallbacks<bool> LaunchResults = new OneShotCallbacks<bool>();
         static readonly OneShotCallbacks<bool> StopCompletions = new OneShotCallbacks<bool>();
         static readonly WipeCompletions WipeResults = new WipeCompletions();
+        static readonly NativeWipeGate WipeGate = new NativeWipeGate(StopWaiters, WipeResults);
         const int StopSoftDeadlineMs = 10000;
         const int StopHardDeadlineMs = 60000;
         const int LaunchResultTimeoutMs = 10000;
@@ -487,8 +488,13 @@ namespace Bugsee.Platform.IOS
             // stops an SDK that is not already stopped. Requests run in order, as on Android: a delete is never
             // skipped because a Launch follows it (that Launch waits for the stop and so runs after the wipe), and
             // one requested after a Launch wipes that session.
+            // started: 0 not yet, 1 the closure began (it answers done itself, from the wipe), 2 the 5 s wait gave up first
+            // (the closure then does nothing, and done is answered false here). So done runs once, and false only when
+            // no wipe was started.
+            var started = 0;
             if (!MainThreadDispatcher.RunSyncLifecycle(() =>
                 {
+                    if (Interlocked.CompareExchange(ref started, 1, 0) != 0) return;
                     HostLogForwarder.Uninstall();
                     ExceptionPipeline.Uninstall();
                     CancelManagedReportUpload();
@@ -497,12 +503,15 @@ namespace Bugsee.Platform.IOS
                     _openReportHandle = null;
                     _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
                     _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
-                    if (TryJoinWipe(scope, done)) return;
+                    if (WipeGate.TryJoinOrQueue(scope, done, () => BeginNativeDelete(scope, done))) return;
                     StopNativeThen(() => BeginNativeDelete(scope, done), first: true);
                 }))
             {
-                Debug.LogError("[Bugsee] DeleteCollectedDataOnDevice timed out waiting for the Unity main thread.");
-                RunResult(done, false);
+                if (Interlocked.CompareExchange(ref started, 2, 0) == 0)
+                {
+                    Debug.LogError("[Bugsee] DeleteCollectedDataOnDevice timed out waiting for the Unity main thread.");
+                    RunResult(done, false);
+                }
             }
         }
 
@@ -510,21 +519,17 @@ namespace Bugsee.Platform.IOS
         // meanwhile waits for the SDK to report it finished (it clears its files on a background thread), so a
         // new session never starts, or has capture files deleted, under a running wipe. Same hard deadline as a
         // stop, so nothing waits forever; no soft one, as no caller waits for the wipe.
-        // A Delete that follows one still wiping is the same wipe, so it starts no second one (two would release a
-        // deferred Launch at the later one's report, under the first one's file pass).
+        // A Delete that follows one still wiping shares it when it has the same scope (two wipes would release a
+        // deferred Launch at the later one's report, under the first one's file pass), and otherwise waits for it and
+        // then starts its own: never two native wipes at once (see NativeWipeGate).
         static void BeginNativeDelete(DeleteScope scope, Action<bool> done)
         {
-            if (TryJoinWipe(scope, done)) return;
+            if (WipeGate.TryJoinOrQueue(scope, done, () => BeginNativeDelete(scope, done))) return;
             var generation = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
-            var token = StopWaiters.Begin(null, generation, holdsLaunch: true);
-            WipeResults.Begin(token, scope, done);
+            var token = WipeGate.Begin(scope, done, generation);
             GiveUpIfStopNotReported(token);
             _bugsee_delete_collected_data(token, (int)scope, OnNativeDeleted);
         }
-
-        // The wipe in flight, when it has the same scope and no launch waits behind it: this Delete is that wipe.
-        static bool TryJoinWipe(DeleteScope scope, Action<bool> done) =>
-            StopWaiters.TryCoalesceWipe(out var wipe) && WipeResults.TryJoin(wipe, scope, done);
 
         void CancelManagedReportUpload()
         {

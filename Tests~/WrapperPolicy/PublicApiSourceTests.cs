@@ -388,7 +388,13 @@ namespace Bugsee.WrapperPolicy.Tests
             string native = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
             string body = ExtractNativeFunctionBody(native, "_bugsee_delete_collected_data");
             Assert.That(body, Does.Contain("[Bugsee deleteCollectedDataOnDevice:(scope == 1) completion:done]"));
-            Assert.That(body, Does.Contain("if (scope >= 2)"));
+            Assert.That(body, Does.Contain("if (scope == 2)"));
+            Assert.That(body, Does.Contain("if (scope < 0 || scope > 2)"), "an undefined scope deletes nothing, never everything");
+            Assert.That(ExtractMethodBody(facade, "static void CheckScope(DeleteScope scope)"), Does.Contain("Enum.IsDefined"));
+            Assert.That(ExtractMethodBody(facade, "public static void DeleteCollectedDataOnDevice(DeleteScope scope)"), Does.Contain("CheckScope(scope)"));
+            Assert.That(ExtractMethodBody(facade, "public static Task<bool> DeleteCollectedDataOnDeviceAsync(DeleteScope scope = DeleteScope.Everything)"),
+                Does.Contain("CheckScope(scope)").And.Contain("TrySetException"));
+            Assert.That(android, Does.Contain("if (!Enum.IsDefined(typeof(DeleteScope), scope)) { done(false); return; }"));
             // The enum values are the wire values of the native scope argument.
             Assert.That(new[] { (int)Bugsee.Contracts.Lifecycle.DeleteScope.CaptureOnly,
                 (int)Bugsee.Contracts.Lifecycle.DeleteScope.CaptureAndIntermediate,
@@ -569,9 +575,10 @@ namespace Bugsee.WrapperPolicy.Tests
             string beginDelete = ExtractMethodBody(
                 File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs")),
                 "static void BeginNativeDelete(DeleteScope scope, Action<bool> done)");
-            Assert.That(beginDelete, Does.Contain("holdsLaunch: true"));
-            Assert.That(beginDelete, Does.Contain("if (TryJoinWipe(scope, done)) return;"));
-            Assert.That(iosDelete, Does.Contain("if (TryJoinWipe(scope, done)) return;"));
+            Assert.That(File.ReadAllText(RepoFile("Runtime/WrapperPolicy/NativeWipeGate.cs")), Does.Contain("holdsLaunch: true"));
+            Assert.That(beginDelete, Does.Contain("if (WipeGate.TryJoinOrQueue(scope, done, () => BeginNativeDelete(scope, done))) return;"));
+            Assert.That(iosDelete, Does.Contain("if (WipeGate.TryJoinOrQueue(scope, done, () => BeginNativeDelete(scope, done))) return;"));
+            Assert.That(iosDelete, Does.Contain("Interlocked.CompareExchange(ref started, 2, 0) == 0"), "done is answered once");
             Assert.That(beginDelete, Does.Contain("GiveUpIfStopNotReported(token)"));
             Assert.That(beginDelete, Does.Contain("_bugsee_delete_collected_data(token, (int)scope, OnNativeDeleted)"));
             Assert.That(body, Does.Contain("completion(token, success ? 1 : 0)"));
