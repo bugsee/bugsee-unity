@@ -15,17 +15,20 @@ namespace Bugsee.Sample
     /// </summary>
     static class VhE2E
     {
+        const string ErrorPrefix = "[Bugsee] The managed view hierarchy could not be read";
         const string ReplyPrefix = "[Bugsee] managed view hierarchy:";
         static int _replies;
         static int _nodes;
         static int _chars;
         const int WindowMs = 500; // the native SDK's wait for the reply
         static int _failures;
-        static int _slowest;
+        static int _slowest; // longest call-to-log time in ms
+        static float _calledAt;
+        static string _error;
 
         public static IEnumerator Run(BugseeSampleBootstrap b)
         {
-            _replies = 0; _nodes = 0; _chars = 0; _failures = 0; _slowest = 0;
+            _replies = 0; _nodes = 0; _chars = 0; _failures = 0; _slowest = 0; _error = null;
             Debug.Log("[Sample] vh e2e start launched=" + Bugsee.IsLaunched + " status=" + Bugsee.Status + " dev=" + Debug.isDebugBuild);
             Application.logMessageReceived += OnLog;
             try
@@ -43,15 +46,16 @@ namespace Bugsee.Sample
                 for (var i = 0; i < 2; i++)
                 {
                     var before = _replies;
+                    _calledAt = Time.realtimeSinceStartup;
                     Bugsee.CaptureViewHierarchy();
                     var waited = 0f;
                     while (_replies == before && waited < 10f) { waited += Time.unscaledDeltaTime; yield return null; }
-                    Check("capture " + (i + 1) + " answered with a tree", _replies > before, "replies=" + _replies + " waited=" + waited.ToString("0.0") + "s");
+                    Check("capture " + (i + 1) + " answered with a tree", _replies > before, "replies=" + _replies + (_error != null ? " wrapper error: " + _error : " (no reply logged: the SDK did not ask, or the request was answered null)") + " waited=" + waited.ToString("0.0") + "s");
                     yield return new WaitForSecondsRealtime(1f);
                 }
                 Check("tree has nodes", _nodes > 1, "nodes=" + _nodes);
                 Check("tree is non-empty JSON", _chars > 100, "chars=" + _chars);
-                Check("walk+write stayed inside the SDK's window", _slowest < WindowMs, "slowest=" + _slowest + " ms");
+                Check("capture call to reply stayed inside the SDK's 500 ms window", _slowest < WindowMs, "slowest=" + _slowest + " ms");
             }
             finally
             {
@@ -63,6 +67,7 @@ namespace Bugsee.Sample
         static void OnLog(string condition, string stack, LogType type)
         {
             // Any tree built while this runs counts, also one for an SDK-initiated snapshot (unlikely in this idle scenario).
+            if (condition != null && condition.StartsWith(ErrorPrefix)) { _error = condition; return; }
             if (condition == null || !condition.StartsWith(ReplyPrefix)) return;
             _replies++;
             // "...: 1500 nodes, 203441 chars, walk ..."
@@ -72,10 +77,8 @@ namespace Bugsee.Sample
                 int.TryParse(rest[0], out _nodes);
                 int.TryParse(rest[2], out _chars);
             }
-            // "... walk 83 ms, write 141 ms, truncated"
-            var m = System.Text.RegularExpressions.Regex.Match(condition, @"walk (\d+) ms, write (\d+) ms");
-            if (m.Success)
-                _slowest = System.Math.Max(_slowest, int.Parse(m.Groups[1].Value) + int.Parse(m.Groups[2].Value));
+            // Call to log, in ms: includes the main-thread queue delay and is a little long (the line is logged the frame after the reply).
+            _slowest = System.Math.Max(_slowest, (int)((Time.realtimeSinceStartup - _calledAt) * 1000f));
         }
 
         static bool Check(string name, bool ok, string detail)
