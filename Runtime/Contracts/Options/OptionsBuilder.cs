@@ -56,8 +56,6 @@ namespace Bugsee.Contracts.Options
             Set(Options.DetectAndReportExitNotResponding, enabled);
         public OptionsBuilder DetectAndReportExitLowMemory(bool enabled) =>
             Set(Options.DetectAndReportExitLowMemory, enabled);
-        public OptionsBuilder Debug(bool enabled) => Set(Options.Debug, enabled);
-        public OptionsBuilder Endpoint(string url) => Set(Options.Endpoint, url);
 
         public IReadOnlyDictionary<string, object> Build() =>
             new Dictionary<string, object>(_map);
