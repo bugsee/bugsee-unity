@@ -481,6 +481,13 @@ namespace Bugsee.Sample
                         _pendingE2EFire = "D:blackout";
                     }
                     break;
+                case "videoperm":
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 99;
+                        _pendingE2EFire = "W:videoperm";
+                    }
+                    break;
                 case "none":
                     // Recovery launch: arm nothing, only let the SDK recover and upload what the last run left.
                     break;
@@ -610,6 +617,9 @@ namespace Bugsee.Sample
                     break;
                 case 'N':
                     AttachmentTaskE2E.RunUnobserved(this, marker);
+                    break;
+                case 'W':
+                    VideoPermissionE2E.Run(this);
                     break;
                 case 'D':
                     BlackoutE2E.Run(this, appToken, LastLaunchOptions);

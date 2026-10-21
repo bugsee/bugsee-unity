@@ -89,6 +89,8 @@ Other platform differences, not aligned:
 - Before `Launched`, iOS holds network and breadcrumb events in the wrapper and submits them at launch, while Android hands them straight to the SDK.
 - `IReport.Email` set on a report from `CreateReport` is used on Android; on iOS it is dropped with a warning (the managed upload cannot carry it): use `SetUserIdentifier` there.
 - `IAppearance.ToMap()` returns what the SDK reports on Android; on iOS it lists only the properties set through the wrapper that the native theme applied.
+- `ResetVideoCapturePermission()` resets the screen-capture permission on Android. iOS has no such permission, so the call does nothing there and logs a warning once per process; in the Editor it does nothing.
+- The native report screenshot members (Android `getScreenshot`, `setScreenshot`, `getScreenshotDisplayIds`, `isScreenshotChanged`; iOS has none, and neither platform's `exportVideo` is wrapped) are not exposed on `IReport`: they exist on one platform only and work on an Android `Bitmap`. Attach a screenshot as a file or bytes with `AddAttachmentFile` / `AddAttachmentBytes`.
 - `Trace(name, value)` with a collection or other non-primitive value: iOS sends it as JSON, Android as its `ToString()`. Pass a string or a primitive to get the same result on both.
 
 ## Crash & exception capture

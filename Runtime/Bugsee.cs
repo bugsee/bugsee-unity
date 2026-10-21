@@ -505,6 +505,11 @@ namespace Bugsee
 
         public static void CaptureViewHierarchy() => Bridge.CaptureViewHierarchy();
 
+        /// <summary>
+        /// Android: makes the SDK ask for the screen-capture permission again at the next video capture start.
+        /// iOS: nothing to reset (the SDK needs no capture permission), so the call does nothing and logs a warning once.
+        /// Editor: does nothing.
+        /// </summary>
         public static void ResetVideoCapturePermission() => Bridge.ResetVideoCapturePermission();
 
         public static void SetNetworkEventFilter(EventFilter<INetworkEvent> filter) =>
