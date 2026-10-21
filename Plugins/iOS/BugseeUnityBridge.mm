@@ -562,6 +562,17 @@ char *_bugsee_get_launch_options(void)
     return BugseeCopyUTF8(json);
 }
 
+char *_bugsee_get_host_launch_options(void)
+{
+    id safe = BugseeJsonSafe([Bugsee getHostLaunchOptions], 0);
+    if (![safe isKindOfClass:[NSDictionary class]] || ![NSJSONSerialization isValidJSONObject:safe]) {
+        return NULL;
+    }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:safe options:0 error:nil];
+    NSString *json = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
+    return BugseeCopyUTF8(json);
+}
+
 void _bugsee_notify(const char *title, const char *body, int severity, const char *fieldsJson, int urgent)
 {
     NSString *titleStr = BugseeNSString(title);
@@ -704,15 +715,11 @@ void _bugsee_set_attribute(const char *key, const char *valueJson)
     [Bugsee setAttribute:BugseeNSString(key) withValue:value];
 }
 
-char *_bugsee_get_attribute(const char *key)
+// The SDK keeps the value's kind. Tag it for C# ("s:" string, "b:" bool 1/0, "i:" integer, "d:" floating
+// point, "j:" JSON container) so a string "1", the number 1 and true stay distinguishable.
+// locale:nil keeps the digits POSIX; C# parses them with the invariant culture.
+static NSString *BugseeTaggedAttribute(id attr)
 {
-    id attr = [Bugsee getAttribute:BugseeNSString(key)];
-    if (!attr) {
-        return NULL;
-    }
-    // The SDK keeps the value's kind. Tag it for C# ("s:" string, "b:" bool 1/0, "i:" integer, "d:" floating
-    // point, "j:" JSON container) so a string "1", the number 1 and true stay distinguishable.
-    // locale:nil keeps the digits POSIX; C# parses them with the invariant culture.
     NSString *wire = nil;
     if ([attr isKindOfClass:[NSString class]]) {
         wire = [@"s:" stringByAppendingString:attr];
@@ -736,7 +743,31 @@ char *_bugsee_get_attribute(const char *key)
             wire = [@"j:" stringByAppendingString:json];
         }
     }
-    return BugseeCopyUTF8(wire ?: [@"s:" stringByAppendingString:[attr description]]);
+    return wire ?: [@"s:" stringByAppendingString:[attr description]];
+}
+
+char *_bugsee_get_attribute(const char *key)
+{
+    id attr = [Bugsee getAttribute:BugseeNSString(key)];
+    if (!attr) {
+        return NULL;
+    }
+    return BugseeCopyUTF8(BugseeTaggedAttribute(attr));
+}
+
+// A JSON object of attribute name to the tagged text _bugsee_get_attribute returns; "{}" when none are set.
+char *_bugsee_get_all_attributes(void)
+{
+    NSDictionary *all = [Bugsee getAllAttributes];
+    NSMutableDictionary *tagged = [NSMutableDictionary dictionary];
+    for (id key in all) {
+        if ([key isKindOfClass:[NSString class]] && all[key]) {
+            tagged[key] = BugseeTaggedAttribute(all[key]);
+        }
+    }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:tagged options:0 error:nil];
+    NSString *json = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
+    return BugseeCopyUTF8(json ?: @"{}");
 }
 
 void _bugsee_clear_attribute(const char *key)
@@ -1120,6 +1151,7 @@ int _bugsee_exception_options_dropped(void) { return 0; }
 void _bugsee_show_report(const char *summary, const char *description, int severity, const char *labelsJson) { (void)summary; (void)description; (void)severity; (void)labelsJson; }
 void _bugsee_upload(const char *summary, const char *description, int severity, const char *labelsJson) { (void)summary; (void)description; (void)severity; (void)labelsJson; }
 char *_bugsee_get_launch_options(void) { return NULL; }
+char *_bugsee_get_host_launch_options(void) { return NULL; }
 void _bugsee_notify(const char *title, const char *body, int severity, const char *fieldsJson, int urgent) { (void)title; (void)body; (void)severity; (void)fieldsJson; (void)urgent; }
 int64_t _bugsee_start_transaction(const char *name, const char *operation, const char *attributesJson) { (void)name; (void)operation; (void)attributesJson; return 0; }
 int64_t _bugsee_span_start_child(int64_t spanId, const char *operation, const char *description) { (void)spanId; (void)operation; (void)description; return 0; }
@@ -1133,6 +1165,7 @@ void _bugsee_span_finish(int64_t spanId, int status) { (void)spanId; (void)statu
 void _bugsee_span_release(int64_t spanId) { (void)spanId; }
 void _bugsee_set_attribute(const char *key, const char *valueJson) { (void)key; (void)valueJson; }
 char *_bugsee_get_attribute(const char *key) { (void)key; return NULL; }
+char *_bugsee_get_all_attributes(void) { return NULL; }
 void _bugsee_clear_attribute(const char *key) { (void)key; }
 void _bugsee_clear_all_attributes(void) {}
 void _bugsee_set_email(const char *email) { (void)email; }

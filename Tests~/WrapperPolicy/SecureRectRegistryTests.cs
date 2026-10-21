@@ -22,6 +22,23 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void GetRects_returns_a_prefix_filtered_copy_of_one_display_ordered_by_owner()
+        {
+            var registry = new SecureRectRegistry();
+            registry.Set("manual:9", 0, 9, 9, 10, 10);
+            registry.Set("manual:1", 0, 5, 6, 1, 2); // normalised to 1,2,5,6
+            registry.Set("screen:1", 0, 0, 0, 1, 1);
+            registry.Set("manual:2", 1, 7, 7, 8, 8);
+            var rects = registry.GetRects("manual:", 0);
+            Assert.That(rects.Count, Is.EqualTo(2));
+            Assert.That(rects[0], Is.EqualTo(new[] { 1, 2, 5, 6 }));
+            Assert.That(rects[1], Is.EqualTo(new[] { 9, 9, 10, 10 }));
+            rects[0][0] = 99;
+            Assert.That(registry.GetRects("manual:", 0)[0][0], Is.EqualTo(1), "a copy, not the registry's own array");
+            Assert.That(registry.GetRects("manual:", 3), Is.Empty);
+        }
+
+        [Test]
         public void CopyRects_is_safe_while_another_thread_registers_rects()
         {
             var registry = new SecureRectRegistry();

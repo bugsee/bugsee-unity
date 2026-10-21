@@ -141,6 +141,7 @@ runs scenarios on one Android device.
 | `options` | logs which launch-option keys the platform gate lets reach the native SDK, tagged `[OPTIONS]` |
 | `securerect` | paints a green box at a Unity screen rectangle, registers it with `AddSecureScreenRectangle` and logs the native rectangle the wrapper made of it, tagged `[SECURERECT]`, again whenever it changes (`bugsee_secure_scale` / `BUGSEE_SECURE_SCALE` = N renders at 1/N resolution first, `bugsee_secure_rotate_s` / `BUGSEE_SECURE_ROTATE_S` = S rotates after S seconds); the scenario also logs the bounding box of the rendered green box; compare with a screenshot |
 | `blackout` | logs `IsBlackout` after StartBlackout, EndBlackout, StartBlackout + Relaunch, StartBlackout + Stop and a fresh Launch, tagged `[BLACKOUT]` |
+| `readapis` | self-checking (`[Sample] readapis PASS|FAIL ...`, ending in `readapis e2e done failures=N`): relaunches with known options and compares `GetHostLaunchOptions` with them (and with `GetLaunchOptions`), sets attributes of every type and compares `GetAllAttributes`, adds and removes secure rectangles and compares `GetAllSecureRectangles` |
 | `delete` | `DeleteCollectedDataOnDevice`, a relaunch, then an upload |
 | `apm`, `apmoff`, `apmleak`, `apmpool`, `apmthrnew`, `apmthrjava`, `apmthrui` | APM stress and API-shape checks |
 | `shapes` | throw shapes for frame/IP pairing, logged tagged `[SHAPE]` |

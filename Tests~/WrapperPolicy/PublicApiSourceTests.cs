@@ -125,6 +125,21 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Facade_read_apis_are_never_null_read_only_and_answered_per_source()
+        {
+            string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));
+            string host = ExtractMethodBody(facade, "public static IReadOnlyDictionary<string, object> GetHostLaunchOptions()");
+            Assert.That(host, Does.Contain("Bridge.GetHostLaunchOptions()"));
+            Assert.That(host, Does.Contain("new ReadOnlyDictionary<string, object>"));
+            string all = ExtractMethodBody(facade, "public static IReadOnlyDictionary<string, object> GetAllAttributes()");
+            Assert.That(all, Does.Contain("Bridge.GetAllAttributes()"));
+            Assert.That(all, Does.Not.Contain("LaunchOptionsWire"), "attributes are not launch options: no key filtering");
+            string rects = ExtractMethodBody(facade, "public static RectInt[] GetAllSecureRectangles()");
+            Assert.That(rects, Does.Contain("SecureRectManualOwners.OwnerIdPrefix"));
+            Assert.That(rects, Does.Not.Contain("Bridge."), "the wrapper's registry answers: the SDK's own list is never fed");
+        }
+
+        [Test]
         public void Facade_notify_requires_a_title_and_cleans_the_fields_before_the_bridge()
         {
             string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));

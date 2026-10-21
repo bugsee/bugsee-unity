@@ -153,6 +153,13 @@ namespace Bugsee.Platform.Android
             }
         }
 
+        public IReadOnlyDictionary<string, object> GetHostLaunchOptions()
+        {
+            // A Map<String, Serializable>, never null; it describes the last applied configuration even after Stop.
+            using (var map = _bugsee.CallStatic<AndroidJavaObject>("getHostLaunchOptions"))
+                return AndroidJavaConverters.MapToDictionary(map);
+        }
+
         public BugseeStatus GetStatus()
         {
             using (var status = _bugsee.CallStatic<AndroidJavaObject>("getStatus"))
@@ -434,6 +441,13 @@ namespace Bugsee.Platform.Android
         {
             using (var value = _bugsee.CallStatic<AndroidJavaObject>("getAttribute", key))
                 return AndroidJavaConverters.UnboxAttribute(value);
+        }
+
+        public IReadOnlyDictionary<string, object> GetAllAttributes()
+        {
+            // The SDK answers null when no attribute is set; values are widened as GetAttribute widens them.
+            using (var map = _bugsee.CallStatic<AndroidJavaObject>("getAllAttributes"))
+                return AndroidJavaConverters.AttributesToDictionary(map);
         }
 
         public void ClearAttribute(string key) => _bugsee.CallStatic("clearAttribute", key);
