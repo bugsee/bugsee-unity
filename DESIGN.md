@@ -48,7 +48,7 @@ Legacy foundation: `cross/unity`. Min Unity: **2021.3**.
 | `Bugsee.ext(Feedback.class)` | `Bugsee.Feedback` property (resolves extension under the hood) |
 | Java listeners | C# `event` / `Action<>` on `Bugsee` |
 | Lifecycle string constants | `LifecycleEvents` consts **+** optional enum for known events |
-| `IssueSeverity.Critical` (6.x) | Not in 7.x — map legacy Critical → `High` or `Blocker` if compat shim added |
+| `IssueSeverity` | Same values on both 7.x SDKs: `Critical = 4` exists and matches Android and iOS (`VeryLow` is `1`, `Low` on iOS; `0` is unset on iOS); no mapping is needed |
 
 ## Launch options (approved)
 
@@ -178,7 +178,7 @@ Logging: `Log`, `Trace`, `Event`, `LogException`, `LogUnhandledException`, `Test
 Reporting: `ShowReportDialog`, `Upload`, `CreateReport`, `SetReportHandler`, `Upload(Report)`  
 Filters: network / log / breadcrumb  
 Exchange: `GetExchangeFactory`, `AddNetworkEvent`, `AddBreadcrumb`  
-Privacy: secure rectangles (Unity-relevant); skip Activity/View/WebView-specific APIs or no-op with docs  
+Privacy: secure rectangles (Unity-relevant). The native `addSecureActivity`, `addSecureView` and `addSecureWebView` take a native Activity or View that a Unity script does not own, so they are intentionally not exposed; `AddSecureRectangle` covers Unity-drawn content  
 Identity: `SetUserIdentifier` / `Get` / `Clear` (not email-as-primary)  
 Attributes: set/get/clear/clearAll/getAll  
 Appearance: `GetAppearance()`  
@@ -189,7 +189,7 @@ Wrapper: **internal registration only** — not an app-facing `SetWrapper`
 
 ### Contracts to port (public)
 
-`Options` (+ ~69 keys), option enums, `OptionsBuilder`, `BugseeLaunchOptions` / `AndroidLaunchOptions` / `IOSLaunchOptions`  
+`Options` (the `Options.*` key constants, 77 today; `Tests~/WrapperPolicy/OptionsManifestTests.cs` checks them against the native option manifests), option enums, `OptionsBuilder`, `BugseeLaunchOptions` / `AndroidLaunchOptions` / `IOSLaunchOptions`  
 
 `EventFilter`, `NetworkEvent`, `LogEvent`, `Breadcrumb`, `BugseeExchangeFactory`  
 `Report`, `Attachment`, `ReportHandler`, `ReportCreationListener`  
