@@ -8,9 +8,10 @@ using UnityEngine;
 namespace Bugsee.Internal
 {
     /// <summary>
-    /// Builds the UnityManagedException JSON-in-reason contract consumed by
-    /// worker <c>unity.py</c>: name, reason, frames[{trace,address?}],
-    /// signature, buildID, moduleUUID, optional nested <c>cause</c>.
+    /// Builds the UnityManagedException JSON-in-reason payload the worker's
+    /// <c>unity.py</c> parses: name, reason, frames[{trace,address?}],
+    /// signature, buildID, moduleUUID, optional nested <c>cause</c> (the worker ignores the payload
+    /// <c>cause</c> today).
     /// </summary>
     public static class ManagedExceptionPayload
     {
@@ -23,8 +24,8 @@ namespace Bugsee.Internal
             /// <summary>
             /// For a thrown exception: return address of this frame as hex, MODULE-RELATIVE to the image named by
             /// the payload's <c>moduleUUID</c> (IL2CPP only); absent when it cannot be paired with certainty
-            /// (see <see cref="ManagedAddressPairing"/>). On the Unity log path (<c>FromUnityLog</c>) a hex found
-            /// in the log text is forwarded as written.
+            /// (see <see cref="ManagedAddressPairing"/>). On the Unity log path (<c>FromUnityLog</c>) there is no
+            /// native trace to pair, so no address is sent (a hex in the log text is never read as one).
             /// </summary>
             public string address;
         }
@@ -38,7 +39,7 @@ namespace Bugsee.Internal
             public string signature;
             public string buildID;
             public string moduleUUID;
-            /// <summary>Nested inner / aggregate exception (worker walks <c>cause</c>).</summary>
+            /// <summary>Nested inner / aggregate exception (sent, but the worker does not read it today).</summary>
             public Payload cause;
         }
 

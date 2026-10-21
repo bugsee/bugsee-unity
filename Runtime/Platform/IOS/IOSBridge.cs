@@ -217,6 +217,8 @@ namespace Bugsee.Platform.IOS
         static readonly StopWaitList StopWaiters = new StopWaitList();
         static readonly OneShotCallbacks<bool> LaunchResults = new OneShotCallbacks<bool>();
         static readonly OneShotCallbacks<bool> StopCompletions = new OneShotCallbacks<bool>();
+        static readonly WipeCompletions WipeResults = new WipeCompletions();
+        static readonly NativeWipeGate WipeGate = new NativeWipeGate(StopWaiters, WipeResults);
         const int StopSoftDeadlineMs = 10000;
         const int StopHardDeadlineMs = 60000;
         const int LaunchResultTimeoutMs = 10000;
@@ -289,6 +291,7 @@ namespace Bugsee.Platform.IOS
                 if (!StopWaiters.IsPending(token)) return;
                 Debug.LogWarning("[Bugsee] The SDK has not reported that stop finished after "
                     + StopHardDeadlineMs / 1000 + " s; giving up on it and running what waits for it.");
+                WipeResults.Settle(token, false, RunResult); // a wipe nobody heard of ends false; no-op for a stop
                 CompleteStop(token);
             });
         }
@@ -372,6 +375,7 @@ namespace Bugsee.Platform.IOS
                 {
                     if (wiped == 0)
                         Debug.LogWarning("[Bugsee] DeleteCollectedDataOnDevice did not wipe the collected data: the SDK reported a failure or had not finished stopping.");
+                    WipeResults.Settle(token, wiped != 0, RunResult);
                     CompleteStop(token);
                 });
             }
@@ -467,7 +471,15 @@ namespace Bugsee.Platform.IOS
             }
         }
 
-        public void DeleteCollectedDataOnDevice()
+        public void DeleteCollectedDataOnDevice() => DeleteCollectedData(DeleteScope.Everything, null);
+
+        void ILifecycleResultBridge.DeleteCollectedData(DeleteScope scope, Action<bool> done) =>
+            DeleteCollectedData(scope, done);
+
+        // done (may be null) is answered by the wipe it joins or starts: true when the SDK reported the data
+        // deleted, false when it refused, gave no report within the hard deadline, or the call never reached the
+        // Unity main thread. A Delete of another scope than the wipe in flight waits for it and starts its own.
+        void DeleteCollectedData(DeleteScope scope, Action<bool> done)
         {
             // One path, decided inside the main-thread closure and not on the SDK's state: Launch always installs
             // the managed hooks, even when the SDK then refuses it (status stays Stopped), so they are torn down
@@ -476,8 +488,13 @@ namespace Bugsee.Platform.IOS
             // stops an SDK that is not already stopped. Requests run in order, as on Android: a delete is never
             // skipped because a Launch follows it (that Launch waits for the stop and so runs after the wipe), and
             // one requested after a Launch wipes that session.
+            // started: 0 not yet, 1 the closure began (it answers done itself, from the wipe), 2 the 5 s wait gave up first
+            // (the closure then does nothing, and done is answered false here). So done runs once, and false only when
+            // no wipe was started.
+            var started = 0;
             if (!MainThreadDispatcher.RunSyncLifecycle(() =>
                 {
+                    if (Interlocked.CompareExchange(ref started, 1, 0) != 0) return;
                     HostLogForwarder.Uninstall();
                     ExceptionPipeline.Uninstall();
                     CancelManagedReportUpload();
@@ -486,11 +503,15 @@ namespace Bugsee.Platform.IOS
                     _openReportHandle = null;
                     _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
                     _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped);
-                    if (StopWaiters.TryCoalesceWipe()) return;
-                    StopNativeThen(BeginNativeDelete, first: true);
+                    if (WipeGate.TryJoinOrQueue(scope, done, () => BeginNativeDelete(scope, done))) return;
+                    StopNativeThen(() => BeginNativeDelete(scope, done), first: true);
                 }))
             {
-                Debug.LogError("[Bugsee] DeleteCollectedDataOnDevice timed out waiting for the Unity main thread.");
+                if (Interlocked.CompareExchange(ref started, 2, 0) == 0)
+                {
+                    Debug.LogError("[Bugsee] DeleteCollectedDataOnDevice timed out waiting for the Unity main thread.");
+                    RunResult(done, false);
+                }
             }
         }
 
@@ -498,15 +519,16 @@ namespace Bugsee.Platform.IOS
         // meanwhile waits for the SDK to report it finished (it clears its files on a background thread), so a
         // new session never starts, or has capture files deleted, under a running wipe. Same hard deadline as a
         // stop, so nothing waits forever; no soft one, as no caller waits for the wipe.
-        // A Delete that follows one still wiping is the same wipe, so it starts no second one (two would release a
-        // deferred Launch at the later one's report, under the first one's file pass).
-        static void BeginNativeDelete()
+        // A Delete that follows one still wiping shares it when it has the same scope (two wipes would release a
+        // deferred Launch at the later one's report, under the first one's file pass), and otherwise waits for it and
+        // then starts its own: never two native wipes at once (see NativeWipeGate).
+        static void BeginNativeDelete(DeleteScope scope, Action<bool> done)
         {
-            if (StopWaiters.TryCoalesceWipe()) return;
+            if (WipeGate.TryJoinOrQueue(scope, done, () => BeginNativeDelete(scope, done))) return;
             var generation = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
-            var token = StopWaiters.Begin(null, generation, holdsLaunch: true);
+            var token = WipeGate.Begin(scope, done, generation);
             GiveUpIfStopNotReported(token);
-            _bugsee_delete_collected_data(token, OnNativeDeleted);
+            _bugsee_delete_collected_data(token, (int)scope, OnNativeDeleted);
         }
 
         void CancelManagedReportUpload()
@@ -758,7 +780,11 @@ namespace Bugsee.Platform.IOS
 
         public void CaptureViewHierarchy() => _bugsee_capture_view_hierarchy();
 
-        public void ResetVideoCapturePermission() { }
+        static readonly UnsupportedApiNotice _resetPermissionNotice = new UnsupportedApiNotice(Debug.LogWarning);
+
+        // iOS 7.0.0-beta7 has no video capture permission to reset: say so once instead of doing nothing silently.
+        public void ResetVideoCapturePermission() =>
+            _resetPermissionNotice.Once(UnsupportedApiNotice.ResetVideoCapturePermissionMessage);
 
         public IAppearance GetAppearance() =>
             _appearance ?? (_appearance = new IosAppearance());
@@ -903,7 +929,7 @@ namespace Bugsee.Platform.IOS
             string message,
             int iosLevel,
             double timestampUnixSeconds);
-        [DllImport("__Internal")] static extern void _bugsee_delete_collected_data(int token, DeleteNativeCallback completion);
+        [DllImport("__Internal")] static extern void _bugsee_delete_collected_data(int token, int scope, DeleteNativeCallback completion);
         [DllImport("__Internal")] static extern void _bugsee_invalidate_managed_report_uploads();
         [DllImport("__Internal")] static extern void _bugsee_upload_managed_report(
             string reportJson,

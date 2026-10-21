@@ -83,7 +83,7 @@ namespace Bugsee.Platform.IOS
                     continue;
                 }
 
-                parts.Add(JsonWire.String(kv.Key) + ":" + JsonWire.String(kv.Value.ToString()));
+                parts.Add(JsonWire.String(kv.Key) + ":" + JsonWire.String(InvariantText.Of(kv.Value)));
             }
 
             return "{" + string.Join(",", parts.ToArray()) + "}";
@@ -211,7 +211,7 @@ namespace Bugsee.Platform.IOS
             }
 
             var ios = result as IosLogEvent ?? managed;
-            _bugsee_complete_filter(requestId, 1, ios.ToResultJson());
+            _bugsee_complete_filter(requestId, 1, ReferenceEquals(ios, managed) ? ios.ToResultJson() : ios.ToReplacementJson());
         }
 
         static void CompleteBreadcrumb(long requestId, string json, EventFilter<IBreadcrumb> filter)
@@ -233,7 +233,7 @@ namespace Bugsee.Platform.IOS
             }
 
             var ios = result as IosBreadcrumb ?? managed;
-            _bugsee_complete_filter(requestId, 1, ios.ToResultJson());
+            _bugsee_complete_filter(requestId, 1, ReferenceEquals(ios, managed) ? ios.ToResultJson() : ios.ToReplacementJson());
         }
 
         [MonoPInvokeCallback(typeof(ReportCb))]

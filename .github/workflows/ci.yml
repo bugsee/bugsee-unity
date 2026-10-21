@@ -30,6 +30,62 @@ jobs:
       - name: Test
         run: dotnet test Tests~/WrapperPolicy/Bugsee.WrapperPolicy.Tests.csproj --nologo --configuration Release
 
+  windows-editor-path:
+    name: Windows Editor path (native Windows host)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build the bugsee-cli.exe stand-in
+        shell: pwsh
+        run: |
+          dotnet build Tests~/WindowsSmoke/FakeCli/FakeCli.csproj --nologo --configuration Release --output "$env:RUNNER_TEMP\fake-cli"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          "BUGSEE_FAKE_CLI_EXE=$env:RUNNER_TEMP\fake-cli\bugsee-cli.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # Everything except what is POSIX-only by design: the iOS classes (the Run Script and Xcode export run on a Mac, and
+      # their tests drive /bin/sh and file modes) and LocalPackageCopy (/bin/cp, /bin/chmod).
+      - name: Test
+        shell: pwsh
+        run: |
+          dotnet test Tests~/WrapperPolicy/Bugsee.WrapperPolicy.Tests.csproj --nologo --configuration Release --filter 'FullyQualifiedName!~.Ios&FullyQualifiedName!~.LocalPackageCopyTests' --logger "trx;LogFileName=win.trx" --results-directory "$env:RUNNER_TEMP\trx"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      # A skipped test counts as a pass: fail unless the native smoke tests really executed on this host.
+      - name: Check that the Windows smoke tests ran
+        shell: pwsh
+        run: |
+          [xml]$trx = Get-Content "$env:RUNNER_TEMP\trx\win.trx"
+          $ids = @($trx.TestRun.TestDefinitions.UnitTest | Where-Object { $_.TestMethod.className -like '*WindowsNativeSmokeTests' } | ForEach-Object { $_.id })
+          $r = @($trx.TestRun.Results.UnitTestResult | Where-Object { $ids -contains $_.testId })
+          $passed = @($r | Where-Object { $_.outcome -eq 'Passed' }).Count
+          Write-Host "Windows smoke tests passed: $passed of $($r.Count)"
+          if ($passed -lt 12) { Write-Error "Expected at least 12 executed WindowsNativeSmokeTests results, got $passed"; exit 1 }
+
+  wrapper-build-placeholder:
+    name: Wrapper build id is the dev placeholder
+    # Only a release branch carries a stamped id (Tools~/scripts/stamp-wrapper-build.sh); one merged into main would
+    # make every later build report that release's hash.
+    if: github.event_name == 'push' || github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check
+        run: bash Tools~/scripts/check-release-build.sh --dev
+
   unity-compile:
     name: Unity C# compile check
     runs-on: ubuntu-latest
