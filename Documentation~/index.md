@@ -428,6 +428,12 @@ The script builds the xcframework as the beta release does (`scripts/build_new.s
 
 `Bugsee.ShowReportDialog(summary, description, severity, labels)` and `Bugsee.Upload(summary, description, severity, labels)` take an optional `IssueSeverity? severity` (default `null`). Leave it out and the SDK picks its default, the `ReportingDefaultBugPriority` launch option (High when it is not set), on both platforms; an explicit severity is used as given. Code that passed `IssueSeverity.High` explicitly is unchanged. The parameter type changed from `IssueSeverity` to `IssueSeverity?` call sites compile as before (source compatible), but it is a binary-incompatible change: a precompiled assembly built against the old signature must be recompiled, and a delegate bound to these methods or an implementation of `IBugseeNativeBridge` must take `IssueSeverity?`. An explicit `(IssueSeverity)0` is not a severity and counts as omitted.
 
+### Breadcrumbs and the log filter
+
+Breadcrumbs are off by default on both native SDKs (`CaptureBreadcrumbs`). While it is off, `Bugsee.AddBreadcrumb` records nothing and the breadcrumb filter is never called; launch with `CaptureBreadcrumbs = true` to use either. (The Android SDK's own Javadoc and `api-7.x.md` say the default is true; that is wrong.)
+
+`Bugsee.Log` uses the native log API, which skips the log filter by default. Both native SDKs have an overload that opts in (`requiresFiltering`); the wrapper does not expose it yet (#190). The log filter sees the captured logs: the Unity log the wrapper forwards, and logcat on Android (both need `CaptureLogs`).
+
 ### Filters and the report handler while the Unity loop is paused
 
 The network, log and breadcrumb filters and the report handler run on the Unity main thread. On Android the SDK calls them on its own threads and the wrapper hands each one to the main thread, which drains its queue in `Update`; while the app is in the background Unity's loop is paused (and Android may freeze the whole process after about a minute), so they wait until it resumes. On iOS the SDK calls the report handler on the main thread, where Unity runs, so it is not queued; filters are called on SDK threads and queued the same way. In the iOS SDK source the filter decision is a block the SDK stores and calls later, with no wait or semaphore in the filter paths, so no SDK thread is held for Unity (checked in the SDK source, not in the beta7 binary itself). The Android callbacks are asynchronous in the same way.
