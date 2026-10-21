@@ -1,2 +1,4 @@
 # Vendored SDK manifests are hashed (sources.txt): never convert line endings.
 Tests~/WrapperPolicy/Fixtures/options-manifest/* -text
+# Fixtures are compared byte for byte with generated text (LF): a Windows checkout with core.autocrlf must not rewrite them.
+Tests~/WrapperPolicy/Fixtures/** -text

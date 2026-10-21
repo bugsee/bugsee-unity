@@ -313,6 +313,7 @@ namespace Bugsee
         [Obsolete("Use StartBlackout/EndBlackout instead.")]
         public static void Resume() => EndBlackout();
 
+        /// <summary>Write a line to the Bugsee log. It skips the log filter (<see cref="SetLogEventFilter"/>): the native default; the wrapper does not expose the opt-in.</summary>
         public static void Log(string message, LogLevel level = LogLevel.Info) =>
             Bridge.Log(message, level);
 
@@ -338,6 +339,10 @@ namespace Bugsee
         /// <summary>Release a report from <see cref="CreateReport"/> without uploading.</summary>
         public static void Discard(IReport report) => Bridge.DiscardReport(report);
 
+        /// <summary>
+        /// Add a breadcrumb to the report. Does nothing unless the launch option <c>CaptureBreadcrumbs</c> is true:
+        /// both native SDKs default it to false, and the breadcrumb filter is not called either.
+        /// </summary>
         public static void AddBreadcrumb(string category, string message, string levelName) =>
             Bridge.AddBreadcrumb(category, message, levelName);
 
@@ -517,9 +522,19 @@ namespace Bugsee
         public static void SetNetworkEventFilter(EventFilter<INetworkEvent> filter) =>
             Bridge.SetNetworkEventFilter(filter);
 
+        /// <summary>
+        /// Filter the captured logs: the Unity log the wrapper forwards, and logcat on Android (both need
+        /// <c>CaptureLogs</c>). Lines written with <see cref="Log"/> skip this filter (the native default; the wrapper
+        /// does not expose the opt-in).
+        /// </summary>
         public static void SetLogEventFilter(EventFilter<ILogEvent> filter) =>
             Bridge.SetLogEventFilter(filter);
 
+        /// <summary>
+        /// Filter breadcrumbs before they are recorded. The filter is called only while the launch option
+        /// <c>CaptureBreadcrumbs</c> is true; both native SDKs default it to false, so with the default no
+        /// breadcrumb (from <see cref="AddBreadcrumb"/> or the SDK) reaches it.
+        /// </summary>
         public static void SetBreadcrumbFilter(EventFilter<IBreadcrumb> filter) =>
             Bridge.SetBreadcrumbFilter(filter);
 
