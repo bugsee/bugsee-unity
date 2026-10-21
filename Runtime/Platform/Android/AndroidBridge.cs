@@ -485,6 +485,7 @@ namespace Bugsee.Platform.Android
         public bool ApplyDefaultNetworkSanitizer(INetworkEvent networkEvent)
         {
             if (networkEvent == null) return false;
+            INetworkEvent tempEvent = null;
             try
             {
                 var androidEvent = networkEvent as AndroidNetworkEvent;
@@ -498,6 +499,7 @@ namespace Bugsee.Platform.Android
                     temp = factory.CreateNetworkEvent(
                         DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), networkEvent.Stage,
                         string.IsNullOrEmpty(networkEvent.Id) ? null : networkEvent.Id, networkEvent.Mechanism, networkEvent.Method);
+                    tempEvent = temp;
                     androidEvent = temp as AndroidNetworkEvent;
                     if (androidEvent == null) return false;
                     CopyNetworkFields(networkEvent, androidEvent);
@@ -526,6 +528,20 @@ namespace Bugsee.Platform.Android
                 // An event kept past its filter callback throws ObjectDisposedException; none of these may escape into a filter.
                 Debug.LogWarning("[Bugsee] default network sanitizer failed: " + ex.Message);
                 return false;
+            }
+            finally
+            {
+                // The factory-made copy is ours; release its Java reference (the wrapper has no Dispose of its own).
+                if (tempEvent != null)
+                {
+                    try
+                    {
+                        var native = ((AndroidNetworkEvent)tempEvent).Native;
+                        ((IReleasableNativeEvent)tempEvent).ReleaseNative();
+                        native.Dispose();
+                    }
+                    catch (Exception) { /* already released */ }
+                }
             }
         }
 
