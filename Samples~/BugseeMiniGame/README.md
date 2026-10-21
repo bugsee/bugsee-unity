@@ -139,6 +139,7 @@ runs scenarios on one Android device.
 | `severity`, `severitylabels` | reports with no severity must take `ReportingDefaultBugPriority` (`bugsee_bug_priority`), an explicit severity must win; `severitylabels` does it with labels. Logged by a handler; ends on an open report dialog to dismiss |
 | `netfilter` | four network event filters (pass-through, redacting, one that empties the body, one that returns a replacement event) over events from the exchange factory; each logs what it was handed and left, tagged `[NETFILTER]`, and the run ends with `managed checks` (what native applied is not visible from C#) |
 | `options` | logs which launch-option keys the platform gate lets reach the native SDK, tagged `[OPTIONS]` |
+| `securerect` | paints a green box at a Unity screen rectangle, registers it with `AddSecureScreenRectangle` and logs the native rectangle the wrapper made of it, tagged `[SECURERECT]`, again whenever it changes (`bugsee_secure_scale` / `BUGSEE_SECURE_SCALE` = N renders at 1/N resolution first, `bugsee_secure_rotate_s` / `BUGSEE_SECURE_ROTATE_S` = S rotates after S seconds); the scenario also logs the bounding box of the rendered green box; compare with a screenshot |
 | `blackout` | logs `IsBlackout` after StartBlackout, EndBlackout, StartBlackout + Relaunch, StartBlackout + Stop and a fresh Launch, tagged `[BLACKOUT]` |
 | `delete` | `DeleteCollectedDataOnDevice`, a relaunch, then an upload |
 | `apm`, `apmoff`, `apmleak`, `apmpool`, `apmthrnew`, `apmthrjava`, `apmthrui` | APM stress and API-shape checks |
