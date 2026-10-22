@@ -36,7 +36,7 @@ a() { "$ADB" -s "$SERIAL" "$@"; }
 
 # Scenarios that must kill the process; `hang` may or may not (an ANR can kill it), so it is not judged;
 # the rest must leave it running.
-fatal_scenario() { case "$1" in crash|native|abort|fatal|java) return 0;; *) return 1;; esac; }
+fatal_scenario() { case "$1" in crash|native|abort|fatal|java|nullrefnochk) return 0;; *) return 1;; esac; }
 liveness_unjudged() { [[ "$1" == hang ]]; }
 
 pid_of() { a shell pidof "$PKG" 2>/dev/null | tr -d '\r' || true; }
@@ -105,6 +105,10 @@ wait_armed() {
 for scenario in "$@"; do
   scenario="$(tr '[:upper:]' '[:lower:]' <<<"$scenario")"   # the app lower-cases what it logs
   echo "== scenario: $scenario"
+  # nullrefnochk needs IL2CPP (Mono ignores Il2CppSetOption, so the read throws a managed exception and nothing dies).
+  if [[ "$scenario" == nullrefnochk ]] && ! grep -q 'libil2cpp\.so' <<<"$(unzip -l "$APK" 2>/dev/null)"; then
+    echo "   skipped: $APK has no libil2cpp.so (a Mono build, or a bundle: run it on an IL2CPP APK)"; continue
+  fi
   a shell am force-stop "$PKG"; a logcat -c
   launch "$scenario"
   log="$OUT/$scenario.log"

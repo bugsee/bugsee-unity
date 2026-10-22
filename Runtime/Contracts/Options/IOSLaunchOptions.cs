@@ -29,7 +29,10 @@ namespace Bugsee.Contracts.Options
 
         /// <summary>
         /// The fatal signals the crash reporter intercepts. Default when omitted: <c>CrashSignals.Default</c>
-        /// (every signal). Leave <c>Segv</c> and <c>Bus</c> out only if the runtime you host handles them itself.
+        /// (every signal; the SDK drops <c>Segv</c>/<c>Bus</c> only for its Xamarin/.NET wrappers, not for Unity). Keep
+        /// <c>Segv</c> and <c>Bus</c>: Unity's IL2CPP raises <c>NullReferenceException</c> with explicit null checks, not
+        /// from a signal, so managed null references never reach the crash reporter, while a real fault would go unreported
+        /// without them.
         /// </summary>
         public CrashSignals CrashSignals
         {
