@@ -31,16 +31,26 @@ namespace Bugsee.WrapperPolicy.Tests
     /// name, type and staticness.
     /// The one class it uses outside the snapshot (internal TimeUtils) is listed in RawJniNotInSnapshot.
     ///
-    /// Managed static field reads (GetStatic) are covered only for the SpanStatus constants (Every_SpanStatus_constant_...); other GetStatic reads are not parsed. ScopedJdkCalls allows a JDK-named call by file and method name, not by receiver.
+    /// Static field reads (GetStatic) on an SDK class are checked by name and type (a computed name only in
+    /// ComputedStaticFieldReaders: AndroidSpanHandle, whose SpanStatus constants Every_SpanStatus_constant_... covers), and so is
+    /// every enum name passed to an SDK enum's valueOf (the C# enum's members, or the literals assigned to the variable).
     ///
-    /// Limits (follow-up #205): an argument whose C# type cannot be told from the text (a member access, a
-    /// conditional, an `object`, an enum) is accepted for any parameter; an instance Call outside the ReceiverContracts classes is matched against every
-    /// class, and inside them an enum argument (LogEvent.setLevel(LogLevel) vs Breadcrumb.setLevel(Breadcrumb.Level)) is
-    /// not typed, because the receiver and the argument are untyped AndroidJavaObjects; generic parameters are
-    /// compared by their erased type and varargs by their element type; the Java side of UnityWrapper is
-    /// NativeBindingTests'.
+    /// The typed half lives in AndroidSdkBindingTypesTests.cs: an argument's type comes from the text (literals, casts,
+    /// operators, conditionals, declarations, initialisers, helper methods, members of the runtime's own classes) or, for
+    /// an AndroidJavaObject, from the Java class it is (a CallStatic / GetStatic / Call return type in the snapshot, a
+    /// constructor, EnumFromInt, the native object of a wrapper); every argument of a CallStatic and of an instance Call
+    /// on a resolved receiver must be typed and bind to the Java parameter (a C# enum never does, it has no JNI
+    /// signature), and the return type must fit. Receivers are the wrapper classes' contracts (ReceiverContracts) and
+    /// locals whose class is resolved; a JDK receiver (Map, List, boxed numbers, Activity) is left to the arity check
+    /// below. The Java side of UnityWrapper (Plugins/Android/*.java) is parsed into the same model: C# calls on it are
+    /// checked like SDK calls, its @Override methods against the SDK interfaces it implements, and its calls into the SDK
+    /// (static, on typed variables, constants, imports) against the snapshot.
+    ///
+    /// Limits: an instance Call on a receiver that is not resolved (JDK objects, `Ext()`, an untracked local) is matched
+    /// by name and arity against every SDK class, or the short JDK list; generic parameters are compared by their erased
+    /// type and varargs by their element type; a Java argument other than a literal or a primitive cast is not typed.
     /// </summary>
-    public class AndroidSdkBindingTests
+    public partial class AndroidSdkBindingTests
     {
         static string RepoFile(string relative)
         {
@@ -69,6 +79,8 @@ namespace Bugsee.WrapperPolicy.Tests
             public string Ret; // erased; null for a constructor
             public string[] Params; // erased
             public bool VarArgs;
+            public bool Public = true; // the snapshot lists public and protected members only
+            public bool Override; // a Java source method marked @Override
 
             public override string ToString() =>
                 (Static ? "static " : "") + Ret + " " + Name + "(" + string.Join(", ", Params) + ")";
@@ -168,7 +180,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 var name = head.Substring(head.LastIndexOfAny(new[] { ' ', '>' }) + 1);
                 var args = SplitParams(raw.Substring(open + 1, close - open - 1));
                 // Return type: what is left of the head without the modifiers, the method's own <T> and the name.
-                var ret = Regex.Replace(head.Substring(0, head.Length - name.Length), @"\b(public|static|final|abstract|synchronized|native|default)\b", " ");
+                var ret = Regex.Replace(head.Substring(0, head.Length - name.Length), @"\b(public|protected|static|final|abstract|synchronized|native|default)\b", " ");
                 ret = Regex.Replace(ret, @"^\s*<[^>]*>", "").Trim();
                 current.Methods.Add(new JavaMethod
                 {
@@ -464,91 +476,6 @@ namespace Bugsee.WrapperPolicy.Tests
             return manifest.TryGetValue(iface, out var cls) && cls.Supers.Any(s => InterfaceReaches(s, target, manifest));
         }
 
-        /// <summary>The java types a C# type binds to (Unity maps it by its run-time type); null for an enum, a struct or `object`.</summary>
-        static Func<string, bool> CsTypePredicate(string type, Dictionary<string, Proxy> proxies, Dictionary<string, JavaClass> manifest)
-        {
-            Func<string, bool> Prim(string name) => p => p == name;
-            type = Regex.Replace(type.Trim().TrimEnd('?'), "<.*>$", "");
-            switch (type)
-            {
-                case "bool": return Prim("boolean");
-                case "int": return Prim("int");
-                case "long": return Prim("long");
-                case "float": return Prim("float");
-                case "double": return Prim("double");
-                case "short": return Prim("short");
-                case "char": return Prim("char");
-                case "sbyte": return Prim("byte");
-                case "string": return p => p == "java.lang.String" || p == "java.lang.CharSequence" || p == "java.lang.Object";
-                case "AndroidJavaObject":
-                case "AndroidJavaClass": return IsReference;
-            }
-
-            if (proxies.TryGetValue(type, out var proxy))
-                return p => p == "java.lang.Object" || InterfaceReaches(proxy.Interface, p, manifest);
-            return null;
-        }
-
-        /// <summary>
-        /// The java parameter types an argument can bind to, from its C# type; null when the text does not tell it.
-        /// </summary>
-        static Func<string, bool> ArgType(string expr, string src, int at, Dictionary<string, Proxy> proxies,
-            Dictionary<string, string> methodReturns, Dictionary<string, JavaClass> manifest, int depth = 0)
-        {
-            expr = expr.Trim();
-            if (depth > 4) return null;
-            Func<string, bool> Prim(string name) => p => p == name;
-            Func<string, bool> Str = p => p == "java.lang.String" || p == "java.lang.CharSequence" || p == "java.lang.Object";
-            Func<string, bool> Ref = IsReference;
-            Func<string, Func<string, bool>> FromCsType = type => CsTypePredicate(type, proxies, manifest);
-
-            if (expr == "true" || expr == "false") return Prim("boolean");
-            if (Regex.IsMatch(expr, @"^-?\d+$")) return Prim("int");
-            if (Regex.IsMatch(expr, @"^-?\d+[lL]$")) return Prim("long");
-            if (Regex.IsMatch(expr, @"^-?[\d.]+[fF]$")) return Prim("float");
-            if (Regex.IsMatch(expr, @"^-?\d*\.\d+$")) return Prim("double");
-            var cast = Regex.Match(expr, @"^\((\w+)\)\s*[\w(]");
-            if (cast.Success) return FromCsType(cast.Groups[1].Value);
-            if (Regex.IsMatch(expr, "^\"[^\"]*\"$")) return Str;
-            var ctor = Regex.Match(expr, @"^new\s+(\w+)(?:<[^>]*>)?\s*\(");
-            if (ctor.Success) return FromCsType(ctor.Groups[1].Value);
-            var coalesce = expr.IndexOf("??", StringComparison.Ordinal);
-            if (coalesce > 0) return ArgType(expr.Substring(0, coalesce), src, at, proxies, methodReturns, manifest, depth + 1);
-            if (Regex.IsMatch(expr, @"\s\?\s")) return null; // a conditional
-            if (Regex.IsMatch(expr, @"^\w+$"))
-            {
-                var decl = new Regex(@"(?<![\w.])([\w.]+(?:<[^<>]*>)?\??(?:\[\])?)\s+" + expr + @"\s*(=(?!=)|,|\)|;|\bin\b)");
-                var last = decl.Matches(src.Substring(0, Math.Min(at, src.Length))).Cast<Match>()
-                    .LastOrDefault(d => !NotATypeWord.Contains(d.Groups[1].Value));
-                if (last == null) return null;
-                var type = last.Groups[1].Value;
-                if (type != "var") return FromCsType(type);
-                // var x = <initializer>;
-                var tail = src.Substring(last.Index + last.Length);
-                var semi = tail.IndexOf(';');
-                if (last.Groups[2].Value != "=" || semi < 0) return null;
-                return ArgType(tail.Substring(0, semi), src, last.Index, proxies, methodReturns, manifest, depth + 1);
-            }
-
-            var generic = Regex.Match(expr, @"^[\w.]+\.(?:CallStatic|Call|GetStatic|Get)<(\w+)>\s*\(");
-            if (generic.Success) return FromCsType(generic.Groups[1].Value);
-            var call = Regex.Match(expr, @"^(?:[\w.]*\.)?(\w+)\s*\(");
-            if (call.Success && methodReturns.TryGetValue(call.Groups[1].Value, out var returns)) return FromCsType(returns);
-            return null;
-        }
-
-        static bool Accepts(JavaMethod method, StaticCall call, Func<string, bool>[] argTypes)
-        {
-            var count = method.Params.Length;
-            if (method.VarArgs ? call.Args.Length < count - 1 : call.Args.Length != count) return false;
-            for (int i = 0; i < call.Args.Length; i++)
-            {
-                if (argTypes[i] == null) continue;
-                if (!argTypes[i](method.Params[Math.Min(i, count - 1)])) return false;
-            }
-
-            return true;
-        }
 
         /// <summary>Whether the java return type fits what the call asked Unity for (CallStatic: void, CallStatic&lt;T&gt;: T).</summary>
         static bool ReturnFits(JavaMethod method, string generic)
@@ -568,42 +495,6 @@ namespace Bugsee.WrapperPolicy.Tests
                 case "AndroidJavaObject": return IsReference(method.Ret);
                 default: return true;
             }
-        }
-
-        [Test]
-        public void Every_CallStatic_reaches_a_public_static_sdk_method_with_matching_arguments_and_return()
-        {
-            var manifest = Manifest();
-            var sources = Sources();
-            var proxies = Proxies(sources);
-            var returns = MethodReturnTypes();
-            var failures = new List<string>();
-            var typed = 0;
-            var total = 0;
-            foreach (var call in Calls(sources))
-            {
-                if (!call.Class.StartsWith("com.bugsee.library.")) continue; // UnityWrapper is NativeBindingTests', the rest is the JDK
-                if (!manifest.TryGetValue(call.Class, out var cls))
-                {
-                    failures.Add(call.File + ": " + call.Class + " is not in the snapshot");
-                    continue;
-                }
-
-                var argTypes = call.Args.Select(a => ArgType(a, call.Src, call.Index, proxies, returns, manifest)).ToArray();
-                total += argTypes.Length;
-                typed += argTypes.Count(t => t != null);
-                var statics = cls.Methods.Where(m => m.Static && m.Name == call.Name).ToList();
-                if (!statics.Any(m => Accepts(m, call, argTypes) && ReturnFits(m, call.Generic)))
-                {
-                    failures.Add(call.File + ": " + cls.Name + "." + call.Name + "(" + string.Join(", ", call.Args) + ") as "
-                                 + (call.Generic ?? "void") + " has no match among: "
-                                 + (statics.Count == 0 ? "(no public static method of that name)" : string.Join(" | ", statics)));
-                }
-            }
-
-            Assert.That(failures, Is.Empty, "Calls the pinned Android SDK does not have:\n" + string.Join("\n", failures));
-            // Guards the type inference: most argument types must be known, or the check silently degrades to arity.
-            Assert.That(typed, Is.GreaterThanOrEqualTo(total * 8 / 10), typed + " of " + total + " argument types known");
         }
 
         // The wrapper classes whose native receiver is one SDK contract (any of the listed ones): inside such a class an
@@ -634,6 +525,8 @@ namespace Bugsee.WrapperPolicy.Tests
             if (depth > 6 || !manifest.TryGetValue(cls, out var jc)) return;
             into.AddRange(jc.Methods.Where(m => !m.Static));
             foreach (var super in jc.Supers) AddWithSupers(super, manifest, into, depth + 1);
+            // Every object is a java.lang.Object (the snapshot alone has no JDK classes; FullManifest adds Object).
+            if (depth == 0 && manifest.TryGetValue("java.lang.Object", out var obj)) into.AddRange(obj.Methods);
         }
 
         [Test]
