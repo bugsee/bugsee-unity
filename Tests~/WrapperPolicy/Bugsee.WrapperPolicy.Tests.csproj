@@ -41,6 +41,7 @@
     <Compile Include="..\..\Runtime\Contracts\Options\AndroidLaunchOptions.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\OptionsBuilder.cs" />
     <Compile Include="UnityEngineJsonStub.cs" />
+    <Compile Include="IosScriptTools.cs" />
     <Compile Include="UnityEngineDebugStub.cs" />
     <Compile Include="**\*Tests.cs" />
     <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" LinkBase="Fixtures" />

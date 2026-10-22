@@ -521,8 +521,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
         static void NeedsPlistBuddy()
         {
-            if (!File.Exists("/usr/libexec/PlistBuddy"))
-                Assert.Ignore("needs PlistBuddy");
+            IosScriptTools.Require("/usr/libexec/PlistBuddy", "PlistBuddy");
         }
 
         static string DsymCall(ScriptRun run) => run.Calls.Single(c => c.Contains("--type dsym"));
@@ -642,8 +641,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string platform = "iphoneos", Action<string> plant = null, long exportStart = 0, string uuids = null, string tmpDir = null,
             string[] cliNoise = null, string action = null, Dictionary<string, string> env = null, string noSymbolUpload = null, bool noIl2CppMapping = false)
         {
-            if (!File.Exists("/bin/sh"))
-                Assert.Ignore("needs /bin/sh");
+            IosScriptTools.Require("/bin/sh", "/bin/sh");
 
             var root = Path.Combine(Path.GetTempPath(), "bugsee-upload-script-" + Guid.NewGuid().ToString("N"));
             try
