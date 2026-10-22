@@ -5,7 +5,6 @@
     static void refineContext(java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String);
     static void channelLog(java.lang.String, int, int);
     static void channelAddNetwork(com.bugsee.library.contracts.exchange.NetworkEvent);
-    static void clearWrapperChannel();
     static void setSecureBuffer(int, int[]);
     static void attachLifecycleListener(com.bugsee.library.contracts.lifecycle.LifecycleEventListener);
     static void setManagedDataProvider(com.bugsee.library.contracts.common.DataRequestProvider);

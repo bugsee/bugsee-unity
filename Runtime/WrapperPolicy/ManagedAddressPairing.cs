@@ -33,10 +33,6 @@ namespace Bugsee.WrapperPolicy
     /// </summary>
     public static class ManagedAddressPairing
     {
-        static readonly Regex MonoMethodStart = new Regex(
-            @"<0x[0-9a-fA-F]+\s*\+\s*0x[0-9a-fA-F]+>",
-            RegexOptions.Compiled);
-
         // "... in /path/File.cs:123" (a usym entry), or "in <32 hex>:123" (usym entry without a file name).
         // Release IL2CPP without a usym file prints "in <32 hex>:0".
         static readonly Regex SourceLocation = new Regex(
@@ -49,15 +45,6 @@ namespace Bugsee.WrapperPolicy
             return line != null && line.StartsWith("---", StringComparison.Ordinal);
         }
 
-        /// <summary>
-        /// Removes Mono's <c>&lt;0xSTART + 0xOFFSET&gt;</c>: START is a method start and absolute, not a return
-        /// address, so it must never be read as one.
-        /// </summary>
-        public static string StripMonoMethodStarts(string line)
-        {
-            return string.IsNullOrEmpty(line) ? line : MonoMethodStart.Replace(line, " ");
-        }
-
         /// <summary>True when the line carries a source line above 0, which only a symbol-file (usym) entry has.</summary>
         public static bool HasSourceLocation(string line)
         {
@@ -65,7 +52,7 @@ namespace Bugsee.WrapperPolicy
             var m = SourceLocation.Match(line);
             if (!m.Success) return false;
             int number;
-            return int.TryParse(m.Groups["line"].Value, out number) && number > 0;
+            return int.TryParse(m.Groups["line"].Value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out number) && number > 0;
         }
 
         public static string FormatAddress(ulong moduleRelative)

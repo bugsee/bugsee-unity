@@ -48,7 +48,7 @@ Legacy foundation: `cross/unity`. Min Unity: **2021.3**.
 | `Bugsee.ext(Feedback.class)` | `Bugsee.Feedback` property (resolves extension under the hood) |
 | Java listeners | C# `event` / `Action<>` on `Bugsee` |
 | Lifecycle string constants | `LifecycleEvents` consts **+** optional enum for known events |
-| `IssueSeverity.Critical` (6.x) | Not in 7.x — map legacy Critical → `High` or `Blocker` if compat shim added |
+| `IssueSeverity` | Same values on both 7.x SDKs: `Critical = 4` exists and matches Android and iOS (`VeryLow = 1` is iOS `Low`; iOS `0` is unset); no mapping is needed |
 
 ## Launch options (approved)
 
@@ -67,14 +67,14 @@ Legacy reference: `cross/unity/.../LaunchOptions/` (`BugseeLaunchOptions` + `And
 - **Write-only properties** — setters write into the map; no public getters.
 - **Omit unset keys** — empty until set; no constructor defaults that pre-fill the map. Native SDK applies defaults for omitted keys.
 - **Wire keys** — property setters store under Android 7.0 `Options.*` (the iOS SDK reads the same key strings; the bridge does not translate keys). Enums as wire ints/bytes; bridge coerces to native enums (`AndroidOptionsMapper`).
-- **Platform gate** — the bridge does not translate keys (only `AndroidOptionsMapper` coerces the enum-valued Android keys to SDK enums and boxes scalars; byte/short/uint/array values are dropped with a warning). `OptionPlatformGate` drops, before the native call, the keys the other SDK does not know, because iOS keeps an unknown key verbatim (it shows in `GetLaunchOptions` and in `sdk.options` of every report): `ForIos` removes the Android-only keys (the exit sub-reasons `detect.exit.*` but not the shared `detect.exit`, notification/broadcast triggers, video mode, custom muxer, secure scrolling, fullscreen remember/keep-running, report-handler callback timeout, performance upload mode, NDK/leak/sampling/pending-report keys, ...), including ones `Options` has no constant for yet; `ForAndroid` removes the iOS-only `capture.crash-handler-type` (Android 7.4.2 drops unregistered keys itself, so that is defensive). A test requires every `Options` constant to be classified as Android-only, iOS-only, shared or wrapper. The `unity.*` wrapper keys are read by the wrapper from the managed dictionary and are not gated (iOS keeps them in `sdk.options`; gating them is a possible follow-up).
+- **Platform gate** — the bridge does not translate keys (only `AndroidOptionsMapper` coerces the enum-valued Android keys to SDK enums and boxes scalars; byte/short/uint/array values are dropped with a warning). `OptionPlatformGate` drops, before the native call, the keys the other SDK does not know, because iOS keeps an unknown key verbatim (it shows in `GetLaunchOptions` and in `sdk.options` of every report): `ForIos` removes the Android-only keys (the exit sub-reasons `detect.exit.*` but not the shared `detect.exit`, notification/broadcast triggers, video mode, custom muxer, secure scrolling, fullscreen remember/keep-running, report-handler callback timeout, performance upload mode, NDK/sampling/pending-report keys, ...), including the leak-module keys `Options` has no constant for (the wrapper does not ship that module); `MaxDataSize` and `NotifyFlushDelay` are shared and not gated; `ForAndroid` removes the iOS-only `capture.crash-handler-type` (Android 7.4.2 drops unregistered keys itself, so that is defensive). A test requires every `Options` constant to be classified as Android-only, iOS-only, shared or wrapper. The `unity.*` wrapper keys are read by the wrapper from the managed dictionary and are not gated (iOS keeps them in `sdk.options`; gating them is a possible follow-up).
 - **Custom keys** — `SetCustomOption(string, object)` on the base (and/or raw map / `OptionsBuilder`).
 
 ### Facade
 
 - Primary: `Bugsee.Launch(token, androidOptions)` / `iosOptions` via implicit conversion to `Dictionary<string, object>` (single optional-map overload — avoids `Launch(token, null)` ambiguity across typed types).
 - Secondary: `Launch(token, dictionary)`, `OptionsBuilder` (same implicit conversion), public `Options.*` constants, `SetCustomOption`.
-- `Relaunch` mirrors `Launch`.
+- `Relaunch` mirrors `Launch`, except that its options replace the option set instead of merging.
 
 ### Naming revisit (explicit follow-up)
 
@@ -95,7 +95,7 @@ Property / key naming currently follows **Android 7.0**. When the Bugsee **iOS**
 - `Editor/BugseeIosSpmPostProcess.cs` → remote SPM `github.com/bugsee/spm` `7.0.0-beta7`
 - `Plugins/iOS/BugseeUnityBridge.mm` + `Plugins/Android/UnityManagedException.java`
 - `Tools~/scripts/update-native-sdks.sh` + `versions.env`
-- `Tools~/scripts/update-options-manifest.sh` + `Tests~/WrapperPolicy/Fixtures/options-manifest/` → the native SDKs' published option manifests (`download.bugsee.com/sdk/options/<android|ios>/<version>.json`, spec `bugsee/specs` `sdk/options`) for the pinned versions, vendored verbatim with their sha256. `OptionsManifestTests` checks the option surface against them, offline: every `Options` constant is a native key or a listed wrapper-only key; setter types and enum values (the SDK's internal ints) agree; every non-hidden native option is exposed or in an allow-list with its issue (Android #96, iOS #97); hidden options are not exposed unless listed (#108); the wrapper's hardcoded enum fallbacks and the documented iOS crash-handler default equal the manifest defaults. A bump of an SDK pin without its manifest fails `Vendored_manifests_are_verbatim_copies_of_the_pinned_versions`; a native option nobody decided about fails with the instruction to add a constant and setter or an allow-list entry; an allow-list entry that is no longer needed fails too, so the lists only shrink. Defaults are compared only against the manifest of the platform they apply to (they differ between the SDKs on purpose). The sha256 in `sources.txt` only detects an accidental edit of a vendored file, it is not a signature (re-recording it passes; the manifest's own `sdkVersion` and the immutable published URL are the provenance). Not checked by it: whether `OptionPlatformGate` drops every Android-only key on iOS, and so the spec's per-platform "strict on keys" rule is only approximated (a constant must be a key of at least one manifest, not of the manifest of every platform it is sent to) until the gate's classification (#148) can be cross-checked. Open: `FrameRate.Raw` goes to iOS through the shared setter although `BugseeFrameRate` has no such value (frozen in `CsharpEnumValuesIosLacks`).
+- `Tools~/scripts/update-options-manifest.sh` + `Tests~/WrapperPolicy/Fixtures/options-manifest/` → the native SDKs' published option manifests (`download.bugsee.com/sdk/options/<android|ios>/<version>.json`, spec `bugsee/specs` `sdk/options`) for the pinned versions, vendored verbatim with their sha256. `OptionsManifestTests` checks the option surface against them, offline: every `Options` constant is a native key or a listed wrapper-only key; setter types and enum values (the SDK's internal ints) agree; every non-hidden native option is exposed or in an allow-list with its issue (Android #96, iOS #97: the allow-lists now hold only deliberate non-exposures); hidden options are not exposed unless listed (#108); the wrapper's hardcoded enum fallbacks and the documented iOS crash-handler default equal the manifest defaults. A bump of an SDK pin without its manifest fails `Vendored_manifests_are_verbatim_copies_of_the_pinned_versions`; a native option nobody decided about fails with the instruction to add a constant and setter or an allow-list entry; an allow-list entry that is no longer needed fails too, so the lists only shrink. Defaults are compared only against the manifest of the platform they apply to (they differ between the SDKs on purpose). The sha256 in `sources.txt` only detects an accidental edit of a vendored file, it is not a signature (re-recording it passes; the manifest's own `sdkVersion` and the immutable published URL are the provenance). Not checked by it: whether `OptionPlatformGate` drops every Android-only key on iOS, and so the spec's per-platform "strict on keys" rule is only approximated (a constant must be a key of at least one manifest, not of the manifest of every platform it is sent to) until the gate's classification (#148) can be cross-checked. Open: `FrameRate.Raw` goes to iOS through the shared setter although `BugseeFrameRate` has no such value (frozen in `CsharpEnumValuesIosLacks`).
 
 ## Runtime project structure
 
@@ -172,13 +172,13 @@ Always register (Flutter-style), regardless of whether the app subscribed yet:
 
 ### Facade (`Bugsee`)
 
-Lifecycle: `Launch`, `Relaunch`, `Stop`, `GetLaunched`/`Status`, `GetLaunchOptions`, `DeleteCollectedDataOnDevice`  
+Lifecycle: `Launch`, `Relaunch`, `Stop`, `GetLaunched`/`Status`, `GetLaunchOptions`, `DeleteCollectedDataOnDevice` (also `DeleteCollectedDataOnDeviceAsync` and a `DeleteScope`)  
 Blackout: `StartBlackout`, `EndBlackout`, `IsBlackout` (obsolete Pause/Resume → blackout if shimmed)  
 Logging: `Log`, `Trace`, `Event`, `LogException`, `LogUnhandledException`, `TestCrash`  
 Reporting: `ShowReportDialog`, `Upload`, `CreateReport`, `SetReportHandler`, `Upload(Report)`  
 Filters: network / log / breadcrumb  
 Exchange: `GetExchangeFactory`, `AddNetworkEvent`, `AddBreadcrumb`  
-Privacy: secure rectangles (Unity-relevant); skip Activity/View/WebView-specific APIs or no-op with docs  
+Privacy: secure rectangles (Unity-relevant; `AddSecureRectangle` covers Unity-drawn content). Native `addSecureActivity` (Android only), `addSecureView` and `addSecureWebView` take a native Activity, View or WebView that a Unity script does not own, so they are not exposed as-is. A WebView an app embeds through a plugin goes through `Bugsee.AddSecureWebView` / `RemoveSecureWebView`, which take the plugin's native handle (Android `android.webkit.WebView`, iOS `WKWebView*`; #103)
 Identity: `SetUserIdentifier` / `Get` / `Clear` (not email-as-primary)  
 Attributes: set/get/clear/clearAll/getAll  
 Appearance: `GetAppearance()`  
@@ -189,7 +189,7 @@ Wrapper: **internal registration only** — not an app-facing `SetWrapper`
 
 ### Contracts to port (public)
 
-`Options` (+ ~69 keys), option enums, `OptionsBuilder`, `BugseeLaunchOptions` / `AndroidLaunchOptions` / `IOSLaunchOptions`  
+`Options` (the `Options.*` key constants: native keys are checked against the vendored manifests by `Tests~/WrapperPolicy/OptionsManifestTests.cs`, plus wrapper-only `unity.*` keys), option enums, `OptionsBuilder`, `BugseeLaunchOptions` / `AndroidLaunchOptions` / `IOSLaunchOptions`  
 
 `EventFilter`, `NetworkEvent`, `LogEvent`, `Breadcrumb`, `BugseeExchangeFactory`  
 `Report`, `Attachment`, `ReportHandler`, `ReportCreationListener`  
@@ -224,6 +224,15 @@ Feedback: `FeedbackListener`, …
 8. iOS bridge against nextgen SPM (**crash/identity/filters/handler/lifecycle wired**; remote SPM when published)
 9. Optional legacy `BugseePlugin` compat shim (if product needs it)
 
+## Releasing (wrapper build id)
+
+`environment.sdk.wrapper.build` is the build id stamped into the package; `main` keeps the placeholder `dev`, which the wrapper reports as no build.
+
+1. Branch from `main` at the commit to release (`git switch -c release/vX.Y.Z origin/main`). Bump the version in `Tools~/versions.env` and run `Tools~/scripts/update-native-sdks.sh` if it changes, and update `CHANGELOG.md`; commit.
+2. `Tools~/scripts/stamp-wrapper-build.sh` writes the short hash of that commit (it refuses a dirty tree) into the C# and Java constants; commit it. The id names the commit before the stamp commit, so after it only CHANGELOG and the build/version lines of the two constant files, `package.json` and `versions.env` may change (an SDK pin or other code change fails the check; re-stamp instead).
+3. `Tools~/scripts/check-release-build.sh vX.Y.Z`, then `git tag vX.Y.Z` and `git push origin vX.Y.Z`. Run the check before pushing the tag: the `Release check` workflow runs it again on the pushed `v<digit>*` tag, but it only reports, it cannot stop a tag that exists. A prerelease tag (`v0.1.0-rc1`) needs `package.json` `"version": "0.1.0-rc1"`.
+4. Do not merge the release branch into `main`: that would make `main` report the release hash. The CI job "Wrapper build id is the dev placeholder" fails a push or PR that does. Carry release-only edits (CHANGELOG) to `main` by cherry-pick.
+
 ## Risks
 
 - JNI proxy threading: always marshal app callbacks to Unity main thread; honor `isTerminating` (no async round-trip).
@@ -252,6 +261,7 @@ Alongside `dsym` / `elf` / `proguard` uploads (`BugseeSymbolUpload`).
 - Explicit `BUGSEE_IL2CPP_MAPPING` missing → warn + skip
 - Unresolved UUID → warn + skip (iOS often deferred to archive Run Script)
 - CLI non-zero / timeout → warn + continue
+- `BUGSEE_NO_SYMBOL_UPLOAD` or `BUGSEE_NO_IL2CPP_MAPPING` set → silent skip (the iOS Run Script also reads `BUGSEE_NO_SYMBOL_UPLOAD` at archive time and exits without uploading)
 - No `BUGSEE_APP_TOKEN` → silent skip of the upload (opt-in); the mapping files are still emitted by the build (`--emit-source-mapping --emit-method-map`, any IL2CPP build unless `BUGSEE_NO_IL2CPP_MAPPING`), so a later CI job can upload them; the iOS Run Script prints a `warning:` for an archive (a `note:` for other builds) for a missing token and for every failed upload (with the exit code's meaning), and never `error:` (which would fail the archive, also when the script exits 0): the CLI prints `error:` on stderr for every failure, so its output is rewritten (`error -`) while the exit code is kept
 
 Standalone `bugsee-cli` may still exit non-zero when used directly in CI scripts.

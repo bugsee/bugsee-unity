@@ -59,6 +59,26 @@ namespace Bugsee.Contracts.Options
             set => Set(Options.WifiOnlyUpload, value);
         }
 
+        /// <summary>
+        /// Megabytes of disk the reports waiting to be sent may occupy.
+        /// Default when omitted: 150 on Android, 50 on iOS. Android: a value below 10 is raised to 10, and when exceeded pending
+        /// reports are deleted (errors first, then bug reports, then crashes, oldest first, never the newest crash or a report
+        /// being sent). iOS 7.0.0-beta7: the key is accepted and reported by <c>GetLaunchOptions</c> but not enforced (no effect).
+        /// </summary>
+        public int MaxDataSize
+        {
+            set => Set(Options.MaxDataSize, value);
+        }
+
+        /// <summary>
+        /// Milliseconds the notification relay waits before draining its queue, so nearby notifications upload together.
+        /// Default when omitted: 0 (post as soon as the item is on disk).
+        /// </summary>
+        public int NotifyFlushDelay
+        {
+            set => Set(Options.NotifyFlushDelay, value);
+        }
+
         /// <summary>Android only: the iOS launch drops this key (the iOS SDK has no such option).</summary>
         public int ReportHandlerCallbackTimeout
         {
@@ -187,6 +207,11 @@ namespace Bugsee.Contracts.Options
             set => Set(Options.CaptureViewHierarchy, value);
         }
 
+        /// <summary>
+        /// Record breadcrumbs. Off by default on both native SDKs. While it is off,
+        /// <see cref="Bugsee.AddBreadcrumb"/> records nothing and the breadcrumb filter
+        /// (<see cref="Bugsee.SetBreadcrumbFilter"/>) is never called: set it to true to use either.
+        /// </summary>
         public bool CaptureBreadcrumbs
         {
             set => Set(Options.CaptureBreadcrumbs, value);
@@ -295,18 +320,6 @@ namespace Bugsee.Contracts.Options
         public string PerformanceUploadMode
         {
             set => Set(Options.PerformanceUploadMode, value);
-        }
-
-        // --- Advanced ---
-
-        public bool Debug
-        {
-            set => Set(Options.Debug, value);
-        }
-
-        public string Endpoint
-        {
-            set => Set(Options.Endpoint, value);
         }
     }
 }

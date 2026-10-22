@@ -20,7 +20,7 @@ namespace Bugsee.WrapperPolicy
     {
         /// <summary>
         /// Fills each rectangle with opaque black. <paramref name="rects"/> holds <paramref name="count"/> rectangles as
-        /// [l, t, r, b, ...] in the native window pixels they were registered in (top-left origin); they are scaled
+        /// [l, t, r, b, ...] in the native screen pixels they were registered in (top-left origin); they are scaled
         /// from <paramref name="sourceWidth"/> x <paramref name="sourceHeight"/> to the frame, and the rows are
         /// mirrored when the buffer is bottom-up. Rounds outward (floor/ceil) so a mask never shrinks. Returns the
         /// number of rectangles that touched the frame. No allocations.
@@ -69,7 +69,7 @@ namespace Bugsee.WrapperPolicy
         /// <summary>
         /// Blanks the union of the rectangles registered when the capture started and those registered when the pixels
         /// arrived, so a rectangle removed or moved in between never unmasks something that was secure at capture time. Each set is
-        /// scaled with the native window size of its own moment: after a rotation or resize the live rectangles are in the new pixel space.
+        /// scaled with the native screen size of its own moment: after a rotation or resize the live rectangles are in the new pixel space.
         /// </summary>
         public static int BlankRequestAndLive(
             Span<byte> rgba, int width, int height, VideoFrameRowOrder order,
