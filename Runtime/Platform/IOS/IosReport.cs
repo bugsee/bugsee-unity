@@ -186,19 +186,9 @@ namespace Bugsee.Platform.IOS
             if (_released || string.IsNullOrEmpty(path) || !File.Exists(path))
                 return null;
 
-            string snapshotPath;
-            try
-            {
-                snapshotPath = SnapshotAttachmentFile(path);
-            }
-            catch (IOException)
-            {
+            var snapshotPath = SnapshotAttachmentFile(path);
+            if (snapshotPath == null)
                 return null;
-            }
-            catch (UnauthorizedAccessException)
-            {
-                return null;
-            }
 
             var att = new IosAttachment(name ?? "attachment");
             var baseName = Path.GetFileName(path);
@@ -225,17 +215,7 @@ namespace Bugsee.Platform.IOS
             return att;
         }
 
-        static string SnapshotAttachmentFile(string sourcePath)
-        {
-            var dir = Path.Combine(Path.GetTempPath(), "bugsee-unity-report-attachments");
-            Directory.CreateDirectory(dir);
-            var ext = Path.GetExtension(sourcePath);
-            if (string.IsNullOrEmpty(ext))
-                ext = ".bin";
-            var dest = Path.Combine(dir, Guid.NewGuid().ToString("N") + ext);
-            File.Copy(sourcePath, dest, true);
-            return dest;
-        }
+        static string SnapshotAttachmentFile(string sourcePath) => AttachmentSnapshot.TryCopy(sourcePath);
 
         public void ClearAttachments()
         {
