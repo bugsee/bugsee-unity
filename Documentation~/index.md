@@ -463,6 +463,40 @@ Contract:
 
 `Bugsee.GetAllSecureRectangles()` returns the rectangles added with `AddSecureRectangle(RectInt)` and not yet removed, as `RectInt[]` in the top-left-origin pixels they were registered with (normalised: an inverted rectangle comes back with its corners in order), in no particular order, empty when none. Each distinct rectangle is listed once; one added several times disappears only after as many removals as adds. Rectangles added with `AddSecureScreenRectangle` are not returned. The wrapper answers from its own list: it gives the native SDKs its rectangles through its own provider rather than their `addSecureRectangle`, so the SDKs' own `getAllSecureRectangles` is empty here and is not read.
 
+### Network filter and the default sanitizer (Android)
+
+On Android a filter set with `Bugsee.SetNetworkEventFilter` (or declared in the manifest) turns the SDK's built-in redaction off: `Authorization` and `Cookie` headers, `token` query values, `user:password@` URL credentials and `password` body fields are recorded as is unless the filter redacts them. Call `Bugsee.ApplyDefaultNetworkSanitizer(event)` first in the filter to keep the built-in redaction, then add your own:
+
+```csharp
+Bugsee.SetNetworkEventFilter(e =>
+{
+    // Android: SDK defaults, in place. If it could not run (false), drop the event rather than record it unredacted.
+    // On iOS it always returns false: there the filter's own redaction is all there is.
+    if (!Bugsee.ApplyDefaultNetworkSanitizer(e) && Application.platform == RuntimePlatform.Android) return null;
+    e.Url = e.Url.Replace("/internal/", "/x/");
+    return e;
+});
+```
+
+It returns true when it ran and false on iOS and in the Editor: the iOS SDK (7.0.0-beta7) has no public sanitizer, so there is nothing to call and the filter's own redaction is all there is. Inside the filter it needs nothing else. On an event you built yourself (`Bugsee.GetExchangeFactory()`, or your own `INetworkEvent`) the SDK hands out a native copy only while it is launched with network capture on, so outside that the call redacts nothing and returns false: check the result. A copy that worked has its redacted fields copied back. A failure inside the SDK is logged and also returns false.
+
+### WebView secure views
+
+An app that embeds a WebView plugin can keep its content out of the video with `Bugsee.AddSecureWebView(handle)` and `Bugsee.RemoveSecureWebView(handle)`. Pass the plugin's native handle: the `android.webkit.WebView` as an `AndroidJavaObject` on Android, the `WKWebView*` as an `IntPtr` on iOS (typed overloads; a plugin that does not expose its native handle cannot use them). They return false for a null or zero handle, for an object of another class (a plain view) and in the Editor.
+
+- **Android:** calls `Bugsee.addSecureWebView` on the UI thread (the SDK measures the view's geometry on the calling thread) and waits for it. The SDK buffers a registration made before launch. It does not survive `Stop()`: register again after a relaunch.
+- **iOS:** the SDK's `+addSecureWebView:` alone does not hide the view (it protects secure areas inside the page), so the wrapper also calls `+addSecureView:`, which masks the view in the video, as Android's call does. The work runs on the main queue. The SDK masks a view only while it is launched, unlike Android: a call made before the launch finished has no effect on the video, so call it once `Bugsee.IsLaunched` is true. `RemoveSecureWebView` calls `+removeSecureView:`, which also lifts a mask the app set on the same view itself; the page-level protection stays, harmlessly. The pointer must be a live Objective-C object: another class is refused, a stale or non-object pointer is undefined.
+
+Limits: it marks a native view, so it does nothing for a page drawn into a Unity texture (use `AddSecureRectangle` for that) and nothing while the Android Unity frame pusher is the capture source (it does not know native views, see below).
+
+### Native APIs that are not exposed
+
+Decided in #103 against the Android 7.4.2 and iOS 7.0.0-beta7 public APIs:
+
+- `+[Bugsee logError:]` (iOS `NSError`): an `NSError` can only come from native code, which already calls the SDK directly; Unity code has `Bugsee.LogException`. Android has no counterpart.
+- `+[Bugsee showVideoCapturePreview]` / `hideVideoCapturePreview` (iOS): a developer diagnostic of the SDK's own capture, with no Android counterpart; it shows nothing about the Unity pipeline, which pushes its own frames.
+- The `requiresFiltering` overloads of `log` and `addNetworkEvent`: for `log` the wrapper keeps the SDK's default, which skips the log filter on both platforms (Android `Bugsee.Log` calls `Bugsee.log(message, LogLevel)`, iOS `_bugsee_log` calls `+log:level:`), and does not expose the opt-in; this matches #182. Network events from `Bugsee.AddNetworkEvent` already go through the wrapper channel with filtering on, so the network half needs nothing.
+
 ## Native dependencies
 
 - **Android:** Maven `com.bugsee:bugsee-android:7.4.2` + `com.bugsee:bugsee-android-ndk:7.4.2`, declared in the generated Gradle project by `Editor/BugseeAndroidMavenDependencies.cs` (Gradle plugin `4.0.8`, patched into the generated project when it pins AGP 8.6+). Native symbols for upload come from Unity's `symbols.zip` (Player Settings > Publishing Settings > Create symbols.zip). Unity 6 defaults it to Disabled and Public holds symbol tables only; native/IL2CPP file:line symbolication needs Debugging (about ten times larger, mind Google Play's limits). The build warns when a Bugsee app token is set and the level is not Debugging; `Bugsee > Android > Use Full Native Symbols (Debugging) For Symbol Upload` (or `BUGSEE_ANDROID_FULL_SYMBOLS=1`) builds with Debugging and restores the setting. On 2021.3 release builds also get `debugSymbolLevel 'FULL'`. Core publishes no transitives; NDK is a separate artifact and must be declared. Fragment secure-view overloads are typed as `Object`, so Unity JNI does not need `androidx.fragment`.

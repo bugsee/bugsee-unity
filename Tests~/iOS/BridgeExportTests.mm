@@ -7,6 +7,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <Bugsee/Bugsee.h>
+#include <dlfcn.h>
 
 extern "C" {
 typedef void (*BugseeManagedReportCreateCallback)(int succeeded, uint64_t uploadToken);
@@ -25,6 +26,8 @@ void _bugsee_clear_email(void);
 float _bugsee_screen_scale(void);
 float _bugsee_pixels_per_point(int unityPixelWidth);
 void _bugsee_capture_view_hierarchy(void);
+int _bugsee_add_secure_web_view(void *view);
+int _bugsee_remove_secure_web_view(void *view);
 void _bugsee_feedback_show(void);
 void _bugsee_feedback_set_greeting(const char *message);
 void _bugsee_free(char *ptr);
@@ -135,6 +138,20 @@ int main(void)
     _bugsee_feedback_set_greeting("hi");
     _bugsee_feedback_set_greeting(NULL);
     expect(_bugsee_get_status() == 0, "logging and telemetry do not start the SDK");
+
+    // WebView secure views: a NULL pointer and a live object that is not a WKWebView are refused; a real WKWebView is accepted
+    // (before a launch the SDK registers nothing, so only the result is checked) and can be taken off again.
+    expect(_bugsee_add_secure_web_view(NULL) == 0 && _bugsee_remove_secure_web_view(NULL) == 0, "a NULL secure WebView is refused");
+    UIView *plainView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 10, 10)];
+    expect(_bugsee_add_secure_web_view((__bridge void *)plainView) == 0
+               && _bugsee_remove_secure_web_view((__bridge void *)plainView) == 0,
+           "a view that is not a WKWebView is refused");
+    dlopen("/System/Library/Frameworks/WebKit.framework/WebKit", RTLD_LAZY);
+    Class webKitClass = NSClassFromString(@"WKWebView");
+    expect(webKitClass != Nil, "WebKit loads");
+    UIView *webView = [(UIView *)[webKitClass alloc] initWithFrame:CGRectMake(0, 0, 10, 10)];
+    expect(_bugsee_add_secure_web_view((__bridge void *)webView) == 1, "a WKWebView is accepted as a secure WebView");
+    expect(_bugsee_remove_secure_web_view((__bridge void *)webView) == 1, "a WKWebView is accepted for removal from the secure list");
 
     // Secure rect buffer (smoke only, nothing reads the stored buffer back): short or NULL buffers must be ignored and a
     // packed one accepted for any display.

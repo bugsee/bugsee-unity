@@ -79,6 +79,9 @@ namespace Bugsee.Platform.EditorStub
         public void ResetVideoCapturePermission() { }
         public IAppearance GetAppearance() => new StubAppearance();
         public void SetNetworkEventFilter(EventFilter<INetworkEvent> filter) { }
+        public bool ApplyDefaultNetworkSanitizer(INetworkEvent networkEvent) => false;
+        public bool AddSecureWebView(object nativeWebView) => false;
+        public bool RemoveSecureWebView(object nativeWebView) => false;
         public void SetLogEventFilter(EventFilter<ILogEvent> filter) { }
         public void SetBreadcrumbFilter(EventFilter<IBreadcrumb> filter) { }
         public void SetReportHandler(IReportHandler handler) { }
