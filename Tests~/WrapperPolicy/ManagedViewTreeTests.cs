@@ -103,6 +103,48 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void TheWriterCountsTheNodesThatLostTheirNameOrComponents()
+        {
+            var field = Node(5, "InputField", "PasswordField", 100, 100, 200, 50);
+            field.Components = "Image,InputField";
+            var bare = Node(7, "Image", null, 120, 110, 10, 10);
+            var clear = Node(6, "Image", "Logo", 500, 500, 50, 50);
+            var root = Node(0, "UnityPlayer", null, 0, 0, 1000, 1000, field, bare, clear);
+            ManagedViewTreeJson.Write(root, new[] { 150, 110, 400, 160 }, 1, 1f, out var covered);
+            Assert.That(covered, Is.EqualTo(1), "only a node that had something to hide counts (the root and the nameless one do not)");
+            ManagedViewTreeJson.Write(root, null, 0, 1f, out covered);
+            Assert.That(covered, Is.EqualTo(0));
+            ManagedViewTreeJson.Write(null, new[] { 0, 0, 1, 1 }, 1, 1f, out covered);
+            Assert.That(covered, Is.EqualTo(0));
+        }
+
+        static int CountWithoutOptions(JsonElement node)
+        {
+            var n = 0;
+            if (node.TryGetProperty("subitems", out var items))
+                foreach (var child in items.EnumerateArray())
+                    n += (child.TryGetProperty("options", out _) ? 0 : 1) + CountWithoutOptions(child);
+            return n;
+        }
+
+        [Test]
+        public void TheCountCoversEveryKindOfNodeAndMatchesTheNodesLeftWithoutOptions()
+        {
+            var nameOnly = Node(1, "Image", "NameOnly", 0, 0, 10, 10);
+            var componentsOnly = Node(2, "Image", null, 5, 5, 10, 10);
+            componentsOnly.Components = "Image";
+            var inBoth = Node(3, "Image", "InBoth", 100, 0, 100, 10); // overlaps both rectangles: counts once
+            var scene = Container(4, "SceneNoGeometry"); // no geometry anywhere below: unplaceable, so protected
+            var clear = Node(5, "Image", "Clear", 900, 900, 10, 10);
+            var root = Node(0, "UnityPlayer", null, 0, 0, 1000, 1000, nameOnly, componentsOnly, inBoth, scene, clear);
+            var rects = new[] { 0, 0, 20, 20, 120, 0, 130, 5, 150, 0, 160, 5 };
+            var json = ManagedViewTreeJson.Write(root, rects, 3, 1f, out var covered);
+            Assert.That(covered, Is.EqualTo(4));
+            Assert.That(CountWithoutOptions(Parse(json)), Is.EqualTo(covered));
+            Assert.That(json, Does.Contain("Clear"));
+        }
+
+        [Test]
         public void AContainerOverTheRectangleDoesNotCoverItsFarChildren()
         {
             var near = Node(3, "Text", "Balance", 5, 5, 10, 10);
