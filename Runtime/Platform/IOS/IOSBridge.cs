@@ -423,6 +423,9 @@ namespace Bugsee.Platform.IOS
         public IReadOnlyDictionary<string, object> GetLaunchOptions() =>
             JsonRead.Object(ConsumeNativeString(_bugsee_get_launch_options()));
 
+        public IReadOnlyDictionary<string, object> GetHostLaunchOptions() =>
+            JsonRead.Object(ConsumeNativeString(_bugsee_get_host_launch_options())) ?? new Dictionary<string, object>();
+
         // The SDK owns the state, including Launching and Stopping, so a launch it refused reads as Stopped
         // and so does anything before the first Launch (a nil instance answers 0).
         public BugseeStatus GetStatus()
@@ -770,6 +773,17 @@ namespace Bugsee.Platform.IOS
             return AttributeWire.Decode(ConsumeNativeString(_bugsee_get_attribute(key ?? "")));
         }
 
+        public IReadOnlyDictionary<string, object> GetAllAttributes()
+        {
+            // A JSON object of key to the tagged text _bugsee_get_attribute returns, decoded the same way.
+            var result = new Dictionary<string, object>();
+            var tagged = JsonRead.Object(ConsumeNativeString(_bugsee_get_all_attributes()));
+            if (tagged == null) return result;
+            foreach (var kv in tagged)
+                result[kv.Key] = AttributeWire.Decode(kv.Value as string);
+            return result;
+        }
+
         public void ClearAttribute(string key) => _bugsee_clear_attribute(key ?? "");
 
         public void ClearAllAttributes() => _bugsee_clear_all_attributes();
@@ -978,8 +992,10 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_upload(string summary, string description, int severity, string labelsJson);
         [DllImport("__Internal")] static extern void _bugsee_notify(string title, string body, int severity, string fieldsJson, int urgent);
         [DllImport("__Internal")] static extern IntPtr _bugsee_get_launch_options();
+        [DllImport("__Internal")] static extern IntPtr _bugsee_get_host_launch_options();
         [DllImport("__Internal")] static extern void _bugsee_set_attribute(string key, string valueJson);
         [DllImport("__Internal")] static extern IntPtr _bugsee_get_attribute(string key);
+        [DllImport("__Internal")] static extern IntPtr _bugsee_get_all_attributes();
         [DllImport("__Internal")] static extern void _bugsee_clear_attribute(string key);
         [DllImport("__Internal")] static extern void _bugsee_clear_all_attributes();
         [DllImport("__Internal")] static extern void _bugsee_set_email(string email);

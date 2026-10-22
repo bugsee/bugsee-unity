@@ -307,7 +307,7 @@ namespace Bugsee
         /// is not launched. Keys are the native SDK's own option names and differ between Android and iOS; values are string,
         /// bool, long, double (or a nested dictionary or list); narrower numeric types are widened the same way on both
         /// platforms. The SDK's internal keys (a double-dollar-sign name, bare or after the <c>com.bugsee.option.</c> prefix,
-        /// such as the endpoint) are left out. The Unity-only <c>unity.*</c> options are not reported on Android and can be
+        /// such as the endpoint) and the iOS wrapper_info map are left out. The Unity-only <c>unity.*</c> options are not reported on Android and can be
         /// echoed on iOS, so this cannot rebuild the full set for a <see cref="Relaunch"/>: pass the set you launched with.
         /// A value with no such form, such as a Java array, reads as its text.
         /// </summary>
@@ -316,6 +316,22 @@ namespace Bugsee
             var options = LaunchOptionsWire.Normalize(Bridge.GetLaunched() ? Bridge.GetLaunchOptions() : null);
             return options == null ? null : new ReadOnlyDictionary<string, object>(options);
         }
+
+        /// <summary>
+        /// Only the launch options the app itself passed to <see cref="Launch"/>/Relaunch, without the
+        /// SDK defaults that <see cref="GetLaunchOptions"/> merges them over, so "the app asked for this" can be told
+        /// from "this is the default". Never null: empty when nothing was passed (before the first launch it is empty,
+        /// unless the SDK restored the previous run's configuration, which it then returns). It keeps
+        /// describing the last applied configuration after <see cref="Stop"/> and is replaced, not merged, by the next
+        /// Launch or Relaunch (so a Relaunch with no options leaves it empty). Keys, value types and the left-out
+        /// internal keys are as in <see cref="GetLaunchOptions"/>; the keys are the native SDK's own and may differ
+        /// between Android and iOS. On iOS an option passed with its default value may be missing (the SDK drops
+        /// typed options equal to their default), and the wrapper's own <c>com.bugsee.option.unity.*</c> keys appear
+        /// (Android drops them). A read-only snapshot.
+        /// </summary>
+        public static IReadOnlyDictionary<string, object> GetHostLaunchOptions() =>
+            new ReadOnlyDictionary<string, object>(
+                LaunchOptionsWire.Normalize(Bridge.GetHostLaunchOptions()) ?? new Dictionary<string, object>());
 
         public static void StartBlackout() => Bridge.StartBlackout();
 
@@ -527,6 +543,15 @@ namespace Bugsee
 
         public static object GetAttribute(string key) => Bridge.GetAttribute(key);
 
+        /// <summary>
+        /// A read-only snapshot of every attribute set with <see cref="SetAttribute"/>, typed as
+        /// <see cref="GetAttribute"/> reads them: string, bool, long or double. A container set natively reads as a
+        /// nested dictionary or list on Android and as its JSON text on iOS. Never null: empty when none is set.
+        /// </summary>
+        public static IReadOnlyDictionary<string, object> GetAllAttributes() =>
+            new ReadOnlyDictionary<string, object>(
+                new Dictionary<string, object>(Bridge.GetAllAttributes()));
+
         public static void ClearAttribute(string key) => Bridge.ClearAttribute(key);
 
         public static void ClearAllAttributes() => Bridge.ClearAllAttributes();
@@ -572,6 +597,27 @@ namespace Bugsee
                 return;
 
             PushSecureBufferForDisplay(DefaultSecureRectDisplayId);
+        }
+
+        /// <summary>
+        /// The rectangles currently hidden through <see cref="AddSecureRectangle"/>, in the top-left-origin pixels
+        /// they were registered with (normalised: an inverted rectangle has its corners in order), in no particular
+        /// order; empty when none. Each distinct rectangle is listed once and stays until removed as often as it was
+        /// added; rectangles added with <c>AddSecureScreenRectangle</c> are not returned. Answered by the wrapper, not the native
+        /// SDK: the wrapper hands the SDK its rectangles through its own secure-buffer provider, so the SDK's own
+        /// getAllSecureRectangles list is always empty here.
+        /// </summary>
+        public static RectInt[] GetAllSecureRectangles()
+        {
+            var rects = SecureRectRegistry.Instance.GetRects(
+                SecureRectManualOwners.OwnerIdPrefix, DefaultSecureRectDisplayId);
+            var result = new RectInt[rects.Count];
+            for (int i = 0; i < result.Length; i++)
+            {
+                int[] r = rects[i];
+                result[i] = new RectInt(r[0], r[1], r[2] - r[0], r[3] - r[1]);
+            }
+            return result;
         }
 
         public static void RemoveAllSecureRectangles()

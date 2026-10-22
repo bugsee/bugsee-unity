@@ -31,6 +31,8 @@ void _bugsee_set_attribute(const char *key, const char *valueJson);
 char *_bugsee_get_attribute(const char *key);
 void _bugsee_clear_attribute(const char *key);
 char *_bugsee_get_launch_options(void);
+char *_bugsee_get_host_launch_options(void);
+char *_bugsee_get_all_attributes(void);
 int _bugsee_test_default_bug_severity(void);
 const char *_bugsee_test_last_report_overload(void);
 int _bugsee_test_last_report_severity(void);
@@ -416,6 +418,25 @@ int main(void)
     expect(localized != NULL && same(localized, "i:1234567"), "integer attribute has no grouping under a comma locale");
     free(localized);
     _bugsee_clear_attribute("localized");
+    // The whole set comes back as one JSON object of tagged values (the text _bugsee_get_attribute returns).
+    _bugsee_set_attribute("all_s", "\"x\"");
+    _bugsee_set_attribute("all_i", "7");
+    _bugsee_set_attribute("all_b", "true");
+    _bugsee_set_attribute("all_d", "1.5");
+    char *allAttrs = _bugsee_get_all_attributes();
+    id parsedAll = allAttrs ? [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:allAttrs length:strlen(allAttrs)] options:0 error:nil] : nil;
+    expect([parsedAll isKindOfClass:[NSDictionary class]]
+           && [parsedAll[@"all_s"] isEqual:@"s:x"] && [parsedAll[@"all_i"] isEqual:@"i:7"]
+           && [parsedAll[@"all_b"] isEqual:@"b:1"] && [parsedAll[@"all_d"] isEqual:@"d:1.5"],
+           "all attributes come back as a JSON object of tagged values");
+    free(allAttrs);
+    _bugsee_clear_attribute("all_s");
+    _bugsee_clear_attribute("all_i");
+    _bugsee_clear_attribute("all_b");
+    _bugsee_clear_attribute("all_d");
+    allAttrs = _bugsee_get_all_attributes();
+    expect(allAttrs != NULL && ![[NSString stringWithUTF8String:allAttrs] containsString:@"all_"], "cleared attributes leave the snapshot");
+    free(allAttrs);
     setlocale(LC_ALL, "C");
     [defaults removeObjectForKey:@"AppleLocale"];
     [defaults removeObjectForKey:@"AppleLanguages"];
@@ -490,6 +511,16 @@ int main(void)
            "launch options come back as a JSON object with the defaults");
     expect([parsedOptions[BugseeMaxRecordingTimeKey] intValue] == 60, "launch options hold the host's value");
     free(launchOptions);
+    // Only what the host passed, none of the SDK defaults: a JSON object with fewer keys than the effective options (the device
+    // run of the sample's readapis scenario checks the values).
+    char *hostOptions = _bugsee_get_host_launch_options();
+    id parsedHost = hostOptions
+        ? [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:hostOptions length:strlen(hostOptions)] options:0 error:nil]
+        : nil;
+    expect([parsedHost isKindOfClass:[NSDictionary class]] && [parsedHost count] < [parsedOptions count]
+           && !parsedHost[BugseeMaxRecordingTimeKey], // 60 is the SDK default, which beta7 drops from the host options
+           "host launch options come back as a JSON object without the defaults");
+    free(hostOptions);
     // An omitted report severity is the SDK default, High until the host configures ReportingDefaultBugPriority.
     expect(_bugsee_test_default_bug_severity() == (int)BugseeSeverityHigh, "the default bug severity is High");
     // Which SDK overload each report entry point reaches (omitted severity is 0): the ones without a severity read

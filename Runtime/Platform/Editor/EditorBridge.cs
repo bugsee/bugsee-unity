@@ -26,6 +26,7 @@ namespace Bugsee.Platform.EditorStub
         public bool GetLaunched() => false;
         public BugseeStatus GetStatus() => BugseeStatus.Stopped;
         public IReadOnlyDictionary<string, object> GetLaunchOptions() => null;
+        public IReadOnlyDictionary<string, object> GetHostLaunchOptions() => new Dictionary<string, object>();
 
         bool _blackout;
         public void StartBlackout() => _blackout = true;
@@ -59,6 +60,7 @@ namespace Bugsee.Platform.EditorStub
                 throw new ArgumentException(decision.Error, nameof(value));
         }
         public object GetAttribute(string key) => null;
+        public IReadOnlyDictionary<string, object> GetAllAttributes() => new Dictionary<string, object>();
         public void ClearAttribute(string key) { }
         public void ClearAllAttributes() { }
         public void SetSecureBuffer(int display, int[] packed) { }
