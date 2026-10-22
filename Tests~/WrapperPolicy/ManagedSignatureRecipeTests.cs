@@ -215,7 +215,11 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             Assert.That(ManagedSignatureRecipe.IsEngineFrame("#00 pc 0000000000a1b2c3 /data/app/x/lib/arm64/libunity.so (offset 0x1000)"), Is.True);
             Assert.That(ManagedSignatureRecipe.IsEngineFrame("0x000000010a1b2c3d in UnityFramework"), Is.True);
-            Assert.That(ManagedSignatureRecipe.IsEngineFrame("A.M () in /p/libil2cpp.so"), Is.True);
+            Assert.That(ManagedSignatureRecipe.IsEngineFrame("libil2cpp.so(+0x1a2b3c)"), Is.True);
+            // managed frames whose class or file merely contains an image name stay user frames
+            Assert.That(ManagedSignatureRecipe.IsEngineFrame("at MyGame.UnityPlayerBridge.Tick () (at Assets/Scripts/UnityPlayerBridge.cs:42)"), Is.False);
+            Assert.That(ManagedSignatureRecipe.IsEngineFrame("at App.Throw () (at Assets/UnityFramework/libunity.so.cs:5)"), Is.False);
+            Assert.That(ManagedSignatureRecipe.IsEngineFrame("MyGame.Libmono.Run () (at Assets/UnityPlayer.cs:5)"), Is.False);
             Assert.That(ManagedSignatureRecipe.IsEngineFrame("at A.M () (at A.cs:5)"), Is.False);
             var clean = new[] { "A.M () (at Assets/A.cs:5)" };
             var many = new string[12];
