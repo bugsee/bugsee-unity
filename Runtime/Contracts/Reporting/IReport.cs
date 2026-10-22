@@ -5,7 +5,11 @@ namespace Bugsee.Contracts.Reporting
 {
     /// <summary>
     /// Subset of com.bugsee.library.contracts.reporting.Report that is useful from C#.
-    /// Screenshot/Bitmap APIs are Android-bridge specific and exposed on the platform wrapper.
+    /// Both native SDKs have per-display screenshot get/set/changed members and exportVideo on their report objects;
+    /// this wrapper does not expose them yet (reports cross the bridge as managed snapshots, and only Android's report
+    /// handler path holds a live native report). Tracked in bugsee-unity#224. To omit the SDK's screenshot
+    /// use the CaptureScreenshot launch option; secure rectangles and blackout only redact what is captured.
+    /// Attachments cannot remove, replace or redact it.
     /// </summary>
     public interface IReport
     {

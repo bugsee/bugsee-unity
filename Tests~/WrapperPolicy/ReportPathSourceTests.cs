@@ -91,7 +91,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
             string stop = ExtractMethodBody(ios, "public void Stop(Action completion = null)");
             Assert.That(stop, Does.Contain("_openReport?.ReleaseSnapshotFiles()"));
-            string delete = ExtractMethodBody(ios, "public void DeleteCollectedDataOnDevice()");
+            string delete = ExtractMethodBody(ios, "void DeleteCollectedData(DeleteScope scope, Action<bool> done)");
             Assert.That(delete, Does.Contain("_openReport?.ReleaseSnapshotFiles()"));
         }
 
@@ -271,7 +271,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(addFile, Does.Contain("File.Exists(path)"));
             Assert.That(addFile, Does.Contain("Path.GetFileName(path)"));
             Assert.That(addFile, Does.Contain("SetSnapshotPath"));
-            Assert.That(addFile, Does.Contain("catch (IOException)"));
+            Assert.That(addFile, Does.Contain("snapshotPath == null"));
 
             string addBytes = ExtractMethodBody(report, "public IAttachment AddAttachmentBytes(byte[] data, string name, string mimeType)");
             Assert.That(addBytes, Does.Contain("SetAttachmentBytes"));

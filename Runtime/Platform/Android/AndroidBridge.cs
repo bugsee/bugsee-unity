@@ -256,7 +256,16 @@ namespace Bugsee.Platform.Android
 
         public void Trace(string name, object value)
         {
-            _bugsee.CallStatic("trace", name, Box(value));
+            using (var boxed = Box(value))
+            {
+                if (TraceProbe.Enabled)
+                {
+                    string cls;
+                    using (var c = boxed?.Call<AndroidJavaObject>("getClass")) cls = c?.Call<string>("getName");
+                    TraceProbe.Last = cls == null ? null : cls + ":" + boxed.Call<string>("toString");
+                }
+                _bugsee.CallStatic("trace", name, boxed);
+            }
         }
 
         public void Event(string name, IDictionary<string, object> parameters)
@@ -325,14 +334,9 @@ namespace Bugsee.Platform.Android
                     }
                 }
                 map.Call<AndroidJavaObject>("put", "domain", "UnityManagedException");
-                if (!string.IsNullOrEmpty(payload.signature))
-                {
-                    map.Call<AndroidJavaObject>("put", "$$signature", payload.signature);
-                }
-                if (!string.IsNullOrEmpty(payload.moduleUUID))
-                {
-                    map.Call<AndroidJavaObject>("put", "moduleUUID", payload.moduleUUID);
-                }
+                // Nothing more goes in the map: the SDK reads only the signature from the reason JSON (the worker reads the module UUID), and
+                // ignores other keys (they only end up in the report's logging options). The SDK's signature does not vary with
+                // the Java call site because UnityManagedException has no Java stack, see Plugins/Android/UnityManagedException.java.
                 // The SDK files the report on this thread and, for the managed view hierarchy, waits for a reply that only this
                 // thread could give (Unity's main thread, now inside this call). Telling the wrapper lets it answer "none" at once
                 // instead of making the SDK time out and the game stall. Only when this is Unity's thread: from any other the reply
@@ -433,7 +437,7 @@ namespace Bugsee.Platform.Android
         public object GetAttribute(string key)
         {
             using (var value = _bugsee.CallStatic<AndroidJavaObject>("getAttribute", key))
-                return AndroidJavaConverters.Unbox(value);
+                return AndroidJavaConverters.UnboxAttribute(value);
         }
 
         public void ClearAttribute(string key) => _bugsee.CallStatic("clearAttribute", key);
@@ -538,19 +542,22 @@ namespace Bugsee.Platform.Android
 
         public void NotifyLifecycle(string eventType) { }
 
-        public void DeleteCollectedDataOnDevice() => DeleteCollectedDataOnDevice(null);
+        public void DeleteCollectedDataOnDevice() => DeleteCollectedDataOnDevice(DeleteScope.Everything, null);
 
-        // Stops the SDK if needed, then deletes with includingBundles=true: the two-argument overload keeps finished
-        // report bundles, including ones not uploaded yet, so a "delete collected data" request would leave data
+        void ILifecycleResultBridge.DeleteCollectedData(DeleteScope scope, Action<bool> done) =>
+            DeleteCollectedDataOnDevice(scope, done);
+
+        // Stops the SDK if needed, then deletes. Everything passes includingBundles=true: the two-argument overload keeps
+        // finished report bundles, including ones not uploaded yet, so a "delete collected data" request would leave data
         // behind. Runs in request order with Launch/Relaunch/Stop, so a later Launch never cancels it.
-        internal void DeleteCollectedDataOnDevice(Action<bool> completion)
+        internal void DeleteCollectedDataOnDevice(DeleteScope scope, Action<bool> completion)
         {
             MainThreadDispatcher.Run(() =>
             {
                 AndroidManagedReportUploadFence.Invalidate();
                 _openReport?.ReleaseSnapshotFiles();
                 _openReport = null;
-                Lifecycle.DeleteCollectedData(completion);
+                Lifecycle.DeleteCollectedData(scope, completion);
             });
         }
 
@@ -580,8 +587,14 @@ namespace Bugsee.Platform.Android
             public void Stop(Action done) =>
                 _bridge._bugsee.CallStatic("stop", new RunnableProxy(() => MainThreadDispatcher.Run(done)));
 
-            public void DeleteCollectedData(Action<bool> done) =>
-                _bridge._bugsee.CallStatic("deleteCollectedDataOnDevice", true, true, new BooleanCallback1Proxy(OnMain(done)));
+            // CaptureOnly and CaptureAndIntermediate keep the finished report bundles (includingBundles=false).
+            public void DeleteCollectedData(DeleteScope scope, Action<bool> done)
+            {
+                // An undefined scope deletes nothing; it is never read as one of the three.
+                if (!Enum.IsDefined(typeof(DeleteScope), scope)) { done(false); return; }
+                _bridge._bugsee.CallStatic("deleteCollectedDataOnDevice", scope != DeleteScope.CaptureOnly,
+                    scope == DeleteScope.Everything, new BooleanCallback1Proxy(OnMain(done)));
+            }
 
             public void InstallHooks(IDictionary<string, object> options)
             {

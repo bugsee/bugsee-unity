@@ -415,6 +415,7 @@ namespace Bugsee.Editor
             var b = new byte[16];
             Buffer.BlockCopy(data, offset, b, 0, 16);
             return string.Format(
+                System.Globalization.CultureInfo.InvariantCulture,
                 "{0:x2}{1:x2}{2:x2}{3:x2}-{4:x2}{5:x2}-{6:x2}{7:x2}-{8:x2}{9:x2}-{10:x2}{11:x2}{12:x2}{13:x2}{14:x2}{15:x2}",
                 b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
                 b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]);

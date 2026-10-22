@@ -86,14 +86,14 @@ namespace Bugsee.Platform.Android
             get
             {
                 using (var map = _report.Call<AndroidJavaObject>("getAttributes"))
-                    return AndroidJavaConverters.MapToDictionary(map);
+                    return AndroidJavaConverters.AttributesToDictionary(map);
             }
         }
 
         public object GetAttribute(string name)
         {
             using (var value = _report.Call<AndroidJavaObject>("getAttribute", name))
-                return AndroidJavaConverters.Unbox(value);
+                return AndroidJavaConverters.UnboxAttribute(value);
         }
 
         public void SetAttribute(string name, object value)
@@ -374,19 +374,9 @@ namespace Bugsee.Platform.Android
         {
             if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path))
                 return null;
-            string snapshotPath;
-            try
-            {
-                snapshotPath = SnapshotAttachmentFile(path);
-            }
-            catch (System.IO.IOException)
-            {
+            var snapshotPath = SnapshotAttachmentFile(path);
+            if (snapshotPath == null)
                 return null;
-            }
-            catch (UnauthorizedAccessException)
-            {
-                return null;
-            }
 
             var att = new AndroidManagedAttachment(string.IsNullOrEmpty(name) ? "attachment" : name, MarkAttachmentsDirty);
             var baseName = System.IO.Path.GetFileName(path);
@@ -398,17 +388,7 @@ namespace Bugsee.Platform.Android
             return att;
         }
 
-        static string SnapshotAttachmentFile(string sourcePath)
-        {
-            var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bugsee-unity-report-attachments");
-            System.IO.Directory.CreateDirectory(dir);
-            var ext = System.IO.Path.GetExtension(sourcePath);
-            if (string.IsNullOrEmpty(ext))
-                ext = ".bin";
-            var dest = System.IO.Path.Combine(dir, Guid.NewGuid().ToString("N") + ext);
-            System.IO.File.Copy(sourcePath, dest, true);
-            return dest;
-        }
+        static string SnapshotAttachmentFile(string sourcePath) => AttachmentSnapshot.TryCopy(sourcePath);
 
         internal void ReleaseSnapshotFiles()
         {

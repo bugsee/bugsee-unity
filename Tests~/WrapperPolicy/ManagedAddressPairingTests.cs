@@ -126,14 +126,6 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Mono_method_start_is_stripped_so_it_is_never_read_as_an_address()
-        {
-            var s = ManagedAddressPairing.StripMonoMethodStarts("at A.B () <0x104a125e0 + 0x34> in <hash>:0");
-            Assert.That(s, Does.Not.Contain("0x104a125e0"));
-            Assert.That(s, Does.Contain("in <hash>:0"));
-        }
-
-        [Test]
         public void Thrown_exception_frames_take_addresses_only_from_the_pairing_never_from_text()
         {
             var text = Line("A.Throw () 0x0000000104a125e0") + "\n" + Line("B.Caller () <0x104a125e0 + 0x34>") + "\n";
@@ -162,12 +154,33 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(set.Addresses, Is.EqualTo(new string[2]));
         }
 
+        [TestCase("Ns.C.Run () (at /proj/Assets/C.cs:12)")]
+        [TestCase("Ns.C.Run () (at <0123456789abcdef0123456789abcdef>:0)")]
+        [TestCase("Ns.C.Run () [0x00023] in <0123456789abcdef0123456789abcdef>:0")]
+        [TestCase("Ns.C.Run () <0x104a125e0 + 0x34> in <0123456789abcdef0123456789abcdef>:0")]
+        [TestCase("#00 pc 000000000012abcd /data/app/lib/arm64/libil2cpp.so")]
+        [TestCase("#01 pc 00000000004f3a10 /data/app/lib/arm64/libunity.so (BuildId: 0a1b)")]
+        [TestCase("0x0000000104a125e0 in UnityFramework")]
+        [TestCase("at Ns.C.Run () in 0x7ff812345678")]
+        public void Unity_log_text_never_yields_an_address(string line)
+        {
+            var set = ManagedFrameAssembly.FromLogText(line + "\n");
+            Assert.That(set.Traces, Is.EqualTo(new[] { line }));
+            Assert.That(set.Addresses, Is.EqualTo(new string[1]));
+        }
+
         [Test]
-        public void Unity_log_text_keeps_native_pcs_but_not_il_offsets_or_mono_method_starts()
+        public void Unity_log_text_frames_stay_symbolic_one_entry_per_frame()
         {
             var set = ManagedFrameAssembly.FromLogText(
-                "at A.B () [0x00023] in <hash>:0\n#00 pc 000000000012abcd /lib/libil2cpp.so\nat C.D () <0x104a125e0 + 0x34> in <h>:0\n");
-            Assert.That(set.Addresses, Is.EqualTo(new[] { null, "0x000000000012abcd", null }));
+                "Ns.A.Throw () (at <h>:0)\r\n--- End of stack trace from previous location ---\n\n#00 pc 000000000012abcd libil2cpp.so\nNs.B.Run () (at /p/B.cs:3)\n");
+            Assert.That(set.Traces, Is.EqualTo(new[]
+            {
+                "Ns.A.Throw () (at <h>:0)", "#00 pc 000000000012abcd libil2cpp.so", "Ns.B.Run () (at /p/B.cs:3)",
+            }));
+            Assert.That(set.Addresses, Is.EqualTo(new string[3]));
+            Assert.That(ManagedFrameAssembly.FromLogText(null).Traces, Is.Empty);
+            Assert.That(ManagedFrameAssembly.FromLogText("").Addresses, Is.Empty);
         }
 
         [Test]

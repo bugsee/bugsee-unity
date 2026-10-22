@@ -16,7 +16,7 @@ namespace Bugsee.WrapperPolicy
         void Relaunch(IDictionary<string, object> options, Action<bool> done);
         /// <summary>stop(Runnable): starts a stop, joins one in progress, or runs done at once when Stopped.</summary>
         void Stop(Action done);
-        void DeleteCollectedData(Action<bool> done);
+        void DeleteCollectedData(DeleteScope scope, Action<bool> done);
         void InstallHooks(IDictionary<string, object> options);
         void UninstallHooks();
         /// <summary>Call <see cref="AndroidLifecycleMachine.Tick"/> (on the machine's thread) after this delay.</summary>
@@ -80,6 +80,7 @@ namespace Bugsee.WrapperPolicy
             public Kind Kind;
             public string AppToken;
             public IDictionary<string, object> Options;
+            public DeleteScope Scope;
             public IDictionary<string, object> PreviousHookOptions;
             public readonly List<Action<bool>> Completions = new List<Action<bool>>();
             public int Token;
@@ -172,16 +173,21 @@ namespace Bugsee.WrapperPolicy
             Pump();
         }
 
-        public void DeleteCollectedData(Action<bool> completion = null)
+        public void DeleteCollectedData(Action<bool> completion = null) =>
+            DeleteCollectedData(DeleteScope.Everything, completion);
+
+        /// <summary>A Delete of the same scope as the queued one before it is that Delete; another scope is its own,
+        /// as sharing would delete more or less than the caller asked for.</summary>
+        public void DeleteCollectedData(DeleteScope scope, Action<bool> completion)
         {
             var tail = _queue.Last?.Value;
-            if (tail != null && tail.Kind == Kind.Delete)
+            if (tail != null && tail.Kind == Kind.Delete && tail.Scope == scope)
             {
                 Add(tail.Completions, completion);
                 return;
             }
 
-            var op = new Op { Kind = Kind.Delete };
+            var op = new Op { Kind = Kind.Delete, Scope = scope };
             Add(op.Completions, completion);
             _queue.AddLast(op);
             Pump();
@@ -342,7 +348,7 @@ namespace Bugsee.WrapperPolicy
             }
 
             var token = op.Token;
-            Call(op, () => _native.DeleteCollectedData(ok =>
+            Call(op, () => _native.DeleteCollectedData(op.Scope, ok =>
             {
                 if (_active == null || _active.Token != token) return;
                 if (!ok) _native.Warn("deleteCollectedDataOnDevice failed.");
