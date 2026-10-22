@@ -270,7 +270,7 @@ namespace Bugsee.Platform.IOS
                     var attributes = IosReport.ReadAttributes(json);
                     if (attributes == null)
                         Debug.LogWarning("[Bugsee] The report's attributes could not be read (malformed or nested too deep); the report handler sees none. Native keeps them unless the handler sets attributes or clears them all.");
-                    report = new IosReport(dto, attributes);
+                    report = new IosReport(dto, attributes, requestId);
 
                     if (handler == null)
                     {

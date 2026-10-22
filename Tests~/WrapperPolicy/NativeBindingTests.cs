@@ -92,7 +92,10 @@ namespace Bugsee.WrapperPolicy.Tests
 
         static string CsParamType(string p)
         {
-            p = Regex.Replace(p.Trim(), @"^(?:ref|out|in)\s+", "");
+            p = p.Trim();
+            // An `out IntPtr` is a pointer the native side fills in (the screenshot buffer): not a plain pointer.
+            if (Regex.IsMatch(p, @"^(?:ref|out)\s+IntPtr\s+\w+$")) return "IntPtr*";
+            p = Regex.Replace(p, @"^(?:ref|out|in)\s+", "");
             var m = Regex.Match(p, @"^(\S+)\s+\w+$");
             return m.Success ? m.Groups[1].Value : p;
         }
@@ -202,7 +205,9 @@ namespace Bugsee.WrapperPolicy.Tests
                 case "string": return new[] { "const char*" };
                 case "int[]": return new[] { "int*" };
                 case "float[]": return new[] { "float*" };
+                case "byte[]": return new[] { "const unsigned char*" };
                 case "IntPtr": return isReturn ? new[] { "char*" } : new[] { "char*", "void*" };
+                case "IntPtr*": return new[] { "unsigned char**" };
                 default: return null;
             }
         }
@@ -231,7 +236,7 @@ namespace Bugsee.WrapperPolicy.Tests
             return true;
         }
 
-        static string[] IosCsFiles() => new[] { "IOSBridge.cs", "IosNativeCallbacks.cs", "IosSpanHandle.cs" };
+        static string[] IosCsFiles() => new[] { "IOSBridge.cs", "IosNativeCallbacks.cs", "IosSpanHandle.cs", "IosReportScreenshots.cs" };
 
         static string IosCs(string file) => StripComments(File.ReadAllText(RepoFile("Runtime/Platform/IOS/" + file)));
 
