@@ -497,7 +497,7 @@ Decided in #103 against the Android 7.4.2 and iOS 7.0.0-beta7 public APIs:
 
 - `+[Bugsee logError:]` (iOS `NSError`): an `NSError` can only come from native code, which already calls the SDK directly; Unity code has `Bugsee.LogException`. Android has no counterpart.
 - `+[Bugsee showVideoCapturePreview]` / `hideVideoCapturePreview` (iOS): a developer diagnostic of the SDK's own capture, with no Android counterpart; it shows nothing about the Unity pipeline, which pushes its own frames.
-- The `requiresFiltering` overloads of `log` and `addNetworkEvent`: for `log` the wrapper keeps the SDK's default, which skips the log filter on both platforms (Android `Bugsee.Log` calls `Bugsee.log(message, LogLevel)`, iOS `_bugsee_log` calls `+log:level:`), and does not expose the opt-in; this matches #182. Network events from `Bugsee.AddNetworkEvent` already go through the wrapper channel with filtering on, so the network half needs nothing.
+- The `requiresFiltering` overload of `addNetworkEvent`. (The one of `log` is exposed as `Bugsee.Log(message, level, requiresFiltering)`, #190.) Network events from `Bugsee.AddNetworkEvent` already go through the wrapper channel with filtering on, so the network half needs nothing.
 
 ## Native dependencies
 
@@ -564,7 +564,7 @@ The script builds the xcframework as the beta release does (`scripts/build_new.s
 
 Breadcrumbs are off by default on both native SDKs (`CaptureBreadcrumbs`). While it is off, `Bugsee.AddBreadcrumb` records nothing and the breadcrumb filter is never called; launch with `CaptureBreadcrumbs = true` to use either. (The Android SDK's own Javadoc and `api-7.x.md` say the default is true; that is wrong.)
 
-`Bugsee.Log` uses the native log API, which skips the log filter by default. Both native SDKs have an overload that opts in (`requiresFiltering`); the wrapper does not expose it yet (#190). The log filter sees the captured logs: the Unity log the wrapper forwards, and logcat on Android (both need `CaptureLogs`).
+`Bugsee.Log(message, level)` uses the native log API, which skips the log filter by default. `Bugsee.Log(message, level, requiresFiltering: true)` opts in on both platforms (Android `Bugsee.log(message, level, boolean)`, iOS `+log:level:requiresFiltering:`): the line then goes through the filter set with `SetLogEventFilter`, which can edit or drop it (#190). The log filter sees the captured logs: the Unity log the wrapper forwards, and logcat on Android (both need `CaptureLogs`). `Bugsee.Log` lines themselves are recorded, and the opt-in ones filtered, even with `CaptureLogs` off. iOS also drops a `Bugsee.Log` line below `CaptureLogsLevel` before the filter runs (Android applies that level only to the logcat path), so an opt-in Debug line under a preset such as `minimal` (Error level) never reaches the filter on iOS. Android runs the filter during the `Log` call, iOS runs it asynchronously: a log filter must not call `Bugsee.Log(..., true)` itself, which would recurse on Android.
 
 ### Filters and the report handler while the Unity loop is paused
 
