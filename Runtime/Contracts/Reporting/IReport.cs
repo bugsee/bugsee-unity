@@ -56,11 +56,12 @@ namespace Bugsee.Contracts.Reporting
 
         /// <summary>Replaces the display's screenshot with <paramref name="png"/>, or removes it when null. Returns true
         /// when the report took the change; false (with a warning, never silently) when the data is not a PNG, is over
-        /// 32 MiB, cannot be decoded by the platform, or the report cannot hold screenshots. Marks
-        /// <see cref="IsScreenshotChanged"/>. The pixels you pass reach the backend with the report.</summary>
+        /// 32 MiB, cannot be decoded by the platform, or the report cannot hold screenshots. Replacing or removing an
+        /// existing screenshot sets <see cref="IsScreenshotChanged"/>. The pixels you pass reach the backend with the report.</summary>
         bool SetScreenshotPng(int displayId, byte[] png);
 
-        /// <summary>True once a screenshot was set or removed on this report (by this handler or an earlier edit).</summary>
+        /// <summary>True once a screenshot the report holds was replaced or removed (by this handler or an earlier edit).
+        /// Adding one to a report that had none does not count on Android.</summary>
         bool IsScreenshotChanged { get; }
     }
 }

@@ -102,12 +102,14 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void The_android_set_checks_the_gate_and_the_policy_and_removes_through_a_typed_null()
+        public void The_android_set_checks_the_gate_and_the_policy_and_removes_through_the_java_helper()
         {
             var src = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidReportScreenshots.cs"));
             Assert.That(src, Does.Contain("ReportScreenshotPolicy.RejectReason(png)"));
             Assert.That(src, Does.Contain("gate != null && !gate.IsOpen"));
-            Assert.That(src, Does.Contain("(ILandroid/graphics/Bitmap;)V"), "a null Bitmap is passed through a typed JNI call");
+            Assert.That(src, Does.Contain("setReportScreenshotPng"), "a null (remove) goes through the Java helper, JNI cannot name the Bitmap overload with null");
+            Assert.That(File.ReadAllText(RepoFile("Plugins/Android/UnityWrapperProvider.java")), Does.Contain("public static int setReportScreenshotPng(Report report, int displayId, byte[] png)")
+                .And.Contain("public static byte[] getReportScreenshotPng(Report report, final int displayId)"));
         }
 
         [Test]

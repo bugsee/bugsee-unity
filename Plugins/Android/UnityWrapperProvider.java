@@ -306,6 +306,49 @@ final class UnityWrapper implements BugseeWrapper {
         });
     }
 
+    /**
+     * The display's screenshot of a live report as PNG, or null when it has none or cannot be encoded. Blocks the
+     * caller until the SDK has enumerated (blockAndWait runs the callback before it returns). It does not use
+     * getScreenshot(int, Callback1): that posts its answer to the calling thread's looper or the main one, which
+     * a Unity script thread blocking for the reply cannot rely on.
+     */
+    public static byte[] getReportScreenshotPng(Report report, final int displayId) {
+        if (report == null) return null;
+        final byte[][] result = new byte[1][];
+        try {
+            report.enumerateScreenshots(new com.bugsee.library.contracts.common.Callback2<Integer, android.graphics.Bitmap>() {
+                @Override
+                public void run(Integer id, android.graphics.Bitmap bitmap) {
+                    if (id == null || id != displayId || bitmap == null || bitmap.isRecycled() || result[0] != null) return;
+                    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                    if (bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)) {
+                        result[0] = out.toByteArray();
+                    }
+                }
+            }, true);
+        } catch (Throwable t) {
+            Log.w("BugseeUnity", "Reading a report screenshot failed: " + t);
+        }
+        return result[0];
+    }
+
+    /**
+     * Stores the PNG as the display's screenshot of a live report; null or empty bytes remove it. Returns 1 when
+     * applied, 0 when the bytes are not an image Android can decode (nothing changes). Removing goes through here
+     * because JNI from C# cannot name the Bitmap overload with a null argument.
+     */
+    public static int setReportScreenshotPng(Report report, int displayId, byte[] png) {
+        if (report == null) return 0;
+        if (png == null || png.length == 0) {
+            report.setScreenshot(displayId, (android.graphics.Bitmap) null);
+            return 1;
+        }
+        android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(png, 0, png.length);
+        if (bitmap == null) return 0;
+        report.setScreenshot(displayId, bitmap);
+        return 1;
+    }
+
     public static void setSecureBuffer(int display, int[] packed) {
         if (packed == null || packed.length < 2) return;
         secureBuffers.put(display, packed.clone());
