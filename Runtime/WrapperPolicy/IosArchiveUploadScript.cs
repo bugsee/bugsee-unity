@@ -75,7 +75,19 @@ FP_PLIST=""""
 if [ -n ""${FP_PLIST_DIR}"" ] && [ -n ""${INFOPLIST_PATH}"" ] && [ -f ""${FP_PLIST_DIR}/${INFOPLIST_PATH}"" ]; then
   FP_PLIST=""${FP_PLIST_DIR}/${INFOPLIST_PATH}""
 fi
-FP_TOKEN=$(printf '%s' ""${BUGSEE_APP_TOKEN}"" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+# The locale stays as it is (a UTF-8 one makes sed trim a non-breaking space like C#'s Trim()); a token that is not valid
+# UTF-8 makes sed fail, which set -e must not turn into an aborted build: nothing is recorded then.
+FP_TOKEN=$(printf '%s' ""${BUGSEE_APP_TOKEN}"" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//') || FP_TOKEN=""""
+# sed trims every line, C# only the ends: a token with a line break inside would get another fingerprint than the one
+# Launch computes, so nothing is recorded for it.
+case ""${FP_TOKEN}"" in
+  *""
+""*) FP_TOKEN="""" ;;
+esac
+# Only the iOS runtime reads the key (tvOS exports get the phase too, but nothing there checks it).
+case ""${PLATFORM_NAME}"" in
+  appletv*) FP_TOKEN="""" ;;
+esac
 FP_VALUE=""""
 if [ -n ""${FP_PLIST}"" ] && [ -n ""${FP_TOKEN}"" ] && [ -z ""${BUGSEE_NO_TOKEN_CHECK+x}"" ] && [ -z ""${BUGSEE_NO_SYMBOL_UPLOAD+x}"" ] &&
    ! { [ ""${CONFIGURATION}"" = ""Debug"" ] && [ ""${BUGSEE_SKIP_UPLOAD_ON_DEBUG}"" = ""1"" ]; }; then
@@ -86,9 +98,10 @@ if [ -n ""${FP_PLIST}"" ] && [ -n ""${FP_TOKEN}"" ] && [ -z ""${BUGSEE_NO_TOKEN_
   esac
 fi
 if [ -n ""${FP_PLIST}"" ]; then
-  /usr/libexec/PlistBuddy -c ""Delete :${FP_KEY}"" ""${FP_PLIST}"" >/dev/null 2>&1 || true
+  # plutil keeps the plist's format (a binary one stays binary).
+  /usr/bin/plutil -remove ""${FP_KEY}"" ""${FP_PLIST}"" >/dev/null 2>&1 || true
   if [ -n ""${FP_VALUE}"" ]; then
-    if /usr/libexec/PlistBuddy -c ""Add :${FP_KEY} string ${FP_VALUE}"" ""${FP_PLIST}"" >/dev/null 2>&1; then
+    if /usr/bin/plutil -insert ""${FP_KEY}"" -string ""${FP_VALUE}"" ""${FP_PLIST}"" >/dev/null 2>&1; then
       echo ""Bugsee: recorded the build token fingerprint ${FP_VALUE} in the app's Info.plist (Bugsee.Launch warns when its token differs; BUGSEE_NO_TOKEN_CHECK turns it off).""
     else
       echo ""Bugsee: could not record the build token fingerprint in ${FP_PLIST}.""
