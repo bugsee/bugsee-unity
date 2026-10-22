@@ -69,6 +69,7 @@ namespace Bugsee.WrapperPolicy
             "(fingerprint " + recorded.Trim() + "), the token its symbols were uploaded for. If they name different apps, crashes of this " +
             "build go to the Launch token's app while the mappings and native symbols sit in the build token's app: they may not match, " +
             "and crashes stay unsymbolicated. Build with the token the app launches with, or set BUGSEE_NO_TOKEN_CHECK for the build " +
+            "(in the Unity Editor's environment on Android; in the Xcode environment or as a build setting on iOS) " +
             "when the token is chosen at runtime.";
     }
 }

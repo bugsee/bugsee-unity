@@ -27,6 +27,7 @@ void _bugsee_set_email(const char *email);
 char *_bugsee_get_email(void);
 void _bugsee_clear_email(void);
 float _bugsee_screen_scale(void);
+char *_bugsee_build_token_fingerprint(void);
 float _bugsee_pixels_per_point(int unityPixelWidth);
 void _bugsee_capture_view_hierarchy(void);
 int _bugsee_add_secure_web_view(void *view);
@@ -213,6 +214,9 @@ int main(void)
     _bugsee_free(_bugsee_get_email());
     _bugsee_clear_email();
     expect(1, "the email exports link and run");
+
+    // The build token fingerprint is the Info.plist key the Xcode Run Script writes; the test host's plist has none.
+    expect(_bugsee_build_token_fingerprint() == NULL, "no recorded build token fingerprint reads back as NULL");
 
     // Screen metrics follow UIKit; the unusable width falls back to the scale.
     expect(_bugsee_screen_scale() == (float)[UIScreen mainScreen].scale, "screen scale is UIScreen's scale");
