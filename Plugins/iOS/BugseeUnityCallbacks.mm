@@ -968,7 +968,7 @@ char *_bugsee_report_screenshot_ids(int64_t requestId)
 }
 
 // The display's screenshot as PNG. Returns its length with *outBytes set (malloc'd; free with _bugsee_free), 0 when
-// the display has none (or it cannot be encoded), -1 when the request is not a live report handler's. The SDK's
+// the display has none, -2 when it has one that cannot be encoded, -1 when the request is not a live report handler's. The SDK's
 // enumeration is asked to block, so the answer is complete when this returns; call it on the thread the handler runs on.
 int _bugsee_report_screenshot_png(int64_t requestId, int displayId, unsigned char **outBytes)
 {
@@ -981,7 +981,18 @@ int _bugsee_report_screenshot_png(int64_t requestId, int displayId, unsigned cha
     } blockAndWait:YES];
     if (!found) return 0;
     NSData *png = UIImagePNGRepresentation(found);
-    if (png.length == 0 || png.length > INT_MAX) return 0;
+    if (png.length == 0 && found.size.width > 0 && found.size.height > 0) {
+        // No CGImage behind it (a CIImage-backed image): draw it into a bitmap and encode that.
+        UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat preferredFormat];
+        format.scale = found.scale;
+        UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:found.size format:format];
+        UIImage *drawn = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+            [found drawInRect:CGRectMake(0, 0, found.size.width, found.size.height)];
+        }];
+        png = UIImagePNGRepresentation(drawn);
+    }
+    // -2: the display holds a screenshot that cannot be encoded (the caller must not treat it as absent).
+    if (png.length == 0 || png.length > INT_MAX) return -2;
     unsigned char *copy = (unsigned char *)malloc(png.length);
     if (!copy) return 0;
     memcpy(copy, png.bytes, png.length);

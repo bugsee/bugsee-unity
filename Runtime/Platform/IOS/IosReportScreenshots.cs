@@ -29,6 +29,12 @@ namespace Bugsee.Platform.IOS
         {
             if (requestId == 0) return null;
             var length = _bugsee_report_screenshot_png(requestId, displayId, out var bytes);
+            if (length == -2)
+            {
+                Debug.LogWarning("[Bugsee] GetScreenshotPng(" + displayId + ") returned null: the display holds a screenshot the system could not encode as PNG. "
+                                 + "It is still listed in ScreenshotDisplayIds; do not assume it is absent.");
+                return null;
+            }
             if (bytes == IntPtr.Zero) return null;
             try
             {

@@ -166,6 +166,7 @@ public override void OnBeforeReportCreated(IReport report, bool isTerminating, A
 - On iOS a screenshot edit reaches the native report immediately, so it stays even if the handler later throws or answers after the SDK's deadline; the other report edits travel in the handler's result and are dropped then. Android edits are live too, but stop at the end of the handler's turn.
 - `IsScreenshotChanged` becomes true when a screenshot the report holds is replaced or removed, on both platforms. Adding a screenshot to a display that held none does not set it (both SDKs count changes to an existing entry), so do not use it to detect your own first set.
 - **Privacy.** A screenshot is the screen as captured and can show personal data and content you marked secure; secure rectangles and blackout redact the capture, and nothing here re-checks a bitmap you read or replace. Do not log the bytes or send them anywhere the report does not go. A screenshot you set replaces the captured one in the report and its upload, with no redaction added for you. To send none at all use `CaptureScreenshot = false`.
+- The gate that ends the handler's turn is checked before each call, not locked across it: a call that races the end of the turn on another thread can still land (the attribute setters have the same window), which is why the calls belong on Unity's main thread inside the turn.
 - Sample scenario `screenshots` checks all of this on a device.
 
 ## Crash & exception capture

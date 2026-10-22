@@ -335,6 +335,8 @@ final class UnityWrapper implements BugseeWrapper {
         @Override
         public void run(Integer id, android.graphics.Bitmap bitmap) {
             if (id == null || id != displayId || bitmap == null || bitmap.isRecycled() || png != null) return;
+            // A decoded bitmap past the managed pixel limit (4 bytes a pixel) is not encoded and copied across JNI.
+            if (bitmap.getByteCount() > 4L * 32 * 1024 * 1024) return;
             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
             if (bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)) {
                 png = out.toByteArray();
