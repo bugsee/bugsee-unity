@@ -6,7 +6,20 @@ namespace Bugsee.WrapperPolicy.Tests
 {
     public class ReportScreenshotPolicyTests
     {
-        static readonly byte[] Png = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0 };
+        static readonly byte[] Png = Header(16, 16);
+
+        // Signature + an IHDR chunk header with the given size (the rest of a PNG is not read).
+        static byte[] Header(uint width, uint height)
+        {
+            var d = new byte[33];
+            new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, (byte)'I', (byte)'H', (byte)'D', (byte)'R' }.CopyTo(d, 0);
+            for (var i = 0; i < 4; i++)
+            {
+                d[16 + i] = (byte)(width >> (24 - 8 * i));
+                d[20 + i] = (byte)(height >> (24 - 8 * i));
+            }
+            return d;
+        }
 
         static string RepoFile(string relative)
         {
@@ -54,6 +67,32 @@ namespace Bugsee.WrapperPolicy.Tests
             var atLimit = new byte[ReportScreenshotPolicy.MaxPngBytes];
             Array.Copy(Png, atLimit, Png.Length);
             Assert.That(ReportScreenshotPolicy.RejectReason(atLimit), Is.Null);
+        }
+
+        [Test]
+        public void The_declared_size_is_read_from_the_ihdr_chunk()
+        {
+            Assert.That(ReportScreenshotPolicy.TryReadSize(Header(640, 480), out var w, out var h), Is.True);
+            Assert.That(new[] { w, h }, Is.EqualTo(new[] { 640, 480 }));
+            Assert.That(ReportScreenshotPolicy.TryReadSize(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0 }, out _, out _), Is.False, "no IHDR");
+            var notHeader = Header(1, 1);
+            notHeader[12] = (byte)'X';
+            Assert.That(ReportScreenshotPolicy.TryReadSize(notHeader, out _, out _), Is.False, "first chunk is not IHDR");
+            Assert.That(ReportScreenshotPolicy.TryReadSize(Header(uint.MaxValue, 1), out var big, out _), Is.True);
+            Assert.That(big, Is.EqualTo(int.MaxValue));
+        }
+
+        [Test]
+        public void A_png_that_declares_a_huge_or_empty_canvas_is_rejected_before_any_decode()
+        {
+            Assert.That(ReportScreenshotPolicy.RejectReason(Header(0, 10)), Does.Contain("zero"));
+            Assert.That(ReportScreenshotPolicy.RejectReason(Header(10, 0)), Does.Contain("zero"));
+            Assert.That(ReportScreenshotPolicy.RejectReason(Header(8193, 10)), Does.Contain("8193x10"));
+            Assert.That(ReportScreenshotPolicy.RejectReason(Header(10, 8193)), Does.Contain("limit"));
+            Assert.That(ReportScreenshotPolicy.RejectReason(Header(uint.MaxValue, uint.MaxValue)), Does.Contain("limit"));
+            Assert.That(ReportScreenshotPolicy.RejectReason(Header(8192, 8192)), Does.Contain("limit"), "67 MP over the total");
+            Assert.That(ReportScreenshotPolicy.RejectReason(Header(8192, 4096)), Is.Null, "exactly the pixel limit");
+            Assert.That(ReportScreenshotPolicy.RejectReason(Header(1170, 2532)), Is.Null, "a phone screen");
         }
 
         [Test]

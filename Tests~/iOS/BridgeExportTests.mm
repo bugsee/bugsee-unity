@@ -456,12 +456,14 @@ int main(void)
     expect(pngLength > 8 && png != NULL && png[0] == 0x89 && png[1] == 'P' && png[2] == 'N' && png[3] == 'G', "screenshot png: a live report's screenshot reads as PNG");
     expect(_bugsee_report_screenshot_png(live, 7, &none) == 0 && none == NULL, "screenshot png: a display without one reads as empty");
     expect(_bugsee_report_set_screenshot(live, 1, png, pngLength) == 1, "set screenshot: a PNG is applied to another display");
+    expect(_bugsee_report_screenshot_changed(live) == 0, "screenshot changed: still false after adding a screenshot to an empty display");
     const unsigned char junk[] = { 1, 2, 3 };
     expect(_bugsee_report_set_screenshot(live, 2, junk, 3) == 0, "set screenshot: bytes that are not an image change nothing");
     ids = _bugsee_report_screenshot_ids(live);
     expect(ids != NULL && strcmp(ids, "[0,1]") == 0, "screenshot ids: the replacement is listed, the refused one is not");
     _bugsee_free(ids);
-    expect(_bugsee_report_screenshot_changed(live) == 1, "screenshot changed: true after an edit");
+    expect(_bugsee_report_set_screenshot(live, 1, png, pngLength) == 1, "set screenshot: a PNG replaces the one on display 1");
+    expect(_bugsee_report_screenshot_changed(live) == 1, "screenshot changed: true after replacing a held screenshot");
     expect(_bugsee_report_set_screenshot(live, 0, NULL, 0) == 1, "set screenshot: NULL removes the display's screenshot");
     ids = _bugsee_report_screenshot_ids(live);
     expect(ids != NULL && strcmp(ids, "[1]") == 0, "screenshot ids: the removed display is gone");

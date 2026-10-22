@@ -1255,8 +1255,9 @@ const char *_bugsee_test_apply_breadcrumb_fields(const char *category, const cha
 - (void)setScreenshot:(UIImage *)screenshot displayId:(NSInteger)displayId
 {
     if (!self.screenshots) self.screenshots = [NSMutableDictionary dictionary];
+    // Like both SDKs: a change counts only when the display already held a screenshot.
+    if (self.screenshots[@(displayId)]) self.screenshotChanged = YES;
     if (screenshot) self.screenshots[@(displayId)] = screenshot; else [self.screenshots removeObjectForKey:@(displayId)];
-    self.screenshotChanged = YES;
 }
 - (BOOL)isScreenshotChanged { return self.screenshotChanged; }
 @end

@@ -61,7 +61,7 @@ namespace Bugsee.Contracts.Reporting
         bool SetScreenshotPng(int displayId, byte[] png);
 
         /// <summary>True once a screenshot the report holds was replaced or removed (by this handler or an earlier edit).
-        /// Adding one to a report that had none does not count on Android.</summary>
+        /// Adding one to a display that held none does not count (both platforms).</summary>
         bool IsScreenshotChanged { get; }
     }
 }

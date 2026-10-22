@@ -19,6 +19,7 @@ namespace Bugsee.Sample
         const int Side = 16;
         static int _failures;
         static bool _handlerRan;
+        static bool _probeRan;
 
         public static IEnumerator Run(MonoBehaviour host, string marker)
         {
@@ -55,6 +56,20 @@ namespace Bugsee.Sample
                 yield return new WaitForSeconds(0.5f);
             }
             Check("the report handler ran", _handlerRan, "waited=" + waited.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+
+            // A handled exception report: read-only look at what the SDK itself captured (nothing here is set by the wrapper).
+            _probeRan = false;
+            Bugsee.SetReportHandler(new CaptureProbe());
+            yield return new WaitForSeconds(1f);
+            try { throw new InvalidOperationException("screenshots e2e capture probe " + marker); }
+            catch (Exception ex) { Bugsee.LogException(ex); }
+            waited = 0f;
+            while (!_probeRan && waited < 45f)
+            {
+                waited += 0.5f;
+                yield return new WaitForSeconds(0.5f);
+            }
+            Debug.Log("[Sample] screenshots capture-probe ran=" + _probeRan);
             Bugsee.SetReportHandler(null);
             Debug.Log("[Sample] screenshots e2e done failures=" + _failures);
         }
@@ -91,6 +106,28 @@ namespace Bugsee.Sample
         {
             if (!ok) _failures++;
             Debug.Log("[Sample] screenshots " + (ok ? "PASS " : "FAIL ") + name + " :: " + detail);
+        }
+
+        sealed class CaptureProbe : ReportHandlerBase
+        {
+            public override void OnBeforeReportCreated(IReport report, bool isTerminating, Action completionCallback)
+            {
+                try
+                {
+                    var ids = report.ScreenshotDisplayIds;
+                    Debug.Log("[Sample] screenshots capture-probe type=" + report.Type + " ids=" + Join(ids));
+                    foreach (var id in ids)
+                    {
+                        var png = report.GetScreenshotPng(id);
+                        Check("an SDK-captured screenshot (display " + id + ") reads as a PNG", HasPngSignature(png),
+                            "bytes=" + (png == null ? "null" : png.Length.ToString()) + " size=" + Dimensions(png));
+                    }
+                    Check("reading the SDK capture leaves the report unchanged", !report.IsScreenshotChanged, "");
+                }
+                catch (Exception ex) { Check("capture probe ran without an exception", false, ex.GetType().Name + ": " + ex.Message); }
+                _probeRan = true;
+                completionCallback?.Invoke();
+            }
         }
 
         sealed class Probe : ReportHandlerBase

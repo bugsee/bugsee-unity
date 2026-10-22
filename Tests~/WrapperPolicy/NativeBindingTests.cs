@@ -92,7 +92,10 @@ namespace Bugsee.WrapperPolicy.Tests
 
         static string CsParamType(string p)
         {
-            p = Regex.Replace(p.Trim(), @"^(?:ref|out|in)\s+", "");
+            p = p.Trim();
+            // An `out IntPtr` is a pointer the native side fills in (the screenshot buffer): not a plain pointer.
+            if (Regex.IsMatch(p, @"^(?:ref|out)\s+IntPtr\s+\w+$")) return "IntPtr*";
+            p = Regex.Replace(p, @"^(?:ref|out|in)\s+", "");
             var m = Regex.Match(p, @"^(\S+)\s+\w+$");
             return m.Success ? m.Groups[1].Value : p;
         }
@@ -203,8 +206,8 @@ namespace Bugsee.WrapperPolicy.Tests
                 case "int[]": return new[] { "int*" };
                 case "float[]": return new[] { "float*" };
                 case "byte[]": return new[] { "const unsigned char*" };
-                // An `out IntPtr` is a pointer the native side fills in (the screenshot buffer).
-                case "IntPtr": return isReturn ? new[] { "char*" } : new[] { "char*", "void*", "unsigned char**" };
+                case "IntPtr": return isReturn ? new[] { "char*" } : new[] { "char*", "void*" };
+                case "IntPtr*": return new[] { "unsigned char**" };
                 default: return null;
             }
         }

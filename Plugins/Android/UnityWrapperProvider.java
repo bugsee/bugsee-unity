@@ -339,6 +339,7 @@ final class UnityWrapper implements BugseeWrapper {
             if (bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)) {
                 png = out.toByteArray();
             }
+            // Not recycled: whether the SDK hands out a private copy here is its business, not verified for 7.4.2.
         }
     }
 
@@ -349,14 +350,24 @@ final class UnityWrapper implements BugseeWrapper {
      */
     public static int setReportScreenshotPng(Report report, int displayId, byte[] png) {
         if (report == null) return 0;
-        if (png == null || png.length == 0) {
-            report.setScreenshot(displayId, (android.graphics.Bitmap) null);
+        android.graphics.Bitmap bitmap = null;
+        try {
+            if (png == null || png.length == 0) {
+                report.setScreenshot(displayId, (android.graphics.Bitmap) null);
+                return 1;
+            }
+            bitmap = android.graphics.BitmapFactory.decodeByteArray(png, 0, png.length);
+            if (bitmap == null) return 0;
+            report.setScreenshot(displayId, bitmap);
             return 1;
+        } catch (Throwable t) {
+            // An OutOfMemoryError from a decode, or anything the SDK throws, must not cross JNI into the Unity thread.
+            Log.w("BugseeUnity", "Setting a report screenshot failed: " + t);
+            return 0;
+        } finally {
+            // setScreenshot writes the bitmap to its own file before it returns; the decoded copy is not needed.
+            if (bitmap != null) bitmap.recycle();
         }
-        android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(png, 0, png.length);
-        if (bitmap == null) return 0;
-        report.setScreenshot(displayId, bitmap);
-        return 1;
     }
 
     public static void setSecureBuffer(int display, int[] packed) {
