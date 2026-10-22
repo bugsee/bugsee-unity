@@ -13,6 +13,7 @@
 
 extern "C" {
 typedef void (*BugseeManagedReportCreateCallback)(int succeeded, uint64_t uploadToken);
+typedef void (*BugseeUnityFilterCb)(int64_t requestId, int kind, const char *json);
 
 int _bugsee_get_status(void);
 void _bugsee_log(const char *message, int level);
@@ -52,7 +53,7 @@ void _bugsee_set_breadcrumb_filter_enabled(int enabled);
 void _bugsee_complete_filter(int64_t requestId, int keep, const char *resultJson);
 void _bugsee_complete_report(int64_t requestId, const char *resultJson);
 void _bugsee_complete_data_request(int64_t requestId, const char *json);
-void _bugsee_register_unity_callbacks(void (*filterCb)(int64_t, int, const char *), void *reportCb, void *lifecycleCb);
+void _bugsee_register_unity_callbacks(BugseeUnityFilterCb filterCb, void *reportCb, void *lifecycleCb);
 
 // Test hooks (compiled into the bridge only under BUGSEE_UNITY_TESTS).
 void *_bugsee_test_wrapper(void);
