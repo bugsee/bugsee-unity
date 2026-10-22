@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.nio.charset.StandardCharsets;
@@ -52,6 +53,50 @@ public class AndroidWrapperTests {
         assertTrue(manifest.contains("com.bugsee.unity.UnityWrapperProvider"));
         assertTrue(manifest.contains("android:directBootAware=\"true\""));
         assertTrue(manifest.contains("android:initOrder=\"200\""));
+    }
+
+    private static final String STUBS = "com.bugsee.unity.ExtensionStubs";
+
+    @Test
+    public void registerExtensionCallsThePresentFacadeEachTime() {
+        ExtensionStubs.calls = 0;
+        assertTrue(UnityWrapperProvider.registerExtension(STUBS, "register"));
+        assertTrue(UnityWrapperProvider.registerExtension(STUBS, "register"));
+        assertEquals(2, ExtensionStubs.calls); // idempotence is the SDK's: the helper adds no state of its own
+    }
+
+    @Test
+    public void registerExtensionIsANoOpForAnAbsentFacadeOrMethodAndSwallowsAThrowingOne() {
+        assertFalse(UnityWrapperProvider.registerExtension("com.bugsee.library.NoSuchExtension", "register"));
+        assertFalse(UnityWrapperProvider.registerExtension(STUBS, "noSuchMethod"));
+        assertFalse(UnityWrapperProvider.registerExtension(STUBS, "explode"));
+    }
+
+    @Test
+    public void providerRegistersEveryExtensionBeforeLaunch() {
+        com.bugsee.library.BugseeNdk.calls = 0;
+        com.bugsee.library.BugseeFeedback.calls = 0;
+        com.bugsee.library.BugseeLeak.calls = 0;
+        com.bugsee.library.BugseeRemoting.calls = 0;
+        try {
+            new UnityWrapperProvider().onExtensionCreate();
+        } catch (Throwable expectedOnTheJvm) {
+            // UnityWrapper.install() needs the SDK's Android runtime, which the JVM lacks; it runs after the registrations.
+        }
+        assertEquals(1, com.bugsee.library.BugseeNdk.calls);
+        assertEquals(1, com.bugsee.library.BugseeFeedback.calls);
+        assertEquals(1, com.bugsee.library.BugseeLeak.calls);
+        assertEquals(1, com.bugsee.library.BugseeRemoting.calls);
+    }
+
+    @Test
+    public void everyRegisteredFacadeHasAKeepRule() throws Exception {
+        String rules = new String(
+                Files.readAllBytes(repoFile("Plugins/Android/bugsee-unity-wrapper.proguard")),
+                StandardCharsets.UTF_8);
+        for (String[] extension : UnityWrapperProvider.EXTENSIONS) {
+            assertTrue(extension[0], rules.contains("-keep class " + extension[0] + " { public static void " + extension[1] + "(); }"));
+        }
     }
 
     @Test

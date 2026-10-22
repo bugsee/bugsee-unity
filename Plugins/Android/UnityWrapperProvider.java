@@ -21,8 +21,42 @@ import java.util.concurrent.Executor;
 public final class UnityWrapperProvider extends BugseeExtensionInitProviderBase {
     @Override
     protected boolean onExtensionCreate() {
+        registerExtensions();
         UnityWrapper.install();
         return false;
+    }
+
+    // The extensions the Bugsee Gradle plugin may consolidate (its ExtensionSpec.KNOWN) and that a Unity app can carry:
+    // each AAR's own init provider is stripped from the merged manifest and the plugin is meant to register it from
+    // BugseeInitProvider#initializeExtensions(). Seen with plugin 4.0.8 on Unity 6000.0.84f1 / AGP 9.0.0: the providers
+    // were gone and that method was empty, so nothing registered (#226). Registering here runs before
+    // Application.onCreate and Bugsee.Launch, is idempotent (a no-op when the AAR's provider already registered) and
+    // costs nothing without the plugin. Registration also contributes the extension's launch options (NDK, Leak), which
+    // the SDK drops when the extension is not registered at Launch. Reflective: an AAR the app does not carry is skipped.
+    static final String[][] EXTENSIONS = {
+        { "com.bugsee.library.BugseeNdk", "registerNdkExtension" },
+        { "com.bugsee.library.BugseeFeedback", "registerFeedbackExtension" },
+        { "com.bugsee.library.BugseeLeak", "registerLeakExtension" },
+        { "com.bugsee.library.BugseeRemoting", "registerRemotingExtension" },
+    };
+
+    static void registerExtensions() {
+        for (String[] extension : EXTENSIONS) registerExtension(extension[0], extension[1]);
+    }
+
+    /** Calls {@code facade.method()}; true when it ran, false when the facade is absent or the call failed (logged). */
+    static boolean registerExtension(String facade, String method) {
+        try {
+            Class.forName(facade).getMethod(method).invoke(null);
+            return true;
+        } catch (ClassNotFoundException e) {
+            // Expected for Leak and Remoting (not shipped by the wrapper); for NDK it would mean native crash capture is off.
+            Log.i("BugseeUnity", "Extension facade not present, not registered: " + facade);
+            return false;
+        } catch (Throwable t) {
+            Log.w("BugseeUnity", "Could not register " + facade + "." + method + "()", t);
+            return false;
+        }
     }
 }
 

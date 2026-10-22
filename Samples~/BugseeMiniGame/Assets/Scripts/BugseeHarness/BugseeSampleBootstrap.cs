@@ -698,15 +698,6 @@ namespace Bugsee.Sample
 #else
                 var ok = System.Linq.Enumerable.Contains(OptionPlatformGate.IosOnly, key) ? !has : sent == "-" || string.Equals(sent, got, StringComparison.OrdinalIgnoreCase);
 #endif
-#if UNITY_ANDROID && UNITY_6000_0_OR_NEWER
-                // Only the Unity 6 build (Gradle plugin) is the #226 case where the NDK extension is not registered; on older Unity the
-                // extension registers itself, so an absent NDK key there is a mismatch.
-                if (!ok && !has && (key == Options.DetectAndReportCrashNdk || key == Options.CrashNdkIncludeTombstoneLogs))
-                {
-                    Debug.Log("[OPTIONS] " + key + " sent=" + sent + " native=absent ndk-extension-not-registered (#226)");
-                    continue;
-                }
-#endif
                 if (!ok) mismatches++;
                 Debug.Log("[OPTIONS] " + key + " sent=" + sent + " native=" + got + (ok ? " ok" : " MISMATCH"));
             }
