@@ -50,7 +50,9 @@ public final class UnityWrapperProvider extends BugseeExtensionInitProviderBase 
             Class.forName(facade).getMethod(method).invoke(null);
             return true;
         } catch (ClassNotFoundException e) {
-            return false; // the AAR is not in the app
+            // Expected for Leak and Remoting (not shipped by the wrapper); for NDK it would mean native crash capture is off.
+            Log.i("BugseeUnity", "Extension facade not present, not registered: " + facade);
+            return false;
         } catch (Throwable t) {
             Log.w("BugseeUnity", "Could not register " + facade + "." + method + "()", t);
             return false;
