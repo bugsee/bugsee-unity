@@ -85,8 +85,9 @@ namespace Bugsee
         /// Relaunch the SDK with new options. The options REPLACE the whole option set (native SDKs do not merge): every
         /// native option, the endpoint, <c>CaptureManagedExceptions</c> and <c>CaptureUnobservedTaskExceptions</c> not passed
         /// again goes back to its default, and a call without options resets every option to its default (handlers, filters and
-        /// the lifecycle listener are kept). <c>TreatUnityLogExceptionsAsFatal</c> is only read when the managed exception hooks are installed, so a Relaunch that keeps them does not change it. Pass the full
-        /// option set you launched with. Does not wait for the SDK, and waits for a stop in flight like
+        /// the lifecycle listener are kept). <c>TreatUnityLogExceptionsAsFatal</c> is only read when the managed exception
+        /// hooks are installed, so a Relaunch that keeps them does not change it. Pass the full option set you launched
+        /// with. Does not wait for the SDK, and waits for a stop in flight like
         /// <see cref="Launch"/> (the same 5 s main-thread hand-off applies on iOS). Android ignores it with a
         /// warning unless the SDK is Launched. See <see cref="RelaunchAsync"/> for the result.
         /// </summary>
@@ -303,8 +304,7 @@ namespace Bugsee
         /// platforms. The SDK's internal keys (a double-dollar-sign name, bare or after the <c>com.bugsee.option.</c> prefix,
         /// such as the endpoint) are left out. The Unity-only <c>unity.*</c> options are not reported on Android and can be
         /// echoed on iOS, so this cannot rebuild the full set for a <see cref="Relaunch"/>: pass the set you launched with.
-        /// A value with no such form, such as a
-        /// Java array, reads as its text.
+        /// A value with no such form, such as a Java array, reads as its text.
         /// </summary>
         public static IReadOnlyDictionary<string, object> GetLaunchOptions()
         {
