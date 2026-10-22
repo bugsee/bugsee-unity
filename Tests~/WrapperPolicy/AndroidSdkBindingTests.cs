@@ -91,7 +91,7 @@ namespace Bugsee.WrapperPolicy.Tests
             public string Ret; // erased; null for a constructor
             public string[] Params; // erased
             public bool VarArgs;
-            public bool Public = true; // snapshot members are public or protected (no distinction made); a Java source member: its `public` modifier
+            public bool Public = true; // false for a protected snapshot member; a Java source member: its `public` modifier
             public bool Override; // a Java source method marked @Override
 
             public override string ToString() =>
@@ -198,6 +198,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 {
                     Name = name,
                     Static = Regex.IsMatch(head, @"\bstatic\b"),
+                    Public = !Regex.IsMatch(head, @"\bprotected\b"),
                     Abstract = Regex.IsMatch(head, @"\babstract\b"),
                     Ret = ret.Length == 0 ? null : Erase(ret),
                     Params = args.Select(a => Erase(a.Replace("...", ""))).ToArray(),

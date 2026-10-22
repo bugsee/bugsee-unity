@@ -675,7 +675,7 @@ namespace Bugsee.WrapperPolicy.Tests
             // A cast types the expression only when it covers all of it: `(int)x + 1` is not a plain int.
             var cast = Regex.Match(expr, @"^\((\w+(?:\[\])?)\)\s*[\w(]");
             if (cast.Success)
-                return new[] { " + ", " - ", " * ", " / ", " % ", " & ", " | ", " ^ ", " << ", " >> " }.Any(op => TopLevel(expr, op) >= 0)
+                return new[] { "+", " - ", "*", "/", "%", " & ", " | ", " ^ ", "<<", ">>" }.Any(op => TopLevel(expr, op) >= 0)
                     ? null : FromCsType(cast.Groups[1].Value);
             if (Regex.IsMatch(expr, @"\.ToString\(\)$")) return Str;
             if (expr.StartsWith("(") && expr.EndsWith(")") && TopLevel(expr.Substring(1, expr.Length - 2), ",") < 0 && !Regex.IsMatch(expr, @"^\(\w+\)"))
@@ -1004,7 +1004,6 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             var env = BindingEnv();
             var failures = new List<string>();
-            var literal = 0;
             foreach (var path in env.Sources.Keys)
             {
                 var site = SiteOf(path);
@@ -1013,6 +1012,12 @@ namespace Bugsee.WrapperPolicy.Tests
                 {
                     var cls = ClassOfReceiver(site, m.Groups[1].Value, m.Index);
                     if (cls == null || !cls.StartsWith("com.bugsee.library.")) continue; // UnityPlayer.currentActivity & co: Unity's
+                    if (!env.Manifest.TryGetValue(cls, out var fieldOwner))
+                    {
+                        failures.Add(file + ": " + cls + " is not in the snapshot");
+                        continue;
+                    }
+
                     var name = Resolve(m.Groups[3].Value, site.Src);
                     if (name == null)
                     {
@@ -1021,15 +1026,14 @@ namespace Bugsee.WrapperPolicy.Tests
                         continue;
                     }
 
-                    literal++;
-                    if (!env.Manifest[cls].Fields.TryGetValue(name, out var field) || !field.isStatic
+                    if (!fieldOwner.Fields.TryGetValue(name, out var field) || !field.isStatic
                         || (m.Groups[2].Value == "AndroidJavaObject" && !IsReference(field.type))
                         || (m.Groups[2].Value == "int" && field.type != "int"))
                         failures.Add(file + ": " + cls + "." + name + " is not a static field of the type read");
                 }
             }
 
-            // No SDK GetStatic uses a literal name today (`literal` is 0): the mutation proof edits one in, so the branch is live.
+            // No SDK GetStatic uses a literal name today: the literal branch is exercised by the mutation proof only (PR #239), not by a unit test.
             Assert.That(failures, Is.Empty);
         }
 
