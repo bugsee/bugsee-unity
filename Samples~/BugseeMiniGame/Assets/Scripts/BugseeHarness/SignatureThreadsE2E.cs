@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Threading;
 using Bugsee.Internal;
+using Bugsee.WrapperPolicy;
 using UnityEngine;
 
 namespace Bugsee.Sample
@@ -15,8 +16,8 @@ namespace Bugsee.Sample
     ///   [SIGTHREADS] PASS|FAIL|INCONCLUSIVE (SKIP off Android): SDK signatures equal and the control differs
     /// "control" is a plain java.lang.Exception carrying the same JSON, built where UnityManagedException is: it shows the Java
     /// stack the SDK would have hashed had the wrapper's throwable captured one (it differs per thread). "client" is the payload
-    /// signature of each thread's own exception: Mono's StackTrace of a caught exception runs on to the thread's root, so it
-    /// still differs between the threads (issue #217); it is logged for information, not judged. Both reports are really sent with
+    /// signature of each thread's own exception (issue #217: the recipe cuts the caller chain Mono's StackTrace of a caught exception
+    /// carries on to the thread's root, so it must be equal between the threads). The verdict also requires clientEqual. Both reports are really sent with
     /// Bugsee.LogException, each from its own thread.
     /// </summary>
     public static class SignatureThreadsE2E
@@ -54,12 +55,12 @@ namespace Bugsee.Sample
             var real = worker != null && IsHash(main.Sdk) && IsHash(worker.Sdk) && IsHash(main.Control) && IsHash(worker.Control);
             var controlDiffers = real && main.Control != worker.Control;
             // Equal SDK signatures with equal controls: the probe could not have told, so neither PASS nor FAIL.
-            var verdict = !real || (sdkEqual && !controlDiffers) ? "INCONCLUSIVE" : (sdkEqual ? "PASS" : "FAIL");
+            var verdict = !real || (sdkEqual && !controlDiffers) ? "INCONCLUSIVE" : (sdkEqual && clientEqual ? "PASS" : "FAIL");
 #else
             var verdict = "SKIP";
 #endif
             Debug.Log("[SIGTHREADS] " + verdict
-                + ": sdkEqual=" + sdkEqual + " clientEqual(info)=" + clientEqual
+                + ": sdkEqual=" + sdkEqual + " clientEqual=" + clientEqual
                 + " controlEqual=" + (worker != null && main.Control == worker.Control)
                 + " mainSdk=" + main.Sdk + " workerSdk=" + (worker == null ? "-" : worker.Sdk));
             // Observe() made the real reports from both threads already.
@@ -87,6 +88,23 @@ namespace Bugsee.Sample
             {
                 var payload = ManagedExceptionPayload.FromException(ex);
                 result.Client = payload != null ? payload.signature : "";
+                if (payload != null && payload.frames != null)
+                {
+                    // Prove the caller-tail trim ran: frames of the payload, how many the signature keeps, and the user frames among those.
+                    var traces = new string[payload.frames.Length];
+                    for (var i = 0; i < traces.Length; i++) traces[i] = payload.frames[i].trace;
+                    var live = new System.Diagnostics.StackTrace(false).ToString();
+                    var kept = ManagedSignatureRecipe.TrimCallerTail(traces, live);
+                    Debug.Log("[SIGTHREADS] " + thread + " frames=" + traces.Length + " kept=" + kept
+                        + " userBefore=" + ManagedSignatureRecipe.CountUserFrames(traces, traces.Length)
+                        + " userAfter=" + ManagedSignatureRecipe.CountUserFrames(traces, kept));
+                    // One log line per frame (logcat cuts long lines): the captured text is used as unit-test fixtures.
+                    for (var i = 0; i < traces.Length; i++) Debug.Log("[SIGTHREADS-TRACE] " + thread + " " + i + " " + traces[i]);
+                    var liveLines = live.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = 0; i < liveLines.Length; i++) Debug.Log("[SIGTHREADS-LIVE] " + thread + " " + i + " " + liveLines[i].Trim());
+                    for (var i = 0; i < payload.frames.Length; i++)
+                        if (!string.IsNullOrEmpty(payload.frames[i].address)) Debug.Log("[SIGTHREADS-ADDR] " + thread + " " + i + " " + payload.frames[i].address);
+                }
 #if UNITY_ANDROID && !UNITY_EDITOR
                 try
                 {
