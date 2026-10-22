@@ -39,7 +39,7 @@ for ARTIFACT in "${ANDROID_MAVEN_ARTIFACT}" "${ANDROID_FEEDBACK_ARTIFACT}"; do
   unzip -q -o "${AAR}" classes.jar -d "${WORK}/${ARTIFACT}"
   JAR="${WORK}/${ARTIFACT}/classes.jar"
   # Named classes only (anonymous and synthetic ones end in $<digits>); sorted so a regeneration diffs cleanly.
-  CLASSES=$(unzip -Z1 "${JAR}" | grep -E '^com/bugsee/library/(Bugsee(\$.*)?|contracts/.*)\.class$' | grep -Ev '\$[0-9]+\.class$' \
+  CLASSES=$(unzip -Z1 "${JAR}" | grep -E '^com/bugsee/library/(Bugsee(\$.*)?|BugseeFeedback(\$.*)?|contracts/.*)\.class$' | grep -Ev '\$[0-9]+\.class$' \
     | sed -e 's#\.class$##' -e 's#/#.#g' | LC_ALL=C sort)
   # shellcheck disable=SC2086
   javap -public -cp "${JAR}" ${CLASSES} | grep -v '^Compiled from' >> "${NEW}"

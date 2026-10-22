@@ -28,7 +28,11 @@ float _bugsee_pixels_per_point(int unityPixelWidth);
 void _bugsee_capture_view_hierarchy(void);
 int _bugsee_add_secure_web_view(void *view);
 int _bugsee_remove_secure_web_view(void *view);
+int _bugsee_feedback_available(void);
 void _bugsee_feedback_show(void);
+typedef void (*BugseeFeedbackReceivedFn)(const char *messagesJson);
+typedef void (*BugseeFeedbackSentFn)(const char *message);
+void _bugsee_feedback_set_listener(BugseeFeedbackReceivedFn received, BugseeFeedbackSentFn sent);
 void _bugsee_feedback_set_greeting(const char *message);
 void _bugsee_free(char *ptr);
 void _bugsee_invalidate_managed_report_uploads(void);
@@ -122,8 +126,8 @@ int main(void)
     _bugsee_invalidate_managed_report_uploads();
 
     // Logging and telemetry with no running SDK, including the NULL and non-object payloads C# can send (smoke only: the
-    // calls have no observable effect before a launch). _bugsee_feedback_show / _set_greeting only log today (the Feedback
-    // module is not in the core 7.x package); revisit them if a future SDK ships Feedback.
+    // calls have no observable effect before a launch). The Feedback add-on is not linked into this test, so the feedback
+    // exports find nothing to call: available is 0 and show / greeting / listener are safe no-ops.
     _bugsee_log("hello", 3);
     _bugsee_log(NULL, 3);
     _bugsee_trace("t", "1");
@@ -137,6 +141,8 @@ int main(void)
     _bugsee_feedback_show();
     _bugsee_feedback_set_greeting("hi");
     _bugsee_feedback_set_greeting(NULL);
+    expect(_bugsee_feedback_available() == 0, "Feedback is not available without the BugseeFeedback package");
+    _bugsee_feedback_set_listener(NULL, NULL);
     expect(_bugsee_get_status() == 0, "logging and telemetry do not start the SDK");
 
     // WebView secure views: a NULL pointer and a live object that is not a WKWebView are refused; a real WKWebView is accepted
