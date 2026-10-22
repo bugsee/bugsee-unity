@@ -13,7 +13,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
         // A minimal ELF with the given sections: build-id note, and optionally .symtab / .debug_info (type 1 or NOBITS 8).
         static byte[] Elf(bool is64 = true, bool le = true, string buildId = Id, bool symtab = false, bool debug = false, int debugType = 1,
-            bool sectionHeaders = true, int[] symtabKinds = null, bool programHeaders = true)
+            bool sectionHeaders = true, int[] symtabKinds = null, bool programHeaders = true, bool unnamedSymbols = false)
         {
             var sections = new List<(string name, int type, byte[] data)>();
             if (buildId != null)
@@ -25,7 +25,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 sections.Add((".note.gnu.build-id", 7, note.ToArray()));
             }
 
-            if (symtab) sections.Add((".symtab", 2, Symtab(is64, le, symtabKinds)));
+            if (symtab) sections.Add((".symtab", 2, Symtab(is64, le, symtabKinds, !unnamedSymbols)));
             if (debug) sections.Add((".debug_info", debugType, new byte[16]));
 
             var names = new MemoryStream();
@@ -94,12 +94,16 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         // One symbol per kind (STT_*), after the null symbol.
-        static byte[] Symtab(bool is64, bool le, int[] kinds)
+        static byte[] Symtab(bool is64, bool le, int[] kinds, bool named = true)
         {
             kinds = kinds ?? new[] { 2, 1 };
             int entry = is64 ? 24 : 16;
             var b = new byte[entry * (kinds.Length + 1)];
-            for (int i = 0; i < kinds.Length; i++) b[(i + 1) * entry + (is64 ? 4 : 12)] = (byte)kinds[i];
+            for (int i = 0; i < kinds.Length; i++)
+            {
+                b[(i + 1) * entry + (is64 ? 4 : 12)] = (byte)kinds[i];
+                if (named) Put(b, (i + 1) * entry, i + 1, 4, le); // st_name
+            }
             return b;
         }
 
@@ -344,6 +348,25 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(Inspect(Elf(symtab: true, symtabKinds: new[] { 4, 3, 3, 3, 3 })).CarriesSymbols, Is.False);
             Assert.That(Inspect(Elf(symtab: true, symtabKinds: new[] { 4, 3, 2 })).CarriesSymbols, Is.True);
             Assert.That(Inspect(Elf(false, false, symtab: true, symtabKinds: new[] { 3, 1 })).CarriesSymbols, Is.True);
+        }
+
+        [Test]
+        public void A_function_symbol_without_a_name_is_not_a_named_symbol()
+        {
+            var bytes = Elf(symtab: true, symtabKinds: new[] { 2, 1 }, unnamedSymbols: true);
+
+            Assert.That(Inspect(bytes).CarriesSymbols, Is.False);
+        }
+
+        [Test]
+        public void A_large_symbol_table_is_scanned_through_to_its_last_entry()
+        {
+            // 300000 section symbols and one named function at the end: past any single read chunk.
+            var kinds = Enumerable.Repeat(3, 300000).Concat(new[] { 2 }).ToArray();
+            var none = Enumerable.Repeat(3, 300001).ToArray();
+
+            Assert.That(Inspect(Elf(symtab: true, symtabKinds: kinds)).CarriesSymbols, Is.True);
+            Assert.That(Inspect(Elf(symtab: true, symtabKinds: none)).CarriesSymbols, Is.False);
         }
 
         [Test]
