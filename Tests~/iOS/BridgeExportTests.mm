@@ -16,7 +16,7 @@ typedef void (*BugseeManagedReportCreateCallback)(int succeeded, uint64_t upload
 typedef void (*BugseeUnityFilterCb)(int64_t requestId, int kind, const char *json);
 
 int _bugsee_get_status(void);
-void _bugsee_log(const char *message, int level);
+void _bugsee_log(const char *message, int level, int requiresFiltering);
 void _bugsee_trace(const char *name, const char *valueJson);
 void _bugsee_event(const char *name, const char *paramsJson);
 void _bugsee_set_attribute(const char *key, const char *valueJson);
@@ -246,8 +246,9 @@ int main(void)
     // Logging and telemetry with no running SDK, including the NULL and non-object payloads C# can send (smoke only: the
     // calls have no observable effect before a launch). The Feedback add-on is not linked into this test, so the feedback
     // exports find nothing to call: available is 0 and show / greeting / listener are safe no-ops.
-    _bugsee_log("hello", 3);
-    _bugsee_log(NULL, 3);
+    _bugsee_log("hello", 3, 0);
+    _bugsee_log("hello", 3, 1);
+    _bugsee_log(NULL, 3, 1);
     _bugsee_trace("t", "1");
     _bugsee_trace("t", "\"text\"");
     _bugsee_trace("t", "not json");

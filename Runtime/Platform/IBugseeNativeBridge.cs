@@ -32,7 +32,8 @@ namespace Bugsee.Platform
         void EndBlackout();
         bool IsBlackout();
 
-        void Log(string message, LogLevel level);
+        /// <summary>Write a line to the Bugsee log. <paramref name="requiresFiltering"/> runs it through the log filter too.</summary>
+        void Log(string message, LogLevel level, bool requiresFiltering);
 
         /// <summary>Submit a host log on the wrapper channel. Public <see cref="Log"/> stays on the SDK log API.</summary>
         void ChannelLog(string message, LogLevel level);
