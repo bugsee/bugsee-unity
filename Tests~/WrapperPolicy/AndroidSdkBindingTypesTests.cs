@@ -184,16 +184,24 @@ namespace Bugsee.WrapperPolicy.Tests
             if (_javaClasses != null) return _javaClasses;
             var result = new Dictionary<string, JavaClass>();
             var files = JavaFiles();
-            foreach (var f in files)
+            List<(string name, string extends, string implements, int index)> TopsOf(JavaFile file)
             {
-                var tops = new List<(string name, string extends, string implements, int index)>();
-                foreach (Match m in Regex.Matches(f.Text, @"\b(?:public\s+|final\s+|abstract\s+)*(class|interface)\s+(\w+)(?:\s+extends\s+([\w.<>, ]+?))?(?:\s+implements\s+([\w.<>, ]+?))?\s*\{"))
+                var found = new List<(string name, string extends, string implements, int index)>();
+                foreach (Match m in Regex.Matches(file.Text, @"\b(?:public\s+|final\s+|abstract\s+)*(class|interface)\s+(\w+)(?:\s+extends\s+([\w.<>, ]+?))?(?:\s+implements\s+([\w.<>, ]+?))?\s*\{"))
                 {
-                    var depth = f.Text.Substring(0, m.Index).Count(c => c == '{') - f.Text.Substring(0, m.Index).Count(c => c == '}');
-                    if (depth == 0) tops.Add((m.Groups[2].Value, m.Groups[3].Value, m.Groups[4].Value, m.Index));
+                    var depth = file.Text.Substring(0, m.Index).Count(c => c == '{') - file.Text.Substring(0, m.Index).Count(c => c == '}');
+                    if (depth == 0) found.Add((m.Groups[2].Value, m.Groups[3].Value, m.Groups[4].Value, m.Index));
                 }
 
-                var names = tops.Select(t => t.name).ToList();
+                return found;
+            }
+
+            // A class of the same package needs no import, whichever file declares it.
+            var packageClasses = files.GroupBy(x => x.Package).ToDictionary(g => g.Key, g => g.SelectMany(x => TopsOf(x).Select(t => t.name)).ToList());
+            foreach (var f in files)
+            {
+                var tops = TopsOf(f);
+                var names = packageClasses[f.Package];
                 foreach (var t in tops)
                 {
                     var jc = new JavaClass { Name = f.Package + "." + t.name };
@@ -490,7 +498,16 @@ namespace Bugsee.WrapperPolicy.Tests
             }
 
             var coalesce = TopLevel(expr, "??");
-            if (coalesce > 0) return Origin(expr.Substring(0, coalesce), s, at, depth + 1);
+            if (coalesce > 0)
+            {
+                // Either operand can reach the JNI call: both classes must fit. An unresolved fallback leaves the left one.
+                var left = Origin(expr.Substring(0, coalesce), s, at, depth + 1);
+                var fallback = expr.Substring(coalesce + 2).Trim();
+                if (left == null || fallback == "null" || fallback == "(AndroidJavaObject)null") return left;
+                var right = Origin(fallback, s, at, depth + 1);
+                return right == null ? left : left.Concat(right).Distinct().ToArray();
+            }
+
             var asCast = Regex.Match(expr, @"^(.+?)\s+as\s+\w+$");
             if (asCast.Success) return Origin(asCast.Groups[1].Value, s, at, depth + 1);
             if (expr.StartsWith("(") && expr.EndsWith(")") && TopLevel(expr.Substring(1, expr.Length - 2), ",") < 0 && !Regex.IsMatch(expr, @"^\(\w+\)"))
@@ -667,7 +684,15 @@ namespace Bugsee.WrapperPolicy.Tests
             }
 
             var coalesce = TopLevel(expr, "??");
-            if (coalesce > 0) return ArgType(expr.Substring(0, coalesce), s, at, depth + 1);
+            if (coalesce > 0)
+            {
+                var left = ArgType(expr.Substring(0, coalesce), s, at, depth + 1);
+                var fallback = expr.Substring(coalesce + 2).Trim();
+                if (left == null || fallback == "null" || fallback == "(AndroidJavaObject)null" || fallback == "(string)null") return left;
+                var right = ArgType(fallback, s, at, depth + 1);
+                // Both operands can reach the JNI call; an unresolved fallback leaves the left one.
+                return right == null ? left : (Func<string, bool>)(p => left(p) && right(p));
+            }
             if (expr.StartsWith("!") || TopLevel(expr, "||") >= 0 || TopLevel(expr, "&&") >= 0 || TopLevel(expr, "==") >= 0
                 || TopLevel(expr, "!=") >= 0 || TopLevel(expr, "<=") >= 0 || TopLevel(expr, ">=") >= 0
                 || Regex.IsMatch(expr, @"\sis\s")) return Prim("boolean");
@@ -996,6 +1021,10 @@ namespace Bugsee.WrapperPolicy.Tests
 
         // ---- static fields and enum constants read by name ------------------------------------------------------------------
 
+        // The T of GetStatic<T> the check knows how to compare with the field type (ReturnFits); another one is rejected, not skipped.
+        static readonly HashSet<string> SupportedGetStaticTypes = new HashSet<string>
+            { "AndroidJavaObject", "string", "bool", "int", "long", "float", "double", "short", "char", "sbyte" };
+
         // Files that read a static field of an SDK class by a computed name (checked by their own test).
         static readonly HashSet<string> ComputedStaticFieldReaders = new HashSet<string> { "AndroidSpanHandle.cs" };
 
@@ -1026,10 +1055,12 @@ namespace Bugsee.WrapperPolicy.Tests
                         continue;
                     }
 
-                    if (!fieldOwner.Fields.TryGetValue(name, out var field) || !field.isStatic
-                        || (m.Groups[2].Value == "AndroidJavaObject" && !IsReference(field.type))
-                        || (m.Groups[2].Value == "int" && field.type != "int"))
-                        failures.Add(file + ": " + cls + "." + name + " is not a static field of the type read");
+                    // GetStatic<T> reads the field as T: the same fit as a return type (T = AndroidJavaObject: any reference).
+                    if (!m.Groups[2].Success || !SupportedGetStaticTypes.Contains(m.Groups[2].Value))
+                        failures.Add(file + ": GetStatic of " + cls + "." + name + " with the type argument '" + m.Groups[2].Value + "' (not one of the checked types)");
+                    else if (!fieldOwner.Fields.TryGetValue(name, out var field) || !field.isStatic
+                             || !ReturnFits(new JavaMethod { Ret = field.type }, m.Groups[2].Value))
+                        failures.Add(file + ": " + cls + "." + name + " is not a static field readable as " + m.Groups[2].Value);
                 }
             }
 
