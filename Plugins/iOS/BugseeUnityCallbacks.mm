@@ -994,9 +994,9 @@ int _bugsee_report_screenshot_png(int64_t requestId, int displayId, unsigned cha
         png = UIImagePNGRepresentation(drawn);
     }
     // -2: the display holds a screenshot that cannot be encoded (the caller must not treat it as absent).
-    if (png.length == 0 || png.length > INT_MAX) return -2;
+    if (png.length == 0 || png.length > 32 * 1024 * 1024) return -2; // 32 MiB: ReportScreenshotPolicy.MaxPngBytes
     unsigned char *copy = (unsigned char *)malloc(png.length);
-    if (!copy) return 0;
+    if (!copy) return -2;
     memcpy(copy, png.bytes, png.length);
     *outBytes = copy;
     return (int)png.length;
