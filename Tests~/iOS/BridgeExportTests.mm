@@ -188,6 +188,7 @@ int main(void)
                              (__bridge id)kSecAttrAccount: @"probe" };
     NSMutableDictionary *probeAdd = [probe mutableCopy];
     probeAdd[(__bridge id)kSecValueData] = [@"x" dataUsingEncoding:NSUTF8StringEncoding];
+    SecItemDelete((__bridge CFDictionaryRef)probe); // a stale item from an earlier run must not read as a failure
     OSStatus probeStatus = SecItemAdd((__bridge CFDictionaryRef)probeAdd, NULL);
     if (probeStatus == errSecSuccess) SecItemDelete((__bridge CFDictionaryRef)probe);
     _bugsee_clear_email();
