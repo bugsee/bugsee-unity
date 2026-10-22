@@ -54,7 +54,7 @@ namespace Bugsee.WrapperPolicy.Tests
     /// list; a local is typed from its last textual declaration before the use, ignoring scope; `a.b.Name` is typed from
     /// any uniquely named member of the runtime sources; `T?` is typed as T; ContractFields and InstanceHelpers are
     /// hard-coded names; generic parameters are compared by their erased type and varargs by their element type; a Java
-    /// argument other than a literal or a primitive cast is not typed; for a reflective {class, method} pair only the
+    /// argument other than a literal, a primitive cast or a local with a declared type is not typed; for a reflective {class, method} pair only the
     /// method name is checked, and a class of an AAR outside the snapshot (ExtensionClassesNotInSnapshot) not at all;
     /// helper-method return types are followed through `return` statements only.
     ///

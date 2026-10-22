@@ -1127,9 +1127,12 @@ namespace Bugsee.WrapperPolicy.Tests
         static readonly Regex JavaVariableRe = new Regex(@"(?<![\w.])((?:[a-z]\w*\.)*[A-Z][\w.]*)(?:<[^;(){}=]*?>)?(?:\[\])?\s+(\w+)\s*(?==|;|,|\))");
         static readonly Regex JavaMemberCallRe = new Regex(@"(?<![\w.])([a-z_]\w*)\.(\w+)\s*\(");
 
-        static bool JavaArgFits(string arg, string param)
+        static bool JavaArgFits(string arg, string param, Dictionary<string, HashSet<string>> variables, Dictionary<string, JavaClass> manifest)
         {
             arg = arg.Trim();
+            // A local or parameter: any of its declared types in the file must fit (scopes are not told apart); "" is a type outside the snapshot.
+            if (Regex.IsMatch(arg, @"^\w+$") && variables.TryGetValue(arg, out var declared) && !declared.Contains(""))
+                return declared.Any(t => t == param || (IsReference(t) && IsReference(param) && Reaches(t, param, manifest)));
             if (arg == "null") return IsReference(param);
             if (arg == "true" || arg == "false") return param == "boolean";
             if (Regex.IsMatch(arg, @"^-?\d+$")) return param == "int" || param == "long" || param == "float" || param == "double";
@@ -1179,6 +1182,12 @@ namespace Bugsee.WrapperPolicy.Tests
                     set.Add(ResolveJavaQualifier(v.Groups[1].Value, f, manifest) ?? "");
                 }
 
+                foreach (Match v in Regex.Matches(f.Text, @"(?<![\w.])(boolean|byte|short|char|int|long|float|double)((?:\[\])?)\s+(\w+)\s*(?==|;|,|\))"))
+                {
+                    if (!variables.TryGetValue(v.Groups[3].Value, out var set)) variables[v.Groups[3].Value] = set = new HashSet<string>();
+                    set.Add(v.Groups[1].Value + v.Groups[2].Value);
+                }
+
                 foreach (Match m in JavaQualifiedCallRe.Matches(f.Text))
                 {
                     var cls = ResolveJavaQualifier(m.Groups[1].Value, f, manifest);
@@ -1187,14 +1196,14 @@ namespace Bugsee.WrapperPolicy.Tests
                     var args = SplitArgs(BalancedArgs(f.Text, m.Index + m.Length));
                     var named = manifest[cls].Methods.Where(j => j.Static && j.Name == m.Groups[2].Value).ToList();
                     if (!named.Any(j => (j.VarArgs ? args.Length >= j.Params.Length - 1 : j.Params.Length == args.Length)
-                                        && args.Select((a, i) => JavaArgFits(a, j.Params[Math.Min(i, j.Params.Length - 1)])).All(x => x)))
+                                        && args.Select((a, i) => JavaArgFits(a, j.Params[Math.Min(i, j.Params.Length - 1)], variables, manifest)).All(x => x)))
                         failures.Add(f.Name + ": " + cls + "." + m.Groups[2].Value + "(" + string.Join(", ", args) + ") has no match among "
                                      + (named.Count == 0 ? "(no static method of that name)" : string.Join(" | ", named)));
                 }
 
                 foreach (Match m in JavaMemberCallRe.Matches(f.Text))
                 {
-                    if (!variables.TryGetValue(m.Groups[1].Value, out var types) || types.Contains("") || types.Count == 0) continue;
+                    if (!variables.TryGetValue(m.Groups[1].Value, out var types) || types.Any(t => !manifest.ContainsKey(t)) || types.Count == 0) continue;
                     instances++;
                     var args = SplitArgs(BalancedArgs(f.Text, m.Index + m.Length));
                     foreach (var cls in types)
@@ -1203,7 +1212,7 @@ namespace Bugsee.WrapperPolicy.Tests
                         AddWithSupers(cls, manifest, methods);
                         var named = methods.Where(j => j.Name == m.Groups[2].Value).ToList();
                         if (!named.Any(j => (j.VarArgs ? args.Length >= j.Params.Length - 1 : j.Params.Length == args.Length)
-                                            && args.Select((a, i) => JavaArgFits(a, j.Params[Math.Min(i, j.Params.Length - 1)])).All(x => x)))
+                                            && args.Select((a, i) => JavaArgFits(a, j.Params[Math.Min(i, j.Params.Length - 1)], variables, manifest)).All(x => x)))
                             failures.Add(f.Name + ": " + m.Groups[1].Value + "." + m.Groups[2].Value + "(" + string.Join(", ", args) + ") on " + cls
                                          + " has no match among " + (named.Count == 0 ? "(no such method)" : string.Join(" | ", named)));
                     }
