@@ -507,8 +507,7 @@ namespace Bugsee.WrapperPolicy.Tests
             public Sandbox(string shell)
             {
                 _shell = shell;
-                if (!File.Exists(shell))
-                    Assert.Ignore("needs " + shell + " (the Run Script is checked under it when present)");
+                IosScriptTools.Require(shell, shell + " (the Run Script is checked under it)");
                 Directory.CreateDirectory(Path("home"));
                 Directory.CreateDirectory(Path("system"));
                 Directory.CreateDirectory(Path("project"));
