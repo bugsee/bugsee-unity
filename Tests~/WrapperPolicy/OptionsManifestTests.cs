@@ -47,9 +47,9 @@ namespace Bugsee.WrapperPolicy.Tests
             ["com.bugsee.option.capture.status-bar-info"] = "read only by a DEBUG build of the SDK, never the published one: a property would do nothing",
         };
 
-        // Hidden (internal) options that a public C# constant and setter expose anyway. bugsee/bugsee-unity#108.
-        static readonly Dictionary<string, string> HiddenButExposed = Keys("#108: hidden option exposed publicly",
-            "$$DEBUG", "$$ENDPOINT");
+        // Hidden (internal) options that a public C# constant and setter expose anyway. Empty since bugsee/bugsee-unity#108 removed
+        // Debug and Endpoint: a staging or test build sets the raw key with SetCustomOption. Keep it empty.
+        static readonly Dictionary<string, string> HiddenButExposed = Keys("hidden option exposed publicly");
 
         // Wrapper-only keys (not native options, not in any manifest): the wrapper reads them from the launch
         // options and they must never be forwarded as if the SDK knew them.
