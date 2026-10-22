@@ -467,7 +467,9 @@ On Android a filter set with `Bugsee.SetNetworkEventFilter` (or declared in the 
 ```csharp
 Bugsee.SetNetworkEventFilter(e =>
 {
-    Bugsee.ApplyDefaultNetworkSanitizer(e); // Android: SDK defaults, in place
+    // Android: SDK defaults, in place. If it could not run (false), drop the event rather than record it unredacted.
+    // On iOS it always returns false: there the filter's own redaction is all there is.
+    if (!Bugsee.ApplyDefaultNetworkSanitizer(e) && Application.platform == RuntimePlatform.Android) return null;
     e.Url = e.Url.Replace("/internal/", "/x/");
     return e;
 });
