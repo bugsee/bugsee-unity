@@ -35,6 +35,8 @@ namespace Bugsee.WrapperPolicy
         // Wrapper namespaces are engine; the sample app's own code lives in Bugsee.Sample and counts as user code.
         const string SampleNamespace = "Bugsee.Sample.";
 
+        // libunity.so, libil2cpp.so, libmono-2.0.so, optionally followed by "(+0x...)": the ".so" must end the name.
+        static readonly Regex SharedLibrary = new Regex(@"^lib[^\s/()]*\.so(?![A-Za-z0-9_])", RegexOptions.Compiled);
         static readonly Regex AtLocation = new Regex(@"\(at\s+(?<file>.+):(?<line>\d+)\)\s*$", RegexOptions.Compiled);
         static readonly Regex InLocation = new Regex(@"\sin\s+(?<file>.+):(?<line>\d+)\s*$", RegexOptions.Compiled);
 
@@ -61,7 +63,7 @@ namespace Bugsee.WrapperPolicy
             if (token.Length == 0 || token[0] == '(') return true; // "(wrapper managed-to-native)" and the like
             if (token[0] == '#' || token.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return true; // native lines of a Unity log: "#00 pc ...", "0x... in UnityFramework"
             // A line that starts with a shared library name ("libunity.so(+0x1a2b)"); never a substring of a managed frame's class or path.
-            if (token.StartsWith("lib", StringComparison.Ordinal) && token.IndexOf(".so", StringComparison.Ordinal) > 0) return true;
+            if (SharedLibrary.IsMatch(token)) return true;
             if (token.StartsWith(SampleNamespace, StringComparison.Ordinal)) return false;
             foreach (var p in EnginePrefixes)
             {
