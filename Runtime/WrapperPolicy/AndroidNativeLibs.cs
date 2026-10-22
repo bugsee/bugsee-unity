@@ -52,7 +52,7 @@ namespace Bugsee.WrapperPolicy
 
         const int MaxSectionNamesBytes = 1024 * 1024;
         const int MaxSections = 4096;
-        const int MinSymtabEntries = 2;
+        const int MaxSymtabBytes = 64 * 1024 * 1024;
 
         /// <summary>How much of an archive entry is read to find the build-id (the note is in the first segment).</summary>
         public const int PrefixBytes = 64 * 1024;
@@ -168,10 +168,10 @@ namespace Bugsee.WrapperPolicy
                     continue;
                 }
 
-                if (name == ".symtab" && type == 2 && size > MinSymtabEntries * symEntry)
+                if (name == ".symtab" && type == 2 && size >= symEntry)
                 {
-                    // More than the null, file and section symbols a stripped library can keep.
-                    info.HasSymtab = true;
+                    // Only a table that names something counts: a stripped library can keep null, file and section symbols.
+                    info.HasSymtab = HasNamedSymbol(s, Offset(i), size, is64, le);
                 }
                 else if ((name == ".debug_info" || name == ".zdebug_info") && type != 8 && size > 0)
                 {
@@ -188,6 +188,31 @@ namespace Bugsee.WrapperPolicy
                     }
                 }
             }
+        }
+
+        // A function, object, TLS or indirect-function symbol in a .symtab; a table too large to read counts as having one.
+        static bool HasNamedSymbol(Stream s, long offset, long size, bool is64, bool le)
+        {
+            if (size > MaxSymtabBytes)
+            {
+                return true;
+            }
+
+            int entry = is64 ? 24 : 16;
+            int infoAt = is64 ? 4 : 12;
+            var data = new byte[size];
+            s.Seek(offset, SeekOrigin.Begin);
+            int read = Fill(s, data, 0, data.Length);
+            for (long at = 0; at + entry <= read; at += entry)
+            {
+                int type = data[at + infoAt] & 0xf;
+                if (type == 1 || type == 2 || type == 6 || type == 10)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>The id in a <c>.note.gnu.build-id</c> section (namesz, descsz, type 3, "GNU", id), or null.</summary>
@@ -345,6 +370,16 @@ namespace Bugsee.WrapperPolicy
                     if (file.EndsWith(".so" + suffix, StringComparison.Ordinal))
                     {
                         file = file.Substring(0, file.Length - suffix.Length);
+                        break;
+                    }
+                }
+
+                // Unity's own spellings: libfoo.sym.so, libfoo.dbg.so.
+                foreach (var infix in new[] { ".sym.so", ".dbg.so" })
+                {
+                    if (file.EndsWith(infix, StringComparison.Ordinal))
+                    {
+                        file = file.Substring(0, file.Length - infix.Length) + ".so";
                         break;
                     }
                 }

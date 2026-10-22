@@ -13,7 +13,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
         // A minimal ELF with the given sections: build-id note, and optionally .symtab / .debug_info (type 1 or NOBITS 8).
         static byte[] Elf(bool is64 = true, bool le = true, string buildId = Id, bool symtab = false, bool debug = false, int debugType = 1,
-            bool sectionHeaders = true, int symtabBytes = 96, bool programHeaders = true)
+            bool sectionHeaders = true, int[] symtabKinds = null, bool programHeaders = true)
         {
             var sections = new List<(string name, int type, byte[] data)>();
             if (buildId != null)
@@ -25,7 +25,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 sections.Add((".note.gnu.build-id", 7, note.ToArray()));
             }
 
-            if (symtab) sections.Add((".symtab", 2, new byte[symtabBytes]));
+            if (symtab) sections.Add((".symtab", 2, Symtab(is64, le, symtabKinds)));
             if (debug) sections.Add((".debug_info", debugType, new byte[16]));
 
             var names = new MemoryStream();
@@ -91,6 +91,16 @@ namespace Bugsee.WrapperPolicy.Tests
                 Put(t, o + (is64 ? 24 : 16), offset, is64 ? 8 : 4, le);
                 Put(t, o + (is64 ? 32 : 20), size, is64 ? 8 : 4, le);
             }
+        }
+
+        // One symbol per kind (STT_*), after the null symbol.
+        static byte[] Symtab(bool is64, bool le, int[] kinds)
+        {
+            kinds = kinds ?? new[] { 2, 1 };
+            int entry = is64 ? 24 : 16;
+            var b = new byte[entry * (kinds.Length + 1)];
+            for (int i = 0; i < kinds.Length; i++) b[(i + 1) * entry + (is64 ? 4 : 12)] = (byte)kinds[i];
+            return b;
         }
 
         static byte[] U32(long v, bool le)
@@ -328,10 +338,12 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void A_symbol_table_with_only_the_null_and_file_symbols_is_not_symbols()
+        public void A_symbol_table_that_names_nothing_is_not_symbols()
         {
-            Assert.That(Inspect(Elf(symtab: true, symtabBytes: 48)).CarriesSymbols, Is.False);
-            Assert.That(Inspect(Elf(symtab: true, symtabBytes: 24 * 3)).CarriesSymbols, Is.True);
+            // STT_FILE (4) and STT_SECTION (3) only: what `strip --strip-unneeded` can leave.
+            Assert.That(Inspect(Elf(symtab: true, symtabKinds: new[] { 4, 3, 3, 3, 3 })).CarriesSymbols, Is.False);
+            Assert.That(Inspect(Elf(symtab: true, symtabKinds: new[] { 4, 3, 2 })).CarriesSymbols, Is.True);
+            Assert.That(Inspect(Elf(false, false, symtab: true, symtabKinds: new[] { 3, 1 })).CarriesSymbols, Is.True);
         }
 
         [Test]
@@ -397,14 +409,15 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Real_clang_built_libraries_classify_as_dwarf_symtab_and_stripped_with_one_reading_each_way()
         {
             // libfixture_*.so: aarch64 NDK clang, -g; _symtab is `llvm-strip -g` of it, _stripped is `llvm-strip --strip-all`.
-            foreach (var (name, dwarf, symtab) in new[] { ("libfixture_dwarf.so", true, true), ("libfixture_symtab.so", false, true), ("libfixture_stripped.so", false, false) })
+            foreach (var (name, dwarf, symtab) in new (string, bool, bool?)[] { ("libfixture_dwarf.so", true, true), ("libfixture_symtab.so", false, true), ("libfixture_stripped.so", false, false), ("libfixture_unneeded.so", false, null) })
             {
                 var bytes = File.ReadAllBytes(Fixture(name));
                 var info = Inspect(bytes);
 
                 Assert.That(info.BuildId, Has.Length.EqualTo(40), name);
                 Assert.That(info.HasDebugInfo, Is.EqualTo(dwarf), name);
-                Assert.That(info.HasSymtab, Is.EqualTo(symtab), name);
+                if (symtab.HasValue) Assert.That(info.HasSymtab, Is.EqualTo(symtab.Value), name);
+                else Assert.That(info.CarriesSymbols, Is.EqualTo(info.HasSymtab), name);
                 Assert.That(AndroidNativeLibs.BuildIdFromPrefix(bytes, Math.Min(bytes.Length, AndroidNativeLibs.PrefixBytes)), Is.EqualTo(info.BuildId), name);
             }
         }
@@ -487,11 +500,11 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void Unity_zip_keys_are_read_from_a_zip_stream_and_symbol_suffixes_are_stripped()
         {
-            var zip = Zip(("arm64-v8a/libil2cpp.so", new byte[1]), ("arm64-v8a/libfoo.so.sym", new byte[1]), ("x86_64/libbar.so.dbg", new byte[1]), ("arm64-v8a/", new byte[0]));
+            var zip = Zip(("arm64-v8a/libil2cpp.so", new byte[1]), ("arm64-v8a/libfoo.so.sym", new byte[1]), ("x86_64/libbar.so.dbg", new byte[1]), ("arm64-v8a/libunity.sym.so", new byte[1]), ("arm64-v8a/libmain.dbg.so", new byte[1]), ("arm64-v8a/", new byte[0]));
 
             var keys = AndroidNativeLibs.ZipLibraryKeys(new MemoryStream(zip));
 
-            Assert.That(keys, Is.EquivalentTo(new[] { "arm64-v8a/libil2cpp.so", "arm64-v8a/libfoo.so", "x86_64/libbar.so" }));
+            Assert.That(keys, Is.EquivalentTo(new[] { "arm64-v8a/libil2cpp.so", "arm64-v8a/libfoo.so", "x86_64/libbar.so", "arm64-v8a/libunity.so", "arm64-v8a/libmain.so" }));
         }
 
         [Test]
