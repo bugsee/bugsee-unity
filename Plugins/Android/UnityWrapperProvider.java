@@ -312,24 +312,34 @@ final class UnityWrapper implements BugseeWrapper {
      * getScreenshot(int, Callback1): that posts its answer to the calling thread's looper or the main one, which
      * a Unity script thread blocking for the reply cannot rely on.
      */
-    public static byte[] getReportScreenshotPng(Report report, final int displayId) {
+    public static byte[] getReportScreenshotPng(Report report, int displayId) {
         if (report == null) return null;
-        final byte[][] result = new byte[1][];
+        PngCollector collector = new PngCollector(displayId);
         try {
-            report.enumerateScreenshots(new com.bugsee.library.contracts.common.Callback2<Integer, android.graphics.Bitmap>() {
-                @Override
-                public void run(Integer id, android.graphics.Bitmap bitmap) {
-                    if (id == null || id != displayId || bitmap == null || bitmap.isRecycled() || result[0] != null) return;
-                    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-                    if (bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)) {
-                        result[0] = out.toByteArray();
-                    }
-                }
-            }, true);
+            report.enumerateScreenshots(collector, true);
         } catch (Throwable t) {
             Log.w("BugseeUnity", "Reading a report screenshot failed: " + t);
         }
-        return result[0];
+        return collector.png;
+    }
+
+    /** Keeps the PNG of one display out of a screenshot enumeration. */
+    private static final class PngCollector implements com.bugsee.library.contracts.common.Callback2<Integer, android.graphics.Bitmap> {
+        private final int displayId;
+        byte[] png;
+
+        PngCollector(int displayId) {
+            this.displayId = displayId;
+        }
+
+        @Override
+        public void run(Integer id, android.graphics.Bitmap bitmap) {
+            if (id == null || id != displayId || bitmap == null || bitmap.isRecycled() || png != null) return;
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            if (bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)) {
+                png = out.toByteArray();
+            }
+        }
     }
 
     /**
