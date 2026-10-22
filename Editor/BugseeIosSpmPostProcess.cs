@@ -162,6 +162,8 @@ namespace Bugsee.Editor
             }
 
             string cleaned = XcodeLocalPackage.RemoveBugseePackage(existing, RemoteSpmUrl, LocalPackageFolderName, out var removedPackageIds);
+            // The Feedback add-on follows the switch on every export: an earlier export's link is dropped, and added again below when it is on.
+            cleaned = XcodeLocalPackage.RemovePackageProduct(cleaned, FeedbackOptIn.IosPackageUrl, FeedbackOptIn.IosProduct);
             if (cleaned != existing || duplicatePhases > 0)
             {
                 File.WriteAllText(projectPath, cleaned);
@@ -183,6 +185,7 @@ namespace Bugsee.Editor
             string packageGuid = project.AddRemotePackageReferenceAtVersion(RemoteSpmUrl, RemoteSpmVersion);
             project.AddRemotePackageFrameworkToProject(mainTargetGuid, SpmProductName, packageGuid, false);
             project.AddRemotePackageFrameworkToProject(frameworkTargetGuid, SpmProductName, packageGuid, false);
+            LinkFeedback(project, frameworkTargetGuid, localPackageSource != null);
             project.WriteToFile(projectPath);
             // The user's other products of the package an earlier export linked (BugseeSwiftUI) follow the new reference.
             string linked = XcodeLocalPackage.RepointProducts(File.ReadAllText(projectPath), packageGuid, removedPackageIds);
@@ -218,6 +221,32 @@ namespace Bugsee.Editor
             {
                 Debug.Log($"[Bugsee] Linked local SPM package at {packageFolder}");
             }
+        }
+
+        /// <summary>
+        /// Links the optional BugseeFeedback package (github.com/bugsee/feedback-spm, same version as the core package) into
+        /// UnityFramework, where the bridge that looks it up lives, when the project opted in (<see cref="FeedbackOptIn"/>).
+        /// The add-on depends on the published core package, so it is not linked next to a local core package.
+        /// </summary>
+        static void LinkFeedback(PBXProject project, string frameworkTargetGuid, bool localCore)
+        {
+            if (!BugseeFeedbackSwitch.IsEnabled(NamedBuildTarget.iOS))
+            {
+                return;
+            }
+
+            if (localCore)
+            {
+                Debug.LogWarning(
+                    "[Bugsee] Feedback is enabled (" + FeedbackOptIn.Define + ") but a local iOS SDK package is linked: the " +
+                    "BugseeFeedback package builds against the published " + RemoteSpmUrl + " and is not linked, so " +
+                    "Bugsee.Feedback does nothing in this build.");
+                return;
+            }
+
+            string feedbackGuid = project.AddRemotePackageReferenceAtVersion(FeedbackOptIn.IosPackageUrl, RemoteSpmVersion);
+            project.AddRemotePackageFrameworkToProject(frameworkTargetGuid, FeedbackOptIn.IosProduct, feedbackGuid, false);
+            Debug.Log($"[Bugsee] Linked the Feedback add-on {FeedbackOptIn.IosPackageUrl}@{RemoteSpmVersion} (scripting define {FeedbackOptIn.Define})");
         }
 
         /// <summary>

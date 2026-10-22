@@ -74,7 +74,14 @@ namespace Bugsee.WrapperPolicy
         /// </summary>
         public static bool TryGetAgpVersion(string text, string catalog, out int major, out int minor)
         {
+            return TryGetAgpVersion(text, catalog, out major, out minor, out _);
+        }
+
+        /// <summary>As above, also the patch number (0 when the version has none or it is not a plain number).</summary>
+        public static bool TryGetAgpVersion(string text, string catalog, out int major, out int minor, out int patch)
+        {
             major = minor = -1;
+            patch = 0;
             if (text == null)
             {
                 return false;
@@ -106,6 +113,18 @@ namespace Bugsee.WrapperPolicy
                 // `8.+` or `8.x`: a range, not a version.
                 major = minor = -1;
                 return false;
+            }
+
+            if (parts.Length > 2)
+            {
+                // `8.1.1-rc01`: the leading digits are the patch, and a pre-release is older than that patch, so it counts
+                // as the one before (`8.1.0-rc01` and `8.1.1-rc01` are both below 8.1.1).
+                string segment = parts[2];
+                int end = 0;
+                while (end < segment.Length && char.IsDigit(segment[end])) end++;
+                if (!int.TryParse(segment.Substring(0, end), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out patch)) patch = 0;
+                if (end < segment.Length && patch > 0) patch--;
+                else if (end < segment.Length) patch = -1;
             }
 
             return true;

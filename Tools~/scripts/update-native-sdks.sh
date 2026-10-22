@@ -132,6 +132,18 @@ elif command -v git >/dev/null 2>&1; then
   fi
 fi
 
+# The optional Feedback add-on (github.com/bugsee/feedback-spm) must exist at the same version: the export links it at
+# IOS_SDK_VERSION and it pins the core exactly.
+if command -v git >/dev/null 2>&1; then
+  FEEDBACK_SHA="$(git ls-remote "https://github.com/bugsee/feedback-spm.git" "refs/tags/${IOS_SDK_VERSION}" 2>/dev/null | awk '{print $1}' || true)"
+  if [[ -z "${FEEDBACK_SHA}" ]]; then
+    echo "WARNING: github.com/bugsee/feedback-spm has no tag ${IOS_SDK_VERSION} (or it could not be resolved);" >&2
+    echo "         an iOS export with BUGSEE_FEEDBACK would fail to resolve the Feedback package." >&2
+  else
+    echo "Verified feedback-spm ${IOS_SDK_VERSION}"
+  fi
+fi
+
 IDENTITY_JAVA="${ROOT_DIR}/Plugins/Android/UnityWrapperIdentity.java"
 cat > "${IDENTITY_JAVA}" <<JAVA_EOF
 package com.bugsee.unity;

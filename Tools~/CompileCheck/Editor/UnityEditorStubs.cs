@@ -7,6 +7,7 @@ namespace UnityEditor.Build
     public readonly struct NamedBuildTarget
     {
         public static NamedBuildTarget Android => default;
+        public static NamedBuildTarget iOS => default;
     }
 }
 
@@ -27,6 +28,7 @@ namespace UnityEditor
     {
         public static string bundleVersion;
         public static ScriptingImplementation GetScriptingBackend(UnityEditor.Build.NamedBuildTarget buildTarget) => default;
+        public static string GetScriptingDefineSymbols(UnityEditor.Build.NamedBuildTarget buildTarget) => null;
         public static string GetAdditionalIl2CppArgs() => null;
         public static void SetAdditionalIl2CppArgs(string args) { }
 
