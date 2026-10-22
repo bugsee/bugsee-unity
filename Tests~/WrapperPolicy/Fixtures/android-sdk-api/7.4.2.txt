@@ -1136,6 +1136,24 @@ public interface com.bugsee.library.contracts.reporting.ReportHandler {
 public interface com.bugsee.library.contracts.reporting.ReportTrigger {
   public static final java.lang.String ACTION_TRIGGER_REPORT;
 }
+public final class com.bugsee.library.BugseeFeedback implements com.bugsee.library.contracts.extensions.Feedback {
+  public static final com.bugsee.library.BugseeFeedback$Companion Companion;
+  public static final int $stable;
+  public com.bugsee.library.BugseeFeedback();
+  public static final void registerFeedbackExtension();
+  public static final java.lang.Class access$getID$cp();
+  public java.lang.Class<? extends com.bugsee.library.contracts.extensions.Extension> getType();
+  public void launch(com.bugsee.library.contracts.options.OptionsContainer);
+  public final void prefillEmailFromUserIdentifier$feedback_release();
+  public void stop();
+  public void showFeedbackActivity();
+  public void setDefaultFeedbackGreeting(java.lang.String);
+  public void setOnNewFeedbackListener(com.bugsee.library.contracts.feedback.FeedbackListener);
+}
+public final class com.bugsee.library.BugseeFeedback$Companion {
+  public com.bugsee.library.BugseeFeedback$Companion(kotlin.jvm.internal.DefaultConstructorMarker);
+  public final void registerFeedbackExtension();
+}
 public interface com.bugsee.library.contracts.appearance.FeedbackAppearance {
   public static final com.bugsee.library.contracts.appearance.FeedbackAppearance$Companion Companion;
   public static final java.lang.String ActionBarColor;
