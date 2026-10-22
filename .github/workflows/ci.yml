@@ -86,6 +86,24 @@ jobs:
       - name: Check
         run: bash Tools~/scripts/check-release-build.sh --dev
 
+  # The iOS Run Script tests need PlistBuddy/shasum, which exist only on macOS; on the Linux job above they skip. They fail
+  # (not skip) on macOS when a tool is missing, so this leg really runs them. Scoped to those classes to keep the macOS
+  # runner short.
+  wrapper-policy-macos:
+    name: Wrapper policy tests (iOS Run Scripts, macOS)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Test
+        run: dotnet test Tests~/WrapperPolicy/Bugsee.WrapperPolicy.Tests.csproj --nologo --configuration Release --filter "FullyQualifiedName~IosSymbolUploadGateTests|FullyQualifiedName~IosBuildTokenFingerprintScriptTests|FullyQualifiedName~IosCliResolutionTests"
+
   unity-compile:
     name: Unity C# compile check
     runs-on: ubuntu-latest

@@ -22,8 +22,8 @@ namespace Bugsee.WrapperPolicy.Tests
 
         static Run RunScript(Action<IDictionary<string, string>> env, string existingKey = null, bool binaryPlist = false, string fakeSed = null)
         {
-            if (!File.Exists("/usr/libexec/PlistBuddy") || !File.Exists("/usr/bin/shasum"))
-                Assert.Ignore("needs PlistBuddy and shasum");
+            IosScriptTools.Require("/usr/libexec/PlistBuddy", "PlistBuddy");
+            IosScriptTools.Require("/usr/bin/shasum", "shasum");
             string root = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "bugsee-fp-" + Guid.NewGuid().ToString("N"))).FullName;
             try
             {
