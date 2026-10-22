@@ -21,6 +21,20 @@ namespace Bugsee.WrapperPolicy.Tests
             throw new InvalidOperationException("Could not locate repo root (package.json).");
         }
 
+        /// <summary>An expression-bodied member (=&gt;): from its signature to the terminating semicolon.</summary>
+        static string ExtractExpressionBody(string source, string signature)
+        {
+            int start = source.IndexOf(signature, StringComparison.Ordinal);
+            Assert.That(start, Is.GreaterThanOrEqualTo(0), "Method missing: " + signature);
+            int arrow = source.IndexOf("=>", start, StringComparison.Ordinal);
+            int brace = source.IndexOf('{', start);
+            Assert.That(arrow, Is.GreaterThan(start), "Not expression-bodied: " + signature);
+            Assert.That(brace < 0 || arrow < brace, "Not expression-bodied (a block comes first): " + signature);
+            int end = source.IndexOf(';', arrow);
+            Assert.That(end, Is.GreaterThan(arrow));
+            return source.Substring(start, end - start + 1);
+        }
+
         static string ExtractMethodBody(string source, string methodSignature)
         {
             int start = source.IndexOf(methodSignature, StringComparison.Ordinal);
@@ -125,6 +139,22 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Facade_read_apis_are_never_null_read_only_and_answered_per_source()
+        {
+            string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));
+            string host = ExtractExpressionBody(facade, "public static IReadOnlyDictionary<string, object> GetHostLaunchOptions()");
+            Assert.That(host, Does.Contain("Bridge.GetHostLaunchOptions()"));
+            Assert.That(host, Does.Contain("new ReadOnlyDictionary<string, object>"));
+            string all = ExtractExpressionBody(facade, "public static IReadOnlyDictionary<string, object> GetAllAttributes()");
+            Assert.That(all, Does.Contain("new Dictionary<string, object>(Bridge.GetAllAttributes())"), "a copy: later changes do not show in an earlier snapshot");
+            Assert.That(all, Does.Contain("Bridge.GetAllAttributes()"));
+            Assert.That(all, Does.Not.Contain("LaunchOptionsWire"), "attributes are not launch options: no key filtering");
+            string rects = ExtractMethodBody(facade, "public static RectInt[] GetAllSecureRectangles()");
+            Assert.That(rects, Does.Contain("SecureRectManualOwners.OwnerIdPrefix"));
+            Assert.That(rects, Does.Not.Contain("Bridge."), "the wrapper's registry answers: the SDK's own list is never fed");
+        }
+
+        [Test]
         public void Facade_notify_requires_a_title_and_cleans_the_fields_before_the_bridge()
         {
             string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));
@@ -154,7 +184,8 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(launch, Does.Contain("finally { result.TrySetResult(accepted); }"));
             string relaunch = ExtractMethodBody(facade, "public static Task<bool> RelaunchAsync(Dictionary<string, object> options = null)");
             Assert.That(relaunch, Does.Contain("bridge.Relaunch(options, accepted =>"));
-            Assert.That(relaunch, Does.Contain("try { AfterLaunchResultCounted(accepted, startPusher, options); }"));
+            Assert.That(relaunch, Does.Contain("AfterLaunchResultCounted(!joined && accepted, startPusher, joined ? null : options)"));
+            Assert.That(relaunch, Does.Contain("() => joined = true"), "a joined relaunch must not touch the pusher: the request it joined decides");
             Assert.That(relaunch, Does.Contain("finally { result.TrySetResult(accepted); }"));
             string stop = ExtractMethodBody(facade, "public static Task StopAsync()");
             Assert.That(stop, Does.Contain("bridge.Stop("));
@@ -346,7 +377,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string launchBody = ExtractMethodBody(bridge, "internal void Launch(string appToken, IDictionary<string, object> options, Action<bool> completion)");
             Assert.That(launchBody.IndexOf("MainThreadDispatcher.Run", StringComparison.Ordinal),
                 Is.LessThan(launchBody.IndexOf("ManagedExceptionPayload.EnsureBuildIdentity()", StringComparison.Ordinal)));
-            Assert.That(ExtractMethodBody(bridge, "internal void Relaunch(IDictionary<string, object> options, Action<bool> completion)"),
+            Assert.That(ExtractMethodBody(bridge, "internal void Relaunch(IDictionary<string, object> options, Action<bool> completion, Action joined = null)"),
                 Does.Contain("Lifecycle.Relaunch(options, ok =>").And.Contain("completion?.Invoke(ok);"));
             Assert.That(ExtractMethodBody(bridge, "void Stop(Action completion, Action<bool> finished)"),
                 Does.Contain("Lifecycle.Stop(completion, finished)"));

@@ -7,6 +7,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <Bugsee/Bugsee.h>
+#include <dlfcn.h>
 
 extern "C" {
 typedef void (*BugseeManagedReportCreateCallback)(int succeeded, uint64_t uploadToken);
@@ -25,6 +26,8 @@ void _bugsee_clear_email(void);
 float _bugsee_screen_scale(void);
 float _bugsee_pixels_per_point(int unityPixelWidth);
 void _bugsee_capture_view_hierarchy(void);
+int _bugsee_add_secure_web_view(void *view);
+int _bugsee_remove_secure_web_view(void *view);
 void _bugsee_feedback_show(void);
 void _bugsee_feedback_set_greeting(const char *message);
 void _bugsee_free(char *ptr);
@@ -32,6 +35,8 @@ void _bugsee_invalidate_managed_report_uploads(void);
 void _bugsee_upload_managed_report(const char *reportJson, uint64_t uploadId, uint64_t uploadFence,
                                    BugseeManagedReportCreateCallback callback);
 void _bugsee_set_secure_buffer(int display, int *packed, int packedLength);
+int _bugsee_unity_view_region(float *outRect);
+int _bugsee_screen_points(float *outWH);
 void _bugsee_channel_log(const char *message, int level, int source);
 void _bugsee_channel_network(const char *eventJson, int requiresFiltering);
 void _bugsee_channel_breadcrumb(const char *category, const char *message, int iosLevel, double timestampUnixSeconds);
@@ -134,6 +139,20 @@ int main(void)
     _bugsee_feedback_set_greeting(NULL);
     expect(_bugsee_get_status() == 0, "logging and telemetry do not start the SDK");
 
+    // WebView secure views: a NULL pointer and a live object that is not a WKWebView are refused; a real WKWebView is accepted
+    // (before a launch the SDK registers nothing, so only the result is checked) and can be taken off again.
+    expect(_bugsee_add_secure_web_view(NULL) == 0 && _bugsee_remove_secure_web_view(NULL) == 0, "a NULL secure WebView is refused");
+    UIView *plainView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 10, 10)];
+    expect(_bugsee_add_secure_web_view((__bridge void *)plainView) == 0
+               && _bugsee_remove_secure_web_view((__bridge void *)plainView) == 0,
+           "a view that is not a WKWebView is refused");
+    dlopen("/System/Library/Frameworks/WebKit.framework/WebKit", RTLD_LAZY);
+    Class webKitClass = NSClassFromString(@"WKWebView");
+    expect(webKitClass != Nil, "WebKit loads");
+    UIView *webView = [(UIView *)[webKitClass alloc] initWithFrame:CGRectMake(0, 0, 10, 10)];
+    expect(_bugsee_add_secure_web_view((__bridge void *)webView) == 1, "a WKWebView is accepted as a secure WebView");
+    expect(_bugsee_remove_secure_web_view((__bridge void *)webView) == 1, "a WKWebView is accepted for removal from the secure list");
+
     // Secure rect buffer (smoke only, nothing reads the stored buffer back): short or NULL buffers must be ignored and a
     // packed one accepted for any display.
     int packed[] = { 1, 0, 0, 10, 10 };
@@ -141,6 +160,12 @@ int main(void)
     _bugsee_set_secure_buffer(0, packed, 1);
     _bugsee_set_secure_buffer(0, packed, 5);
     _bugsee_set_secure_buffer(1, packed, 5);
+    // Neither is guaranteed in a test process (no screen size, no UnityView): when they answer, the numbers are usable.
+    float wh[2] = { 0, 0 };
+    if (_bugsee_screen_points(wh) == 1) expect(wh[0] > 0 && wh[1] > 0, "a reported screen size has a size");
+    expect(_bugsee_screen_points(NULL) == 0 && _bugsee_unity_view_region(NULL) == 0, "a NULL output is refused");
+    float rect[4] = { 0, 0, 0, 0 };
+    if (_bugsee_unity_view_region(rect) == 1) expect(rect[2] > 0 && rect[3] > 0, "a view region has a size");
 
     // Wrapper channel with no channel attached (no launch): every producer must return quietly (smoke only).
     _bugsee_channel_log("msg", 3, 1);

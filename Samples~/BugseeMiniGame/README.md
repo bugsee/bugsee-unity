@@ -130,7 +130,7 @@ runs scenarios on one Android device.
 
 | Scenario | What it does |
 |----------|--------------|
-| `interactions`, `actions`, `filters`, `presets`, `nested` | self-checking (`PASS`/`FAIL` lines), described below; `nested` sends a handled exception with a three-level `InnerException` chain and checks that its payload has 3 levels and 2 `cause` keys (`[Sample] nested PASS levels=3 causes=2`) |
+| `interactions`, `actions`, `filters`, `presets`, `nested`, `lifecycle` | self-checking (`PASS`/`FAIL` lines), described below; `nested` sends a handled exception with a three-level `InnerException` chain and checks that its payload has 3 levels and 2 `cause` keys (`[Sample] nested PASS levels=3 causes=2`) |
 | `vh` | self-checking (issue #111): calls `Bugsee.CaptureViewHierarchy()` twice and checks the native SDK asked and the wrapper built a non-null managed tree within the SDK's 500 ms window (development build only; it stops with a `SKIP` line when the preset turned `CaptureViewHierarchy` off). It does not prove the reply reached a report. Every capture in the sample is truncated (more than 1500 active objects, hard cap 1500 nodes, about 80 ms walk budget), so a complete tree is never seen. Use `WAIT=40` with `Tools~/scripts/e2e-android.sh` (the default 25 s can lose the `done` line) |
 | `sig` (default), `handled`, `unhandled`, `pipeline`, `upload`, `labels`, `logerror` | send handled / unhandled exceptions, a pipeline exception, a plain `Upload`, a handled exception with labels, or a Unity `LogError`, to see that a report arrives (`sig` sends three, to check the grouping signature) |
 | `crash`, `native`, `abort`, `fatal`, `java`, `hang` | kill the process (or block the main thread) for the crash matrix; one per run |
@@ -143,9 +143,11 @@ runs scenarios on one Android device.
 | `culture` | self-checking: under de-DE and ru-RU sends double, float, decimal and bool values as attributes (read back with GetAttribute, must be 1.5 and true, not "1,5" or "True") and through event parameters, a trace value, LogException fields and a breadcrumb filter (issue #143; only the attribute read-back can detect the bug, the rest is logged as SMOKE ONLY); logs `[Sample] culture PASS/FAIL` lines |
 | `netfilter` | four network event filters (pass-through, redacting, one that empties the body, one that returns a replacement event) over events from the exchange factory; each logs what it was handed and left, tagged `[NETFILTER]`, and the run ends with `managed checks` (what native applied is not visible from C#) |
 | `options` | logs which launch-option keys the platform gate lets reach the native SDK, tagged `[OPTIONS]` |
+| `securerect` | paints a green box at a Unity screen rectangle, registers it with `AddSecureScreenRectangle` and logs the native rectangle the wrapper made of it, tagged `[SECURERECT]`, again whenever it changes (`bugsee_secure_scale` / `BUGSEE_SECURE_SCALE` = N renders at 1/N resolution first, `bugsee_secure_rotate_s` / `BUGSEE_SECURE_ROTATE_S` = S rotates after S seconds); the scenario also logs the bounding box of the rendered green box; compare with a screenshot |
 | `sigthreads` | the same managed exception thrown at one site and reported from the main thread and from a worker thread; logs `[SIGTHREADS]` with the client signature and (Android) the SDK's own signature for each, `PASS` (Android only; `INCONCLUSIVE` if the probe could not run, `SKIP` elsewhere) when they agree and the control differs; a plain Java exception is logged as a control that differs per thread |
 | `blackout` | logs `IsBlackout` after StartBlackout, EndBlackout, StartBlackout + Relaunch, StartBlackout + Stop and a fresh Launch, tagged `[BLACKOUT]` |
 | `videoperm` | calls `ResetVideoCapturePermission` twice and counts the wrapper's warning for the iOS no-op (expected: iOS one, Android none); logs `[VIDPERM] RESULT PASS` or `FAIL`; the iOS warning is once per process, so run it in a fresh process (an earlier Reset call from the debug panel makes it report `already warned` and FAIL) |
+| `readapis` | self-checking (`[Sample] readapis PASS\|FAIL ...`, ending in `readapis e2e done failures=N`): relaunches with known options and compares `GetHostLaunchOptions` with them (and with `GetLaunchOptions`), sets attributes of every type and compares `GetAllAttributes`, adds and removes secure rectangles and compares `GetAllSecureRectangles` |
 | `delete` | `DeleteCollectedDataOnDevice`, a relaunch, then an upload |
 | `deletescope` | self-checking (`PASS`/`FAIL`): for each `DeleteScope`, makes capture data, a draft report and a report whose upload fails (the SDK is relaunched against a dead endpoint, so its bundle waits for upload), calls `DeleteCollectedDataOnDeviceAsync` and checks the result, the status and the SDK's files left on disk (capture, snapshots, bundles); also the plain call, the default argument, the synchronous scoped overload, two scopes at once and a launch right after the delete |
 | `apm`, `apmoff`, `apmleak`, `apmpool`, `apmthrnew`, `apmthrjava`, `apmthrui` | APM stress and API-shape checks |
@@ -231,6 +233,15 @@ if they are sent (the `options` scenario sends every one and checks that Android
 
 The presets also set the Android 7.4.2 options with typed properties (#96): `MaxDataSize` and `NotifyFlushDelay` on both platforms, and on Android `MaxPendingReports`, `MaxPendingReportAge`, the hang and ANR sampling switches, `DetectAndReportExitLowMemoryBackgroundAsError`, `DetectAndReportCrashNdk` and `CrashNdkIncludeTombstoneLogs`. The two NDK keys are skipped in the comparison when the SDK does not report them (the NDK extension is not registered on Unity 6 with the Gradle plugin, #226). The `options` scenario sends each at a non-default value and logs `[OPTIONS] key sent=... native=...`.
 
+### Lifecycle check (`lifecycle` e2e scenario, Android)
+
+The `lifecycle` scenario (Android intent extra `bugsee_e2e`, issue #176) runs Launch/Relaunch/Stop sequences once the SDK is launched. Part 1 calls the native
+`Bugsee.relaunch/stop/launch` directly and logs what the SDK itself answers (`[Sample] lifecycle RAW ...`): a refused relaunch, two
+relaunches in a row, `stop()` during a relaunch, `launch()` during a relaunch's stop, and `stop()` in a relaunch's launch half. The
+same scenario in a build that pins another Android SDK version shows what a release changed; PASS/FAIL is judged only when the build
+pins SDK 7.4.2. Part 2 runs the same sequences through the public facade (the wrapper's lifecycle machine) and logs
+`[Sample] lifecycle PASS|FAIL ...`, ending in `lifecycle e2e done failures=N`. It does nothing on iOS.
+
 ### Filter check (`filters` e2e scenario)
 
 `BUGSEE_E2E_SCENARIO=filters` (iOS env var, Android intent extra `bugsee_e2e`) waits for the SDK to launch, turns the Filters
@@ -244,6 +255,17 @@ no filter any more (the seen counters stay 0), then runs the filters in pass-thr
 `filters e2e done failures=N`. The sample launches with `CaptureBreadcrumbs = true`: the option is off by default, and without it no
 breadcrumb reaches the breadcrumb filter. The HUD shows the live counters on its `flt on|off nR/S lD/S bD/S` line (redacted or
 dropped / seen, for the network, log and breadcrumb filter); the network and breadcrumb filters also log each redaction or drop.
+
+### Native extras check (`extras` e2e scenario)
+
+`BUGSEE_E2E_SCENARIO=extras` (iOS env var, Android intent extra `bugsee_e2e`) waits for the SDK to launch, then checks
+`Bugsee.ApplyDefaultNetworkSanitizer` on a hand-built event with a `token=` query value, `user:password@` credentials, an
+`Authorization` header and a `password` body field (redacted on Android, left as is with a `false` result on iOS), and inside a
+network filter (on Android a filter without it records the raw values, one that calls it does not). It then creates a real
+`android.webkit.WebView` (or, on iOS, a `WKWebView` from `Assets/Plugins/iOS/BugseeSampleNativeViews.mm`) and passes it to
+`Bugsee.AddSecureWebView` and `RemoveSecureWebView`, and checks that a plain native view and null are refused. On iOS it also reads `UIView.bugseeProtectedView` to check that the SDK holds the view in its hidden-view set after the add and not after the remove (Android has no read-back). It
+logs `[Sample] extras PASS|FAIL ...` lines ending in `extras e2e done failures=N`. Whether the secure view redacts the video is not
+observable from the scenario; on Android only the return values and the absence of a failure are checked.
 
 ### Action check (`actions` e2e scenario)
 

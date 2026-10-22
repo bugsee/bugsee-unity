@@ -5,7 +5,6 @@
     static void refineContext(java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String);
     static void channelLog(java.lang.String, int, int);
     static void channelAddNetwork(com.bugsee.library.contracts.exchange.NetworkEvent);
-    static void clearWrapperChannel();
     static void setSecureBuffer(int, int[]);
     static void attachLifecycleListener(com.bugsee.library.contracts.lifecycle.LifecycleEventListener);
     static void setManagedDataProvider(com.bugsee.library.contracts.common.DataRequestProvider);
@@ -38,4 +37,6 @@
 -keep interface com.bugsee.library.contracts.common.Callback1 { *; }
 -keep interface com.bugsee.library.contracts.feedback.FeedbackListener { *; }
 -keep interface com.bugsee.library.contracts.common.DataRequestProvider { *; }
+# C# calls sanitize() on Bugsee.getDefaultNetworkSanitizer() by name (Bugsee.ApplyDefaultNetworkSanitizer).
+-keep interface com.bugsee.library.contracts.exchange.NetworkDataSanitizer { *; }
 -keep interface com.bugsee.library.contracts.common.DataRequestResultCallback { *; }

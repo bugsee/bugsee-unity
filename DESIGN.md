@@ -48,7 +48,7 @@ Legacy foundation: `cross/unity`. Min Unity: **2021.3**.
 | `Bugsee.ext(Feedback.class)` | `Bugsee.Feedback` property (resolves extension under the hood) |
 | Java listeners | C# `event` / `Action<>` on `Bugsee` |
 | Lifecycle string constants | `LifecycleEvents` consts **+** optional enum for known events |
-| `IssueSeverity.Critical` (6.x) | Not in 7.x — map legacy Critical → `High` or `Blocker` if compat shim added |
+| `IssueSeverity` | Same values on both 7.x SDKs: `Critical = 4` exists and matches Android and iOS (`VeryLow = 1` is iOS `Low`; iOS `0` is unset); no mapping is needed |
 
 ## Launch options (approved)
 
@@ -178,7 +178,7 @@ Logging: `Log`, `Trace`, `Event`, `LogException`, `LogUnhandledException`, `Test
 Reporting: `ShowReportDialog`, `Upload`, `CreateReport`, `SetReportHandler`, `Upload(Report)`  
 Filters: network / log / breadcrumb  
 Exchange: `GetExchangeFactory`, `AddNetworkEvent`, `AddBreadcrumb`  
-Privacy: secure rectangles (Unity-relevant); skip Activity/View/WebView-specific APIs or no-op with docs  
+Privacy: secure rectangles (Unity-relevant; `AddSecureRectangle` covers Unity-drawn content). Native `addSecureActivity` (Android only), `addSecureView` and `addSecureWebView` take a native Activity, View or WebView that a Unity script does not own, so they are not exposed as-is. A WebView an app embeds through a plugin goes through `Bugsee.AddSecureWebView` / `RemoveSecureWebView`, which take the plugin's native handle (Android `android.webkit.WebView`, iOS `WKWebView*`; #103)
 Identity: `SetUserIdentifier` / `Get` / `Clear` (not email-as-primary)  
 Attributes: set/get/clear/clearAll/getAll  
 Appearance: `GetAppearance()`  
@@ -189,7 +189,7 @@ Wrapper: **internal registration only** — not an app-facing `SetWrapper`
 
 ### Contracts to port (public)
 
-`Options` (+ ~100 keys), option enums, `OptionsBuilder`, `BugseeLaunchOptions` / `AndroidLaunchOptions` / `IOSLaunchOptions`  
+`Options` (the `Options.*` key constants: native keys are checked against the vendored manifests by `Tests~/WrapperPolicy/OptionsManifestTests.cs`, plus wrapper-only `unity.*` keys), option enums, `OptionsBuilder`, `BugseeLaunchOptions` / `AndroidLaunchOptions` / `IOSLaunchOptions`  
 
 `EventFilter`, `NetworkEvent`, `LogEvent`, `Breadcrumb`, `BugseeExchangeFactory`  
 `Report`, `Attachment`, `ReportHandler`, `ReportCreationListener`  

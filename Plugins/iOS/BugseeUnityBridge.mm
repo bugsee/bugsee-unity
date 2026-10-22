@@ -562,6 +562,17 @@ char *_bugsee_get_launch_options(void)
     return BugseeCopyUTF8(json);
 }
 
+char *_bugsee_get_host_launch_options(void)
+{
+    id safe = BugseeJsonSafe([Bugsee getHostLaunchOptions], 0);
+    if (![safe isKindOfClass:[NSDictionary class]] || ![NSJSONSerialization isValidJSONObject:safe]) {
+        return NULL;
+    }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:safe options:0 error:nil];
+    NSString *json = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
+    return BugseeCopyUTF8(json);
+}
+
 void _bugsee_notify(const char *title, const char *body, int severity, const char *fieldsJson, int urgent)
 {
     NSString *titleStr = BugseeNSString(title);
@@ -704,15 +715,11 @@ void _bugsee_set_attribute(const char *key, const char *valueJson)
     [Bugsee setAttribute:BugseeNSString(key) withValue:value];
 }
 
-char *_bugsee_get_attribute(const char *key)
+// The SDK keeps the value's kind. Tag it for C# ("s:" string, "b:" bool 1/0, "i:" integer, "d:" floating
+// point, "j:" JSON container) so a string "1", the number 1 and true stay distinguishable.
+// locale:nil keeps the digits POSIX; C# parses them with the invariant culture.
+static NSString *BugseeTaggedAttribute(id attr)
 {
-    id attr = [Bugsee getAttribute:BugseeNSString(key)];
-    if (!attr) {
-        return NULL;
-    }
-    // The SDK keeps the value's kind. Tag it for C# ("s:" string, "b:" bool 1/0, "i:" integer, "d:" floating
-    // point, "j:" JSON container) so a string "1", the number 1 and true stay distinguishable.
-    // locale:nil keeps the digits POSIX; C# parses them with the invariant culture.
     NSString *wire = nil;
     if ([attr isKindOfClass:[NSString class]]) {
         wire = [@"s:" stringByAppendingString:attr];
@@ -736,7 +743,31 @@ char *_bugsee_get_attribute(const char *key)
             wire = [@"j:" stringByAppendingString:json];
         }
     }
-    return BugseeCopyUTF8(wire ?: [@"s:" stringByAppendingString:[attr description]]);
+    return wire ?: [@"s:" stringByAppendingString:[attr description]];
+}
+
+char *_bugsee_get_attribute(const char *key)
+{
+    id attr = [Bugsee getAttribute:BugseeNSString(key)];
+    if (!attr) {
+        return NULL;
+    }
+    return BugseeCopyUTF8(BugseeTaggedAttribute(attr));
+}
+
+// A JSON object of attribute name to the tagged text _bugsee_get_attribute returns; "{}" when none are set.
+char *_bugsee_get_all_attributes(void)
+{
+    NSDictionary *all = [Bugsee getAllAttributes];
+    NSMutableDictionary *tagged = [NSMutableDictionary dictionary];
+    for (id key in all) {
+        if ([key isKindOfClass:[NSString class]] && all[key]) {
+            tagged[key] = BugseeTaggedAttribute(all[key]);
+        }
+    }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:tagged options:0 error:nil];
+    NSString *json = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
+    return BugseeCopyUTF8(json ?: @"{}");
 }
 
 void _bugsee_clear_attribute(const char *key)
@@ -779,9 +810,118 @@ float _bugsee_pixels_per_point(int unityPixelWidth)
     return (float)[UIScreen mainScreen].scale;
 }
 
+static UIView *BugseeUnityFindView(UIView *view, int depth)
+{
+    if ([NSStringFromClass([view class]) hasPrefix:@"UnityView"]) return view;
+    if (depth > 6) return nil;
+    for (UIView *child in view.subviews) {
+        UIView *found = BugseeUnityFindView(child, depth + 1);
+        if (found) return found;
+    }
+    return nil;
+}
+
+// Unity's view and the window that holds it. Every window of every scene is searched (an iPad can show several scenes), so an
+// unrelated key window is never taken for Unity's; only when no UnityView is found anywhere is the key window's root view used.
+static __weak UIView *gBugseeUnityView; // the found view: the search runs again only when it is gone or detached
+
+static UIView *BugseeUnityViewAndWindow(UIWindow **outWindow)
+{
+    UIView *cached = gBugseeUnityView;
+    if (cached && cached.window) { *outWindow = cached.window; return cached; }
+    UIApplication *app = [UIApplication sharedApplication];
+    NSMutableArray<UIWindow *> *windows = [NSMutableArray array];
+    for (UIScene *scene in app.connectedScenes)
+        if ([scene isKindOfClass:[UIWindowScene class]]) [windows addObjectsFromArray:((UIWindowScene *)scene).windows];
+    for (UIWindow *window in app.windows)
+        if (![windows containsObject:window]) [windows addObject:window];
+    UIWindow *keyWindow = nil;
+    for (UIWindow *window in windows) {
+        UIView *found = BugseeUnityFindView(window, 0);
+        if (found) { gBugseeUnityView = found; *outWindow = window; return found; }
+        if (window.isKeyWindow && !keyWindow) keyWindow = window;
+    }
+    if (!keyWindow || !keyWindow.rootViewController.view) return nil;
+    *outWindow = keyWindow;
+    return keyWindow.rootViewController.view;
+}
+
+// Where Unity's own view sits on the screen, in points with a top-left origin (x, y, width, height into outRect). Differs from
+// UIScreen.bounds under iPad Split View, Slide Over and Stage Manager. Returns 0 when there is no window or view.
+int _bugsee_unity_view_region(float *outRect)
+{
+    if (!outRect) return 0;
+    UIWindow *window = nil;
+    UIView *view = BugseeUnityViewAndWindow(&window);
+    if (!view || !window) return 0;
+    // Explicitly the screen's coordinate space (a window's own space leaves out its origin under Split View / Stage Manager).
+    CGRect r = [view convertRect:view.bounds toCoordinateSpace:window.screen.coordinateSpace];
+    if (r.size.width <= 0 || r.size.height <= 0) return 0;
+    outRect[0] = (float)r.origin.x;
+    outRect[1] = (float)r.origin.y;
+    outRect[2] = (float)r.size.width;
+    outRect[3] = (float)r.size.height;
+    return 1;
+}
+
+// The size in points of the screen Unity's view is on (the main screen when it is not found), into outWH; 0 when unusable. The
+// fallback surface when Unity's view region cannot be read. Points need no scale here: the managed side multiplies by the main
+// screen's scale and the snapshot divides by it again.
+int _bugsee_screen_points(float *outWH)
+{
+    if (!outWH) return 0;
+    UIWindow *window = nil;
+    UIView *view = BugseeUnityViewAndWindow(&window);
+    CGSize size = (view && window ? window.screen : [UIScreen mainScreen]).bounds.size;
+    if (size.width <= 0 || size.height <= 0) return 0;
+    outWH[0] = (float)size.width;
+    outWH[1] = (float)size.height;
+    return 1;
+}
+
 void _bugsee_capture_view_hierarchy(void)
 {
     [Bugsee captureViewHierarchy];
+}
+
+// The app's own WKWebView (a native-plugin WebView), handed over as a pointer.
+// The pointer must be a live Objective-C object: isKindOfClass: on a freed or non-ObjC pointer crashes, so only a valid object of
+// another class is refused. UIKit and the SDK's view bookkeeping run on the main queue whichever thread C# calls from.
+// +addSecureWebView: alone does NOT hide the view (it only lets the SDK hide secure areas inside the page), so the add also calls
+// +addSecureView:, which is what masks it in the video (Android's addSecureWebView does both). Like every view the SDK is asked to
+// hide, the mask is registered only while the SDK is launched.
+static int BugseeSecureWebViewOp(void *view, BOOL add)
+{
+    if (view == NULL) return 0;
+    __block int result = 0;
+    void (^work)(void) = ^{
+        id webView = (__bridge id)view;
+        Class webKitClass = NSClassFromString(@"WKWebView");
+        if (webKitClass == Nil || ![webView isKindOfClass:webKitClass]) return;
+        if (add)
+        {
+            [Bugsee addSecureWebView:webView];
+            [Bugsee addSecureView:(UIView *)webView];
+        }
+        else
+        {
+            [Bugsee removeSecureView:(UIView *)webView];
+        }
+        result = 1;
+    };
+    if ([NSThread isMainThread]) work();
+    else dispatch_sync(dispatch_get_main_queue(), work);
+    return result;
+}
+
+int _bugsee_add_secure_web_view(void *view)
+{
+    return BugseeSecureWebViewOp(view, YES);
+}
+
+int _bugsee_remove_secure_web_view(void *view)
+{
+    return BugseeSecureWebViewOp(view, NO);
 }
 
 void _bugsee_feedback_show(void)
@@ -1094,6 +1234,7 @@ int _bugsee_exception_options_dropped(void) { return 0; }
 void _bugsee_show_report(const char *summary, const char *description, int severity, const char *labelsJson) { (void)summary; (void)description; (void)severity; (void)labelsJson; }
 void _bugsee_upload(const char *summary, const char *description, int severity, const char *labelsJson) { (void)summary; (void)description; (void)severity; (void)labelsJson; }
 char *_bugsee_get_launch_options(void) { return NULL; }
+char *_bugsee_get_host_launch_options(void) { return NULL; }
 void _bugsee_notify(const char *title, const char *body, int severity, const char *fieldsJson, int urgent) { (void)title; (void)body; (void)severity; (void)fieldsJson; (void)urgent; }
 int64_t _bugsee_start_transaction(const char *name, const char *operation, const char *attributesJson) { (void)name; (void)operation; (void)attributesJson; return 0; }
 int64_t _bugsee_span_start_child(int64_t spanId, const char *operation, const char *description) { (void)spanId; (void)operation; (void)description; return 0; }
@@ -1107,6 +1248,7 @@ void _bugsee_span_finish(int64_t spanId, int status) { (void)spanId; (void)statu
 void _bugsee_span_release(int64_t spanId) { (void)spanId; }
 void _bugsee_set_attribute(const char *key, const char *valueJson) { (void)key; (void)valueJson; }
 char *_bugsee_get_attribute(const char *key) { (void)key; return NULL; }
+char *_bugsee_get_all_attributes(void) { return NULL; }
 void _bugsee_clear_attribute(const char *key) { (void)key; }
 void _bugsee_clear_all_attributes(void) {}
 void _bugsee_set_email(const char *email) { (void)email; }
@@ -1114,6 +1256,8 @@ char *_bugsee_get_email(void) { return NULL; }
 void _bugsee_clear_email(void) {}
 float _bugsee_screen_scale(void) { return 1.f; }
 float _bugsee_pixels_per_point(int unityPixelWidth) { (void)unityPixelWidth; return 1.f; }
+int _bugsee_unity_view_region(float *outRect) { (void)outRect; return 0; }
+int _bugsee_screen_points(float *outWH) { (void)outWH; return 0; }
 void _bugsee_set_secure_buffer(int display, int *packed, int packedLength)
 {
     (void)display;
@@ -1121,6 +1265,8 @@ void _bugsee_set_secure_buffer(int display, int *packed, int packedLength)
     (void)packedLength;
 }
 void _bugsee_capture_view_hierarchy(void) {}
+int _bugsee_add_secure_web_view(void *view) { (void)view; return 0; }
+int _bugsee_remove_secure_web_view(void *view) { (void)view; return 0; }
 void _bugsee_feedback_show(void) {}
 void _bugsee_feedback_set_greeting(const char *message) { (void)message; }
 int _bugsee_appearance_set_color(const char *propertyName, int r, int g, int b, int a) { (void)propertyName; (void)r; (void)g; (void)b; (void)a; return 0; }

@@ -196,6 +196,7 @@ namespace Bugsee.WrapperPolicy.Tests
             { "booleanValue", new[] { 0 } }, { "charValue", new[] { 0 } }, { "getClass", new[] { 0 } },
             { "getName", new[] { 0 } }, { "getMessage", new[] { 0 } }, { "openStream", new[] { 0 } },
             { "write", new[] { 1, 3 } }, { "flush", new[] { 0 } }, { "close", new[] { 0 } },
+            { "runOnUiThread", new[] { 1 } }, // android.app.Activity, the secure WebView calls
         };
 
         static IEnumerable<string> AndroidSources() =>

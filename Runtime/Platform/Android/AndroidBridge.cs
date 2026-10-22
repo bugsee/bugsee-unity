@@ -102,7 +102,7 @@ namespace Bugsee.Platform.Android
 
         public void Relaunch(IDictionary<string, object> options) => Relaunch(options, null);
 
-        internal void Relaunch(IDictionary<string, object> options, Action<bool> completion) =>
+        internal void Relaunch(IDictionary<string, object> options, Action<bool> completion, Action joined = null) =>
             MainThreadDispatcher.Run(() =>
             {
                 ReportHandlerProxy.InvalidateBudget();
@@ -110,14 +110,14 @@ namespace Bugsee.Platform.Android
                 {
                     ReportHandlerProxy.InvalidateBudget();
                     completion?.Invoke(ok);
-                });
+                }, joined);
             });
 
         void ILifecycleResultBridge.Launch(string appToken, IDictionary<string, object> options, Action<bool> started) =>
             Launch(appToken, options, started);
 
-        void ILifecycleResultBridge.Relaunch(IDictionary<string, object> options, Action<bool> started) =>
-            Relaunch(options, started);
+        void ILifecycleResultBridge.Relaunch(IDictionary<string, object> options, Action<bool> started, Action joined) =>
+            Relaunch(options, started, joined);
 
         // finished (StopAsync): true when the SDK reported the stop, false at the machine's 10 s soft deadline. The
         // stop is queued to the main thread like every lifecycle call here, so it is never skipped.
@@ -151,6 +151,14 @@ namespace Bugsee.Platform.Android
                 using (var map = options.Call<AndroidJavaObject>("toMap"))
                     return map == null ? null : AndroidJavaConverters.MapToDictionary(map);
             }
+        }
+
+        public IReadOnlyDictionary<string, object> GetHostLaunchOptions()
+        {
+            // A Map<String, Serializable>, never null; it describes the last applied configuration even after Stop.
+            using (AndroidJniScope.Enter())
+            using (var map = _bugsee.CallStatic<AndroidJavaObject>("getHostLaunchOptions"))
+                return AndroidJavaConverters.MapToDictionary(map);
         }
 
         public BugseeStatus GetStatus()
@@ -440,6 +448,14 @@ namespace Bugsee.Platform.Android
                 return AndroidJavaConverters.UnboxAttribute(value);
         }
 
+        public IReadOnlyDictionary<string, object> GetAllAttributes()
+        {
+            // The SDK answers null when no attribute is set; values are widened as GetAttribute widens them.
+            using (AndroidJniScope.Enter())
+            using (var map = _bugsee.CallStatic<AndroidJavaObject>("getAllAttributes"))
+                return AndroidJavaConverters.AttributesToDictionary(map);
+        }
+
         public void ClearAttribute(string key) => _bugsee.CallStatic("clearAttribute", key);
 
         public void ClearAllAttributes() => _bugsee.CallStatic("clearAllAttributes");
@@ -454,6 +470,17 @@ namespace Bugsee.Platform.Android
         }
 
         public float GetSecureRectSnapshotScale() => 1f;
+
+        readonly SecureRectSurfaceProbe _surfaceProbe = new SecureRectSurfaceProbe();
+
+        // Unity's surface on the screen, read with cached JNI handles (cheap enough for every frame). Resolution Scaling or a
+        // stretched buffer keep the surface at display size while Screen shrinks, so the aspect is not checked: a rotation
+        // in flight shows for a frame or two, until Unity's size and the view agree again.
+        public bool TryGetSecureRectViewRegion(int screenWidth, int screenHeight, out int left, out int top, out int width, out int height, out bool settled)
+        {
+            settled = true;
+            return _surfaceProbe.TryRead(screenWidth, screenHeight, out left, out top, out width, out height);
+        }
 
         public void CaptureViewHierarchy() => _bugsee.CallStatic("captureViewHierarchy");
 
@@ -484,6 +511,164 @@ namespace Bugsee.Platform.Android
                 _bugsee.CallStatic("setNetworkEventFilter", _networkFilterProxy);
             }
             _networkFilterProxy.SetFilter(filter);
+        }
+
+        public bool ApplyDefaultNetworkSanitizer(INetworkEvent networkEvent)
+        {
+            if (networkEvent == null) return false;
+            INetworkEvent tempEvent = null;
+            try
+            {
+                var androidEvent = networkEvent as AndroidNetworkEvent;
+                INetworkEvent temp = null;
+                if (androidEvent == null)
+                {
+                    // An event the app built itself: sanitize a native copy and write the result back. The factory returns
+                    // null while the SDK has no network consumer (not launched, or network capture off): nothing is redacted then.
+                    var factory = GetExchangeFactory();
+                    if (factory == null) return false;
+                    temp = factory.CreateNetworkEvent(
+                        DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), networkEvent.Stage,
+                        string.IsNullOrEmpty(networkEvent.Id) ? null : networkEvent.Id, networkEvent.Mechanism, networkEvent.Method);
+                    tempEvent = temp;
+                    androidEvent = temp as AndroidNetworkEvent;
+                    if (androidEvent == null) return false;
+                    CopyNetworkFields(networkEvent, androidEvent);
+                }
+
+                using (var sanitizer = _bugsee.CallStatic<AndroidJavaObject>("getDefaultNetworkSanitizer"))
+                {
+                    if (sanitizer == null) return false;
+                    sanitizer.Call("sanitize", androidEvent.Native);
+                }
+                if (temp != null)
+                {
+                    networkEvent.Url = temp.Url;
+                    networkEvent.Body = temp.Body;
+                    networkEvent.ErrorShortMessage = temp.ErrorShortMessage;
+                    networkEvent.ErrorDescription = temp.ErrorDescription;
+                    var headers = temp.Headers;
+                    // A null header map in, a null map out (the native copy reads back an empty one).
+                    if (networkEvent.Headers != null || (headers != null && headers.Count > 0))
+                        networkEvent.Headers = headers;
+                }
+                return true;
+            }
+            catch (Exception ex) when (ex is AndroidJavaException || ex is ObjectDisposedException || ex is InvalidOperationException || ex is NullReferenceException)
+            {
+                // An event kept past its filter callback throws ObjectDisposedException; none of these may escape into a filter.
+                Debug.LogWarning("[Bugsee] default network sanitizer failed: " + ex.Message);
+                return false;
+            }
+            finally
+            {
+                // The factory-made copy is ours; release its Java reference (the wrapper has no Dispose of its own).
+                if (tempEvent != null)
+                {
+                    try
+                    {
+                        var native = ((AndroidNetworkEvent)tempEvent).Native;
+                        ((IReleasableNativeEvent)tempEvent).ReleaseNative();
+                        native.Dispose();
+                    }
+                    catch (Exception) { /* already released */ }
+                }
+            }
+        }
+
+        public bool AddSecureWebView(object nativeWebView)
+        {
+            var view = AsWebView(nativeWebView);
+            if (view == null) return false;
+            return OnUiThread(() => _bugsee.CallStatic("addSecureWebView", view));
+        }
+
+        public bool RemoveSecureWebView(object nativeWebView)
+        {
+            var view = AsWebView(nativeWebView);
+            if (view == null) return false;
+            return OnUiThread(() =>
+            {
+                // Bugsee has two removeSecureView overloads (View and Object, the fragment one). Name the View one by
+                // signature so the lookup cannot land on the one that ignores a WebView.
+                if (_removeSecureViewMethod == IntPtr.Zero)
+                    _removeSecureViewMethod = AndroidJNIHelper.GetMethodID(_bugsee.GetRawClass(), "removeSecureView", "(Landroid/view/View;)V", true);
+                if (_removeSecureViewMethod == IntPtr.Zero)
+                    throw new InvalidOperationException("removeSecureView(View) not found");
+                AndroidJNI.CallStaticVoidMethod(_bugsee.GetRawClass(), _removeSecureViewMethod, new[] { new jvalue { l = view.GetRawObject() } });
+                ThrowPendingJavaException();
+            });
+        }
+
+        static IntPtr _removeSecureViewMethod;
+
+        // A pending Java exception (a failed method lookup leaves NoSuchMethodError pending) must be cleared or the next JNI call faults.
+        static void ThrowPendingJavaException()
+        {
+            var pending = AndroidJNI.ExceptionOccurred();
+            if (pending == IntPtr.Zero) return;
+            AndroidJNI.ExceptionClear();
+            AndroidJNI.DeleteLocalRef(pending);
+            throw new InvalidOperationException("Java exception in removeSecureView");
+        }
+
+        // The SDK measures the view's geometry on the calling thread, so the registration runs on the UI thread. The caller
+        // waits (bounded) so the result and any failure are known when the call returns.
+        static bool OnUiThread(Action work)
+        {
+            try
+            {
+                using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+                using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
+                {
+                    if (activity == null) return false;
+                    Exception failure = null;
+                    var done = new System.Threading.ManualResetEvent(false);
+                    // 0 queued, 1 running, 2 abandoned: a request that timed out must not run later, so false means "not done".
+                    int state = 0;
+                    activity.Call("runOnUiThread", new AndroidJavaRunnable(() =>
+                    {
+                        if (System.Threading.Interlocked.CompareExchange(ref state, 1, 0) != 0) return;
+                        try { work(); }
+                        catch (Exception ex) { failure = ex; }
+                        finally { done.Set(); }
+                    }));
+                    if (!done.WaitOne(3000))
+                    {
+                        if (System.Threading.Interlocked.CompareExchange(ref state, 2, 0) == 0)
+                        {
+                            Debug.LogWarning("[Bugsee] secure WebView call timed out waiting for the UI thread; it was dropped, call it again.");
+                            return false;
+                        }
+                        // Already running: let it finish rather than report a state that is about to change. The SDK call is short,
+                        // so a wait this long means it is stuck; the outcome is then unknown and the result is false.
+                        if (!done.WaitOne(30000))
+                        {
+                            Debug.LogWarning("[Bugsee] secure WebView call is still running on the UI thread after 33 s; its outcome is unknown.");
+                            return false;
+                        }
+                    }
+                    if (failure != null)
+                    {
+                        Debug.LogWarning("[Bugsee] secure WebView call failed: " + failure.Message);
+                        return false;
+                    }
+                    return true;
+                }
+            }
+            catch (AndroidJavaException ex)
+            {
+                Debug.LogWarning("[Bugsee] secure WebView call failed: " + ex.Message);
+                return false;
+            }
+        }
+
+        static AndroidJavaObject AsWebView(object nativeWebView)
+        {
+            var view = nativeWebView as AndroidJavaObject;
+            if (view == null || view.GetRawObject() == IntPtr.Zero) return null;
+            using (var webViewClass = new AndroidJavaClass("android.webkit.WebView"))
+                return AndroidJNI.IsInstanceOf(view.GetRawObject(), webViewClass.GetRawClass()) ? view : null;
         }
 
         public void SetLogEventFilter(EventFilter<ILogEvent> filter)
