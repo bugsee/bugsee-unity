@@ -917,6 +917,9 @@ namespace Bugsee.Platform.IOS
             target.Headers = source.Headers;
         }
 
+        /// <summary>The fingerprint the Xcode Run Script recorded in Info.plist for the build token, or null.</summary>
+        internal static string RecordedBuildTokenFingerprint() => ConsumeNativeString(_bugsee_build_token_fingerprint());
+
         static string ConsumeNativeString(IntPtr ptr)
         {
             if (ptr == IntPtr.Zero) return null;
@@ -1007,6 +1010,7 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern IntPtr _bugsee_get_host_launch_options();
         [DllImport("__Internal")] static extern void _bugsee_set_attribute(string key, string valueJson);
         [DllImport("__Internal")] static extern IntPtr _bugsee_get_attribute(string key);
+        [DllImport("__Internal")] static extern IntPtr _bugsee_build_token_fingerprint();
         [DllImport("__Internal")] static extern IntPtr _bugsee_get_all_attributes();
         [DllImport("__Internal")] static extern void _bugsee_clear_attribute(string key);
         [DllImport("__Internal")] static extern void _bugsee_clear_all_attributes();

@@ -866,6 +866,17 @@ void _bugsee_clear_email(void)
     [Bugsee clearUserIdentifier];
 }
 
+// The fingerprint of the BUGSEE_APP_TOKEN the build was made with, which the Xcode Run Script records as the
+// BugseeBuildTokenFingerprint key of the app's Info.plist (see IosArchiveUploadScript); NULL when it recorded none.
+char *_bugsee_build_token_fingerprint(void)
+{
+    id value = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"BugseeBuildTokenFingerprint"];
+    if (![value isKindOfClass:[NSString class]] || [(NSString *)value length] == 0) {
+        return NULL;
+    }
+    return BugseeCopyUTF8((NSString *)value);
+}
+
 float _bugsee_screen_scale(void)
 {
     return (float)[UIScreen mainScreen].scale;
@@ -1384,6 +1395,7 @@ void _bugsee_clear_all_attributes(void) {}
 void _bugsee_set_email(const char *email) { (void)email; }
 char *_bugsee_get_email(void) { return NULL; }
 void _bugsee_clear_email(void) {}
+char *_bugsee_build_token_fingerprint(void) { return NULL; }
 float _bugsee_screen_scale(void) { return 1.f; }
 float _bugsee_pixels_per_point(int unityPixelWidth) { (void)unityPixelWidth; return 1.f; }
 int _bugsee_unity_view_region(float *outRect) { (void)outRect; return 0; }
