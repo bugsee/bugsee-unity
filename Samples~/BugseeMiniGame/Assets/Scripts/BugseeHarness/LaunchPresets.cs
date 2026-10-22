@@ -86,6 +86,12 @@ namespace Bugsee.Sample
                 android.AdvancedWebViewCapture = on;
                 android.WebViewReportTrigger = on;
                 android.CaptureRespectFlagSecure = on;
+                // Android 7.4.2 keys that had no typed property (#96).
+                android.DetectAndReportExitLowMemoryBackgroundAsError = on;
+                android.DetectAndReportHangSampling = on;
+                android.DetectAndReportAnrSampling = on;
+                android.DetectAndReportCrashNdk = on;
+                android.CrashNdkIncludeTombstoneLogs = on;
             }
             // iOS-only options (typed IOSLaunchOptions properties, #97). Android never gets them: they are not set there.
             if (o is IOSLaunchOptions ios)
@@ -110,6 +116,8 @@ namespace Bugsee.Sample
             o.Duration = 30;
             o.WifiOnlyUpload = false;
             o.ReportHandlerCallbackTimeout = 10;
+            o.MaxDataSize = 40;
+            o.NotifyFlushDelay = 100;
             o.CaptureVideo = false;
             o.CaptureLogsLevel = LogLevel.Error;
             o.PerformanceMonitoring = false;
@@ -120,7 +128,11 @@ namespace Bugsee.Sample
             o.ReportingUILabelsRequired = false;
             o.ReportingUIPrioritySelectorEnabled = false;
             if (o is AndroidLaunchOptions android)
+            {
                 android.CaptureVideoMode = VideoMode.V1;
+                android.MaxPendingReports = 5;
+                android.MaxPendingReportAge = 7;
+            }
             if (o is IOSLaunchOptions ios)
             {
                 ios.CrashHandlerType = CrashHandlerType.BSD;
@@ -140,13 +152,19 @@ namespace Bugsee.Sample
             o.Duration = 120;
             o.WifiOnlyUpload = false;
             o.ReportHandlerCallbackTimeout = 60;
+            o.MaxDataSize = 200;
+            o.NotifyFlushDelay = 500;
             o.DetectAndReportHangFairLevel = 2000;
             o.DetectAndReportHangMediumLevel = 4000;
             o.DetectAndReportHangSevereLevel = 8000;
             o.CaptureLogsLevel = LogLevel.Verbose;
             o.CaptureScreenshotScale = 0.5f;
             if (o is AndroidLaunchOptions android)
+            {
                 android.WebViewDomainAllowlist = "example.com";
+                android.MaxPendingReports = 50;
+                android.MaxPendingReportAge = 14;
+            }
             if (o is IOSLaunchOptions ios)
             {
                 ios.CrashHandlerType = CrashHandlerType.MachAndBSD;
@@ -188,6 +206,8 @@ namespace Bugsee.Sample
                 .Set(Options.ReportingUIPrioritySelectorEnabled, true)
                 .Set(Options.PerformanceAdaptiveSampling, false)
                 .Set(Options.PerformanceUploadMode, "realtime")
+                .Set(Options.MaxDataSize, 25)
+                .Set(Options.MaxPendingReports, 12)
                 // iOS-only keys through the builder: Android's launch drops them (OptionPlatformGate).
                 .SetCrashSignals(CrashSignals.Abrt | CrashSignals.Segv | CrashSignals.Bus | CrashSignals.Trap)
                 .SetReportingUIStyle(ReportingUIStyle.BasedOnStatusBar)

@@ -256,7 +256,16 @@ namespace Bugsee.Platform.Android
 
         public void Trace(string name, object value)
         {
-            _bugsee.CallStatic("trace", name, Box(value));
+            using (var boxed = Box(value))
+            {
+                if (TraceProbe.Enabled)
+                {
+                    string cls;
+                    using (var c = boxed?.Call<AndroidJavaObject>("getClass")) cls = c?.Call<string>("getName");
+                    TraceProbe.Last = cls == null ? null : cls + ":" + boxed.Call<string>("toString");
+                }
+                _bugsee.CallStatic("trace", name, boxed);
+            }
         }
 
         public void Event(string name, IDictionary<string, object> parameters)
