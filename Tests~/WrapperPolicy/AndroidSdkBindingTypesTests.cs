@@ -1037,7 +1037,7 @@ namespace Bugsee.WrapperPolicy.Tests
             {
                 var site = SiteOf(path);
                 var file = Path.GetFileName(path);
-                foreach (Match m in Regex.Matches(site.Src, @"\b(\w+)\s*\??\s*\.\s*GetStatic(?:<(\w+)>)?\s*\(\s*([^,)]+?)\s*\)"))
+                foreach (Match m in Regex.Matches(site.Src, @"\b(\w+)\s*\??\s*\.\s*GetStatic(?:<([^>]+)>)?\s*\(\s*([^,)]+?)\s*\)"))
                 {
                     var cls = ClassOfReceiver(site, m.Groups[1].Value, m.Index);
                     if (cls == null || !cls.StartsWith("com.bugsee.library.")) continue; // UnityPlayer.currentActivity & co: Unity's
