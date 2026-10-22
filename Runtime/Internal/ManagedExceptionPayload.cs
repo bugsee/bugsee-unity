@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Security.Cryptography;
 using System.Text;
 using Bugsee.WrapperPolicy;
 using UnityEngine;
@@ -91,30 +90,30 @@ namespace Bugsee.Internal
             return frames;
         }
 
-        public static string CalculateSignature(string name, string[] rawFrames)
+        /// <summary>
+        /// Client signature (see <see cref="ManagedSignatureRecipe"/>): the exception type and its user frames only.
+        /// <paramref name="callerStack"/> is the live stack where the payload is built, used to cut the caller chain Mono appends.
+        /// </summary>
+        public static string CalculateSignature(string name, string[] rawFrames, string[] addresses = null, string moduleUuid = null, string callerStack = null)
         {
-            EnsureBuildIdentity();
-            var sb = new StringBuilder();
-            sb.Append(name ?? "");
-            if (rawFrames != null)
-            {
-                foreach (var f in rawFrames)
-                {
-                    sb.Append(f);
-                }
-            }
-            sb.Append(_buildGuid ?? "");
-            return Sha256Hex(sb.ToString());
+            return ManagedSignatureRecipe.Compute(name, rawFrames, addresses, moduleUuid, callerStack);
+        }
+
+        /// <summary>The live stack (frames above here), or null when it cannot be read.</summary>
+        static string LiveStack()
+        {
+            try { return new System.Diagnostics.StackTrace(false).ToString(); }
+            catch { return null; }
         }
 
         public const int MaxPayloadNodes = ManagedNodeBudget.DefaultMax;
 
         public static Payload FromException(Exception exception)
         {
-            return FromException(exception, 0, new ManagedNodeBudget());
+            return FromException(exception, 0, new ManagedNodeBudget(), LiveStack());
         }
 
-        static Payload FromException(Exception exception, int depth, ManagedNodeBudget budget)
+        static Payload FromException(Exception exception, int depth, ManagedNodeBudget budget, string callerStack)
         {
             if (exception == null || depth > 8)
             {
@@ -126,7 +125,7 @@ namespace Bugsee.Internal
             // (past the limit the aggregate itself becomes the node).
             if (exception is AggregateException ae && ae.InnerExceptions != null && ae.InnerExceptions.Count == 1 && depth < 8)
             {
-                return FromException(ae.InnerExceptions[0], depth + 1, budget);
+                return FromException(ae.InnerExceptions[0], depth + 1, budget, callerStack);
             }
 
             if (!budget.TryTake())
@@ -174,7 +173,7 @@ namespace Bugsee.Internal
                 for (var i = 0; i < agg.InnerExceptions.Count; i++)
                 {
                     if (budget.IsExhausted) break;
-                    var nested = FromException(agg.InnerExceptions[i], depth + 1, budget);
+                    var nested = FromException(agg.InnerExceptions[i], depth + 1, budget, callerStack);
                     if (nested == null) continue;
                     if (head == null)
                     {
@@ -193,7 +192,7 @@ namespace Bugsee.Internal
             }
             else if (exception.InnerException != null)
             {
-                cause = FromException(exception.InnerException, depth + 1, budget);
+                cause = FromException(exception.InnerException, depth + 1, budget, callerStack);
             }
 
             return new Payload
@@ -201,7 +200,7 @@ namespace Bugsee.Internal
                 name = exception.GetType().FullName,
                 reason = exception.Message ?? "",
                 frames = frames,
-                signature = CalculateSignature(exception.GetType().FullName, raw),
+                signature = CalculateSignature(exception.GetType().FullName, raw, set.Addresses, moduleUuid, callerStack),
                 buildID = BuildGuid,
                 moduleUUID = moduleUuid,
                 cause = cause,
@@ -251,20 +250,6 @@ namespace Bugsee.Internal
                 }));
             }
             return ManagedPayloadJson.Chain(levels);
-        }
-
-        static string Sha256Hex(string input)
-        {
-            using (var sha = SHA256.Create())
-            {
-                var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(input ?? ""));
-                var sb = new StringBuilder(bytes.Length * 2);
-                foreach (var b in bytes)
-                {
-                    sb.Append(b.ToString("x2"));
-                }
-                return sb.ToString();
-            }
         }
     }
 }
