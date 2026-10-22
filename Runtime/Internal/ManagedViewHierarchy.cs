@@ -55,9 +55,9 @@ namespace Bugsee.Internal
                 var walkedAt = Clock.ElapsedMilliseconds;
                 var count = SecureRectRegistry.Instance.CopyRects(0, ref _secureRects);
                 var scale = pixelsPerNativeUnit != null ? pixelsPerNativeUnit() : 1f;
-                var json = ManagedViewTreeJson.Write(root, _secureRects, count, scale);
+                var json = ManagedViewTreeJson.Write(root, _secureRects, count, scale, out var secured);
                 if (Debug.isDebugBuild)
-                    LogLater(budget.Taken, json == null ? 0 : json.Length, walkedAt - startedAt, Clock.ElapsedMilliseconds - walkedAt, budget.Truncated);
+                    LogLater(budget.Taken, json == null ? 0 : json.Length, walkedAt - startedAt, Clock.ElapsedMilliseconds - walkedAt, budget.Truncated, secured);
                 return json;
             }
             catch (Exception ex)
@@ -69,10 +69,10 @@ namespace Bugsee.Internal
         }
 
         // Logged on the next frame: a Debug.Log is captured by the SDK, and the SDK is inside requestData right now.
-        static void LogLater(int nodes, int chars, long walkMs, long writeMs, bool truncated)
+        static void LogLater(int nodes, int chars, long walkMs, long writeMs, bool truncated, int secured)
         {
             MainThreadDispatcher.Post(() => Debug.Log("[Bugsee] managed view hierarchy: " + nodes + " nodes, " + chars + " chars, walk "
-                + walkMs + " ms, write " + writeMs + " ms" + (truncated ? ", truncated" : "")));
+                + walkMs + " ms, write " + writeMs + " ms" + (truncated ? ", truncated" : "") + ", secured " + secured));
         }
 
         static void LogLater(string error)
