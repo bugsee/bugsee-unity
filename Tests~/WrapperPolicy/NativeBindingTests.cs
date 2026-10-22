@@ -426,7 +426,7 @@ namespace Bugsee.WrapperPolicy.Tests
             // An export nothing calls is dead weight in every player; a renamed import would otherwise leave one behind.
             var imported = new HashSet<string>(AllImports(out _).Select(i => i.Name));
             // Test hooks are allowed when the native test harness uses them; _bugsee_test_crash is production and is imported.
-            var harness = File.ReadAllText(RepoFile("Tests~/iOS/BridgeTests.mm"));
+            var harness = string.Join("\n", Directory.GetFiles(RepoFile("Tests~/iOS"), "*.mm").Select(File.ReadAllText));
             var orphans = AllExports(out _)
                 .Select(e => e.Name)
                 .Where(n => !imported.Contains(n)

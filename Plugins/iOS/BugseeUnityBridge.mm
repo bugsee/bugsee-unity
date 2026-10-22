@@ -357,7 +357,7 @@ static NSInteger BugseeExceptionSkipFrames(NSDictionary *options)
 
 // What happens once the SDK has made the report for a managed upload: the fence check, the report fields applied, the
 // callback (1) and then the upload through `upload`. Every refusal answers callback(0, uploadId) and uploads nothing.
-// Split from _bugsee_upload_managed_report so the tests can drive it with a report and a recording `upload`.
+// Split from the upload export so the tests can drive it with a report and a recording `upload`.
 static void BugseeFinishManagedReportUpload(BugseeExtendedReport *_Nullable report,
                                             NSString *jsonCopy,
                                             uint64_t uploadId,
@@ -448,30 +448,24 @@ const char *_bugsee_test_apply_extended_attachments(const char *json)
     return strdup(summary.UTF8String);
 }
 // Runs the end of a managed upload against a fresh report with a recording upload step (no SDK launch needed), and returns
-// "<callback count>:<last callback success>:<last callback token>|<uploads>|<summary of the uploaded report or ->|<labels or ->".
-static int gTestUploadCallbacks = 0, gTestUploadLastSucceeded = -1;
-static uint64_t gTestUploadLastToken = 0;
+// the calls in order, "cb<success>:<token>" and "up", joined by "," and then "|<summary>|<labels>" of the uploaded report
+// ("|-" when nothing was uploaded).
+static NSMutableArray<NSString *> *gTestUploadSequence = nil;
 static void BugseeTestUploadCallback(int succeeded, uint64_t token)
 {
-    gTestUploadCallbacks++;
-    gTestUploadLastSucceeded = succeeded;
-    gTestUploadLastToken = token;
+    [gTestUploadSequence addObject:[NSString stringWithFormat:@"cb%d:%llu", succeeded, (unsigned long long)token]];
 }
 const char *_bugsee_test_finish_managed_upload(const char *json, int withReport, uint64_t uploadId, uint64_t uploadFence)
 {
-    gTestUploadCallbacks = 0;
-    gTestUploadLastSucceeded = -1;
-    gTestUploadLastToken = 0;
-    __block int uploads = 0;
+    gTestUploadSequence = [NSMutableArray array];
     __block NSString *uploaded = @"-";
     BugseeExtendedReport *report = withReport ? [BugseeExtendedReport new] : nil;
     BugseeFinishManagedReportUpload(report, json ? [NSString stringWithUTF8String:json] : @"", uploadId, uploadFence,
                                     BugseeTestUploadCallback, ^(BugseeExtendedReport *ready) {
-        uploads++;
+        [gTestUploadSequence addObject:@"up"];
         uploaded = [NSString stringWithFormat:@"%@|%@", ready.summary ?: @"-", [ready.labels componentsJoinedByString:@","] ?: @"-"];
     });
-    return strdup([NSString stringWithFormat:@"%d:%d:%llu|%d|%@", gTestUploadCallbacks, gTestUploadLastSucceeded,
-                                             (unsigned long long)gTestUploadLastToken, uploads, uploaded].UTF8String);
+    return strdup([NSString stringWithFormat:@"%@|%@", [gTestUploadSequence componentsJoinedByString:@","], uploaded].UTF8String);
 }
 // The current upload fence, so a test can start an upload that is still active.
 uint64_t _bugsee_test_managed_upload_fence(void)

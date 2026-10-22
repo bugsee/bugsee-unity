@@ -887,8 +887,8 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             string upload = ExtractMethodBody(
                 File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm")),
-                "_bugsee_upload_managed_report");
-            int uploadIdx = upload.IndexOf("uploadReport:", StringComparison.Ordinal);
+                "static void BugseeFinishManagedReportUpload(");
+            int uploadIdx = upload.IndexOf("upload(report)", StringComparison.Ordinal);
             int dictGuard = upload.IndexOf("isKindOfClass:[NSDictionary class]", StringComparison.Ordinal);
             Assert.That(dictGuard, Is.GreaterThanOrEqualTo(0));
             Assert.That(uploadIdx, Is.GreaterThan(dictGuard));

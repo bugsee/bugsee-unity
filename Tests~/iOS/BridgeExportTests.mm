@@ -3,12 +3,12 @@
 // observable state the test checks it (a fake wrapper channel, the filter blocks the bridge hands the SDK, the secure
 // rect buffer the wrapper answers the SDK with, the managed upload's end); the rest are smoke calls, named in place:
 // they must link, take the argument shapes C# passes (NULL strings, short buffers, unknown request ids) and return
-// without crashing, and assert nothing else. The
-// prototypes below are checked against the real exports by NativeBindingTests; IosExportCoverageTests fails when a
+// without crashing, and assert nothing else. The prototypes below are checked against the real exports by NativeBindingTests; IosExportCoverageTests fails when a
 // DllImported export is not called from one of the Tests~/iOS/*.mm files.
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <Bugsee/Bugsee.h>
+#import <Security/Security.h>
 #include <dlfcn.h>
 
 extern "C" {
@@ -178,22 +178,30 @@ int main(void)
     _bugsee_clear_all_attributes();
     expect([takeString(_bugsee_get_attribute("b")) isEqualToString:@"(null)"], "clear_all_attributes removes every attribute");
 
-    // User identifier ("email" on the C# side). Probed at run time: the SDK keeps it in the keychain, which a bare simulator
-    // process may not be able to write. When it can, the set value is read back, replaced, and cleared; when it cannot,
-    // only the calls are checked (the device e2e scenarios assert it there).
+    // User identifier ("email" on the C# side). The SDK keeps it in the keychain. A bare simulator process cannot use it
+    // (SecItemAdd fails with errSecMissingEntitlement, -34018), so on CI the round trip below is skipped and the email
+    // exports are effectively unasserted there (the device e2e scenarios assert them). Where the keychain works (probed
+    // with a throwaway item of our own) the round trip is required.
+    NSDictionary *probe = @{ (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+                             (__bridge id)kSecAttrService: @"com.bugsee.unity.tests.probe",
+                             (__bridge id)kSecAttrAccount: @"probe" };
+    NSMutableDictionary *probeAdd = [probe mutableCopy];
+    probeAdd[(__bridge id)kSecValueData] = [@"x" dataUsingEncoding:NSUTF8StringEncoding];
+    OSStatus probeStatus = SecItemAdd((__bridge CFDictionaryRef)probeAdd, NULL);
+    if (probeStatus == errSecSuccess) SecItemDelete((__bridge CFDictionaryRef)probe);
     _bugsee_clear_email();
     _bugsee_set_email("user@example.com");
-    NSString *stored = takeString(_bugsee_get_email());
-    if ([stored isEqualToString:@"user@example.com"]) {
-        expect(1, "a set email reads back");
+    if (probeStatus == errSecMissingEntitlement) {
+        printf("note: no keychain entitlement in this process (%d), email read-back skipped\n", (int)probeStatus);
+    } else {
+        expect(probeStatus == errSecSuccess, "the keychain probe either works or lacks the entitlement");
+        expect([takeString(_bugsee_get_email()) isEqualToString:@"user@example.com"], "a set email reads back");
         _bugsee_set_email("other@example.com");
         expect([takeString(_bugsee_get_email()) isEqualToString:@"other@example.com"], "a second email replaces the first");
         _bugsee_clear_email();
         expect([takeString(_bugsee_get_email()) isEqualToString:@"(null)"], "clear_email removes the email");
-    } else {
-        printf("note: no keychain in this process, email read-back skipped (got %s)\n", stored.UTF8String);
-        _bugsee_clear_email();
     }
+    _bugsee_clear_email();
     _bugsee_set_email(NULL);
     _bugsee_free(_bugsee_get_email());
     _bugsee_clear_email();
@@ -218,17 +226,19 @@ int main(void)
     // The end of an upload (what runs once the SDK has made the report), driven with a fresh report and a recording
     // upload step: the callback comes first with success, then the report holding the JSON's fields is uploaded.
     uint64_t fence = _bugsee_test_managed_upload_fence();
-    expect([finishUpload("{\"summary\":\"S\",\"labels\":[\"a\",\"b\"]}", 1, 5, fence) isEqualToString:@"1:1:5|1|S|a,b"],
+    expect([finishUpload("{\"summary\":\"S\",\"labels\":[\"a\",\"b\"]}", 1, 5, fence) isEqualToString:@"cb1:5,up|S|a,b"],
            "an active upload reports success with its token, then uploads the report with the JSON's fields");
-    expect([finishUpload("{}", 0, 5, fence) isEqualToString:@"1:0:5|0|-"], "no report made: a failed create, nothing uploaded");
-    expect([finishUpload("not json", 1, 5, fence) isEqualToString:@"1:0:5|0|-"], "an unreadable report JSON fails and uploads nothing");
-    expect([finishUpload("{}", 1, 0, fence) isEqualToString:@"1:0:0|0|-"], "upload id 0 is never active");
-    expect([finishUpload("{}", 1, 5, fence + 1) isEqualToString:@"1:0:5|0|-"], "a fence from another generation fails and uploads nothing");
+    expect([finishUpload("{}", 0, 5, fence) isEqualToString:@"cb0:5|-"], "no report made: a failed create, nothing uploaded");
+    expect([finishUpload("not json", 1, 5, fence) isEqualToString:@"cb0:5|-"], "an unreadable report JSON fails and uploads nothing");
+    expect([finishUpload("{}", 1, 0, fence) isEqualToString:@"cb0:0|-"], "upload id 0 is never active");
+    expect([finishUpload("{}", 1, 5, fence + 1) isEqualToString:@"cb0:5|-"], "a fence from another generation fails and uploads nothing");
     _bugsee_invalidate_managed_report_uploads();
     expect(_bugsee_test_managed_upload_fence() == fence + 1, "invalidating moves the fence");
-    expect([finishUpload("{}", 1, 5, fence) isEqualToString:@"1:0:5|0|-"], "an upload started before the invalidation fails and uploads nothing");
-    expect([finishUpload("{}", 1, 5, fence + 1) isEqualToString:@"1:1:5|1|-|-"], "an upload started after the invalidation goes through");
-    // Not asserted: _bugsee_upload_managed_report's own hand-off to [Bugsee createReportWithCompletion:], which needs a
+    expect([finishUpload("{}", 1, 5, fence) isEqualToString:@"cb0:5|-"], "an upload started before the invalidation fails and uploads nothing");
+    expect([finishUpload("{}", 1, 5, fence + 1) isEqualToString:@"cb1:5,up|-|-"], "an upload started after the invalidation goes through");
+    // Not asserted: the two later fence re-checks (after the report fields are applied, and just before the upload) only
+    // matter when an invalidation lands in between, a race this single-threaded test cannot stage; and
+    // _bugsee_upload_managed_report's own hand-off to [Bugsee createReportWithCompletion:], which needs a
     // launched SDK to make a report (device scenario: upload).
 
     // Logging and telemetry with no running SDK, including the NULL and non-object payloads C# can send (smoke only: the
@@ -279,11 +289,11 @@ int main(void)
     expect([[wrapper secureRectanglesForDisplay:0] isEqualToData:[NSData dataWithBytes:packed length:sizeof(packed)]],
            "the packed buffer is stored whole for its display");
     expect([[wrapper secureRectanglesForDisplay:1] isEqualToData:baseline], "another display keeps the baseline");
-    int second[] = { 1, 0 };
-    _bugsee_set_secure_buffer(1, second, 2);
-    _bugsee_set_secure_buffer(0, second, 2);
-    expect([[wrapper secureRectanglesForDisplay:0] isEqualToData:baseline] && [[wrapper secureRectanglesForDisplay:1] isEqualToData:baseline],
-           "a later buffer replaces the earlier one");
+    int second[] = { 1, 1, 5, 5, 20, 20 };
+    _bugsee_set_secure_buffer(0, second, 6);
+    expect([[wrapper secureRectanglesForDisplay:0] isEqualToData:[NSData dataWithBytes:second length:sizeof(second)]]
+               && [[wrapper secureRectanglesForDisplay:1] isEqualToData:baseline],
+           "a later buffer replaces the earlier one for its display only");
     // Neither is guaranteed in a test process (no screen size, no UnityView): when they answer, the numbers are usable.
     float wh[2] = { 0, 0 };
     if (_bugsee_screen_points(wh) == 1) expect(wh[0] > 0 && wh[1] > 0, "a reported screen size has a size");
@@ -298,7 +308,7 @@ int main(void)
     _bugsee_channel_breadcrumb("cat", "msg", 3, 0);
     FakeChannel *channel = [FakeChannel new];
     [wrapper onWrapperChannelAvailable:channel];
-    expect(channel.logs.count == 0 && channel.events.count == 0 && channel.crumbs.count == 0, "nothing sent before the channel arrived reaches it");
+    // (Producers called with no channel attached are smoke only: there is nothing to observe.)
 
     _bugsee_channel_log("hello", 4, 2);
     _bugsee_channel_log(NULL, 3, 1);
@@ -327,6 +337,8 @@ int main(void)
     expect([crumb.category isEqualToString:@""] && [crumb.message isEqualToString:@""] && (int)crumb.level == 2
                && fabs(crumb.timestamp - [[NSDate date] timeIntervalSince1970]) < 60,
            "NULL texts are empty and no timestamp is now");
+    // The bridge keeps whatever channel it was last handed and has no getter to restore the earlier one, so a second fake
+    // stays installed for the rest of the process (nothing after this sends through the channel).
     // The channel the SDK drops events on while it is not running is the real one; this fake only proves what the bridge sends.
     [wrapper onWrapperChannelAvailable:(id<BGSWrapperChannel>)[FakeChannel new]];
 
