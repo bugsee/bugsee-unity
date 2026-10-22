@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.nio.charset.StandardCharsets;
@@ -52,6 +53,25 @@ public class AndroidWrapperTests {
         assertTrue(manifest.contains("com.bugsee.unity.UnityWrapperProvider"));
         assertTrue(manifest.contains("android:directBootAware=\"true\""));
         assertTrue(manifest.contains("android:initOrder=\"200\""));
+    }
+
+    @Test
+    public void ndkRegistrationIsANoOpWhenTheNdkArtifactIsAbsent() {
+        // The test module only has bugsee-android; a project that excludes bugsee-android-ndk must still start.
+        assertFalse(UnityWrapperProvider.registerNdkExtension());
+    }
+
+    @Test
+    public void providerRegistersTheNdkExtensionByName() throws Exception {
+        String source = new String(
+                Files.readAllBytes(repoFile("Plugins/Android/UnityWrapperProvider.java")),
+                StandardCharsets.UTF_8);
+        assertTrue(source.contains("\"com.bugsee.library.BugseeNdk\""));
+        assertTrue(source.contains("\"registerNdkExtension\""));
+        String rules = new String(
+                Files.readAllBytes(repoFile("Plugins/Android/bugsee-unity-wrapper.proguard")),
+                StandardCharsets.UTF_8);
+        assertTrue(rules.contains("com.bugsee.library.BugseeNdk"));
     }
 
     @Test
