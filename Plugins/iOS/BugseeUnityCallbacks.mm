@@ -981,7 +981,9 @@ int _bugsee_report_screenshot_png(int64_t requestId, int displayId, unsigned cha
     } blockAndWait:YES];
     if (!found) return 0;
     NSData *png = UIImagePNGRepresentation(found);
-    if (png.length == 0 && found.size.width > 0 && found.size.height > 0) {
+    // The redraw allocates width x height x scale^2 x 4 bytes: past 32 Mi pixels (the managed limit) the image is not drawn.
+    double pixels = (double)found.size.width * found.scale * (double)found.size.height * found.scale;
+    if (png.length == 0 && found.size.width > 0 && found.size.height > 0 && pixels <= 32.0 * 1024 * 1024) {
         // No CGImage behind it (a CIImage-backed image): draw it into a bitmap and encode that.
         UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat preferredFormat];
         format.scale = found.scale;

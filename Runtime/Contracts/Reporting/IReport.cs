@@ -48,10 +48,13 @@ namespace Bugsee.Contracts.Reporting
         /// is not a report handler's, or the handler's turn is over.</summary>
         IReadOnlyList<int> ScreenshotDisplayIds { get; }
 
-        /// <summary>The display's screenshot as PNG bytes, or null when the display has none, the report is not a report
-        /// handler's, the handler's turn is over, or the PNG is over <c>ReportScreenshotPolicy.MaxPngBytes</c> (32 MiB;
-        /// a warning says so). Blocks the calling thread (Unity's main thread) while the SDK produces it. The returned
-        /// array is a copy you own; see the privacy note on <see cref="IReport"/>.</summary>
+        /// <summary>The display's screenshot as PNG bytes. Null means one of two things, told apart with
+        /// <see cref="ScreenshotDisplayIds"/>: the display is not listed (it has none, the report is not a report
+        /// handler's, or the handler's turn is over), or it IS listed and holds a screenshot that could not be read
+        /// (too large, over <c>ReportScreenshotPolicy.MaxPngBytes</c> (32 MiB) as PNG, or the platform could not encode
+        /// it; a warning says which). In the second case do not assume there is nothing to redact: replace or remove
+        /// it with <see cref="SetScreenshotPng"/>. Blocks the calling thread (Unity's main thread) while the SDK produces
+        /// it. The returned array is a copy you own; see the privacy note on <see cref="IReport"/>.</summary>
         byte[] GetScreenshotPng(int displayId);
 
         /// <summary>Replaces the display's screenshot with <paramref name="png"/>, or removes it when null. Returns true
