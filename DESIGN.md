@@ -74,7 +74,7 @@ Legacy reference: `cross/unity/.../LaunchOptions/` (`BugseeLaunchOptions` + `And
 
 - Primary: `Bugsee.Launch(token, androidOptions)` / `iosOptions` via implicit conversion to `Dictionary<string, object>` (single optional-map overload — avoids `Launch(token, null)` ambiguity across typed types).
 - Secondary: `Launch(token, dictionary)`, `OptionsBuilder` (same implicit conversion), public `Options.*` constants, `SetCustomOption`.
-- `Relaunch` mirrors `Launch`.
+- `Relaunch` mirrors `Launch`, except that its options replace the option set instead of merging.
 
 ### Naming revisit (explicit follow-up)
 
