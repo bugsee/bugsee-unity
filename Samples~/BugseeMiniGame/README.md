@@ -222,14 +222,6 @@ checked as such: with `CaptureBreadcrumbs` a breadcrumb reaches the breadcrumb f
 a network event reaches the network filter and without it none does. The effect of the other options is not observable from the sample.
 It logs `[Sample] presets PASS|FAIL ...` lines ending in `presets e2e done failures=N`.
 
-### Lifecycle check (`lifecycle` e2e scenario, Android)
-
-`BUGSEE_E2E_SCENARIO=lifecycle` (issue #176) runs Launch/Relaunch/Stop sequences once the SDK is launched. Part 1 calls the native
-`Bugsee.relaunch/stop/launch` directly and logs what the SDK itself answers (`[Sample] lifecycle RAW ...`): a refused relaunch, two
-relaunches in a row, `stop()` during a relaunch, `launch()` during a relaunch's stop, and `stop()` in a relaunch's launch half. The
-same scenario in a build that pins another Android SDK version shows what a release changed; PASS/FAIL is judged only when the build
-pins SDK 7.4.2. Part 2 runs the same sequences through the public facade (the wrapper's lifecycle machine) and logs
-`[Sample] lifecycle PASS|FAIL ...`, ending in `lifecycle e2e done failures=N`. It does nothing on iOS.
 The iOS presets also set the typed iOS-only options of `IOSLaunchOptions` (`CrashSignals`, `CaptureWebSocket`, `CaptureAVPlayer`,
 `CaptureVideoPrivacyBlur`, the frame-rate limits, `DataEncryption`, `ReportingUIStyle`, `BuildTarget`, ... #97); `minimal` and `detect`
 set the booleans to opposite values and the `privacy` preset sets some through `OptionsBuilder`. Android never sets them and drops them
@@ -237,6 +229,15 @@ if they are sent (the `options` scenario sends every one and checks that Android
 `CaptureBluetoothStatus`, which only reports a status when the app itself got Bluetooth permission (the sample never asks, so it reads unknown).
 
 The presets also set the Android 7.4.2 options with typed properties (#96): `MaxDataSize` and `NotifyFlushDelay` on both platforms, and on Android `MaxPendingReports`, `MaxPendingReportAge`, the hang and ANR sampling switches, `DetectAndReportExitLowMemoryBackgroundAsError`, `DetectAndReportCrashNdk` and `CrashNdkIncludeTombstoneLogs`. The two NDK keys are skipped in the comparison when the SDK does not report them (the NDK extension is not registered on Unity 6 with the Gradle plugin, #226). The `options` scenario sends each at a non-default value and logs `[OPTIONS] key sent=... native=...`.
+
+### Lifecycle check (`lifecycle` e2e scenario, Android)
+
+The `lifecycle` scenario (Android intent extra `bugsee_e2e`, issue #176) runs Launch/Relaunch/Stop sequences once the SDK is launched. Part 1 calls the native
+`Bugsee.relaunch/stop/launch` directly and logs what the SDK itself answers (`[Sample] lifecycle RAW ...`): a refused relaunch, two
+relaunches in a row, `stop()` during a relaunch, `launch()` during a relaunch's stop, and `stop()` in a relaunch's launch half. The
+same scenario in a build that pins another Android SDK version shows what a release changed; PASS/FAIL is judged only when the build
+pins SDK 7.4.2. Part 2 runs the same sequences through the public facade (the wrapper's lifecycle machine) and logs
+`[Sample] lifecycle PASS|FAIL ...`, ending in `lifecycle e2e done failures=N`. It does nothing on iOS.
 
 ### Filter check (`filters` e2e scenario)
 

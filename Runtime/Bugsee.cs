@@ -99,10 +99,13 @@ namespace Bugsee
             if (Bridge is ILifecycleResultBridge bridge)
             {
                 Interlocked.Increment(ref _pendingLaunches);
-                // A relaunch that joined one in flight did not apply these options: the pusher state keeps the ones in effect.
+                // A relaunch that joined one in flight applied nothing of its own: the request it joined decides the pusher.
                 var joined = false;
-                bridge.Relaunch(options, accepted => AfterLaunchResultCounted(accepted, startPusher, joined ? null : options),
-                    () => joined = true);
+                bridge.Relaunch(options, accepted =>
+                {
+                    if (joined) Interlocked.Decrement(ref _pendingLaunches);
+                    else AfterLaunchResultCounted(accepted, startPusher, options);
+                }, () => joined = true);
             }
             else
             {
@@ -252,10 +255,14 @@ namespace Bugsee
             if (Bridge is ILifecycleResultBridge bridge)
             {
                 Interlocked.Increment(ref _pendingLaunches);
-                var joined = false; // a joined relaunch did not apply these options (Android)
+                var joined = false; // a joined relaunch applied nothing of its own (Android): the request it joined decides the pusher
                 bridge.Relaunch(options, accepted =>
                 {
-                    try { AfterLaunchResultCounted(accepted, startPusher, joined ? null : options); }
+                    try
+                    {
+                        if (joined) Interlocked.Decrement(ref _pendingLaunches);
+                        else AfterLaunchResultCounted(accepted, startPusher, options);
+                    }
                     finally { result.TrySetResult(accepted); }
                 }, () => joined = true);
             }
