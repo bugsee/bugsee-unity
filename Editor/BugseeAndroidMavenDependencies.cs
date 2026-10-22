@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using Bugsee.WrapperPolicy;
+using UnityEditor;
 using UnityEditor.Android;
 using UnityEditor.Build;
 using UnityEngine;
@@ -35,11 +36,18 @@ namespace Bugsee.Editor
     /// </summary>
     sealed class BugseeAndroidMavenDependencies : IPostGenerateGradleAndroidProject
     {
-        static readonly string[] Artifacts =
+        static readonly string[] CoreArtifacts =
         {
             BugseePackageVersion.AndroidMavenArtifact,
             BugseePackageVersion.AndroidNdkArtifact,
         };
+
+        // The Feedback AAR is opt-in (see FeedbackOptIn): declared next to the others only when the project asks for it.
+        static string[] Artifacts => FeedbackEnabled()
+            ? new[] { CoreArtifacts[0], CoreArtifacts[1], FeedbackOptIn.AndroidArtifact }
+            : CoreArtifacts;
+
+        static bool FeedbackEnabled() => BugseeFeedbackSwitch.IsEnabled(NamedBuildTarget.Android);
 
         // Late, so other post-generate steps that add their own declarations run first.
         public int callbackOrder => 1000;
@@ -48,6 +56,7 @@ namespace Bugsee.Editor
         {
             try
             {
+                CheckFeedbackToolchain(Path.GetDirectoryName(Path.GetFullPath(unityLibraryPath)), unityLibraryPath);
                 InjectDependencies(unityLibraryPath);
                 EnsureMavenCentral(Path.GetDirectoryName(Path.GetFullPath(unityLibraryPath)));
             }
@@ -56,6 +65,20 @@ namespace Bugsee.Editor
                 // Without these dependencies the app builds but Bugsee cannot start: fail loudly instead.
                 throw new BuildFailedException("[Bugsee] Could not add the Bugsee Android SDK to the Gradle project: " + ex);
             }
+        }
+
+        // An opt-in that cannot build is refused here with the reason, not left to a Gradle failure about AAR metadata.
+        static void CheckFeedbackToolchain(string projectRoot, string unityLibraryPath)
+        {
+            if (!FeedbackEnabled()) return;
+            string rootPath = FindGradleFile(projectRoot, "build");
+            string libraryPath = FindGradleFile(unityLibraryPath, "build");
+            string catalogPath = Path.Combine(projectRoot, "gradle", "libs.versions.toml");
+            string problem = FeedbackOptIn.AndroidToolchainProblem(
+                rootPath == null ? null : File.ReadAllText(rootPath),
+                File.Exists(catalogPath) ? File.ReadAllText(catalogPath) : null,
+                libraryPath == null ? null : File.ReadAllText(libraryPath));
+            if (problem != null) throw new BuildFailedException(problem);
         }
 
         static readonly string[] GradleExtensions = { ".gradle", ".gradle.kts" };
@@ -92,6 +115,15 @@ namespace Bugsee.Editor
                 Artifacts,
                 BugseePackageVersion.AndroidSdkVersion,
                 GradleMavenInjection.DslForFile(path));
+
+            if (FeedbackEnabled() && result.Status == GradleMavenInjection.DependencyStatus.DeclaredByProject &&
+                result.Text.IndexOf(FeedbackOptIn.AndroidArtifact, StringComparison.Ordinal) < 0)
+            {
+                Debug.LogWarning(
+                    "[Bugsee] " + FeedbackOptIn.Define + " is set, but the project declares the Bugsee SDK itself, so " +
+                    FeedbackOptIn.AndroidArtifact + " was not added. Declare com.bugsee:" + FeedbackOptIn.AndroidArtifact + ":" +
+                    BugseePackageVersion.AndroidSdkVersion + " next to it, or Bugsee.Feedback will do nothing.");
+            }
 
             foreach (string warning in result.Warnings)
             {

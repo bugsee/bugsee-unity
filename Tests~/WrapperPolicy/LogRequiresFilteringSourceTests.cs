@@ -30,8 +30,7 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Public_log_keeps_the_filter_skipping_default_and_adds_the_opt_in()
         {
             var api = Read("Runtime/Bugsee.cs");
-            Assert.That(api, Does.Contain("public static void Log(string message, LogLevel level = LogLevel.Info) =>\n            Bridge.Log(message, level, false);")
-                .Or.Contain("public static void Log(string message, LogLevel level = LogLevel.Info) =>\r\n            Bridge.Log(message, level, false);"));
+            Assert.That(Regex.IsMatch(api, @"public static void Log\(string message, LogLevel level = LogLevel\.Info\) =>\s*Bridge\.Log\(message, level, false\);"));
             Assert.That(Regex.IsMatch(api, @"public static void Log\(string message, LogLevel level, bool requiresFiltering\) =>\s*Bridge\.Log\(message, level, requiresFiltering\);"));
             Assert.That(Read("Runtime/Platform/IBugseeNativeBridge.cs"), Does.Contain("void Log(string message, LogLevel level, bool requiresFiltering);"));
             Assert.That(Read("Runtime/Platform/Editor/EditorBridge.cs"), Does.Contain("public void Log(string message, LogLevel level, bool requiresFiltering)"));

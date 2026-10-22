@@ -120,9 +120,14 @@ namespace Bugsee.Platform.EditorStub
 
         sealed class StubFeedback : IFeedback
         {
-            public void ShowFeedbackUi() { }
-            public void SetDefaultGreeting(string greeting) { }
-            public void SetListener(IFeedbackListener listener) { }
+            readonly UnsupportedApiNotice _notice = new UnsupportedApiNotice(Debug.LogWarning);
+
+            // There is no Feedback UI in the Editor: say so once instead of doing nothing silently.
+            void Say() => _notice.Once(Application.isEditor ? FeedbackOptIn.EditorMessage : FeedbackOptIn.PlayerMessage);
+
+            public void ShowFeedbackUi() => Say();
+            public void SetDefaultGreeting(string greeting) => Say();
+            public void SetListener(IFeedbackListener listener) => Say();
         }
 
         sealed class EditorExchangeFactory : IBugseeExchangeFactory

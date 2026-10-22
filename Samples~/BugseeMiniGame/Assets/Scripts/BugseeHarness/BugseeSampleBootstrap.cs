@@ -561,6 +561,13 @@ namespace Bugsee.Sample
                         _pendingE2EFire = "D:blackout";
                     }
                     break;
+                case "feedback":
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 99;
+                        _pendingE2EFire = "F:feedback";
+                    }
+                    break;
                 case "securerect":
                     if (_e2ePhase == 0 && _e2eTimer >= 5f)
                     {
@@ -767,6 +774,9 @@ namespace Bugsee.Sample
                     break;
                 case 'N':
                     AttachmentTaskE2E.RunUnobserved(this, marker);
+                    break;
+                case 'F':
+                    FeedbackE2E.Run(this, ReadE2EValue("bugsee_feedback", "BUGSEE_E2E_FEEDBACK"));
                     break;
                 case 'W':
                     VideoPermissionE2E.Run(this);

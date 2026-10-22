@@ -41,6 +41,7 @@ namespace Bugsee
         /// <summary>Raised for every native lifecycle event (all 7.x <see cref="LifecycleEvents"/> strings).</summary>
         public static event Action<string, object> LifecycleEvent;
 
+        /// <summary>The in-app feedback chat. Opt-in native add-on: see <see cref="IFeedback"/>.</summary>
         public static IFeedback Feedback => Bridge.Feedback;
 
         public static IAppearance Appearance => Bridge.GetAppearance();
@@ -359,7 +360,7 @@ namespace Bugsee
         /// <summary>
         /// Write a line to the Bugsee log. With <paramref name="requiresFiltering"/> true the line also goes through the log
         /// filter (<see cref="SetLogEventFilter"/>), which can edit or drop it: use it when the message may hold data that
-        /// the filter redacts from captured logs. With false it skips the filter, like <see cref="Log(string, LogLevel)"/>.
+        /// the filter redacts from captured logs. Do not call it from inside the log filter itself: Android runs the filter during the call, so that recurses. On iOS a line below <c>CaptureLogsLevel</c> never reaches the filter. With false it skips the filter, like <see cref="Log(string, LogLevel)"/>.
         /// Does nothing for a null message or before the SDK is launched.
         /// </summary>
         public static void Log(string message, LogLevel level, bool requiresFiltering) =>

@@ -88,6 +88,7 @@ namespace Bugsee.Sample
             c.Run(BugseeDemoAction.NetworkEvent);
             x.AddBreadcrumb("e2e", "filters off", "info");
             LogAndroidDebug("e2e filters off debug");
+            Bugsee.Log(SampleFilters.LogOptInText, LogLevel.Debug, true); // the opt-in path must not call a removed filter either
             yield return new WaitForSeconds(3f);
             Check("with the filters off the SDK calls no filter", SampleFilters.NetworkSeen == 0 && SampleFilters.BreadcrumbSeen == 0 && SampleFilters.LogSeen == 0,
                 SampleFilters.Summary);

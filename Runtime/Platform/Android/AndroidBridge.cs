@@ -980,8 +980,21 @@ namespace Bugsee.Platform.Android
 
     sealed class AndroidFeedback : IFeedback
     {
+        const string NotRegisteredMessage =
+            "[Bugsee] Feedback is not available: the SDK has no Feedback extension registered (is Bugsee launched?), so the call did nothing.";
+
+        const string FeedbackExtensionClass = "com.bugsee.library.contracts.extensions.Feedback";
+        const string FeedbackFacadeClass = "com.bugsee.library.BugseeFeedback";
+
+        // Static: the notice is once per process, whichever AndroidFeedback instance asks.
+        static readonly UnsupportedApiNotice Notice = new UnsupportedApiNotice(Debug.LogWarning);
+
         readonly AndroidJavaClass _bugsee;
         AndroidJavaObject _ext;
+        // The AAR is part of the APK or it is not: look once.
+        bool _aarMissing;
+        // Kept so the SDK's weak reference to the listener does not let it go.
+        FeedbackListenerProxy _listener;
 
         public AndroidFeedback(AndroidJavaClass bugsee)
         {
@@ -991,12 +1004,42 @@ namespace Bugsee.Platform.Android
         AndroidJavaObject Ext()
         {
             if (_ext != null) return _ext;
-            using (var feedbackClass = new AndroidJavaClass("com.bugsee.library.contracts.extensions.Feedback"))
+            if (_aarMissing) return null;
+            AndroidJavaClass feedbackClass;
+            try { feedbackClass = new AndroidJavaClass(FeedbackExtensionClass); }
+            catch (Exception)
+            {
+                _aarMissing = true;
+                // The bugsee-android-feedback AAR is not in the app (it is optional, see FeedbackOptIn).
+                Notice.Once(FeedbackOptIn.AndroidMissingMessage);
+                return null;
+            }
+
+            using (feedbackClass)
             {
                 // Same pattern as legacy Unity / Flutter: pass AndroidJavaClass as Class<T>.
                 _ext = _bugsee.CallStatic<AndroidJavaObject>("ext", feedbackClass);
+                if (_ext == null)
+                {
+                    // The AAR registers itself from its ContentProvider, but the Bugsee Gradle plugin removes that provider
+                    // and relies on bytecode it injects into the SDK; a Unity build can end up with neither (seen with plugin
+                    // 4.0.8 on Unity 6000.0.84f1, AGP 9.0.0: initializeExtensions() was empty). Registering is idempotent.
+                    RegisterExtension();
+                    _ext = _bugsee.CallStatic<AndroidJavaObject>("ext", feedbackClass);
+                }
             }
+            if (_ext == null) Notice.Once(NotRegisteredMessage);
             return _ext;
+        }
+
+        static void RegisterExtension()
+        {
+            try
+            {
+                using (var facade = new AndroidJavaClass(FeedbackFacadeClass))
+                    facade.CallStatic("registerFeedbackExtension");
+            }
+            catch (Exception ex) { Debug.LogWarning("[Bugsee] Could not register the Feedback extension: " + ex.Message); }
         }
 
         public void ShowFeedbackUi()
@@ -1018,9 +1061,15 @@ namespace Bugsee.Platform.Android
                 if (listener == null)
                 {
                     Ext()?.Call("setOnNewFeedbackListener", (AndroidJavaObject)null);
+                    _listener = null;
                     return;
                 }
-                Ext()?.Call("setOnNewFeedbackListener", new FeedbackListenerProxy(listener));
+                // The proxy implements an interface of the AAR: build it only once the AAR is known to be there.
+                var ext = Ext();
+                if (ext == null) return;
+                var proxy = new FeedbackListenerProxy(listener);
+                ext.Call("setOnNewFeedbackListener", proxy);
+                _listener = proxy;
             }
             catch (Exception ex) { Debug.LogWarning("[Bugsee] Feedback extension unavailable: " + ex.Message); }
         }
