@@ -105,6 +105,10 @@ wait_armed() {
 for scenario in "$@"; do
   scenario="$(tr '[:upper:]' '[:lower:]' <<<"$scenario")"   # the app lower-cases what it logs
   echo "== scenario: $scenario"
+  # nullrefnochk needs IL2CPP (Mono ignores Il2CppSetOption, so the read throws a managed exception and nothing dies).
+  if [[ "$scenario" == nullrefnochk ]] && ! grep -q 'libil2cpp\.so' <<<"$(unzip -l "$APK" 2>/dev/null)"; then
+    echo "   skipped: $APK has no libil2cpp.so (a Mono build, or a bundle: run it on an IL2CPP APK)"; continue
+  fi
   a shell am force-stop "$PKG"; a logcat -c
   launch "$scenario"
   log="$OUT/$scenario.log"

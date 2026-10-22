@@ -42,6 +42,13 @@ namespace Bugsee.Sample
         const string Backend = "mono";
 #endif
 
+        static int _loggedNullRefs;
+
+        static void CountNullRefLog(string condition, string stackTrace, LogType type)
+        {
+            if (type == LogType.Exception && condition.StartsWith("NullReferenceException", StringComparison.Ordinal)) _loggedNullRefs++;
+        }
+
         static void Check(string name, bool ok, string detail)
         {
             if (!ok) _failures++;
@@ -54,6 +61,8 @@ namespace Bugsee.Sample
             for (var i = 0; i < 120 && !Bugsee.IsLaunched; i++) yield return new WaitForSeconds(0.5f);
             Debug.Log("[NULLREF] backend=" + Backend + " (run without PRESET=detect: it files an uncaught exception as an unhandled report)");
             Debug.Log("[NULLREF] launched=" + Bugsee.IsLaunched + " status=" + Bugsee.Status);
+            Check("launched", Bugsee.IsLaunched, "status=" + Bugsee.Status);
+            Application.logMessageReceived += CountNullRefLog;
 
             var caught = false;
             try { Debug.Log("[NULLREF] " + _null.Value); }
@@ -66,6 +75,8 @@ namespace Bugsee.Sample
             Debug.Log("[NULLREF] throwing an uncaught NullReferenceException on a coroutine");
             yield return null;
             host.StartCoroutine(Throwing()); // Unity logs the exception and ends that coroutine
+            yield return new WaitForSeconds(1f);
+            Check("coroutine", _loggedNullRefs > 0, "Unity logged " + _loggedNullRefs + " uncaught NullReferenceException(s) from the coroutine");
             var task = System.Threading.Tasks.Task.Run(() => _null.Value.ToString());
             yield return new WaitForSeconds(1f);
             Check("task", task.IsFaulted, "a thread-pool task faulted with " + (task.Exception?.InnerException?.GetType().Name ?? "nothing"));
@@ -73,6 +84,7 @@ namespace Bugsee.Sample
             yield return new WaitForSeconds(12f);
             // Reaching this line is the check; a process that died is judged by the script (e2e-android.sh) or by hand on iOS.
             Check("alive", true, "the process was still running 12 s after the null references");
+            Application.logMessageReceived -= CountNullRefLog;
             Debug.Log("[Sample] nullref e2e done failures=" + _failures);
         }
 
@@ -87,6 +99,13 @@ namespace Bugsee.Sample
             for (var i = 0; i < 120 && !Bugsee.IsLaunched; i++) yield return new WaitForSeconds(0.5f);
             Debug.Log("[NULLREF] nochk backend=" + Backend + " (IL2CPP only: Mono ignores Il2CppSetOption, the read throws a managed exception)");
             Debug.Log("[NULLREF] nochk launched=" + Bugsee.IsLaunched + " status=" + Bugsee.Status);
+            if (!Bugsee.IsLaunched)
+            {
+                // No crash reporter is running, so a crash (or none) would prove nothing.
+                Debug.Log("[Sample] nullref FAIL launched :: status=" + Bugsee.Status);
+                Debug.Log("[Sample] nullref nochk done not launched");
+                yield break;
+            }
             yield return new WaitForSeconds(3f);
             Debug.Log("[NULLREF] nochk reading a field of null with null checks off");
             var read = ReadUnchecked(_null);
