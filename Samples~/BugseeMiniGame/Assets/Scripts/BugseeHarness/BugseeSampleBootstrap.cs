@@ -426,6 +426,14 @@ namespace Bugsee.Sample
                         StartCoroutine(VhE2E.Run(this));
                     }
                     break;
+                case "screenshots":
+                    // Report-handler screenshot API: list, read, replace, refuse, remove, changed flag (issue #224).
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        StartCoroutine(ScreenshotsE2E.Run(this, _e2eRunId));
+                    }
+                    break;
                 case "readapis":
                     // Reads back host launch options, attributes and secure rectangles through the read APIs (issue #100).
                     if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))

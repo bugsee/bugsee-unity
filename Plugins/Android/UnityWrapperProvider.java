@@ -306,6 +306,109 @@ final class UnityWrapper implements BugseeWrapper {
         });
     }
 
+    /** The most PNG bytes a read hands to C# (the managed limit, ReportScreenshotPolicy.MaxPngBytes). */
+    private static final int MAX_PNG_BYTES = 32 * 1024 * 1024;
+
+    /**
+     * The display's screenshot of a live report as PNG; null when the display has none; an EMPTY array when it has one
+     * that could not be read (a recycled bitmap, an encode failure, or more than {@code MAX_PNG_BYTES} of PNG), so the
+     * caller can say so instead of treating it as absent. Blocks the caller until the SDK has enumerated
+     * (blockAndWait runs the callback before it returns). It does not use getScreenshot(int, Callback1): that posts
+     * its answer to the calling thread's looper or the main one, which a Unity script thread blocking for the reply
+     * cannot rely on.
+     */
+    public static byte[] getReportScreenshotPng(Report report, int displayId) {
+        if (report == null) return null;
+        PngCollector collector = new PngCollector(displayId);
+        try {
+            report.enumerateScreenshots(collector, true);
+        } catch (Throwable t) {
+            Log.w("BugseeUnity", "Reading a report screenshot failed: " + t);
+            if (collector.png == null && collector.seen) return new byte[0];
+        }
+        return collector.png;
+    }
+
+    /** Keeps the PNG of one display out of a screenshot enumeration. */
+    private static final class PngCollector implements com.bugsee.library.contracts.common.Callback2<Integer, android.graphics.Bitmap> {
+        private final int displayId;
+        byte[] png;
+        boolean seen;
+
+        PngCollector(int displayId) {
+            this.displayId = displayId;
+        }
+
+        @Override
+        public void run(Integer id, android.graphics.Bitmap bitmap) {
+            if (id == null || id != displayId || seen) return;
+            seen = true;
+            png = new byte[0];
+            if (bitmap == null || bitmap.isRecycled()) return;
+            // A decoded bitmap past the managed pixel limit (4 bytes a pixel) is not encoded.
+            if (bitmap.getByteCount() > 4L * 32 * 1024 * 1024) {
+                Log.w("BugseeUnity", "A report screenshot is too large to read");
+                return;
+            }
+            try {
+                BoundedOutput out = new BoundedOutput(MAX_PNG_BYTES);
+                if (bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)) {
+                    png = out.toByteArray();
+                }
+            } catch (Throwable t) {
+                Log.w("BugseeUnity", "Encoding a report screenshot failed: " + t);
+            }
+        }
+    }
+
+    /** A byte stream that refuses to grow past a limit, so an oversized PNG is never held whole. */
+    private static final class BoundedOutput extends java.io.ByteArrayOutputStream {
+        private final int limit;
+
+        BoundedOutput(int limit) {
+            this.limit = limit;
+        }
+
+        @Override
+        public synchronized void write(byte[] b, int off, int len) {
+            if (count + len > limit) throw new IllegalStateException("PNG over " + limit + " bytes");
+            super.write(b, off, len);
+        }
+
+        @Override
+        public synchronized void write(int b) {
+            if (count + 1 > limit) throw new IllegalStateException("PNG over " + limit + " bytes");
+            super.write(b);
+        }
+    }
+
+    /**
+     * Stores the PNG as the display's screenshot of a live report; null or empty bytes remove it. Returns 1 when
+     * applied, 0 when the bytes are not an image Android can decode (nothing changes). Removing goes through here
+     * because JNI from C# cannot name the Bitmap overload with a null argument.
+     */
+    public static int setReportScreenshotPng(Report report, int displayId, byte[] png) {
+        if (report == null) return 0;
+        android.graphics.Bitmap bitmap = null;
+        try {
+            if (png == null || png.length == 0) {
+                report.setScreenshot(displayId, (android.graphics.Bitmap) null);
+                return 1;
+            }
+            bitmap = android.graphics.BitmapFactory.decodeByteArray(png, 0, png.length);
+            if (bitmap == null) return 0;
+            report.setScreenshot(displayId, bitmap);
+            return 1;
+        } catch (Throwable t) {
+            // An OutOfMemoryError from a decode, or anything the SDK throws, must not cross JNI into the Unity thread.
+            Log.w("BugseeUnity", "Setting a report screenshot failed: " + t);
+            return 0;
+        } finally {
+            // setScreenshot writes the bitmap to its own file before it returns; the decoded copy is not needed.
+            if (bitmap != null) bitmap.recycle();
+        }
+    }
+
     public static void setSecureBuffer(int display, int[] packed) {
         if (packed == null || packed.length < 2) return;
         secureBuffers.put(display, packed.clone());

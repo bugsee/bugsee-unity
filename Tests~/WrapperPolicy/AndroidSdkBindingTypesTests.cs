@@ -843,6 +843,8 @@ namespace Bugsee.WrapperPolicy.Tests
             { "AndroidBridge.cs: addSecureWebView view", "an android.webkit.WebView the app gave the bridge" },
             { "AndroidBridge.cs: launch activity", "the app's android.app.Activity (UnityPlayer.currentActivity)" },
             { "AndroidBridge.cs: ext feedbackClass", "a java.lang.Class object (the first of the two lookups)" },
+            { "AndroidReportScreenshots.cs: getReportScreenshotPng report", "the live Report a report handler passed in (AndroidReport's _report)" },
+            { "AndroidReportScreenshots.cs: setReportScreenshotPng report", "the live Report a report handler passed in (AndroidReport's _report)" },
             { "CallbackProxies.cs: replyNoData callback", "the DataRequestResultCallback the SDK passed to a proxy method" },
             { "CallbackProxies.cs: upload report", "the Report the SDK passed to a proxy method" },
         };
@@ -870,6 +872,9 @@ namespace Bugsee.WrapperPolicy.Tests
             { "AndroidJavaConverters.cs: map", "JDK Map" },
             { "AndroidOptionsMapper.cs: map", "JDK HashMap" },
             { "AndroidReport.cs: javaList", "JDK List" },
+            { "AndroidReportScreenshots.cs: boxed", "JDK boxed Integer" },
+            { "AndroidReportScreenshots.cs: list", "JDK List" },
+            { "AndroidReportScreenshots.cs: report", "the live Report a report handler passed in" },
             { "AndroidReport.cs: stream", "JDK OutputStream" },
             { "CallbackProxies.cs: callback", "a Java callback handed to a proxy method" },
             { "CallbackProxies.cs: completion", "a java.lang.Runnable handed to a proxy method" },
