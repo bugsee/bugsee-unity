@@ -54,11 +54,11 @@ namespace Bugsee.Sample
             x.AddBreadcrumb("e2e", "filters on again", "info");
             var androidDebug = LogAndroidDebug("e2e filters debug");
             // Bugsee.Log(message, level) skips the log filter on both platforms (the native default); Bugsee.Log(message, level, true)
-            // goes through it (#190). Both lines are Debug, which the sample's filter drops. The log filter also sees the captured
+            // goes through it (#190). Both lines are Error level, so they pass even iOS's CaptureLogsLevel under the minimal preset; the sample's filter drops the opt-in one by its text. The log filter also sees the captured
             // logs: the Unity log, and on Android the logcat line written above. Which Debug lines it drops elsewhere depends on what
             // the SDK happens to log, so only Android has a deterministic one.
-            Bugsee.Log(SampleFilters.LogDefaultText, LogLevel.Debug);
-            Bugsee.Log(SampleFilters.LogOptInText, LogLevel.Debug, true);
+            Bugsee.Log(SampleFilters.LogDefaultText, LogLevel.Error);
+            Bugsee.Log(SampleFilters.LogOptInText, LogLevel.Error, true);
             yield return WaitFor(() => SampleFilters.NetworkRedacted >= 4 && SampleFilters.BreadcrumbMarkerDropped >= 2
                 && SampleFilters.LogOptInDropped >= 1 && SampleFilters.LogSeen >= 1 && (!androidDebug || SampleFilters.LogMarkerDropped >= 1), WaitSeconds);
             yield return new WaitForSeconds(1f); // a line that wrongly reached the filter would have by now
@@ -88,7 +88,7 @@ namespace Bugsee.Sample
             c.Run(BugseeDemoAction.NetworkEvent);
             x.AddBreadcrumb("e2e", "filters off", "info");
             LogAndroidDebug("e2e filters off debug");
-            Bugsee.Log(SampleFilters.LogOptInText, LogLevel.Debug, true); // the opt-in path must not call a removed filter either
+            Bugsee.Log(SampleFilters.LogOptInText, LogLevel.Error, true); // the opt-in path must not call a removed filter either
             yield return new WaitForSeconds(3f);
             Check("with the filters off the SDK calls no filter", SampleFilters.NetworkSeen == 0 && SampleFilters.BreadcrumbSeen == 0 && SampleFilters.LogSeen == 0,
                 SampleFilters.Summary);

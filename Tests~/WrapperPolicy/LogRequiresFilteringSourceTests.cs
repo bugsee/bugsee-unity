@@ -41,6 +41,7 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             var android = Read("Runtime/Platform/Android/AndroidBridge.cs");
             Assert.That(android, Does.Contain("public void Log(string message, LogLevel level, bool requiresFiltering)"));
+            Assert.That(android, Does.Contain("if (message == null) return;"));
             Assert.That(android, Does.Contain("_bugsee.CallStatic(\"log\", message, ll, requiresFiltering);"));
         }
 
@@ -48,7 +49,7 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Ios_passes_the_flag_through_the_export_to_the_native_overload()
         {
             var cs = Read("Runtime/Platform/IOS/IOSBridge.cs");
-            Assert.That(cs, Does.Contain("_bugsee_log(message ?? \"\", (int)level, requiresFiltering ? 1 : 0);"));
+            Assert.That(cs, Does.Contain("_bugsee_log(message, (int)level, requiresFiltering ? 1 : 0);"));
             Assert.That(cs, Does.Contain("static extern void _bugsee_log(string message, int level, int requiresFiltering);"));
             var mm = Read("Plugins/iOS/BugseeUnityBridge.mm");
             Assert.That(mm, Does.Contain("void _bugsee_log(const char *message, int level, int requiresFiltering)"));

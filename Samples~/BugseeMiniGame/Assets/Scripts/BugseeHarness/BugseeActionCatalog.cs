@@ -663,7 +663,7 @@ namespace Bugsee.Sample
             var isOptIn = text != null && text.Contains(LogOptInText);
             if (isDefault) Interlocked.Increment(ref _logDefaultSeen);
             if (isOptIn) Interlocked.Increment(ref _logOptInSeen);
-            if (LogDropDebugEnabled && e.Level >= LogLevel.Debug)
+            if (LogDropDebugEnabled && (e.Level >= LogLevel.Debug || isOptIn))
             {
                 Interlocked.Increment(ref _logDropped);
                 if (isOptIn) Interlocked.Increment(ref _logOptInDropped);

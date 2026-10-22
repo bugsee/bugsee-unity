@@ -668,8 +668,11 @@ namespace Bugsee.Platform.IOS
 
         public IBugseeExchangeFactory GetExchangeFactory() => IosExchangeFactory.Instance;
 
-        public void Log(string message, LogLevel level, bool requiresFiltering) =>
-            _bugsee_log(message ?? "", (int)level, requiresFiltering ? 1 : 0);
+        public void Log(string message, LogLevel level, bool requiresFiltering)
+        {
+            if (message == null) return; // like Android and the native SDKs: a null message is not logged
+            _bugsee_log(message, (int)level, requiresFiltering ? 1 : 0);
+        }
 
         public void Trace(string name, object value)
         {
