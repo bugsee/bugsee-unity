@@ -30,7 +30,7 @@ namespace Bugsee.Sample
         const int MinComparedKeys = 5;
         // Kept in the defaults relaunch because the sample cannot run without them (the iOS Simulator crashes in video capture), so
         // their default is the sample's own value and they are left out of the "differs from the default" checks.
-        static readonly string[] KeptKeys = { Options.Endpoint, Options.Debug, Options.CaptureVideo, Options.CaptureVideoMode };
+        static readonly string[] KeptKeys = { InternalOptionKeys.Endpoint, InternalOptionKeys.Debug, Options.CaptureVideo, Options.CaptureVideoMode };
         static int _failures;
         static bool _replaced; // the SDK runs with options the sample did not remember
         static Dictionary<string, object> _defaults = new Dictionary<string, object>();

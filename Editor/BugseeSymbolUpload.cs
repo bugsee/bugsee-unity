@@ -28,7 +28,7 @@ namespace Bugsee.Editor
 
         public void OnPostprocessBuild(BuildReport report)
         {
-            exportStartEpoch = BuildArtifactChoice.UnixSeconds(report.summary.buildStartedAt);
+            exportStartEpoch = BuildArtifactChoice.UnixSeconds(BuildClock.StartedUtc(report.summary.buildStartedAt));
             if (report.summary.platform == BuildTarget.iOS || report.summary.platform == BuildTarget.tvOS)
             {
                 // The Run Script's age check is safe only where the export step could compare the exported maps with this build's
@@ -119,13 +119,9 @@ namespace Bugsee.Editor
             // Said only when a mapping is actually uploaded under it (R8 off: nothing to match).
             var identityWarning = identity.Warning != null && identity.Source != BuildIdSource.None ? "Bugsee: " + identity.Warning : null;
 
-            // The Gradle plugin attaches the launcher icon to the mapping (the app's icon in the dashboard).
+            // The Gradle plugin attaches the launcher icon to the mapping (the app's icon in the dashboard). It is
+            // logged by UploadIfFound, only once a mapping is really about to be uploaded with it.
             var icon = FindLauncherIcon();
-            if (icon != null)
-            {
-                Debug.Log($"Bugsee: attaching launcher icon {icon} to the mapping upload.");
-            }
-
             var mappingExtra = AndroidUploadIdentity.MappingArguments(identity.Uuid, icon);
             var seen = new List<MappingFileInfo>();
             var found = UploadIfFound(roots, "*mapping.txt", "proguard", version, build,
@@ -264,6 +260,12 @@ namespace Bugsee.Editor
             };
             if (extraArgs != null)
             {
+                var notice = AndroidUploadIdentity.IconNotice(extraArgs);
+                if (notice != null)
+                {
+                    Debug.Log(notice);
+                }
+
                 args.AddRange(extraArgs);
             }
 
@@ -522,6 +524,10 @@ namespace Bugsee.Editor
         {
             "$(DWARF_DSYM_FOLDER_PATH)/$(DWARF_DSYM_FILE_NAME)/Contents/Resources/DWARF/$(EXECUTABLE_NAME)",
             "$(DWARF_DSYM_FOLDER_PATH)/UnityFramework.framework.dSYM/Contents/Resources/DWARF/UnityFramework",
+            // The processed Info.plist the script reads the version and build number from: orders the phase after that step.
+            "$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
+            // The script reads it from here when TARGET_BUILD_DIR is empty.
+            "$(BUILT_PRODUCTS_DIR)/$(INFOPLIST_PATH)",
         };
 
         static void InjectArchiveUploadScript(string pathToBuiltProject)

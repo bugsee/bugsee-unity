@@ -25,6 +25,20 @@ public class AndroidWrapperTests {
         assertEquals("{\"signature\":\"abc\"}", new UnityManagedException("{\"signature\":\"abc\"}").getMessage());
     }
 
+    // The SDK hashes the Java stack of the throwable it is given into the client signature; the wrapper builds this one
+    // wherever its caller is, so the stack must be empty or the same managed exception would group by calling thread.
+    @Test
+    public void managedExceptionHasNoJavaStackOnAnyThread() throws Exception {
+        assertEquals(0, new UnityManagedException("{}").getStackTrace().length);
+        final StackTraceElement[][] fromWorker = new StackTraceElement[1][];
+        Thread worker = new Thread(() -> fromWorker[0] = new UnityManagedException("{}").getStackTrace(), "worker");
+        worker.start();
+        worker.join();
+        assertEquals(0, fromWorker[0].length);
+        // Control: a plain exception made in this test does carry the caller's stack.
+        assertTrue(new Exception("{}").getStackTrace().length > 0);
+    }
+
     @Test
     public void managedExceptionNullReasonBecomesEmpty() {
         assertEquals("", new UnityManagedException(null).getMessage());

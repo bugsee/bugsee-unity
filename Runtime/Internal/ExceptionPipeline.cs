@@ -131,7 +131,7 @@ namespace Bugsee.Internal
             {
                 return b;
             }
-            if (bool.TryParse(raw.ToString(), out var parsed))
+            if (bool.TryParse(global::Bugsee.WrapperPolicy.InvariantText.Of(raw), out var parsed))
             {
                 return parsed;
             }
