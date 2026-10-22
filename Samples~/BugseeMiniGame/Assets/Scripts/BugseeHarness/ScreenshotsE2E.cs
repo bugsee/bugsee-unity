@@ -69,7 +69,7 @@ namespace Bugsee.Sample
                 waited += 0.5f;
                 yield return new WaitForSeconds(0.5f);
             }
-            Debug.Log("[Sample] screenshots capture-probe ran=" + _probeRan);
+            Check("the capture probe handler ran", _probeRan, "waited=" + waited.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
             Bugsee.SetReportHandler(null);
             Debug.Log("[Sample] screenshots e2e done failures=" + _failures);
         }
