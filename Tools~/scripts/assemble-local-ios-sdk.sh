@@ -67,6 +67,14 @@ if ! printf '%s' "${VERSION}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-beta[0-9]+$'; 
   echo "Expected an N.N.N-betaN version, got '${VERSION}'" >&2
   exit 1
 fi
+if [[ "${VERSION}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)-beta([0-9]+)$ ]]; then
+  # The bridge uses the beta7 logException API; an older package would not compile.
+  if (( 10#${BASH_REMATCH[1]} < 7 )) || \
+     (( 10#${BASH_REMATCH[1]} == 7 && 10#${BASH_REMATCH[2]} == 0 && 10#${BASH_REMATCH[3]} == 0 && 10#${BASH_REMATCH[4]} < 7 )); then
+    echo "The iOS SDK must be 7.0.0-beta7 or later, got '${VERSION}'" >&2
+    exit 1
+  fi
+fi
 if [[ ! -e "${COCOA}/BugseeDev/BugseeLib/plcrashreporter/.git" ]]; then
   echo "plcrashreporter submodule missing: git -C ${COCOA} submodule update --init BugseeDev/BugseeLib/plcrashreporter" >&2
   exit 1

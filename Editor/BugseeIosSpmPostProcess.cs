@@ -114,18 +114,18 @@ namespace Bugsee.Editor
                 {
                     throw new BuildFailedException(
                         "[Bugsee] Local SPM package not found. Expected Package.swift under " +
-                        $"{LocalPackageRelativePath}. Run Tools~/scripts/update-native-sdks.sh first.");
+                        $"{LocalPackageRelativePath}. Set {LocalPackageEnvVar} to a local SPM package (Tools~/scripts/assemble-local-ios-sdk.sh makes one; a non-development build also needs {LocalPackageAllowReleaseEnvVar}=1), or leave UseRemoteSpm on.");
                 }
             }
 
             if (localPackageSource != null)
             {
                 // A package that cannot be used fails the build instead of exporting a project with no SDK (the offline stub
-                // Native~/ios/Bugsee has no xcframework until Tools~/scripts/update-native-sdks.sh has run).
+                // Native~/ios/Bugsee has no xcframework: none is committed, and it must be 7.0.0-beta7 or later).
                 string problem = LocalPackageCopy.Problem(localPackageSource);
                 if (problem != null)
                 {
-                    string how = overridePackage != null ? $" ({LocalPackageEnvVar})" : " Run Tools~/scripts/update-native-sdks.sh first.";
+                    string how = overridePackage != null ? $" ({LocalPackageEnvVar})" : $" Set {LocalPackageEnvVar} to a 7.0.0-beta7 package (Tools~/scripts/assemble-local-ios-sdk.sh makes one; a non-development build also needs {LocalPackageAllowReleaseEnvVar}=1), or leave UseRemoteSpm on.";
                     throw new BuildFailedException($"[Bugsee] Local iOS SDK package {localPackageSource}: {problem}{how}");
                 }
 
