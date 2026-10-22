@@ -595,8 +595,16 @@ namespace Bugsee
         public static void AddSecureScreenRectangle(Rect unityScreenRect, int displayId = DefaultSecureRectDisplayId)
         {
             if (displayId < 0) throw new ArgumentOutOfRangeException(nameof(displayId));
+            // On the main thread the screen size is the one the rectangle was given for, read now; from another thread it is read
+            // when the call runs (Unity's Screen cannot be read there).
+            int sw = 0, sh = 0;
+            if (MainThreadDispatcher.IsMainThread && displayId == DefaultSecureRectDisplayId)
+            {
+                sw = Screen.width;
+                sh = Screen.height;
+            }
             MainThreadDispatcher.Post(() => _screenSecureRects.Add(
-                unityScreenRect.xMin, unityScreenRect.yMin, unityScreenRect.xMax, unityScreenRect.yMax, displayId));
+                unityScreenRect.xMin, unityScreenRect.yMin, unityScreenRect.xMax, unityScreenRect.yMax, displayId, sw, sh));
         }
 
         /// <summary>Stops hiding a rectangle added with <see cref="AddSecureScreenRectangle"/>; pass exactly the same rectangle and display.</summary>

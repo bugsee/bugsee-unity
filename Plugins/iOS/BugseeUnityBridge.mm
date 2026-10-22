@@ -803,8 +803,12 @@ static UIView *BugseeUnityFindView(UIView *view, int depth)
 
 // Unity's view and the window that holds it. Every window of every scene is searched (an iPad can show several scenes), so an
 // unrelated key window is never taken for Unity's; only when no UnityView is found anywhere is the key window's root view used.
+static __weak UIView *gBugseeUnityView; // the found view: the search runs again only when it is gone or detached
+
 static UIView *BugseeUnityViewAndWindow(UIWindow **outWindow)
 {
+    UIView *cached = gBugseeUnityView;
+    if (cached && cached.window) { *outWindow = cached.window; return cached; }
     UIApplication *app = [UIApplication sharedApplication];
     NSMutableArray<UIWindow *> *windows = [NSMutableArray array];
     for (UIScene *scene in app.connectedScenes)
@@ -814,7 +818,7 @@ static UIView *BugseeUnityViewAndWindow(UIWindow **outWindow)
     UIWindow *keyWindow = nil;
     for (UIWindow *window in windows) {
         UIView *found = BugseeUnityFindView(window, 0);
-        if (found) { *outWindow = window; return found; }
+        if (found) { gBugseeUnityView = found; *outWindow = window; return found; }
         if (window.isKeyWindow && !keyWindow) keyWindow = window;
     }
     if (!keyWindow || !keyWindow.rootViewController.view) return nil;
@@ -830,8 +834,8 @@ int _bugsee_unity_view_region(float *outRect)
     UIWindow *window = nil;
     UIView *view = BugseeUnityViewAndWindow(&window);
     if (!view || !window) return 0;
-    CGRect inWindow = [view convertRect:view.bounds toView:window];
-    CGRect r = [window convertRect:inWindow toWindow:nil]; // nil: the screen's coordinate space
+    // Explicitly the screen's coordinate space (a window's own space leaves out its origin under Split View / Stage Manager).
+    CGRect r = [view convertRect:view.bounds toCoordinateSpace:window.screen.coordinateSpace];
     if (r.size.width <= 0 || r.size.height <= 0) return 0;
     outRect[0] = (float)r.origin.x;
     outRect[1] = (float)r.origin.y;
