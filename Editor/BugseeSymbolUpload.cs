@@ -132,6 +132,9 @@ namespace Bugsee.Editor
             }
             // Unity "Create symbols.zip" / Gradle native debug symbols.
             UploadSymbolsZipOrElf(report, roots, version, build, identity.ElfUuid ?? Guid.NewGuid().ToString("D"));
+            // The libraries Unity's zip does not hold: the developer's plugin libraries and AAR libraries that ship with symbols.
+            // The id only correlates the upload with the build's logs (each library is keyed by its own build-id).
+            BugseeAndroidNativeLibUpload.Upload(report, version, build, identity.ElfUuid ?? Guid.NewGuid().ToString("D"), FindSymbolsZip(report));
         }
 
         static string FindLauncherIcon()
