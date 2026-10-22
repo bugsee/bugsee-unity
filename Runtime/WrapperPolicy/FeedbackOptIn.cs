@@ -72,7 +72,7 @@ namespace Bugsee.WrapperPolicy
         {
             if (libraryBuildGradle == null) return null;
             Match m = CompileSdkLine.Match(libraryBuildGradle);
-            if (!m.Success || !int.TryParse(m.Groups["v"].Value, out int sdk) || sdk >= MinCompileSdk) return null;
+            if (!m.Success || !int.TryParse(m.Groups["v"].Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int sdk) || sdk >= MinCompileSdk) return null;
             return "[Bugsee] " + Define + " is set, but the generated Gradle project compiles against API " + sdk
                 + ", and bugsee-android-feedback needs compileSdk " + MinCompileSdk + " or newer (androidx.compose.ui 1.8). "
                 + "Raise Player Settings > Other Settings > Target API Level (or the project's compileSdk), or remove the define for this build.";

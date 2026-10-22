@@ -122,7 +122,7 @@ namespace Bugsee.WrapperPolicy
                 string segment = parts[2];
                 int end = 0;
                 while (end < segment.Length && char.IsDigit(segment[end])) end++;
-                if (!int.TryParse(segment.Substring(0, end), out patch)) patch = 0;
+                if (!int.TryParse(segment.Substring(0, end), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out patch)) patch = 0;
                 if (end < segment.Length && patch > 0) patch--;
                 else if (end < segment.Length) patch = -1;
             }
