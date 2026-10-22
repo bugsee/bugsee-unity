@@ -353,9 +353,18 @@ namespace Bugsee
         [Obsolete("Use StartBlackout/EndBlackout instead.")]
         public static void Resume() => EndBlackout();
 
-        /// <summary>Write a line to the Bugsee log. It skips the log filter (<see cref="SetLogEventFilter"/>): the native default; the wrapper does not expose the opt-in.</summary>
+        /// <summary>Write a line to the Bugsee log. It skips the log filter (<see cref="SetLogEventFilter"/>): the native default. Use <see cref="Log(string, LogLevel, bool)"/> to run it through the filter.</summary>
         public static void Log(string message, LogLevel level = LogLevel.Info) =>
-            Bridge.Log(message, level);
+            Bridge.Log(message, level, false);
+
+        /// <summary>
+        /// Write a line to the Bugsee log. With <paramref name="requiresFiltering"/> true the line also goes through the log
+        /// filter (<see cref="SetLogEventFilter"/>), which can edit or drop it: use it when the message may hold data that
+        /// the filter redacts from captured logs. Do not call it from inside the log filter itself: Android runs the filter during the call, so that recurses. On iOS a line below <c>CaptureLogsLevel</c> never reaches the filter. With false it skips the filter, like <see cref="Log(string, LogLevel)"/>.
+        /// Does nothing for a null message or before the SDK is launched.
+        /// </summary>
+        public static void Log(string message, LogLevel level, bool requiresFiltering) =>
+            Bridge.Log(message, level, requiresFiltering);
 
         public static void AddNetworkEvent(INetworkEvent networkEvent) =>
             Bridge.AddNetworkEvent(networkEvent);
@@ -812,8 +821,8 @@ namespace Bugsee
 
         /// <summary>
         /// Filter the captured logs: the Unity log the wrapper forwards, and logcat on Android (both need
-        /// <c>CaptureLogs</c>). Lines written with <see cref="Log"/> skip this filter (the native default; the wrapper
-        /// does not expose the opt-in).
+        /// <c>CaptureLogs</c>). Lines written with <see cref="Log(string, LogLevel)"/> skip this filter (the native default); pass
+        /// <c>requiresFiltering: true</c> to <see cref="Log(string, LogLevel, bool)"/> to run a line through it.
         /// </summary>
         public static void SetLogEventFilter(EventFilter<ILogEvent> filter) =>
             Bridge.SetLogEventFilter(filter);

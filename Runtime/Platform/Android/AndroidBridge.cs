@@ -241,15 +241,16 @@ namespace Bugsee.Platform.Android
             target.IsOverride = source.IsOverride;
         }
 
-        public void Log(string message, LogLevel level)
+        public void Log(string message, LogLevel level, bool requiresFiltering)
         {
+            if (message == null) return; // the native log is a no-op for null; Unity cannot derive a JNI signature from a null string
             using (var clazz = new AndroidJavaClass("com.bugsee.library.contracts.options.LogLevel"))
             {
                 var def = clazz.CallStatic<AndroidJavaObject>("fromRawValue", (sbyte)LogLevel.Info);
                 var ll = clazz.CallStatic<AndroidJavaObject>("fromRawValue", (sbyte)level, def);
                 try
                 {
-                    _bugsee.CallStatic("log", message, ll);
+                    _bugsee.CallStatic("log", message, ll, requiresFiltering);
                 }
                 finally
                 {
