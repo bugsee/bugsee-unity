@@ -69,7 +69,7 @@ jobs:
           $r = @($trx.TestRun.Results.UnitTestResult | Where-Object { $ids -contains $_.testId })
           $passed = @($r | Where-Object { $_.outcome -eq 'Passed' }).Count
           Write-Host "Windows smoke tests passed: $passed of $($r.Count)"
-          if ($passed -lt 12) { Write-Error "Expected at least 12 executed WindowsNativeSmokeTests results, got $passed"; exit 1 }
+          if ($passed -lt 13) { Write-Error "Expected at least 13 executed WindowsNativeSmokeTests results, got $passed"; exit 1 }
 
   wrapper-build-placeholder:
     name: Wrapper build id is the dev placeholder
