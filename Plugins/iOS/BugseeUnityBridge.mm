@@ -779,6 +779,75 @@ float _bugsee_pixels_per_point(int unityPixelWidth)
     return (float)[UIScreen mainScreen].scale;
 }
 
+static UIView *BugseeUnityFindView(UIView *view, int depth)
+{
+    if ([NSStringFromClass([view class]) hasPrefix:@"UnityView"]) return view;
+    if (depth > 6) return nil;
+    for (UIView *child in view.subviews) {
+        UIView *found = BugseeUnityFindView(child, depth + 1);
+        if (found) return found;
+    }
+    return nil;
+}
+
+// Unity's view and the window that holds it. Every window of every scene is searched (an iPad can show several scenes), so an
+// unrelated key window is never taken for Unity's; only when no UnityView is found anywhere is the key window's root view used.
+static __weak UIView *gBugseeUnityView; // the found view: the search runs again only when it is gone or detached
+
+static UIView *BugseeUnityViewAndWindow(UIWindow **outWindow)
+{
+    UIView *cached = gBugseeUnityView;
+    if (cached && cached.window) { *outWindow = cached.window; return cached; }
+    UIApplication *app = [UIApplication sharedApplication];
+    NSMutableArray<UIWindow *> *windows = [NSMutableArray array];
+    for (UIScene *scene in app.connectedScenes)
+        if ([scene isKindOfClass:[UIWindowScene class]]) [windows addObjectsFromArray:((UIWindowScene *)scene).windows];
+    for (UIWindow *window in app.windows)
+        if (![windows containsObject:window]) [windows addObject:window];
+    UIWindow *keyWindow = nil;
+    for (UIWindow *window in windows) {
+        UIView *found = BugseeUnityFindView(window, 0);
+        if (found) { gBugseeUnityView = found; *outWindow = window; return found; }
+        if (window.isKeyWindow && !keyWindow) keyWindow = window;
+    }
+    if (!keyWindow || !keyWindow.rootViewController.view) return nil;
+    *outWindow = keyWindow;
+    return keyWindow.rootViewController.view;
+}
+
+// Where Unity's own view sits on the screen, in points with a top-left origin (x, y, width, height into outRect). Differs from
+// UIScreen.bounds under iPad Split View, Slide Over and Stage Manager. Returns 0 when there is no window or view.
+int _bugsee_unity_view_region(float *outRect)
+{
+    if (!outRect) return 0;
+    UIWindow *window = nil;
+    UIView *view = BugseeUnityViewAndWindow(&window);
+    if (!view || !window) return 0;
+    // Explicitly the screen's coordinate space (a window's own space leaves out its origin under Split View / Stage Manager).
+    CGRect r = [view convertRect:view.bounds toCoordinateSpace:window.screen.coordinateSpace];
+    if (r.size.width <= 0 || r.size.height <= 0) return 0;
+    outRect[0] = (float)r.origin.x;
+    outRect[1] = (float)r.origin.y;
+    outRect[2] = (float)r.size.width;
+    outRect[3] = (float)r.size.height;
+    return 1;
+}
+
+// The size in points of the screen Unity's view is on (the main screen when it is not found), into outWH; 0 when unusable. The
+// fallback surface when Unity's view region cannot be read. Points need no scale here: the managed side multiplies by the main
+// screen's scale and the snapshot divides by it again.
+int _bugsee_screen_points(float *outWH)
+{
+    if (!outWH) return 0;
+    UIWindow *window = nil;
+    UIView *view = BugseeUnityViewAndWindow(&window);
+    CGSize size = (view && window ? window.screen : [UIScreen mainScreen]).bounds.size;
+    if (size.width <= 0 || size.height <= 0) return 0;
+    outWH[0] = (float)size.width;
+    outWH[1] = (float)size.height;
+    return 1;
+}
+
 void _bugsee_capture_view_hierarchy(void)
 {
     [Bugsee captureViewHierarchy];
@@ -1114,6 +1183,8 @@ char *_bugsee_get_email(void) { return NULL; }
 void _bugsee_clear_email(void) {}
 float _bugsee_screen_scale(void) { return 1.f; }
 float _bugsee_pixels_per_point(int unityPixelWidth) { (void)unityPixelWidth; return 1.f; }
+int _bugsee_unity_view_region(float *outRect) { (void)outRect; return 0; }
+int _bugsee_screen_points(float *outWH) { (void)outWH; return 0; }
 void _bugsee_set_secure_buffer(int display, int *packed, int packedLength)
 {
     (void)display;

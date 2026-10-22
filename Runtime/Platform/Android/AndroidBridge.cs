@@ -455,6 +455,17 @@ namespace Bugsee.Platform.Android
 
         public float GetSecureRectSnapshotScale() => 1f;
 
+        readonly SecureRectSurfaceProbe _surfaceProbe = new SecureRectSurfaceProbe();
+
+        // Unity's surface on the screen, read with cached JNI handles (cheap enough for every frame). Resolution Scaling or a
+        // stretched buffer keep the surface at display size while Screen shrinks, so the aspect is not checked: a rotation
+        // in flight shows for a frame or two, until Unity's size and the view agree again.
+        public bool TryGetSecureRectViewRegion(int screenWidth, int screenHeight, out int left, out int top, out int width, out int height, out bool settled)
+        {
+            settled = true;
+            return _surfaceProbe.TryRead(screenWidth, screenHeight, out left, out top, out width, out height);
+        }
+
         public void CaptureViewHierarchy() => _bugsee.CallStatic("captureViewHierarchy");
 
         public void ResetVideoCapturePermission() => _bugsee.CallStatic("resetVideoCapturePermission");

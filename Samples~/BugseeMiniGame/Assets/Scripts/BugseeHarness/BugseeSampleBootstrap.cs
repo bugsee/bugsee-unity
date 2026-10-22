@@ -528,6 +528,13 @@ namespace Bugsee.Sample
                         _pendingE2EFire = "D:blackout";
                     }
                     break;
+                case "securerect":
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f)
+                    {
+                        _e2ePhase = 99;
+                        _pendingE2EFire = "Z:securerect";
+                    }
+                    break;
                 case "videoperm":
                     if (_e2ePhase == 0 && _e2eTimer >= 5f)
                     {
@@ -733,6 +740,14 @@ namespace Bugsee.Sample
                     break;
                 case 'D':
                     BlackoutE2E.Run(this, appToken, LastLaunchOptions);
+                    break;
+                case 'Z':
+                    {
+                        int.TryParse(ReadE2EValue("bugsee_secure_scale", "BUGSEE_SECURE_SCALE"), out int scaleDown);
+                        float.TryParse(ReadE2EValue("bugsee_secure_rotate_s", "BUGSEE_SECURE_ROTATE_S"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float rotateAfter);
+                        SecureRectE2E.ReAdd = ReadE2EValue("bugsee_secure_readd", "BUGSEE_SECURE_READD") == "1";
+                        SecureRectE2E.Run(this, scaleDown, rotateAfter, ReadE2EValue("bugsee_secure_res", "BUGSEE_SECURE_RES"));
+                    }
                     break;
                 case 'G':
                     SignatureThreadsE2E.Run(this, marker);

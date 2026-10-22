@@ -782,6 +782,37 @@ namespace Bugsee.Platform.IOS
 
         public float GetSecureRectSnapshotScale() => _bugsee_screen_scale();
 
+        // Unity's own view on the screen, in points, times the screen scale (registered pixels are divided by the scale again by
+        // the snapshot): under iPad Split View, Slide Over or Stage Manager it is not the screen. A size that does not have the
+        // orientation of Unity's screen (landscape against portrait) is a view caught mid-rotation, as UIKit and Unity update at
+        // different moments: not settled. The aspect itself is not compared: a render size of another aspect is stretched.
+        public bool TryGetSecureRectViewRegion(int screenWidth, int screenHeight, out int left, out int top, out int width, out int height, out bool settled)
+        {
+            left = top = width = height = 0;
+            settled = false;
+            float scale = _bugsee_screen_scale();
+            var rect = new float[4];
+            if (scale <= 0f || screenWidth <= 0 || screenHeight <= 0) return false;
+            if (_bugsee_unity_view_region(rect) == 0)
+            {
+                // Not readable: report the whole screen (points times scale) as the fallback, with false, so the caller can use
+                // it as the display's real size. Each axis comes from the screen itself: Unity may render at another aspect.
+                var size = new float[2];
+                if (_bugsee_screen_points(size) != 0)
+                {
+                    width = Mathf.RoundToInt(size[0] * scale);
+                    height = Mathf.RoundToInt(size[1] * scale);
+                }
+                return false;
+            }
+            left = Mathf.RoundToInt(rect[0] * scale);
+            top = Mathf.RoundToInt(rect[1] * scale);
+            width = Mathf.RoundToInt(rect[2] * scale);
+            height = Mathf.RoundToInt(rect[3] * scale);
+            settled = width == height || screenWidth == screenHeight || (width > height) == (screenWidth > screenHeight);
+            return width > 0 && height > 0;
+        }
+
         public void CaptureViewHierarchy() => _bugsee_capture_view_hierarchy();
 
         static readonly UnsupportedApiNotice _resetPermissionNotice = new UnsupportedApiNotice(Debug.LogWarning);
@@ -954,6 +985,8 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_set_email(string email);
         [DllImport("__Internal")] static extern IntPtr _bugsee_get_email();
         [DllImport("__Internal")] static extern void _bugsee_clear_email();
+        [DllImport("__Internal")] static extern int _bugsee_unity_view_region(float[] outRect);
+        [DllImport("__Internal")] static extern int _bugsee_screen_points(float[] outWH);
         [DllImport("__Internal")] static extern void _bugsee_set_secure_buffer(int display, int[] packed, int packedLength);
         [DllImport("__Internal")] static extern float _bugsee_screen_scale();
         [DllImport("__Internal")] static extern void _bugsee_capture_view_hierarchy();

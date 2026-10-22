@@ -201,6 +201,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 case "bool": return new[] { "bool", "BOOL" };
                 case "string": return new[] { "const char*" };
                 case "int[]": return new[] { "int*" };
+                case "float[]": return new[] { "float*" };
                 case "IntPtr": return isReturn ? new[] { "char*" } : new[] { "char*", "void*" };
                 default: return null;
             }
