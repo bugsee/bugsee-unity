@@ -30,8 +30,13 @@ namespace Bugsee.Internal
         {
             try
             {
+#if UNITY_IOS && !UNITY_EDITOR
+                // The Xcode Run Script records the fingerprint in Info.plist (the Unity build cannot see its token).
+                var recorded = Platform.IOS.IOSBridge.RecordedBuildTokenFingerprint();
+#else
                 var asset = Resources.Load<TextAsset>(BuildTokenFingerprint.ResourceName);
                 var recorded = asset != null ? asset.text : null;
+#endif
                 if (BuildTokenFingerprint.Check(recorded, appToken) == BuildTokenFingerprint.Verdict.Mismatch)
                 {
                     Debug.LogWarning("[Bugsee] " + BuildTokenFingerprint.MismatchMessage(recorded, appToken));

@@ -63,6 +63,38 @@ defang() {
   # C locale: BSD sed fails on bytes that are not valid UTF-8, which set -e must not turn into an aborted upload loop.
   LC_ALL=C sed 's/[Ee][Rr][Rr][Oo][Rr]:/error -/g' || true
 }
+# Build token fingerprint: records a fingerprint of BUGSEE_APP_TOKEN (the first 8 bytes of SHA-256 of the trimmed token, 16 hex
+# characters, never the token) as the key BugseeBuildTokenFingerprint in the built app's Info.plist, so Bugsee.Launch can warn
+# when the token it is given has another fingerprint. This phase runs before Xcode signs the product, so the signature covers
+# the edit. The key is removed whenever nothing is recorded: the built plist outlives a build (an incremental build, a re-run
+# of the phase), and a key left from an earlier build's token would warn about a token this build never used.
+# Never fails the build.
+FP_KEY=BugseeBuildTokenFingerprint
+FP_PLIST_DIR=""${TARGET_BUILD_DIR:-${BUILT_PRODUCTS_DIR}}""
+FP_PLIST=""""
+if [ -n ""${FP_PLIST_DIR}"" ] && [ -n ""${INFOPLIST_PATH}"" ] && [ -f ""${FP_PLIST_DIR}/${INFOPLIST_PATH}"" ]; then
+  FP_PLIST=""${FP_PLIST_DIR}/${INFOPLIST_PATH}""
+fi
+FP_TOKEN=$(printf '%s' ""${BUGSEE_APP_TOKEN}"" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+FP_VALUE=""""
+if [ -n ""${FP_PLIST}"" ] && [ -n ""${FP_TOKEN}"" ] && [ -z ""${BUGSEE_NO_TOKEN_CHECK+x}"" ] && [ -z ""${BUGSEE_NO_SYMBOL_UPLOAD+x}"" ] &&
+   ! { [ ""${CONFIGURATION}"" = ""Debug"" ] && [ ""${BUGSEE_SKIP_UPLOAD_ON_DEBUG}"" = ""1"" ]; }; then
+  FP_VALUE=$(printf '%s' ""${FP_TOKEN}"" | /usr/bin/shasum -a 256 2>/dev/null | cut -c1-16) || FP_VALUE=""""
+  case ""${FP_VALUE}"" in
+    [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+    *) FP_VALUE="""" ;;
+  esac
+fi
+if [ -n ""${FP_PLIST}"" ]; then
+  /usr/libexec/PlistBuddy -c ""Delete :${FP_KEY}"" ""${FP_PLIST}"" >/dev/null 2>&1 || true
+  if [ -n ""${FP_VALUE}"" ]; then
+    if /usr/libexec/PlistBuddy -c ""Add :${FP_KEY} string ${FP_VALUE}"" ""${FP_PLIST}"" >/dev/null 2>&1; then
+      echo ""Bugsee: recorded the build token fingerprint ${FP_VALUE} in the app's Info.plist (Bugsee.Launch warns when its token differs; BUGSEE_NO_TOKEN_CHECK turns it off).""
+    else
+      echo ""Bugsee: could not record the build token fingerprint in ${FP_PLIST}.""
+    fi
+  fi
+fi
 # Bugsee archive-time symbol upload (dSYMs + il2cpp-linemap).
 # Never fail the Archive: problems are reported as warning: lines (Xcode's issue navigator), never error:.
 if [ ""${CONFIGURATION}"" = ""Debug"" ] && [ ""${BUGSEE_SKIP_UPLOAD_ON_DEBUG}"" = ""1"" ]; then
