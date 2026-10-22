@@ -34,6 +34,15 @@ namespace Bugsee.Contracts.Options
         public OptionsBuilder SetDefaultErrorPriority(IssueSeverity s) => Set(Options.ReportingDefaultErrorPriority, (int)s);
         public OptionsBuilder SetDefaultBugPriority(IssueSeverity s) => Set(Options.ReportingDefaultBugPriority, (int)s);
 
+        /// <summary>iOS only; Android drops it.</summary>
+        public OptionsBuilder SetCrashHandlerType(CrashHandlerType type) => Set(Options.CaptureCrashHandlerType, (int)type);
+        /// <summary>iOS only; Android drops it.</summary>
+        public OptionsBuilder SetCrashSignals(CrashSignals signals) => Set(Options.CaptureCrashSignals, (int)signals);
+        /// <summary>iOS only; Android drops it.</summary>
+        public OptionsBuilder SetDataEncryption(DataEncryptionMode mode) => Set(Options.DataEncryption, (int)mode);
+        /// <summary>iOS only; Android drops it.</summary>
+        public OptionsBuilder SetReportingUIStyle(ReportingUIStyle style) => Set(Options.ReportingUIStyle, (int)style);
+
         public OptionsBuilder Duration(int seconds) => Set(Options.Duration, seconds);
         public OptionsBuilder CaptureVideo(bool enabled) => Set(Options.CaptureVideo, enabled);
         public OptionsBuilder CaptureNetwork(bool enabled) => Set(Options.CaptureNetwork, enabled);
@@ -47,8 +56,6 @@ namespace Bugsee.Contracts.Options
             Set(Options.DetectAndReportExitNotResponding, enabled);
         public OptionsBuilder DetectAndReportExitLowMemory(bool enabled) =>
             Set(Options.DetectAndReportExitLowMemory, enabled);
-        public OptionsBuilder Debug(bool enabled) => Set(Options.Debug, enabled);
-        public OptionsBuilder Endpoint(string url) => Set(Options.Endpoint, url);
 
         public IReadOnlyDictionary<string, object> Build() =>
             new Dictionary<string, object>(_map);

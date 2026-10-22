@@ -186,7 +186,8 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void An_exported_project_is_its_own_il2cpp_root_and_an_apk_uses_its_backup_folder_never_the_parent()
         {
-            var backup = Path.Combine("/b", "Game_BackUpThisFolder_ButDontShipItWithYourGame");
+            // Path.GetDirectoryName normalises separators on Windows ("\\b"), so derive the expectation the same way.
+            var backup = Path.Combine(Path.GetDirectoryName("/b/Game.apk"), "Game_BackUpThisFolder_ButDontShipItWithYourGame");
             Assert.That(BuildArtifactChoice.Il2CppOutputRoot("/b/iOS", true), Is.EqualTo("/b/iOS"));
             Assert.That(BuildArtifactChoice.Il2CppOutputRoot("/b/Game.apk", false), Is.EqualTo(backup));
             Assert.That(BuildArtifactChoice.Il2CppOutputRoot("/b/Game.aab", false), Is.EqualTo(backup));

@@ -213,5 +213,22 @@ namespace Bugsee.WrapperPolicy
 
             return args;
         }
+
+        /// <summary>The log line for a mapping upload that carries a launcher icon, or null when its arguments have none.</summary>
+        public static string IconNotice(IList<string> mappingArgs)
+        {
+            if (mappingArgs == null)
+            {
+                return null;
+            }
+
+            var at = mappingArgs.IndexOf("--icon");
+            if (at < 0 || at + 1 >= mappingArgs.Count || string.IsNullOrEmpty(mappingArgs[at + 1]))
+            {
+                return null;
+            }
+
+            return "Bugsee: attaching launcher icon " + mappingArgs[at + 1] + " to the mapping upload.";
+        }
     }
 }

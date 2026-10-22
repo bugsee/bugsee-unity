@@ -174,6 +174,7 @@ namespace Bugsee.WrapperPolicy.Tests
             public int ExitCode;
             public string Output;
             public List<string> Calls;
+            public List<string> Bracketed; // the same calls, one [argument] each
             public List<string> Siblings; // what sat beside each uploaded LineNumberMappings.json
         }
 
@@ -467,9 +468,153 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(IosArchiveUploadScript.Build(null, 1_800_000_000), Does.Contain("EXPORT_START='1800000000'\n"));
         }
 
+        // A Unity export sets no MARKETING_VERSION / CURRENT_PROJECT_VERSION: the version and build come from the built
+        // app's Info.plist (the Player Settings' values, what the SDK reports), then from the build settings, and a flag
+        // with no value is left out.
+        const string PlistRelative = "BugseeMiniGame.app/Info.plist";
+
+        static void PlantPlist(string root, string version, string build)
+        {
+            var path = Path.Combine(root, "Build", "Products", "Debug-iphoneos", PlistRelative);
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            File.WriteAllText(path, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict>"
+                + "<key>CFBundleShortVersionString</key><string>" + version + "</string>"
+                + "<key>CFBundleVersion</key><string>" + build + "</string></dict></plist>\n");
+        }
+
+        static Dictionary<string, string> Settings(bool plistPath, string marketing = null, string project = null,
+            string targetBuildDir = null, string bugseeVersion = null, string bugseeBuild = null) => new Dictionary<string, string>
+        {
+            { "MARKETING_VERSION", marketing },
+            { "CURRENT_PROJECT_VERSION", project },
+            { "TARGET_BUILD_DIR", targetBuildDir },
+            { "INFOPLIST_PATH", plistPath ? PlistRelative : null },
+            { "BUGSEE_VERSION", bugseeVersion },
+            { "BUGSEE_BUILD", bugseeBuild },
+        };
+
+        static void NeedsPlistBuddy()
+        {
+            if (!File.Exists("/usr/libexec/PlistBuddy"))
+                Assert.Ignore("needs PlistBuddy");
+        }
+
+        static string DsymCall(ScriptRun run) => run.Calls.Single(c => c.Contains("--type dsym"));
+
+        [Test]
+        public void Archive_script_takes_version_and_build_from_the_built_info_plist()
+        {
+            NeedsPlistBuddy();
+            // The harness sets no TARGET_BUILD_DIR: the script falls back to BUILT_PRODUCTS_DIR.
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, env: Settings(true), plant: root => PlantPlist(root, "3.4.5", "678"));
+            Assert.That(DsymCall(run), Does.EndWith("--type dsym --version 3.4.5 --build 678"), run.Output);
+        }
+
+        [Test]
+        public void Archive_script_reads_the_plist_under_target_build_dir()
+        {
+            NeedsPlistBuddy();
+            // BUILT_PRODUCTS_DIR points elsewhere, so only a TARGET_BUILD_DIR-first lookup finds the plist.
+            var env = Settings(true, targetBuildDir: "@ROOT@/Build/Products/Debug-iphoneos");
+            env["BUILT_PRODUCTS_DIR"] = "@ROOT@/elsewhere";
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, env: env, plant: root => PlantPlist(root, "3.4.5", "678"));
+            Assert.That(DsymCall(run), Does.EndWith("--version 3.4.5 --build 678"), run.Output);
+        }
+
+        [Test]
+        public void Archive_script_prefers_the_plist_over_build_settings_and_says_when_they_differ()
+        {
+            NeedsPlistBuddy();
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, env: Settings(true, marketing: "9.9", project: "99"),
+                plant: root => PlantPlist(root, "3.4.5", "678"));
+            Assert.That(DsymCall(run), Does.EndWith("--version 3.4.5 --build 678"), run.Output);
+            Assert.That(run.Output, Does.Contain("MARKETING_VERSION (9.9) differs").And.Contain("CURRENT_PROJECT_VERSION (99) differs"));
+        }
+
+        [Test]
+        public void Archive_script_uses_build_settings_when_there_is_no_plist_value()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, env: Settings(false, marketing: "1.2", project: "34"));
+            Assert.That(DsymCall(run), Does.EndWith("--version 1.2 --build 34"), run.Output);
+        }
+
+        // Only one of the two is known: the other flag alone is dropped, per call (dSYM and line map).
+        [Test]
+        public void Archive_script_drops_only_the_flag_without_a_value_on_every_call()
+        {
+            NeedsPlistBuddy();
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, env: Settings(true), uuids: Uuid,
+                plant: root =>
+                {
+                    PlantPlist(root, "$(MARKETING_VERSION)", "9");
+                    PlantMap(root, SymbolsMap, ExportStart + 10);
+                });
+            Assert.That(DsymCall(run), Does.EndWith("--type dsym --build 9"), run.Output);
+            Assert.That(run.Calls.Single(c => c.Contains("--type il2cpp-linemap")), Does.Contain("--build 9 --uuid ").And.Not.Contain("--version"), run.Output);
+        }
+
+        // A build setting that names another one and was not resolved is no version, whichever source it comes from.
+        [Test]
+        public void Archive_script_omits_unresolved_references_from_every_source()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" },
+                env: Settings(false, marketing: "$(RELEASE_VERSION)", project: "${BUILD_NO}", bugseeVersion: "$(X)", bugseeBuild: "${Y}"));
+            Assert.That(DsymCall(run), Does.EndWith("--type dsym"), run.Output);
+        }
+
+        // The mismatch note is user text in an Xcode log: an error: in it must not fail the archive.
+        [Test]
+        public void Archive_script_defangs_the_mismatch_note()
+        {
+            NeedsPlistBuddy();
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, env: Settings(true, marketing: "error:1", project: "Error:2"),
+                plant: root => PlantPlist(root, "3.4.5", "678"));
+            Assert.That(run.Output, Does.Contain("MARKETING_VERSION (error -1) differs").And.Contain("CURRENT_PROJECT_VERSION (error -2) differs"));
+            Assert.That(run.Output, Does.Not.Match("(?i)error:"));
+        }
+
+        [Test]
+        public void Archive_script_omits_version_and_build_when_unknown()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, env: Settings(false), uuids: Uuid,
+                plant: root => PlantMap(root, SymbolsMap, ExportStart + 10));
+            Assert.That(DsymCall(run), Does.EndWith("--type dsym"), run.Output);
+            Assert.That(run.Calls.Single(c => c.Contains("--type il2cpp-linemap")), Does.Not.Contain("--version").And.Not.Contain("--build"), run.Output);
+            Assert.That(run.Output, Does.Contain("no app version found").And.Contain("no app build number found"));
+        }
+
+        // INFOPLIST_PATH with neither TARGET_BUILD_DIR nor BUILT_PRODUCTS_DIR must not look at /<path>.
+        [Test]
+        public void Archive_script_does_not_read_a_plist_without_a_build_directory()
+        {
+            var env = Settings(true);
+            env["BUILT_PRODUCTS_DIR"] = "";
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, env: env);
+            Assert.That(DsymCall(run), Does.EndWith("--type dsym"), run.Output);
+        }
+
+        // $(...) anywhere in the value counts as unexpanded, as ${ does.
+        [Test]
+        public void Archive_script_ignores_a_plist_value_with_a_reference_inside()
+        {
+            NeedsPlistBuddy();
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, env: Settings(true),
+                plant: root => PlantPlist(root, "1.0-$(SUFFIX)", "${BUILD}"));
+            Assert.That(DsymCall(run), Does.EndWith("--type dsym"), run.Output);
+        }
+
+        [Test]
+        public void Archive_script_prefers_bugsee_version_and_build_and_keeps_spaces_in_one_argument()
+        {
+            NeedsPlistBuddy();
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, env: Settings(true, bugseeVersion: "7.0 beta", bugseeBuild: "70"),
+                plant: root => PlantPlist(root, "3.4.5", "678"));
+            Assert.That(run.Bracketed.Single(c => c.Contains("[dsym]")), Does.Contain("[--version][7.0 beta][--build][70]"), run.Output);
+        }
+
         static ScriptRun RunScript(string[] dsymBundles, int cliExitCode = 0, string token = "test-token",
             string platform = "iphoneos", Action<string> plant = null, long exportStart = 0, string uuids = null, string tmpDir = null,
-            string[] cliNoise = null, string action = null)
+            string[] cliNoise = null, string action = null, Dictionary<string, string> env = null)
         {
             if (!File.Exists("/bin/sh"))
                 Assert.Ignore("needs /bin/sh");
@@ -488,7 +633,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 var calls = Path.Combine(root, "calls.txt");
                 var cli = Path.Combine(root, "fake-cli.sh");
                 var noise = cliNoise == null ? "" : "printf '%s\\n' " + string.Join(" ", cliNoise.Select(l => "'" + l + "'")) + " | tee /dev/stderr\n";
-                File.WriteAllText(cli, "#!/bin/sh\n[ \"$1\" = --version ] && { echo 'bugsee-cli 0.8.1'; exit 0; }\necho \"$*\" >> \"" + calls + "\"\nfor a in \"$@\"; do case \"$a\" in */LineNumberMappings.json) ls \"$(dirname \"$a\")\" | tr '\\n' ' ' >> \"" + calls + ".siblings\"; echo >> \"" + calls + ".siblings\";; esac; done\n" + noise + "exit " + cliExitCode + "\n");
+                File.WriteAllText(cli, "#!/bin/sh\n[ \"$1\" = --version ] && { echo 'bugsee-cli 0.8.1'; exit 0; }\necho \"$*\" >> \"" + calls + "\"\nfor a in \"$@\"; do printf '[%s]' \"$a\"; done >> \"" + calls + ".args\"; echo >> \"" + calls + ".args\"\nfor a in \"$@\"; do case \"$a\" in */LineNumberMappings.json) ls \"$(dirname \"$a\")\" | tr '\\n' ' ' >> \"" + calls + ".siblings\"; echo >> \"" + calls + ".siblings\";; esac; done\n" + noise + "exit " + cliExitCode + "\n");
                 File.SetUnixFileMode(cli, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
                 var script = Path.Combine(projectDir, "upload-symbols.sh");
                 File.WriteAllText(script, IosArchiveUploadScript.Build(null, exportStart));
@@ -511,8 +656,19 @@ namespace Bugsee.WrapperPolicy.Tests
                 info.Environment["PLATFORM_NAME"] = platform;
                 info.Environment["PROJECT_DIR"] = projectDir;
                 info.Environment.Remove("BUGSEE_SKIP_UPLOAD_ON_DEBUG");
+                // The developer's own overrides must not leak into a run.
+                foreach (var inherited in new[] { "BUGSEE_VERSION", "BUGSEE_BUILD", "TARGET_BUILD_DIR", "INFOPLIST_PATH" })
+                    info.Environment.Remove(inherited);
                 if (tmpDir != null) info.Environment["TMPDIR"] = tmpDir;
                 if (action == null) info.Environment.Remove("ACTION"); else info.Environment["ACTION"] = action;
+                if (env != null)
+                {
+                    foreach (var pair in env)
+                    {
+                        if (pair.Value == null) info.Environment.Remove(pair.Key);
+                        else info.Environment[pair.Key] = pair.Value.Replace("@ROOT@", root);
+                    }
+                }
                 if (uuids != null) info.Environment["BUGSEE_IL2CPP_UUIDS"] = uuids;
                 else info.Environment.Remove("BUGSEE_IL2CPP_UUIDS");
 
@@ -526,6 +682,7 @@ namespace Bugsee.WrapperPolicy.Tests
                         ExitCode = process.ExitCode,
                         Output = stdout.Result + stderr.Result,
                         Calls = File.Exists(calls) ? File.ReadAllLines(calls).ToList() : new List<string>(),
+                        Bracketed = File.Exists(calls + ".args") ? File.ReadAllLines(calls + ".args").ToList() : new List<string>(),
                         Siblings = File.Exists(calls + ".siblings") ? File.ReadAllLines(calls + ".siblings").ToList() : new List<string>(),
                     };
                 }

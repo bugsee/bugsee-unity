@@ -66,6 +66,33 @@ namespace Bugsee.Sample
             return sb.Append(']').ToString();
         }
 
+        static string ContainerCheck(object value, string json)
+        {
+            if (value is string text) return (text == json ? "PASS" : "FAIL") + " value=" + text;
+            var flat = value is IEnumerable ? Flatten(value) : null;
+            return (flat == json ? "PASS managed " : "FAIL ") + (value == null ? "null" : value.GetType().Name) + " flat=" + flat;
+        }
+
+        // Compact JSON of a managed list or map made of numbers, bools, strings and nested lists or maps.
+        static string Flatten(object value)
+        {
+            if (value is string s) return "\"" + s + "\"";
+            if (value is bool b) return b ? "true" : "false";
+            if (value is IDictionary d)
+            {
+                var parts = new List<string>();
+                foreach (DictionaryEntry e in d) parts.Add("\"" + e.Key + "\":" + Flatten(e.Value));
+                return "{" + string.Join(",", parts.ToArray()) + "}";
+            }
+            if (value is IEnumerable l)
+            {
+                var parts = new List<string>();
+                foreach (var item in l) parts.Add(Flatten(item));
+                return "[" + string.Join(",", parts.ToArray()) + "]";
+            }
+            return Convert.ToString(value, CultureInfo.InvariantCulture);
+        }
+
         sealed class Probe : ReportHandlerBase
         {
             readonly bool _edit;
@@ -83,6 +110,7 @@ namespace Bugsee.Sample
                     report.SetAttribute("added_long", 7L);
                     report.SetAttribute("added_whole", 3.0);
                     report.SetAttribute("added_list", new List<object> { 1, "a" });
+                    report.SetAttribute("added_map", new Dictionary<string, object> { { "k", 1 }, { "n", new List<object> { true, "x" } } });
                     report.RemoveAttribute("a_numstr");
                     Debug.Log("[ATTRS] before-out:" + Describe(report));
                 }
@@ -92,6 +120,16 @@ namespace Bugsee.Sample
             public override void OnAfterReportCreated(IReport report, bool isTerminating, Action completionCallback)
             {
                 Debug.Log("[ATTRS] after:" + Describe(report));
+                if (_edit)
+                {
+                    // Integers read back as long on both platforms. A container set by the handler is stored as JSON text
+                    // on Android and as a native structure on iOS (read back as a managed container); either way it
+                    // must carry the data, never be a type name.
+                    Debug.Log("[ATTRS] check a_int long " + (report.GetAttribute("a_int") is long ? "PASS" : "FAIL"));
+                    Debug.Log("[ATTRS] check added_long long " + (report.GetAttribute("added_long") is long ? "PASS" : "FAIL"));
+                    Debug.Log("[ATTRS] check added_list json " + ContainerCheck(report.GetAttribute("added_list"), "[1,\"a\"]"));
+                    Debug.Log("[ATTRS] check added_map json " + ContainerCheck(report.GetAttribute("added_map"), "{\"k\":1,\"n\":[true,\"x\"]}"));
+                }
                 completionCallback?.Invoke();
             }
         }

@@ -252,7 +252,7 @@ namespace Bugsee.WrapperPolicy
                 }
 
                 int value;
-                parts.Add(end > 0 && int.TryParse(segment.Substring(0, end), out value) ? value : 0);
+                parts.Add(end > 0 && int.TryParse(segment.Substring(0, end), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out value) ? value : 0);
             }
 
             return parts.ToArray();

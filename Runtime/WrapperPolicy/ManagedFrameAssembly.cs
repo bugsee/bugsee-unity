@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
 
 namespace Bugsee.WrapperPolicy
 {
@@ -17,15 +16,6 @@ namespace Bugsee.WrapperPolicy
     /// </summary>
     public static class ManagedFrameAssembly
     {
-        // Prefer native-looking PCs (8+ hex digits). Avoid Mono/IL "[0x00023]" IL offsets.
-        static readonly Regex NativePcRegex = new Regex(
-            @"(?:(?:^|[^\w./])(?:pc\s+)?(0x[0-9a-fA-F]{8,16})(?![0-9a-fA-F]))|(?:#\d+\s+pc\s+([0-9a-fA-F]{8,16})\b)",
-            RegexOptions.Compiled);
-
-        static readonly Regex IlOffsetBracketRegex = new Regex(
-            @"\[0x[0-9a-fA-F]{1,6}\]",
-            RegexOptions.Compiled);
-
         /// <summary>Trimmed non-empty lines of a stack trace text, separators included.</summary>
         public static string[] StackLines(string stackTrace)
         {
@@ -99,41 +89,18 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>
-        /// Frames of a Unity log stack text. There are no native IPs here, so a native-looking hex in the line
-        /// (Android <c>#00 pc 000...</c>, <c>0x...</c>) is forwarded as written.
+        /// Frames of a Unity log stack text (<c>Application.logMessageReceived</c>, for an exception Unity logged
+        /// itself). The text is all there is: there are no native IPs and no way to name the image a number in it
+        /// belongs to, so NO address is ever sent. A hex in such a line is not a module-relative return address: it
+        /// is an IL offset (<c>[0x00023]</c>), a Mono method start (<c>&lt;0xSTART + 0xOFFSET&gt;</c>), or an
+        /// absolute process address or a pc of some other library (<c>#00 pc ...</c> of <c>libunity.so</c>). The
+        /// worker would resolve any of them against <c>moduleUUID</c> as an RVA and file a plausible but wrong C#
+        /// line, so the frames stay symbolic (the method names, and the file:line a usym entry already printed).
         /// </summary>
         public static ManagedFrameSet FromLogText(string stackTrace)
         {
             var traces = FrameLines(StackLines(stackTrace));
-            var addresses = new string[traces.Length];
-            for (var i = 0; i < traces.Length; i++) addresses[i] = ExtractInstructionAddress(traces[i]);
-            return new ManagedFrameSet { Traces = traces, Addresses = addresses };
-        }
-
-        /// <summary>
-        /// Native instruction address from a stack line when present. Skips short bracketed IL offsets like
-        /// <c>[0x00023]</c> and Mono <c>&lt;0xSTART + 0xOFFSET&gt;</c> (a method start, not a return address).
-        /// </summary>
-        public static string ExtractInstructionAddress(string stackLine)
-        {
-            if (string.IsNullOrEmpty(stackLine))
-            {
-                return null;
-            }
-
-            var scrubbed = IlOffsetBracketRegex.Replace(ManagedAddressPairing.StripMonoMethodStarts(stackLine), " ");
-            var m = NativePcRegex.Match(scrubbed);
-            if (!m.Success)
-            {
-                return null;
-            }
-
-            var hex = m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value;
-            if (string.IsNullOrEmpty(hex))
-            {
-                return null;
-            }
-            return hex.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? hex : ("0x" + hex);
+            return new ManagedFrameSet { Traces = traces, Addresses = new string[traces.Length] };
         }
     }
 }
