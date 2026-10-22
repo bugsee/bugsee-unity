@@ -92,9 +92,12 @@ jobs:
   wrapper-policy-macos:
     name: Wrapper policy tests (iOS Run Scripts, macOS)
     runs-on: macos-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
