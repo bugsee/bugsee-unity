@@ -668,8 +668,8 @@ namespace Bugsee.Platform.IOS
 
         public IBugseeExchangeFactory GetExchangeFactory() => IosExchangeFactory.Instance;
 
-        public void Log(string message, LogLevel level) =>
-            _bugsee_log(message ?? "", (int)level);
+        public void Log(string message, LogLevel level, bool requiresFiltering) =>
+            _bugsee_log(message ?? "", (int)level, requiresFiltering ? 1 : 0);
 
         public void Trace(string name, object value)
         {
@@ -977,7 +977,7 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern void _bugsee_start_blackout();
         [DllImport("__Internal")] static extern void _bugsee_end_blackout();
         [DllImport("__Internal")] static extern int _bugsee_is_blackout();
-        [DllImport("__Internal")] static extern void _bugsee_log(string message, int level);
+        [DllImport("__Internal")] static extern void _bugsee_log(string message, int level, int requiresFiltering);
         [DllImport("__Internal")] static extern void _bugsee_channel_log(string message, int level, int source);
         [DllImport("__Internal")] static extern void _bugsee_channel_network(string eventJson, int requiresFiltering);
         [DllImport("__Internal")] static extern void _bugsee_channel_breadcrumb(

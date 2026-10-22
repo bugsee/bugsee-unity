@@ -241,7 +241,7 @@ namespace Bugsee.Platform.Android
             target.IsOverride = source.IsOverride;
         }
 
-        public void Log(string message, LogLevel level)
+        public void Log(string message, LogLevel level, bool requiresFiltering)
         {
             using (var clazz = new AndroidJavaClass("com.bugsee.library.contracts.options.LogLevel"))
             {
@@ -249,7 +249,7 @@ namespace Bugsee.Platform.Android
                 var ll = clazz.CallStatic<AndroidJavaObject>("fromRawValue", (sbyte)level, def);
                 try
                 {
-                    _bugsee.CallStatic("log", message, ll);
+                    _bugsee.CallStatic("log", message, ll, requiresFiltering);
                 }
                 finally
                 {

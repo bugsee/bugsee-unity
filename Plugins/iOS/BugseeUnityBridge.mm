@@ -307,9 +307,9 @@ int _bugsee_is_blackout(void)
     return [Bugsee isBlackout] ? 1 : 0;
 }
 
-void _bugsee_log(const char *message, int level)
+void _bugsee_log(const char *message, int level, int requiresFiltering)
 {
-    [Bugsee log:BugseeNSString(message) level:(BugseeLogLevel)level];
+    [Bugsee log:BugseeNSString(message) level:(BugseeLogLevel)level requiresFiltering:requiresFiltering != 0];
 }
 
 void _bugsee_trace(const char *name, const char *valueJson)
@@ -1225,7 +1225,7 @@ int _bugsee_get_status(void) { return 0; }
 void _bugsee_start_blackout(void) {}
 void _bugsee_end_blackout(void) {}
 int _bugsee_is_blackout(void) { return 0; }
-void _bugsee_log(const char *message, int level) { (void)message; (void)level; }
+void _bugsee_log(const char *message, int level, int requiresFiltering) { (void)message; (void)level; (void)requiresFiltering; }
 void _bugsee_trace(const char *name, const char *valueJson) { (void)name; (void)valueJson; }
 void _bugsee_event(const char *name, const char *paramsJson) { (void)name; (void)paramsJson; }
 void _bugsee_logException(const char *name, const char *reason, bool handled, const char *optionsJson) { (void)name; (void)reason; (void)handled; (void)optionsJson; }

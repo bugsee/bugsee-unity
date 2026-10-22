@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using Bugsee.Contracts.Options;
 using UnityEngine;
 
 namespace Bugsee.Sample
@@ -52,11 +53,18 @@ namespace Bugsee.Sample
             x.AddBreadcrumb("e2e", "filters on", "info");
             x.AddBreadcrumb("e2e", "filters on again", "info");
             var androidDebug = LogAndroidDebug("e2e filters debug");
-            // Bugsee.Log skips the log filter on both platforms (the public native log API defaults to no filtering; the wrapper
-            // does not expose the requiresFiltering opt-in). The log filter sees the captured logs: the Unity log, and on Android the logcat line written above. Which Debug
-            // lines it drops elsewhere depends on what the SDK happens to log, so only Android has a deterministic one.
+            // Bugsee.Log(message, level) skips the log filter on both platforms (the native default); Bugsee.Log(message, level, true)
+            // goes through it (#190). Both lines are Debug, which the sample's filter drops. The log filter also sees the captured
+            // logs: the Unity log, and on Android the logcat line written above. Which Debug lines it drops elsewhere depends on what
+            // the SDK happens to log, so only Android has a deterministic one.
+            Bugsee.Log(SampleFilters.LogDefaultText, LogLevel.Debug);
+            Bugsee.Log(SampleFilters.LogOptInText, LogLevel.Debug, true);
             yield return WaitFor(() => SampleFilters.NetworkRedacted >= 4 && SampleFilters.BreadcrumbMarkerDropped >= 2
-                && SampleFilters.LogSeen >= 1 && (!androidDebug || SampleFilters.LogMarkerDropped >= 1), WaitSeconds);
+                && SampleFilters.LogOptInDropped >= 1 && SampleFilters.LogSeen >= 1 && (!androidDebug || SampleFilters.LogMarkerDropped >= 1), WaitSeconds);
+            yield return new WaitForSeconds(1f); // a line that wrongly reached the filter would have by now
+            Check("Log(requiresFiltering: true) reaches the log filter", SampleFilters.LogOptInSeen >= 1, SampleFilters.Summary + " optin seen=" + SampleFilters.LogOptInSeen);
+            Check("Log(requiresFiltering: true) is dropped by the filter", SampleFilters.LogOptInDropped >= 1, SampleFilters.Summary + " optin dropped=" + SampleFilters.LogOptInDropped);
+            Check("Log without requiresFiltering skips the log filter", SampleFilters.LogDefaultSeen == 0, SampleFilters.Summary + " default seen=" + SampleFilters.LogDefaultSeen);
             Check("network filter saw all four events", SampleFilters.NetworkSeen >= 4, SampleFilters.Summary);
             Check("network filter redacted them", SampleFilters.NetworkRedacted >= 4, SampleFilters.Summary);
             Check("breadcrumb filter dropped both of the scenario's breadcrumbs", SampleFilters.BreadcrumbMarkerDropped >= 2,

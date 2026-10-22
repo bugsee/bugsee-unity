@@ -32,7 +32,7 @@ namespace Bugsee.Platform.EditorStub
         public void StartBlackout() => _blackout = true;
         public void EndBlackout() => _blackout = false;
         public bool IsBlackout() => _blackout;
-        public void Log(string message, LogLevel level) { }
+        public void Log(string message, LogLevel level, bool requiresFiltering) { }
         public void ChannelLog(string message, LogLevel level) { }
         public void AddNetworkEvent(INetworkEvent networkEvent) { }
 

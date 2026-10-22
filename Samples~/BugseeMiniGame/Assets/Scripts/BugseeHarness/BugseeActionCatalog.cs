@@ -587,6 +587,16 @@ namespace Bugsee.Sample
         public static int EditApplied => Volatile.Read(ref _editApplied);
         static int _passSeen, _editApplied;
         static int _breadcrumbMarkerDropped, _logMarkerDropped;
+
+        /// <summary>Text of the two Bugsee.Log lines the filters scenario writes (#190): one without and one with requiresFiltering.</summary>
+        public const string LogDefaultText = "e2e-log-default";
+        public const string LogOptInText = "e2e-log-optin";
+        static int _logDefaultSeen, _logOptInSeen, _logOptInDropped;
+        /// <summary>Times the log filter saw the Bugsee.Log line written without requiresFiltering (must stay 0).</summary>
+        public static int LogDefaultSeen => Volatile.Read(ref _logDefaultSeen);
+        /// <summary>Times the log filter saw / dropped the Bugsee.Log line written with requiresFiltering.</summary>
+        public static int LogOptInSeen => Volatile.Read(ref _logOptInSeen);
+        public static int LogOptInDropped => Volatile.Read(ref _logOptInDropped);
         public static int BreadcrumbMarkerDropped => Volatile.Read(ref _breadcrumbMarkerDropped);
         public static int LogMarkerDropped => Volatile.Read(ref _logMarkerDropped);
 
@@ -613,6 +623,9 @@ namespace Bugsee.Sample
             Interlocked.Exchange(ref _breadcrumbDropped, 0);
             Interlocked.Exchange(ref _breadcrumbMarkerDropped, 0);
             Interlocked.Exchange(ref _logMarkerDropped, 0);
+            Interlocked.Exchange(ref _logDefaultSeen, 0);
+            Interlocked.Exchange(ref _logOptInSeen, 0);
+            Interlocked.Exchange(ref _logOptInDropped, 0);
             Interlocked.Exchange(ref _passSeen, 0);
             Interlocked.Exchange(ref _editApplied, 0);
         }
@@ -645,9 +658,15 @@ namespace Bugsee.Sample
         {
             if (e == null) return null;
             Interlocked.Increment(ref _logSeen);
+            var text = e.Message;
+            var isDefault = text != null && text.Contains(LogDefaultText);
+            var isOptIn = text != null && text.Contains(LogOptInText);
+            if (isDefault) Interlocked.Increment(ref _logDefaultSeen);
+            if (isOptIn) Interlocked.Increment(ref _logOptInSeen);
             if (LogDropDebugEnabled && e.Level >= LogLevel.Debug)
             {
                 Interlocked.Increment(ref _logDropped);
+                if (isOptIn) Interlocked.Increment(ref _logOptInDropped);
                 LastLogDropped = e.Level + " (" + (e.Message?.Length ?? 0) + " chars)";
                 var logMarker = LogMarker;
                 if (logMarker != null && e.Message != null && e.Message.Contains(logMarker))
