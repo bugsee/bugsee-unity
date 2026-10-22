@@ -35,20 +35,32 @@ namespace Bugsee.WrapperPolicy.Tests
     /// ComputedStaticFieldReaders: AndroidSpanHandle, whose SpanStatus constants Every_SpanStatus_constant_... covers), and so is
     /// every enum name passed to an SDK enum's valueOf (the C# enum's members, or the literals assigned to the variable).
     ///
-    /// The typed half lives in AndroidSdkBindingTypesTests.cs: an argument's type comes from the text (literals, casts,
-    /// operators, conditionals, declarations, initialisers, helper methods, members of the runtime's own classes) or, for
-    /// an AndroidJavaObject, from the Java class it is (a CallStatic / GetStatic / Call return type in the snapshot, a
-    /// constructor, EnumFromInt, the native object of a wrapper); every argument of a CallStatic and of an instance Call
-    /// on a resolved receiver must be typed and bind to the Java parameter (a C# enum never does, it has no JNI
-    /// signature), and the return type must fit. Receivers are the wrapper classes' contracts (ReceiverContracts) and
-    /// locals whose class is resolved; a JDK receiver (Map, List, boxed numbers, Activity) is left to the arity check
-    /// below. The Java side of UnityWrapper (Plugins/Android/*.java) is parsed into the same model: C# calls on it are
-    /// checked like SDK calls, its @Override methods against the SDK interfaces it implements, and its calls into the SDK
-    /// (static, on typed variables, constants, imports) against the snapshot.
+    /// The typed half lives in AndroidSdkBindingTypesTests.cs. An argument's type comes from the text (literals, operators,
+    /// conditionals, casts that cover the whole expression, declarations, initialisers, helper methods in any Android
+    /// source, members of the runtime's own classes) or, for an AndroidJavaObject, from the Java class it is (a CallStatic /
+    /// GetStatic / Call return type in the snapshot, a constructor, EnumFromInt, a conditional of those, the native object
+    /// of a wrapper). Every CallStatic argument and every argument of an instance Call on a resolved receiver must be typed
+    /// and bind to the Java parameter (a C# enum never does: it has no JNI signature), and the return type must fit.
+    /// Arguments that stay "some Java object" (a View, an Activity, a callback handed in by the SDK) are counted and held
+    /// to the named LooseObjectArguments; receivers that are not resolved to a snapshot class are held to the exact
+    /// UnresolvedReceivers, so a renamed wrapper field cannot silently drop its calls. The Java side of UnityWrapper
+    /// (Plugins/Android/*.java) is parsed into the same model: C# calls and `new AndroidJavaObject("com.bugsee...")` on it
+    /// are checked like SDK calls, its @Override methods against the SDK types it extends, and its calls into the SDK
+    /// (static, on typed variables, constants, imports) and com.bugsee.library string literals (the reflective extension
+    /// lookups) against the snapshot.
     ///
-    /// Limits: an instance Call on a receiver that is not resolved (JDK objects, `Ext()`, an untracked local) is matched
-    /// by name and arity against every SDK class, or the short JDK list; generic parameters are compared by their erased
-    /// type and varargs by their element type; a Java argument other than a literal or a primitive cast is not typed.
+    /// Limits (a test-only best effort, deliberately not a C# or Java compiler): an instance Call on an unresolved receiver
+    /// (JDK objects, `Ext()`, a contract passed in) is matched by name and arity against every SDK class, or the short JDK
+    /// list; a local is typed from its last textual declaration before the use, ignoring scope; `a.b.Name` is typed from
+    /// any uniquely named member of the runtime sources; `T?` is typed as T; ContractFields and InstanceHelpers are
+    /// hard-coded names; generic parameters are compared by their erased type and varargs by their element type; a Java
+    /// argument other than a literal or a primitive cast is not typed; for a reflective {class, method} pair only the
+    /// method name is checked, and a class of an AAR outside the snapshot (ExtensionClassesNotInSnapshot) not at all;
+    /// helper-method return types are followed through `return` statements only.
+    ///
+    /// Overlaps: CI compiles Plugins/Android against the real SDK (Tests~/Android/wrapper, a JUnit build), which catches
+    /// every Java-side mismatch a javac would; the Java-side checks here exist to fail in seconds, offline, with the
+    /// snapshot. NativeBindingTests keeps its older arity-only checks of the UnityWrapper statics and constructor.
     /// </summary>
     public partial class AndroidSdkBindingTests
     {
@@ -79,7 +91,7 @@ namespace Bugsee.WrapperPolicy.Tests
             public string Ret; // erased; null for a constructor
             public string[] Params; // erased
             public bool VarArgs;
-            public bool Public = true; // the snapshot lists public and protected members only
+            public bool Public = true; // snapshot members are public or protected (no distinction made); a Java source member: its `public` modifier
             public bool Override; // a Java source method marked @Override
 
             public override string ToString() =>

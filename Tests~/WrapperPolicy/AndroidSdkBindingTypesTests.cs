@@ -33,7 +33,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
         static Env _env;
 
-        static Env Environment()
+        static Env BindingEnv()
         {
             if (_env != null) return _env;
             var sources = Sources();
@@ -80,7 +80,7 @@ namespace Bugsee.WrapperPolicy.Tests
             public string Src;
         }
 
-        static Site SiteOf(string path) => new Site { E = Environment(), File = path, Src = Environment().Sources[path] };
+        static Site SiteOf(string path) => new Site { E = BindingEnv(), File = path, Src = BindingEnv().Sources[path] };
 
         // The classes whose objects are only ever a C# wrapper's `_native` (see ReceiverContracts), by field name.
         static readonly HashSet<string> ContractFields = new HashSet<string> { "_native", "_report", "_span", "_attachment", "span" };
@@ -105,7 +105,8 @@ namespace Bugsee.WrapperPolicy.Tests
         sealed class JavaFile
         {
             public string Name;
-            public string Text;
+            public string Text; // comments and string contents removed
+            public string Raw; // comments removed, string literals kept
             public string Package;
             public Dictionary<string, string> Imports = new Dictionary<string, string>();
             public List<string> ImportLines = new List<string>();
@@ -125,7 +126,7 @@ namespace Bugsee.WrapperPolicy.Tests
             var files = new List<JavaFile>();
             foreach (var path in Directory.GetFiles(RepoFile("Plugins/Android"), "*.java").OrderBy(f => f))
             {
-                var f = new JavaFile { Name = Path.GetFileName(path), Text = StripJava(File.ReadAllText(path)) };
+                var f = new JavaFile { Name = Path.GetFileName(path), Text = StripJava(File.ReadAllText(path)), Raw = StripComments(File.ReadAllText(path)) };
                 f.Package = Regex.Match(f.Text, @"\bpackage\s+([\w.]+)\s*;").Groups[1].Value;
                 foreach (Match m in Regex.Matches(f.Text, @"\bimport\s+([\w.$]+)\s*;"))
                 {
@@ -208,6 +209,18 @@ namespace Bugsee.WrapperPolicy.Tests
                         if (ret == "new" || ret == "return" || ret == "else" || ret == "throw") continue;
                         var mods = m.Groups[2].Value;
                         var args = SplitParams(m.Groups[5].Value);
+                        if (m.Groups[4].Value == t.name)
+                        {
+                            // A constructor: the regex reads its modifier as the return type. Kept like the snapshot's: Ret null, named by the class.
+                            jc.Methods.Add(new JavaMethod
+                            {
+                                Name = jc.Name, Ret = null, Public = ret == "public" || Regex.IsMatch(mods, @"\bpublic\b"),
+                                Params = args.Select(a => JavaTypeName(Regex.Replace(a, @"\s+\w+$", ""), f, names)).ToArray(),
+                                VarArgs = args.Length > 0 && args[args.Length - 1].Contains("..."),
+                            });
+                            continue;
+                        }
+
                         jc.Methods.Add(new JavaMethod
                         {
                             Name = m.Groups[4].Value,
@@ -265,6 +278,15 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             { "java.util.ArrayList", new[] { "java.util.List", "java.util.Collection", "java.lang.Iterable" } },
             { "java.util.HashMap", new[] { "java.util.Map" } },
+            { "java.lang.String", new[] { "java.io.Serializable", "java.lang.Comparable", "java.lang.CharSequence" } },
+            { "java.lang.Boolean", new[] { "java.io.Serializable", "java.lang.Comparable" } },
+            { "java.lang.Integer", new[] { "java.lang.Number", "java.io.Serializable", "java.lang.Comparable" } },
+            { "java.lang.Long", new[] { "java.lang.Number", "java.io.Serializable", "java.lang.Comparable" } },
+            { "java.lang.Float", new[] { "java.lang.Number", "java.io.Serializable", "java.lang.Comparable" } },
+            { "java.lang.Double", new[] { "java.lang.Number", "java.io.Serializable", "java.lang.Comparable" } },
+            { "java.lang.Byte", new[] { "java.lang.Number", "java.io.Serializable", "java.lang.Comparable" } },
+            { "java.lang.Short", new[] { "java.lang.Number", "java.io.Serializable", "java.lang.Comparable" } },
+            { "java.lang.Number", new[] { "java.io.Serializable" } },
             { "java.util.LinkedHashMap", new[] { "java.util.HashMap", "java.util.Map" } },
         };
 
@@ -309,16 +331,25 @@ namespace Bugsee.WrapperPolicy.Tests
                 case "byte[]": return Prim("byte[]"); // Unity maps a byte[] to the Java byte[] too
                 case "string[]": return Prim("java.lang.String[]");
                 case "AndroidJavaObject":
-                case "AndroidJavaClass": return IsReference;
+                case "AndroidJavaClass": return LooseObject;
                 case "AndroidJavaRunnable": return p => p == "java.lang.Runnable" || p == "java.lang.Object";
             }
 
             if (proxies.TryGetValue(type, out var proxy))
                 return p => p == "java.lang.Object" || InterfaceReaches(proxy.Interface, p, manifest);
             // A C# enum has no JNI signature: Unity throws "Unknown signature" for it, so it must be cast to its integer.
-            if (Environment().Enums.ContainsKey(type)) return p => false;
+            if (BindingEnv().Enums.ContainsKey(type)) return p => false;
             return null;
         }
+
+        /// <summary>
+        /// "Some Java object": all the text tells about an AndroidJavaObject whose class is not resolved. It is a distinct instance so
+        /// the checks can count these arguments and hold them to a named allow-list (LooseObjectArguments).
+        /// </summary>
+        static readonly Func<string, bool> LooseObject = p => IsReference(p);
+
+        /// <summary>A null reference binds to any reference parameter (Unity cannot pick an overload by it, hence the casts).</summary>
+        static readonly Func<string, bool> NullObject = p => IsReference(p);
 
         // ---- expression typing ------------------------------------------------------------------------------------------------
 
@@ -438,7 +469,26 @@ namespace Bugsee.WrapperPolicy.Tests
         static string[] Origin(string expr, Site s, int at, int depth = 0)
         {
             expr = expr.Trim();
-            if (depth > 6 || expr.Length == 0) return null;
+            if (depth > 14 || expr.Length == 0) return null;
+            var condition = TopLevel(expr, "?");
+            if (condition > 0)
+            {
+                var rest = expr.Substring(condition + 1);
+                var colon = TopLevel(rest, ":");
+                if (colon < 0) return null;
+                var union = new List<string>();
+                foreach (var branch in new[] { rest.Substring(0, colon), rest.Substring(colon + 1) })
+                {
+                    var b = branch.Trim();
+                    if (b == "null" || b == "(AndroidJavaObject)null") continue;
+                    var o = Origin(b, s, at, depth + 1);
+                    if (o == null) return null;
+                    union.AddRange(o);
+                }
+
+                return union.Count == 0 ? null : union.Distinct().ToArray();
+            }
+
             var coalesce = TopLevel(expr, "??");
             if (coalesce > 0) return Origin(expr.Substring(0, coalesce), s, at, depth + 1);
             var asCast = Regex.Match(expr, @"^(.+?)\s+as\s+\w+$");
@@ -516,24 +566,48 @@ namespace Bugsee.WrapperPolicy.Tests
             return null;
         }
 
+        static readonly HashSet<string> Resolving = new HashSet<string>();
+
         /// <summary>The union of Origin over the `return` statements of an AndroidJavaObject helper declared in the same file.</summary>
         static string[] HelperReturnOrigins(string name, Site s, int depth)
         {
-            var defs = Regex.Matches(s.Src, @"\bAndroidJavaObject\s+" + name + @"\s*\([^)]*\)\s*(\{|=>)").Cast<Match>().ToList();
-            if (defs.Count != 1) return null;
-            var def = defs[0];
-            var bodyStart = def.Index + def.Length;
-            string body;
-            if (def.Groups[1].Value == "{") body = ClassBody(s.Src, def.Index + def.Length - 1);
-            else body = "return " + Initializer(s.Src, bodyStart) + ";";
-            var origins = new List<string>();
-            foreach (Match r in Regex.Matches(body, @"\breturn\s+([^;]+);"))
+            // The helper is declared in this file or, when the name is unique among the Android sources, in another one.
+            var found = new List<(Site site, Match def)>();
+            foreach (var path in s.E.Sources.Keys)
             {
-                if (r.Groups[1].Value.Trim() == "null") continue;
-                var at = def.Index + (def.Groups[1].Value == "{" ? def.Length + r.Index : 0);
-                var o = Origin(r.Groups[1].Value, s, at, depth + 1);
-                if (o == null) return null;
-                origins.AddRange(o);
+                var site = path == s.File ? s : SiteOf(path);
+                foreach (Match d in Regex.Matches(site.Src, @"\bAndroidJavaObject\s+" + name + @"\s*\([^)]*\)\s*(\{|=>)"))
+                    found.Add((site, d));
+            }
+
+            if (found.Count == 0) return null;
+            // A name declared twice (AndroidBridge.Box forwards to AndroidJavaConverters.Box) is every definition: all must fit.
+            var origins = new List<string>();
+            foreach (var (hs, def) in found)
+            {
+                // A forwarding definition (Box => AndroidJavaConverters.Box) must not resolve itself again.
+                var key = hs.File + ":" + def.Index;
+                if (!Resolving.Add(key)) continue;
+                try
+                {
+                var bodyStart = def.Index + def.Length;
+                string body;
+                if (def.Groups[1].Value == "{") body = ClassBody(hs.Src, def.Index + def.Length - 1);
+                else body = "return " + Initializer(hs.Src, bodyStart) + ";";
+                var any = false;
+                foreach (Match r in Regex.Matches(body, @"\breturn\s+([^;]+);"))
+                {
+                    if (r.Groups[1].Value.Trim() == "null") continue;
+                    var at = def.Index + (def.Groups[1].Value == "{" ? def.Length + r.Index : 0);
+                    var o = Origin(r.Groups[1].Value, hs, at, depth + 1);
+                    if (o == null) return null;
+                    origins.AddRange(o);
+                    any = true;
+                }
+
+                if (!any) return null;
+                }
+                finally { Resolving.Remove(key); }
             }
 
             return origins.Count == 0 ? null : origins.Distinct().ToArray();
@@ -571,15 +645,13 @@ namespace Bugsee.WrapperPolicy.Tests
             Func<string, Func<string, bool>> FromCsType = type => CsTypePredicate(type, s.E.Proxies, manifest);
             Func<string, bool> FromOrigin(string[] o) => o == null ? null : ClassPred(o, manifest);
 
+            if (expr == "(AndroidJavaObject)null") return NullObject;
             if (expr == "true" || expr == "false") return Prim("boolean");
             if (Regex.IsMatch(expr, @"^-?\d+$")) return Prim("int");
             if (Regex.IsMatch(expr, @"^-?\d+[lL]$")) return Prim("long");
             if (Regex.IsMatch(expr, @"^-?[\d.]+[fF]$")) return Prim("float");
             if (Regex.IsMatch(expr, @"^-?\d*\.\d+$")) return Prim("double");
             if (Regex.IsMatch(expr, "^\"[^\"]*\"$") || Regex.IsMatch(expr, @"^nameof\(") || expr == "string.Empty") return Str;
-            var cast = Regex.Match(expr, @"^\((\w+(?:\[\])?)\)\s*[\w(]");
-            if (cast.Success) return FromCsType(cast.Groups[1].Value);
-
             // A conditional is whichever branch is taken at run time: both must bind; a null branch binds anything.
             var q = TopLevel(expr, "?");
             if (q > 0)
@@ -599,7 +671,12 @@ namespace Bugsee.WrapperPolicy.Tests
             if (expr.StartsWith("!") || TopLevel(expr, "||") >= 0 || TopLevel(expr, "&&") >= 0 || TopLevel(expr, "==") >= 0
                 || TopLevel(expr, "!=") >= 0 || TopLevel(expr, "<=") >= 0 || TopLevel(expr, ">=") >= 0
                 || Regex.IsMatch(expr, @"\sis\s")) return Prim("boolean");
-            if (TopLevel(expr, "<") >= 0 && !expr.Contains("<")) return Prim("boolean");
+            if (TopLevel(expr, " < ") >= 0 || TopLevel(expr, " > ") >= 0) return Prim("boolean");
+            // A cast types the expression only when it covers all of it: `(int)x + 1` is not a plain int.
+            var cast = Regex.Match(expr, @"^\((\w+(?:\[\])?)\)\s*[\w(]");
+            if (cast.Success)
+                return new[] { " + ", " - ", " * ", " / ", " % ", " & ", " | ", " ^ ", " << ", " >> " }.Any(op => TopLevel(expr, op) >= 0)
+                    ? null : FromCsType(cast.Groups[1].Value);
             if (Regex.IsMatch(expr, @"\.ToString\(\)$")) return Str;
             if (expr.StartsWith("(") && expr.EndsWith(")") && TopLevel(expr.Substring(1, expr.Length - 2), ",") < 0 && !Regex.IsMatch(expr, @"^\(\w+\)"))
                 return ArgType(expr.Substring(1, expr.Length - 2), s, at, depth + 1);
@@ -607,7 +684,7 @@ namespace Bugsee.WrapperPolicy.Tests
             var ctor = Regex.Match(expr, @"^new\s+(\w+(?:\[\])?)(?:<[^>]*>)?\s*[\(\[]");
             if (ctor.Success)
             {
-                if (ctor.Groups[1].Value == "AndroidJavaObject") return FromOrigin(Origin(expr, s, at, depth + 1)) ?? IsReference;
+                if (ctor.Groups[1].Value == "AndroidJavaObject") return FromOrigin(Origin(expr, s, at, depth + 1)) ?? LooseObject;
                 return FromCsType(ctor.Groups[1].Value);
             }
 
@@ -661,7 +738,7 @@ namespace Bugsee.WrapperPolicy.Tests
         // UnityEngine / System members the bridge passes on: their types are the engine's, not in the runtime sources.
         static readonly Dictionary<string, string> KnownExternal = new Dictionary<string, string>
         {
-            { "Application.unityVersion", "string" }, { "Application.productName", "string" }, { "Application.platform", "RuntimePlatform" },
+            { "Application.unityVersion", "string" }, { "Application.productName", "string" },
         };
 
         static readonly Dictionary<string, string> KnownExternalCalls = new Dictionary<string, string>
@@ -688,12 +765,13 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Every_CallStatic_reaches_a_public_static_method_with_matching_argument_and_return_types()
         {
             var sources = Sources();
-            var env = Environment();
+            var env = BindingEnv();
             var failures = new List<string>();
             var typed = 0;
             var total = 0;
             var onSource = 0;
             var untyped = new List<string>();
+            var loose = new List<string>();
             foreach (var call in Calls(sources))
             {
                 var isSdk = call.Class.StartsWith("com.bugsee.library.");
@@ -707,11 +785,15 @@ namespace Bugsee.WrapperPolicy.Tests
 
                 var path = sources.Keys.First(k => Path.GetFileName(k) == call.File && (call.Src == "" || sources[k] == call.Src));
                 var site = SiteOf(path);
-                var argTypes = call.Args.Select(a => call.Src == "" ? CsTypePredicate(Regex.Match(a, @"^\((\w+)\)").Groups[1].Value, env.Proxies, env.Manifest) : ArgType(a, site, call.Index)).ToArray();
+                var argTypes = call.Args.Select(a => call.Src == "" ? (a == "(AndroidJavaObject)null" ? NullObject : CsTypePredicate(Regex.Match(a, @"^\((\w+)\)").Groups[1].Value, env.Proxies, env.Manifest)) : ArgType(a, site, call.Index)).ToArray();
                 total += argTypes.Length;
                 typed += argTypes.Count(t => t != null);
                 for (int i = 0; i < argTypes.Length; i++)
+                {
                     if (argTypes[i] == null) untyped.Add(call.File + ": " + call.Name + " argument " + call.Args[i]);
+                    else if (argTypes[i] == LooseObject) loose.Add(call.File + ": " + call.Name + " " + call.Args[i]);
+                }
+
                 if (isWrapper) onSource++;
                 var statics = cls.Methods.Where(m => m.Static && m.Public && m.Name == call.Name).ToList();
                 if (!statics.Any(m => Accepts(m, call.Args.Length, argTypes) && ReturnFits(m, call.Generic)))
@@ -724,8 +806,50 @@ namespace Bugsee.WrapperPolicy.Tests
 
             Assert.That(failures, Is.Empty, "Calls the pinned Android SDK or UnityWrapper does not have:\n" + string.Join("\n", failures));
             Assert.That(onSource, Is.GreaterThanOrEqualTo(7), "the UnityWrapper calls were not found");
+            Assert.That(loose.Distinct(), Is.EquivalentTo(LooseObjectArguments.Keys),
+                "CallStatic arguments typed only as 'some Java object': resolve them, or name them (with the reason) in LooseObjectArguments");
             Assert.That(untyped, Is.Empty, "CallStatic arguments whose type the text does not tell (" + typed + " of " + total + " known)");
         }
+
+        // CallStatic arguments the text cannot tie to a Java class: a value handed over from outside the bridge's own code
+        // ("file: method argument"). They bind to any reference parameter; each is the reason it stays loose.
+        static readonly Dictionary<string, string> LooseObjectArguments = new Dictionary<string, string>
+        {
+            { "AndroidBridge.cs: addSecureWebView view", "an android.webkit.WebView the app gave the bridge" },
+            { "AndroidBridge.cs: launch activity", "the app's android.app.Activity (UnityPlayer.currentActivity)" },
+            { "AndroidBridge.cs: ext feedbackClass", "a java.lang.Class object (the first of the two lookups)" },
+            { "CallbackProxies.cs: replyNoData callback", "the DataRequestResultCallback the SDK passed to a proxy method" },
+            { "CallbackProxies.cs: upload report", "the Report the SDK passed to a proxy method" },
+        };
+
+        // Instance-call receivers that are not resolved to a snapshot class ("file: name"): JDK objects (Map, List, iterator, boxed
+        // numbers, stream, Activity, Class) and SDK objects the text does not type (a contract passed in, `Ext()`, the factory).
+        // An SDK receiver that is unresolved is checked by name and arity only (the check below). A renamed ContractFields entry
+        // would land here, which is why the set is exact.
+        static readonly Dictionary<string, string> UnresolvedReceivers = new Dictionary<string, string>
+        {
+            { "AndroidBridge.cs: _appearance", "SDK Appearance, passed in by the caller" },
+            { "AndroidBridge.cs: activity", "JDK/Android Activity" },
+            { "AndroidBridge.cs: boxed", "JDK boxed Integer / Object" },
+            { "AndroidBridge.cs: c", "JDK Class" },
+            { "AndroidBridge.cs: ext", "SDK feedback extension, a generic return (erased to Object)" },
+            { "AndroidBridge.cs: list", "JDK ArrayList" },
+            { "AndroidBridge.cs: map", "JDK Map" },
+            { "AndroidBridge.cs: newMessages", "JDK List handed to a proxy method" },
+            { "AndroidExchangeFactory.cs: _factory", "SDK event factory, passed in by the caller" },
+            { "AndroidJavaConverters.cs: clazz", "JDK Class" },
+            { "AndroidJavaConverters.cs: entry", "JDK Map.Entry" },
+            { "AndroidJavaConverters.cs: entrySet", "JDK Set" },
+            { "AndroidJavaConverters.cs: iterator", "JDK Iterator" },
+            { "AndroidJavaConverters.cs: javaObject", "any object being unboxed" },
+            { "AndroidJavaConverters.cs: map", "JDK Map" },
+            { "AndroidOptionsMapper.cs: map", "JDK HashMap" },
+            { "AndroidReport.cs: javaList", "JDK List" },
+            { "AndroidReport.cs: stream", "JDK OutputStream" },
+            { "CallbackProxies.cs: callback", "a Java callback handed to a proxy method" },
+            { "CallbackProxies.cs: completion", "a java.lang.Runnable handed to a proxy method" },
+            { "CallbackProxies.cs: javaBoolean", "JDK Boolean handed to a proxy method" },
+        };
 
         static readonly Regex InstanceCallRe = new Regex(
             @"(?<![\w.])(?:(?<recv>\w+)\s*\??\s*\.\s*Call(?:<(?<gen>[^>]+)>)?|(?<helper>Set|Chain))\s*\(\s*""(?<name>\w+)""\s*(?=[,)])");
@@ -739,13 +863,15 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void Every_instance_Call_on_a_resolved_receiver_matches_the_argument_and_return_types_of_that_class()
         {
-            var env = Environment();
+            var env = BindingEnv();
             var failures = new List<string>();
             var resolved = 0;
             var typed = 0;
             var total = 0;
             var receivers = new HashSet<string>();
             var untyped = new List<string>();
+            var loose = new List<string>();
+            var unresolved = new SortedSet<string>();
             foreach (var path in env.Sources.Keys)
             {
                 var site = SiteOf(path);
@@ -769,14 +895,22 @@ namespace Bugsee.WrapperPolicy.Tests
                     }
 
                     // The JDK (maps, lists, boxed numbers, streams, an Activity) is not in the snapshot: not checked here.
-                    if (classes == null || classes.Any(c => !env.Manifest.ContainsKey(c))) continue;
+                    if (classes == null || classes.Any(c => !env.Manifest.ContainsKey(c)))
+                    {
+                        unresolved.Add(file + ": " + (m.Groups["recv"].Success ? m.Groups["recv"].Value : m.Groups["helper"].Value));
+                        continue;
+                    }
+
                     resolved++;
                     receivers.Add(string.Join("+", classes.Select(c => c.Substring(c.LastIndexOf('.') + 1))));
                     var argTypes = args.Select(a => ArgType(a, site, m.Index)).ToArray();
                     total += argTypes.Length;
                     typed += argTypes.Count(t => t != null);
                     for (int i = 0; i < argTypes.Length; i++)
+                    {
                         if (argTypes[i] == null) untyped.Add(file + ": " + name + " argument " + args[i]);
+                        else if (argTypes[i] == LooseObject) loose.Add(file + ": " + name + " " + args[i]);
+                    }
                     foreach (var cls in classes)
                     {
                         var methods = new List<JavaMethod>();
@@ -790,9 +924,74 @@ namespace Bugsee.WrapperPolicy.Tests
             }
 
             Assert.That(failures, Is.Empty, "Instance calls the receiver's class does not have:\n" + string.Join("\n", failures));
-            Assert.That(resolved, Is.GreaterThanOrEqualTo(70), "the receivers were resolved for too few calls");
+            Assert.That(resolved, Is.GreaterThanOrEqualTo(85), "the receivers were resolved for too few calls");
+            Assert.That(loose, Is.Empty, "Instance-call arguments typed only as 'some Java object'");
+            Assert.That(unresolved, Is.EquivalentTo(UnresolvedReceivers.Keys),
+                "Receivers the check could not resolve to an SDK class (a renamed contract field lands here); name them in UnresolvedReceivers");
             Assert.That(receivers, Is.SupersetOf(new[] { "LogEvent", "Breadcrumb", "Report", "Attachment", "NetworkEvent", "Span+Transaction" }));
             Assert.That(untyped, Is.Empty, "Instance-call arguments whose type the text does not tell (" + typed + " of " + total + " known)");
+        }
+
+        [Test]
+        public void Every_com_bugsee_class_constructed_from_managed_code_has_a_constructor_taking_those_arguments()
+        {
+            var env = BindingEnv();
+            var failures = new List<string>();
+            var constructed = 0;
+            foreach (var path in env.Sources.Keys)
+            {
+                var site = SiteOf(path);
+                var file = Path.GetFileName(path);
+                foreach (Match m in Regex.Matches(site.Src, @"\bnew\s+AndroidJavaObject\(\s*""(com\.bugsee\.[\w.$]+)""\s*(?=[,)])"))
+                {
+                    constructed++;
+                    var cls = m.Groups[1].Value;
+                    var args = SplitArgs(BalancedArgs(site.Src, m.Index + m.Value.IndexOf('(') + 1)).Skip(1).ToArray();
+                    if (!env.Manifest.TryGetValue(cls, out var jc)) { failures.Add(file + ": " + cls + " is not in the snapshot or in Plugins/Android"); continue; }
+                    var argTypes = args.Select(a => ArgType(a, site, m.Index)).ToArray();
+                    var ctors = jc.Methods.Where(j => j.Ret == null && j.Name == cls && j.Public).ToList();
+                    if (!ctors.Any(c => Accepts(c, args.Length, argTypes)))
+                        failures.Add(file + ": new " + cls + "(" + string.Join(", ", args) + ") has no constructor among: "
+                                     + (ctors.Count == 0 ? "(none)" : string.Join(" | ", ctors.Select(c => "(" + string.Join(", ", c.Params) + ")"))));
+                }
+            }
+
+            Assert.That(failures, Is.Empty);
+            Assert.That(constructed, Is.GreaterThanOrEqualTo(1), "UnityManagedException is no longer constructed from managed code");
+        }
+
+        // Extension facades the Java wrappers reach by reflection that are not in the snapshot (separate AARs: NDK, leak
+        // detection, remoting). Their names are not checked against anything.
+        static readonly HashSet<string> ExtensionClassesNotInSnapshot = new HashSet<string>
+        {
+            "com.bugsee.library.BugseeNdk", "com.bugsee.library.BugseeLeak", "com.bugsee.library.BugseeRemoting",
+        };
+
+        [Test]
+        public void Every_com_bugsee_library_string_literal_in_the_Java_wrappers_names_a_snapshot_class_and_method()
+        {
+            // StripJava blanks strings, so the reflective forms (Class.forName("..."), a {class, method} table) are read here.
+            var manifest = FullManifest();
+            var failures = new List<string>();
+            foreach (var f in JavaFiles())
+            {
+                foreach (Match m in Regex.Matches(f.Raw, @"""(com\.bugsee\.library\.[\w.$]+)"""))
+                {
+                    var cls = m.Groups[1].Value;
+                    if (!manifest.ContainsKey(cls) && !ExtensionClassesNotInSnapshot.Contains(cls))
+                    {
+                        failures.Add(f.Name + ": \"" + cls + "\" is not in the snapshot");
+                        continue;
+                    }
+
+                    // The method named right after it: {"cls", "method"} or forName("cls").getMethod("method").
+                    var after = Regex.Match(f.Raw.Substring(m.Index + m.Length), @"^\s*(?:,\s*|\)\s*\.\s*(?:getMethod|getDeclaredMethod)\(\s*)""(\w+)""");
+                    if (after.Success && manifest.ContainsKey(cls) && !manifest[cls].Methods.Any(j => j.Name == after.Groups[1].Value))
+                        failures.Add(f.Name + ": " + cls + " has no method " + after.Groups[1].Value);
+                }
+            }
+
+            Assert.That(failures, Is.Empty);
         }
 
         // ---- static fields and enum constants read by name ------------------------------------------------------------------
@@ -803,7 +1002,7 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void Every_GetStatic_on_an_sdk_class_reads_a_static_field_of_that_type()
         {
-            var env = Environment();
+            var env = BindingEnv();
             var failures = new List<string>();
             var literal = 0;
             foreach (var path in env.Sources.Keys)
@@ -830,14 +1029,14 @@ namespace Bugsee.WrapperPolicy.Tests
                 }
             }
 
+            // No SDK GetStatic uses a literal name today (`literal` is 0): the mutation proof edits one in, so the branch is live.
             Assert.That(failures, Is.Empty);
-            Assert.That(literal, Is.GreaterThanOrEqualTo(0));
         }
 
         [Test]
         public void Every_enum_name_passed_to_an_sdk_enum_valueOf_is_a_constant_of_it()
         {
-            var env = Environment();
+            var env = BindingEnv();
             var failures = new List<string>();
             var checkedNames = 0;
             foreach (var path in env.Sources.Keys)
