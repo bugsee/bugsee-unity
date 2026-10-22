@@ -62,9 +62,10 @@ namespace Bugsee.Sample
 
                 // Secure rectangle over the whole screen: every named node loses its name or component list (counted by the
                 // wrapper's log line). Removed in the finally below even when the coroutine is stopped.
-                var rect = new RectInt(0, 0, Screen.width, Screen.height);
+                // Unity screen space, so Resolution Scaling cannot leave part of the surface uncovered (queued to the next frame).
+                var rect = new Rect(0, 0, Screen.width, Screen.height);
                 _rect = rect;
-                Bugsee.AddSecureRectangle(rect);
+                Bugsee.AddSecureScreenRectangle(rect);
                 yield return null;
                 yield return null; // the rectangle is registered before the next capture asks
                 var withRect = _replies;
@@ -88,12 +89,12 @@ namespace Bugsee.Sample
             }
         }
 
-        static RectInt? _rect;
+        static Rect? _rect;
 
         static void RemoveRect()
         {
             if (_rect == null) return;
-            Bugsee.RemoveSecureRectangle(_rect.Value);
+            Bugsee.RemoveSecureScreenRectangle(_rect.Value);
             _rect = null;
         }
 
