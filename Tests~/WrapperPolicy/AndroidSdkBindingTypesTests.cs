@@ -321,7 +321,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 case "short": return Prim("short");
                 case "char": return Prim("char");
                 case "sbyte": return Prim("byte");
-                case "string": return p => p == "java.lang.String" || p == "java.lang.CharSequence" || p == "java.lang.Object";
+                case "string": return p => Reaches("java.lang.String", p, manifest);
                 case "int[]": return Prim("int[]");
                 case "long[]": return Prim("long[]");
                 case "float[]": return Prim("float[]");
@@ -641,7 +641,7 @@ namespace Bugsee.WrapperPolicy.Tests
             if (depth > 6 || expr.Length == 0) return null;
             var manifest = s.E.Manifest;
             Func<string, bool> Prim(string name) => p => p == name;
-            Func<string, bool> Str = p => p == "java.lang.String" || p == "java.lang.CharSequence" || p == "java.lang.Object";
+            Func<string, bool> Str = p => Reaches("java.lang.String", p, manifest);
             Func<string, Func<string, bool>> FromCsType = type => CsTypePredicate(type, s.E.Proxies, manifest);
             Func<string, bool> FromOrigin(string[] o) => o == null ? null : ClassPred(o, manifest);
 
