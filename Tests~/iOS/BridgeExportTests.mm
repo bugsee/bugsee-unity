@@ -52,6 +52,11 @@ void _bugsee_set_log_filter_enabled(int enabled);
 void _bugsee_set_breadcrumb_filter_enabled(int enabled);
 void _bugsee_complete_filter(int64_t requestId, int keep, const char *resultJson);
 void _bugsee_complete_report(int64_t requestId, const char *resultJson);
+char *_bugsee_report_screenshot_ids(int64_t requestId);
+int _bugsee_report_screenshot_png(int64_t requestId, int displayId, unsigned char **outBytes);
+int _bugsee_report_set_screenshot(int64_t requestId, int displayId, const unsigned char *bytes, int length);
+int _bugsee_report_screenshot_changed(int64_t requestId);
+int64_t _bugsee_test_register_screenshot_report(void);
 void _bugsee_complete_data_request(int64_t requestId, const char *json);
 void _bugsee_register_unity_callbacks(BugseeUnityFilterCb filterCb, void *reportCb, void *lifecycleCb);
 
@@ -430,6 +435,36 @@ int main(void)
     _bugsee_complete_report(9999, NULL);
     _bugsee_complete_data_request(9999, NULL);
     expect(_bugsee_test_pending_request_count() == pendingNow, "answers for unknown request ids change nothing");
+
+    // Report screenshots: unknown request ids are refused, a live report's screenshot reads, replaces and removes.
+    unsigned char *none = (unsigned char *)1;
+    expect(_bugsee_report_screenshot_ids(9999) == NULL, "screenshot ids: an unknown request has none");
+    expect(_bugsee_report_screenshot_png(9999, 0, &none) == -1 && none == NULL, "screenshot png: an unknown request is refused");
+    expect(_bugsee_report_set_screenshot(9999, 0, NULL, 0) == -1, "set screenshot: an unknown request is refused");
+    expect(_bugsee_report_screenshot_changed(9999) == -1, "screenshot changed: an unknown request is refused");
+    int64_t live = _bugsee_test_register_screenshot_report();
+    char *ids = _bugsee_report_screenshot_ids(live);
+    expect(ids != NULL && strcmp(ids, "[0]") == 0, "screenshot ids: a live report lists its displays");
+    _bugsee_free(ids);
+    expect(_bugsee_report_screenshot_changed(live) == 0, "screenshot changed: false before any edit");
+    unsigned char *png = NULL;
+    int pngLength = _bugsee_report_screenshot_png(live, 0, &png);
+    expect(pngLength > 8 && png != NULL && png[0] == 0x89 && png[1] == 'P' && png[2] == 'N' && png[3] == 'G', "screenshot png: a live report's screenshot reads as PNG");
+    expect(_bugsee_report_screenshot_png(live, 7, &none) == 0 && none == NULL, "screenshot png: a display without one reads as empty");
+    expect(_bugsee_report_set_screenshot(live, 1, png, pngLength) == 1, "set screenshot: a PNG is applied to another display");
+    const unsigned char junk[] = { 1, 2, 3 };
+    expect(_bugsee_report_set_screenshot(live, 2, junk, 3) == 0, "set screenshot: bytes that are not an image change nothing");
+    ids = _bugsee_report_screenshot_ids(live);
+    expect(ids != NULL && strcmp(ids, "[0,1]") == 0, "screenshot ids: the replacement is listed, the refused one is not");
+    _bugsee_free(ids);
+    expect(_bugsee_report_screenshot_changed(live) == 1, "screenshot changed: true after an edit");
+    expect(_bugsee_report_set_screenshot(live, 0, NULL, 0) == 1, "set screenshot: NULL removes the display's screenshot");
+    ids = _bugsee_report_screenshot_ids(live);
+    expect(ids != NULL && strcmp(ids, "[1]") == 0, "screenshot ids: the removed display is gone");
+    _bugsee_free(ids);
+    _bugsee_free((char *)png);
+    _bugsee_complete_report(live, "{}");
+    expect(_bugsee_report_screenshot_ids(live) == NULL && _bugsee_report_set_screenshot(live, 0, NULL, 0) == -1, "screenshots: nothing is reachable once the handler has answered");
 
     printf("ios bridge export tests passed\n");
     return 0;

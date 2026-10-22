@@ -1234,6 +1234,11 @@ namespace Bugsee.Platform.IOS
             }
 
             public void ClearAttachments() => _inner.ClearAttachments();
+
+            public IReadOnlyList<int> ScreenshotDisplayIds => _inner.ScreenshotDisplayIds;
+            public byte[] GetScreenshotPng(int displayId) => _inner.GetScreenshotPng(displayId);
+            public bool SetScreenshotPng(int displayId, byte[] png) => _inner.SetScreenshotPng(displayId, png);
+            public bool IsScreenshotChanged => _inner.IsScreenshotChanged;
         }
 
         sealed class IosLiveAttachment : IAttachment

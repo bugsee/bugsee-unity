@@ -140,8 +140,32 @@ Other platform differences, not aligned:
 - `IReport.Email` set on a report from `CreateReport` is used on Android; on iOS it is dropped with a warning (the managed upload cannot carry it): use `SetUserIdentifier` there.
 - `IAppearance.ToMap()` returns what the SDK reports on Android; on iOS it lists only the properties set through the wrapper that the native theme applied.
 - `ResetVideoCapturePermission()` forgets the stored screen-capture decision on Android; it matters only with `VideoMode.Fullscreen` and `CaptureVideoFullscreenRememberUserDecision`, has no effect before launch (the SDK only warns in logcat), does not change a session that is already capturing, and applies to the next capture start. iOS has no such permission, so the call does nothing there and logs a warning once per process; in the Editor it does nothing.
-- The native per-report screenshot members (both SDKs: display ids, get, set, changed; and `exportVideo`) are not exposed on `IReport` yet, because reports cross the bridge as managed snapshots and only Android's report handler path holds a live native report (tracked in bugsee-unity#224). To omit the SDK's screenshot from reports use `CaptureScreenshot = false`; secure rectangles and blackout only redact what is captured, they do not remove the screenshot. `AddAttachmentFile` / `AddAttachmentBytes` add files; they cannot remove, replace or redact the SDK's screenshot.
+- Per-report screenshots (`IReport.ScreenshotDisplayIds`, `GetScreenshotPng`, `SetScreenshotPng`, `IsScreenshotChanged`, #224) work on the report a report handler receives (`SetReportHandler`, before and after phase), on Android and iOS, and are not available on a report from `CreateReport` (a managed snapshot with no captured screenshot: the getters return nothing, a set returns false and warns once). `exportVideo` is not exposed. See "Report screenshots" below. To omit the SDK's screenshot from reports use `CaptureScreenshot = false`; secure rectangles and blackout only redact what is captured. `AddAttachmentFile` / `AddAttachmentBytes` add files; they cannot remove, replace or redact the SDK's screenshot.
 - `Trace(name, value)`: both platforms send a map, list or array as the same JSON (see "Trace values"); the iOS SDK receives it as a structure (a dictionary or array), the Android SDK as a string.
+
+## Report screenshots
+
+In a report handler (`Bugsee.SetReportHandler`), the report's per-display screenshots can be listed, read, replaced and removed as PNG bytes:
+
+```csharp
+public override void OnBeforeReportCreated(IReport report, bool isTerminating, Action done)
+{
+    foreach (var display in report.ScreenshotDisplayIds)        // usually just 0
+    {
+        byte[] png = report.GetScreenshotPng(display);           // null when none
+        // report.SetScreenshotPng(display, redactedPng);       // replace
+        // report.SetScreenshotPng(display, null);              // remove
+    }
+    done();
+}
+```
+
+- Works in both phases on Android (the live Java report) and iOS (the live native report, addressed by the handler's request); after the handler has answered, was skipped or abandoned, the getters return nothing and a set returns false with a warning once. A report from `Bugsee.CreateReport` never holds screenshots (see above). The Editor has no report handler, so there is nothing to call there.
+- Call from the handler on Unity's main thread, inside its turn. `GetScreenshotPng` blocks that thread while the SDK produces the PNG (Android waits at most 5 s and then returns null with a warning).
+- `SetScreenshotPng` returns true when the report took the change. It returns false, with a warning, for data that is not a PNG (no signature), over 32 MiB (`ReportScreenshotPolicy.MaxPngBytes`; also the limit for what a read returns), or a PNG the platform cannot decode. `null` removes the display's screenshot. Android decodes the bytes with `BitmapFactory`, iOS with `UIImage`, so the stored pixels are what the platform makes of the PNG.
+- `IsScreenshotChanged` becomes true after a set or a remove, on both platforms.
+- **Privacy.** A screenshot is the screen as captured and can show personal data and content you marked secure; secure rectangles and blackout redact the capture, and nothing here re-checks a bitmap you read or replace. Do not log the bytes or send them anywhere the report does not go. A screenshot you set replaces the captured one in the report and its upload, with no redaction added for you. To send none at all use `CaptureScreenshot = false`.
+- Sample scenario `screenshots` checks all of this on a device.
 
 ## Crash & exception capture
 

@@ -202,7 +202,9 @@ namespace Bugsee.WrapperPolicy.Tests
                 case "string": return new[] { "const char*" };
                 case "int[]": return new[] { "int*" };
                 case "float[]": return new[] { "float*" };
-                case "IntPtr": return isReturn ? new[] { "char*" } : new[] { "char*", "void*" };
+                case "byte[]": return new[] { "const unsigned char*" };
+                // An `out IntPtr` is a pointer the native side fills in (the screenshot buffer).
+                case "IntPtr": return isReturn ? new[] { "char*" } : new[] { "char*", "void*", "unsigned char**" };
                 default: return null;
             }
         }
@@ -231,7 +233,7 @@ namespace Bugsee.WrapperPolicy.Tests
             return true;
         }
 
-        static string[] IosCsFiles() => new[] { "IOSBridge.cs", "IosNativeCallbacks.cs", "IosSpanHandle.cs" };
+        static string[] IosCsFiles() => new[] { "IOSBridge.cs", "IosNativeCallbacks.cs", "IosSpanHandle.cs", "IosReportScreenshots.cs" };
 
         static string IosCs(string file) => StripComments(File.ReadAllText(RepoFile("Runtime/Platform/IOS/" + file)));
 

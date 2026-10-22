@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -941,6 +942,76 @@ void _bugsee_complete_report(int64_t requestId, const char *resultJson)
     if (completion) completion();
 }
 
+// The live report of a report handler that has not answered yet, or nil (unknown id, answered, or not a report).
+static id<BGSReportContract> BugseeUnityLiveReport(int64_t requestId)
+{
+    BugseeUnityEnsureState();
+    @synchronized (gLock) {
+        NSMutableDictionary *entry = gPending[@(requestId)];
+        if (![entry[@"kind"] isEqual:@"report"]) return nil;
+        return entry[@"report"];
+    }
+}
+
+// The displays holding a screenshot, as a JSON array of integers ("[0,1]"), or NULL when the request is not a live
+// report handler's. Caller frees with _bugsee_free.
+char *_bugsee_report_screenshot_ids(int64_t requestId)
+{
+    id<BGSReportContract> report = BugseeUnityLiveReport(requestId);
+    if (!report) return NULL;
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    for (id value in report.screenshotDisplayIds) {
+        if ([value isKindOfClass:[NSNumber class]]) [parts addObject:[NSString stringWithFormat:@"%ld", (long)[value integerValue]]];
+    }
+    NSString *json = [NSString stringWithFormat:@"[%@]", [parts componentsJoinedByString:@","]];
+    return BugseeUnityCopyUTF8(json);
+}
+
+// The display's screenshot as PNG. Returns its length with *outBytes set (malloc'd; free with _bugsee_free), 0 when
+// the display has none (or it cannot be encoded), -1 when the request is not a live report handler's. The SDK's
+// enumeration is asked to block, so the answer is complete when this returns; call it on the thread the handler runs on.
+int _bugsee_report_screenshot_png(int64_t requestId, int displayId, unsigned char **outBytes)
+{
+    if (outBytes) *outBytes = NULL;
+    id<BGSReportContract> report = BugseeUnityLiveReport(requestId);
+    if (!report || !outBytes) return -1;
+    __block UIImage *found = nil;
+    [report enumerateScreenshots:^(NSInteger display, UIImage *screenshot) {
+        if (display == displayId && !found) found = screenshot;
+    } blockAndWait:YES];
+    if (!found) return 0;
+    NSData *png = UIImagePNGRepresentation(found);
+    if (png.length == 0 || png.length > INT_MAX) return 0;
+    unsigned char *copy = (unsigned char *)malloc(png.length);
+    if (!copy) return 0;
+    memcpy(copy, png.bytes, png.length);
+    *outBytes = copy;
+    return (int)png.length;
+}
+
+// Stores the PNG as the display's screenshot; a NULL or empty buffer removes it. Returns 1 when applied, 0 when the
+// bytes are not an image the system can decode (nothing changes), -1 when the request is not a live report handler's.
+int _bugsee_report_set_screenshot(int64_t requestId, int displayId, const unsigned char *bytes, int length)
+{
+    id<BGSReportContract> report = BugseeUnityLiveReport(requestId);
+    if (!report) return -1;
+    UIImage *image = nil;
+    if (bytes && length > 0) {
+        image = [UIImage imageWithData:[NSData dataWithBytes:bytes length:(NSUInteger)length]];
+        if (!image) return 0;
+    }
+    [report setScreenshot:image displayId:displayId];
+    return 1;
+}
+
+// 1 / 0 for the report's isScreenshotChanged, -1 when the request is not a live report handler's.
+int _bugsee_report_screenshot_changed(int64_t requestId)
+{
+    id<BGSReportContract> report = BugseeUnityLiveReport(requestId);
+    if (!report) return -1;
+    return [report isScreenshotChanged] ? 1 : 0;
+}
+
 #if defined(BUGSEE_UNITY_TESTS)
 // Runs the filter of `kind` (1 network, 2 log, 3 breadcrumb) on an event built from `json` (network: the wire dictionary;
 // log: {"message","level"}; breadcrumb: {"category","message","level"}), the way the SDK does, with a recording decision
@@ -1164,6 +1235,8 @@ const char *_bugsee_test_apply_breadcrumb_fields(const char *category, const cha
 #pragma clang diagnostic ignored "-Wobjc-protocol-property-synthesis"
 @interface BugseeUnityTestReport : NSObject <BGSReportContract>
 @property(nonatomic, strong) NSMutableDictionary *store;
+@property(nonatomic, strong) NSMutableDictionary<NSNumber *, UIImage *> *screenshots;
+@property(nonatomic, assign) BOOL screenshotChanged;
 @end
 @implementation BugseeUnityTestReport
 @synthesize summary, reportDescription, email, severity;
@@ -1174,6 +1247,18 @@ const char *_bugsee_test_apply_breadcrumb_fields(const char *category, const cha
 - (void)setAttribute:(id)value forName:(NSString *)name { self.store[name] = value; }
 - (void)removeAttributeForName:(NSString *)name { [self.store removeObjectForKey:name]; }
 - (void)clearAllAttributes { [self.store removeAllObjects]; }
+- (NSArray<NSNumber *> *)screenshotDisplayIds { return [self.screenshots.allKeys sortedArrayUsingSelector:@selector(compare:)]; }
+- (void)enumerateScreenshots:(void (^)(NSInteger, UIImage *))callback blockAndWait:(BOOL)blockAndWait
+{
+    for (NSNumber *key in self.screenshotDisplayIds) callback(key.integerValue, self.screenshots[key]);
+}
+- (void)setScreenshot:(UIImage *)screenshot displayId:(NSInteger)displayId
+{
+    if (!self.screenshots) self.screenshots = [NSMutableDictionary dictionary];
+    if (screenshot) self.screenshots[@(displayId)] = screenshot; else [self.screenshots removeObjectForKey:@(displayId)];
+    self.screenshotChanged = YES;
+}
+- (BOOL)isScreenshotChanged { return self.screenshotChanged; }
 @end
 #pragma clang diagnostic pop
 
@@ -1190,6 +1275,27 @@ const char *_bugsee_test_apply_report_result(const char *startAttributesJson, co
     NSData *json = [NSJSONSerialization dataWithJSONObject:report.store options:NSJSONWritingSortedKeys error:nil];
     NSString *text = json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] : nil;
     return strdup((text ?: @"unserializable").UTF8String);
+}
+
+// Registers a report stand-in holding one 4x4 screenshot for display 0 as a pending report handler request, the way
+// forwardReport does, and returns its request id. _bugsee_complete_report answers it (and ends the live window).
+int64_t _bugsee_test_register_screenshot_report(void)
+{
+    BugseeUnityEnsureState();
+    BugseeUnityTestReport *report = [BugseeUnityTestReport new];
+    report.store = [NSMutableDictionary dictionary];
+    UIGraphicsBeginImageContextWithOptions(CGSizeMake(4, 4), YES, 1);
+    [[UIColor redColor] setFill];
+    UIRectFill(CGRectMake(0, 0, 4, 4));
+    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    report.screenshots = [NSMutableDictionary dictionaryWithObject:image forKey:@0];
+    int64_t requestId;
+    @synchronized (gLock) {
+        requestId = gNextRequestId++;
+        gPending[@(requestId)] = [@{ @"kind": @"report", @"report": report, @"completion": ^{} } mutableCopy];
+    }
+    return requestId;
 }
 
 // The attributes JSON the report handler receives for a report whose attributes are startAttributesJson, plus
@@ -1227,6 +1333,10 @@ void _bugsee_set_log_filter_enabled(int enabled) { (void)enabled; }
 void _bugsee_set_breadcrumb_filter_enabled(int enabled) { (void)enabled; }
 void _bugsee_complete_filter(int64_t requestId, int keep, const char *resultJson) { (void)requestId; (void)keep; (void)resultJson; }
 void _bugsee_complete_report(int64_t requestId, const char *resultJson) { (void)requestId; (void)resultJson; }
+char *_bugsee_report_screenshot_ids(int64_t requestId) { (void)requestId; return NULL; }
+int _bugsee_report_screenshot_png(int64_t requestId, int displayId, unsigned char **outBytes) { (void)requestId; (void)displayId; if (outBytes) *outBytes = NULL; return -1; }
+int _bugsee_report_set_screenshot(int64_t requestId, int displayId, const unsigned char *bytes, int length) { (void)requestId; (void)displayId; (void)bytes; (void)length; return -1; }
+int _bugsee_report_screenshot_changed(int64_t requestId) { (void)requestId; return -1; }
 void _bugsee_register_data_request_callback(void *callback) { (void)callback; }
 void _bugsee_complete_data_request(int64_t requestId, const char *json) { (void)requestId; (void)json; }
 }

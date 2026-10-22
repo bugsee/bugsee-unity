@@ -222,6 +222,7 @@ namespace Bugsee.WrapperPolicy.Tests
             { "getName", new[] { 0 } }, { "getMessage", new[] { 0 } }, { "openStream", new[] { 0 } },
             { "write", new[] { 1, 3 } }, { "flush", new[] { 0 } }, { "close", new[] { 0 } },
             { "runOnUiThread", new[] { 1 } }, // android.app.Activity, the secure WebView calls
+            { "compress", new[] { 3 } }, // android.graphics.Bitmap.compress(CompressFormat, int, OutputStream), the report screenshot read
         };
 
         static IEnumerable<string> AndroidSources() =>

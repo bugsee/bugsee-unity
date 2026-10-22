@@ -49,6 +49,15 @@ namespace Bugsee.Platform.IOS
         {
         }
 
+        // The report handler request this report mirrors (its native report is live while that request is pending);
+        // 0 for a managed snapshot, which has no native report.
+        long _handlerRequestId;
+        public IosReport(IosReportDto dto, IDictionary<string, object> attributes, long handlerRequestId)
+            : this(dto, attributes)
+        {
+            _handlerRequestId = handlerRequestId;
+        }
+
         /// <param name="attributes">The report's attributes as native sent them (typed, nested values kept), or null.</param>
         public IosReport(IosReportDto dto, IDictionary<string, object> attributes)
         {
@@ -225,6 +234,11 @@ namespace Bugsee.Platform.IOS
             _attachmentsDirty = true;
             _attachmentsReplaceAll = true;
         }
+
+        public IReadOnlyList<int> ScreenshotDisplayIds => IosReportScreenshots.DisplayIds(_handlerRequestId);
+        public byte[] GetScreenshotPng(int displayId) => IosReportScreenshots.GetPng(_handlerRequestId, displayId);
+        public bool SetScreenshotPng(int displayId, byte[] png) => IosReportScreenshots.SetPng(_handlerRequestId, displayId, png);
+        public bool IsScreenshotChanged => IosReportScreenshots.IsChanged(_handlerRequestId);
 
         public void ReleaseSnapshotFiles()
         {
