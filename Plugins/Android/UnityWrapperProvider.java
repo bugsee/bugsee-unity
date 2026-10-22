@@ -306,11 +306,16 @@ final class UnityWrapper implements BugseeWrapper {
         });
     }
 
+    /** The most PNG bytes a read hands to C# (the managed limit, ReportScreenshotPolicy.MaxPngBytes). */
+    private static final int MAX_PNG_BYTES = 32 * 1024 * 1024;
+
     /**
-     * The display's screenshot of a live report as PNG, or null when it has none or cannot be encoded. Blocks the
-     * caller until the SDK has enumerated (blockAndWait runs the callback before it returns). It does not use
-     * getScreenshot(int, Callback1): that posts its answer to the calling thread's looper or the main one, which
-     * a Unity script thread blocking for the reply cannot rely on.
+     * The display's screenshot of a live report as PNG; null when the display has none; an EMPTY array when it has one
+     * that could not be read (a recycled bitmap, an encode failure, or more than {@code MAX_PNG_BYTES} of PNG), so the
+     * caller can say so instead of treating it as absent. Blocks the caller until the SDK has enumerated
+     * (blockAndWait runs the callback before it returns). It does not use getScreenshot(int, Callback1): that posts
+     * its answer to the calling thread's looper or the main one, which a Unity script thread blocking for the reply
+     * cannot rely on.
      */
     public static byte[] getReportScreenshotPng(Report report, int displayId) {
         if (report == null) return null;
@@ -319,6 +324,7 @@ final class UnityWrapper implements BugseeWrapper {
             report.enumerateScreenshots(collector, true);
         } catch (Throwable t) {
             Log.w("BugseeUnity", "Reading a report screenshot failed: " + t);
+            if (collector.png == null && collector.seen) return new byte[0];
         }
         return collector.png;
     }
@@ -327,6 +333,7 @@ final class UnityWrapper implements BugseeWrapper {
     private static final class PngCollector implements com.bugsee.library.contracts.common.Callback2<Integer, android.graphics.Bitmap> {
         private final int displayId;
         byte[] png;
+        boolean seen;
 
         PngCollector(int displayId) {
             this.displayId = displayId;
@@ -334,14 +341,44 @@ final class UnityWrapper implements BugseeWrapper {
 
         @Override
         public void run(Integer id, android.graphics.Bitmap bitmap) {
-            if (id == null || id != displayId || bitmap == null || bitmap.isRecycled() || png != null) return;
-            // A decoded bitmap past the managed pixel limit (4 bytes a pixel) is not encoded and copied across JNI.
-            if (bitmap.getByteCount() > 4L * 32 * 1024 * 1024) return;
-            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-            if (bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)) {
-                png = out.toByteArray();
+            if (id == null || id != displayId || seen) return;
+            seen = true;
+            png = new byte[0];
+            if (bitmap == null || bitmap.isRecycled()) return;
+            // A decoded bitmap past the managed pixel limit (4 bytes a pixel) is not encoded.
+            if (bitmap.getByteCount() > 4L * 32 * 1024 * 1024) {
+                Log.w("BugseeUnity", "A report screenshot is too large to read");
+                return;
             }
-            // Not recycled: whether the SDK hands out a private copy here is its business, not verified for 7.4.2.
+            try {
+                BoundedOutput out = new BoundedOutput(MAX_PNG_BYTES);
+                if (bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)) {
+                    png = out.toByteArray();
+                }
+            } catch (Throwable t) {
+                Log.w("BugseeUnity", "Encoding a report screenshot failed: " + t);
+            }
+        }
+    }
+
+    /** A byte stream that refuses to grow past a limit, so an oversized PNG is never held whole. */
+    private static final class BoundedOutput extends java.io.ByteArrayOutputStream {
+        private final int limit;
+
+        BoundedOutput(int limit) {
+            this.limit = limit;
+        }
+
+        @Override
+        public synchronized void write(byte[] b, int off, int len) {
+            if (count + len > limit) throw new IllegalStateException("PNG over " + limit + " bytes");
+            super.write(b, off, len);
+        }
+
+        @Override
+        public synchronized void write(int b) {
+            if (count + 1 > limit) throw new IllegalStateException("PNG over " + limit + " bytes");
+            super.write(b);
         }
     }
 

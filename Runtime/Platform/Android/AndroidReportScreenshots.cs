@@ -40,7 +40,13 @@ namespace Bugsee.Platform.Android
             using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
             {
                 var signed = wrapper.CallStatic<sbyte[]>("getReportScreenshotPng", report, displayId);
-                if (signed == null || signed.Length == 0) return null;
+                if (signed == null) return null;
+                if (signed.Length == 0)
+                {
+                    Debug.LogWarning("[Bugsee] GetScreenshotPng(" + displayId + ") returned null: the display holds a screenshot that could not be read "
+                                     + "(too large, or the SDK could not encode it). It is still listed in ScreenshotDisplayIds; do not assume it is absent.");
+                    return null;
+                }
                 if (signed.Length > ReportScreenshotPolicy.MaxPngBytes)
                 {
                     Debug.LogWarning(ReportScreenshotPolicy.TooLargeToReadMessage(displayId, signed.Length));

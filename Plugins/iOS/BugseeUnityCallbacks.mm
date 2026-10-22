@@ -1310,6 +1310,23 @@ int64_t _bugsee_test_register_screenshot_report(void)
     return requestId;
 }
 
+// A pending report whose display 0 holds a CIImage-backed image (no CGImage, so UIImagePNGRepresentation alone yields
+// nil) and whose display 1 holds an image with nothing to encode (zero size).
+int64_t _bugsee_test_register_odd_screenshot_report(void)
+{
+    BugseeUnityEnsureState();
+    BugseeUnityTestReport *report = [BugseeUnityTestReport new];
+    report.store = [NSMutableDictionary dictionary];
+    CIImage *ci = [[CIImage imageWithColor:[CIColor colorWithRed:0 green:0 blue:1]] imageByCroppingToRect:CGRectMake(0, 0, 4, 4)];
+    report.screenshots = [NSMutableDictionary dictionaryWithObjectsAndKeys:[UIImage imageWithCIImage:ci], @0, [UIImage new], @1, nil];
+    int64_t requestId;
+    @synchronized (gLock) {
+        requestId = gNextRequestId++;
+        gPending[@(requestId)] = [@{ @"kind": @"report", @"report": report, @"completion": ^{} } mutableCopy];
+    }
+    return requestId;
+}
+
 // The attributes JSON the report handler receives for a report whose attributes are startAttributesJson, plus
 // a date and NaN value that JSON cannot hold. Caller frees.
 const char *_bugsee_test_report_json_with_unserializable_attributes(const char *startAttributesJson)

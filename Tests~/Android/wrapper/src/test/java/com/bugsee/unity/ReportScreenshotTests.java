@@ -48,10 +48,11 @@ public class ReportScreenshotTests {
     }
 
     @Test
-    public void readingEnumeratesWithBlockAndWaitAndAnAbsentOrEmptyDisplayIsNull() {
+    public void readingEnumeratesWithBlockAndWaitAndTellsAnAbsentDisplayFromAnUnreadableOne() {
         List<String> calls = new ArrayList<String>();
         Report report = recordingReport(calls, 0, 1);
-        assertNull(UnityWrapper.getReportScreenshotPng(report, 1));
+        // Display 1 is listed but its bitmap is null: present and unreadable is an empty array, not absent.
+        assertEquals(0, UnityWrapper.getReportScreenshotPng(report, 1).length);
         assertNull(UnityWrapper.getReportScreenshotPng(report, 7));
         assertEquals(java.util.Arrays.asList("enumerate:true", "enumerate:true"), calls);
     }

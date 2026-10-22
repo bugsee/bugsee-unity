@@ -58,6 +58,7 @@ int _bugsee_report_screenshot_png(int64_t requestId, int displayId, unsigned cha
 int _bugsee_report_set_screenshot(int64_t requestId, int displayId, const unsigned char *bytes, int length);
 int _bugsee_report_screenshot_changed(int64_t requestId);
 int64_t _bugsee_test_register_screenshot_report(void);
+int64_t _bugsee_test_register_odd_screenshot_report(void);
 void _bugsee_complete_data_request(int64_t requestId, const char *json);
 void _bugsee_register_unity_callbacks(BugseeUnityFilterCb filterCb, void *reportCb, void *lifecycleCb);
 
@@ -471,6 +472,16 @@ int main(void)
     _bugsee_free((char *)png);
     _bugsee_complete_report(live, "{}");
     expect(_bugsee_report_screenshot_ids(live) == NULL && _bugsee_report_set_screenshot(live, 0, NULL, 0) == -1, "screenshots: nothing is reachable once the handler has answered");
+
+    // An image with no CGImage is redrawn before it is encoded; one with nothing to encode is refused as -2, not read as absent.
+    int64_t odd = _bugsee_test_register_odd_screenshot_report();
+    unsigned char *oddPng = NULL;
+    int oddLength = _bugsee_report_screenshot_png(odd, 0, &oddPng);
+    expect(oddLength > 8 && oddPng != NULL && oddPng[0] == 0x89 && oddPng[1] == 'P', "screenshot png: a CIImage-backed screenshot is redrawn and encodes as PNG");
+    _bugsee_free((char *)oddPng);
+    unsigned char *emptyPng = (unsigned char *)1;
+    expect(_bugsee_report_screenshot_png(odd, 1, &emptyPng) == -2 && emptyPng == NULL, "screenshot png: a screenshot that cannot be encoded is -2, not absent");
+    _bugsee_complete_report(odd, "{}");
 
     printf("ios bridge export tests passed\n");
     return 0;
