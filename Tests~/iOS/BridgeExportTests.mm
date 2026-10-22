@@ -32,6 +32,8 @@ void _bugsee_invalidate_managed_report_uploads(void);
 void _bugsee_upload_managed_report(const char *reportJson, uint64_t uploadId, uint64_t uploadFence,
                                    BugseeManagedReportCreateCallback callback);
 void _bugsee_set_secure_buffer(int display, int *packed, int packedLength);
+int _bugsee_unity_view_region(float *outRect);
+int _bugsee_screen_points(float *outWH);
 void _bugsee_channel_log(const char *message, int level, int source);
 void _bugsee_channel_network(const char *eventJson, int requiresFiltering);
 void _bugsee_channel_breadcrumb(const char *category, const char *message, int iosLevel, double timestampUnixSeconds);
@@ -141,6 +143,12 @@ int main(void)
     _bugsee_set_secure_buffer(0, packed, 1);
     _bugsee_set_secure_buffer(0, packed, 5);
     _bugsee_set_secure_buffer(1, packed, 5);
+    // Neither is guaranteed in a test process (no screen size, no UnityView): when they answer, the numbers are usable.
+    float wh[2] = { 0, 0 };
+    if (_bugsee_screen_points(wh) == 1) expect(wh[0] > 0 && wh[1] > 0, "a reported screen size has a size");
+    expect(_bugsee_screen_points(NULL) == 0 && _bugsee_unity_view_region(NULL) == 0, "a NULL output is refused");
+    float rect[4] = { 0, 0, 0, 0 };
+    if (_bugsee_unity_view_region(rect) == 1) expect(rect[2] > 0 && rect[3] > 0, "a view region has a size");
 
     // Wrapper channel with no channel attached (no launch): every producer must return quietly (smoke only).
     _bugsee_channel_log("msg", 3, 1);
