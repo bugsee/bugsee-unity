@@ -11,7 +11,7 @@ namespace Bugsee.WrapperPolicy.Tests
         public void A_file_attached_after_the_report_was_released_is_not_copied()
         {
             var source = Path.GetTempFileName();
-            var dir = Path.Combine(Path.GetTempPath(), "bugsee-unity-report-attachments");
+            var dir = Bugsee.WrapperPolicy.AttachmentSnapshot.DirectoryPath();
             try
             {
                 File.WriteAllText(source, "x");
