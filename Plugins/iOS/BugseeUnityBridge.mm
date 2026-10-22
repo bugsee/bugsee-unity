@@ -779,17 +779,6 @@ float _bugsee_pixels_per_point(int unityPixelWidth)
     return (float)[UIScreen mainScreen].scale;
 }
 
-// The screen's size in points (interface orientation) into outWH; 0 when unusable. The fallback surface when Unity's view is not found.
-int _bugsee_screen_points(float *outWH)
-{
-    if (!outWH) return 0;
-    CGSize size = [UIScreen mainScreen].bounds.size;
-    if (size.width <= 0 || size.height <= 0) return 0;
-    outWH[0] = (float)size.width;
-    outWH[1] = (float)size.height;
-    return 1;
-}
-
 static UIView *BugseeUnityFindView(UIView *view, int depth)
 {
     if ([NSStringFromClass([view class]) hasPrefix:@"UnityView"]) return view;
@@ -841,6 +830,21 @@ int _bugsee_unity_view_region(float *outRect)
     outRect[1] = (float)r.origin.y;
     outRect[2] = (float)r.size.width;
     outRect[3] = (float)r.size.height;
+    return 1;
+}
+
+// The size in points of the screen Unity's view is on (the main screen when it is not found), into outWH; 0 when unusable. The
+// fallback surface when Unity's view region cannot be read. Points need no scale here: the managed side multiplies by the main
+// screen's scale and the snapshot divides by it again.
+int _bugsee_screen_points(float *outWH)
+{
+    if (!outWH) return 0;
+    UIWindow *window = nil;
+    UIView *view = BugseeUnityViewAndWindow(&window);
+    CGSize size = (view && window ? window.screen : [UIScreen mainScreen]).bounds.size;
+    if (size.width <= 0 || size.height <= 0) return 0;
+    outWH[0] = (float)size.width;
+    outWH[1] = (float)size.height;
     return 1;
 }
 

@@ -598,10 +598,18 @@ namespace Bugsee
             // On the main thread the screen size is the one the rectangle was given for, read now; from another thread it is read
             // when the call runs (Unity's Screen cannot be read there).
             int sw = 0, sh = 0;
-            if (MainThreadDispatcher.IsMainThread && displayId == DefaultSecureRectDisplayId)
+            if (MainThreadDispatcher.IsMainThread)
             {
-                sw = Screen.width;
-                sh = Screen.height;
+                if (displayId == DefaultSecureRectDisplayId)
+                {
+                    sw = Screen.width;
+                    sh = Screen.height;
+                }
+                else if (displayId < Display.displays.Length)
+                {
+                    sw = Display.displays[displayId].renderingWidth;
+                    sh = Display.displays[displayId].renderingHeight;
+                }
             }
             MainThreadDispatcher.Post(() => _screenSecureRects.Add(
                 unityScreenRect.xMin, unityScreenRect.yMin, unityScreenRect.xMax, unityScreenRect.yMax, displayId, sw, sh));
