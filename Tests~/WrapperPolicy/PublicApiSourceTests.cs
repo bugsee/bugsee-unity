@@ -154,8 +154,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(launch, Does.Contain("finally { result.TrySetResult(accepted); }"));
             string relaunch = ExtractMethodBody(facade, "public static Task<bool> RelaunchAsync(Dictionary<string, object> options = null)");
             Assert.That(relaunch, Does.Contain("bridge.Relaunch(options, accepted =>"));
-            Assert.That(relaunch, Does.Contain("if (joined) Interlocked.Decrement(ref _pendingLaunches);"));
-            Assert.That(relaunch, Does.Contain("else AfterLaunchResultCounted(accepted, startPusher, options);"));
+            Assert.That(relaunch, Does.Contain("AfterLaunchResultCounted(!joined && accepted, startPusher, joined ? null : options)"));
             Assert.That(relaunch, Does.Contain("() => joined = true"), "a joined relaunch must not touch the pusher: the request it joined decides");
             Assert.That(relaunch, Does.Contain("finally { result.TrySetResult(accepted); }"));
             string stop = ExtractMethodBody(facade, "public static Task StopAsync()");
