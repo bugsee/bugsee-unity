@@ -810,29 +810,6 @@ float _bugsee_pixels_per_point(int unityPixelWidth)
     return (float)[UIScreen mainScreen].scale;
 }
 
-// The screen's size in points (interface orientation) into outWH; 0 when unusable. The fallback surface when Unity's view is not found.
-int _bugsee_screen_points(float *outWH)
-{
-    if (!outWH) return 0;
-    CGSize size = [UIScreen mainScreen].bounds.size;
-    if (size.width <= 0 || size.height <= 0) return 0;
-    outWH[0] = (float)size.width;
-    outWH[1] = (float)size.height;
-    return 1;
-}
-
-static UIWindow *BugseeUnityKeyWindow(void)
-{
-    UIApplication *app = [UIApplication sharedApplication];
-    for (UIScene *scene in app.connectedScenes) {
-        if (![scene isKindOfClass:[UIWindowScene class]]) continue;
-        if (scene.activationState != UISceneActivationStateForegroundActive) continue;
-        for (UIWindow *window in ((UIWindowScene *)scene).windows)
-            if (window.isKeyWindow) return window;
-    }
-    return app.windows.firstObject;
-}
-
 static UIView *BugseeUnityFindView(UIView *view, int depth)
 {
     if ([NSStringFromClass([view class]) hasPrefix:@"UnityView"]) return view;
@@ -844,21 +821,61 @@ static UIView *BugseeUnityFindView(UIView *view, int depth)
     return nil;
 }
 
-// Where Unity's own view sits in its window, in points with a top-left origin (x, y, width, height into outRect). Differs from
+// Unity's view and the window that holds it. Every window of every scene is searched (an iPad can show several scenes), so an
+// unrelated key window is never taken for Unity's; only when no UnityView is found anywhere is the key window's root view used.
+static __weak UIView *gBugseeUnityView; // the found view: the search runs again only when it is gone or detached
+
+static UIView *BugseeUnityViewAndWindow(UIWindow **outWindow)
+{
+    UIView *cached = gBugseeUnityView;
+    if (cached && cached.window) { *outWindow = cached.window; return cached; }
+    UIApplication *app = [UIApplication sharedApplication];
+    NSMutableArray<UIWindow *> *windows = [NSMutableArray array];
+    for (UIScene *scene in app.connectedScenes)
+        if ([scene isKindOfClass:[UIWindowScene class]]) [windows addObjectsFromArray:((UIWindowScene *)scene).windows];
+    for (UIWindow *window in app.windows)
+        if (![windows containsObject:window]) [windows addObject:window];
+    UIWindow *keyWindow = nil;
+    for (UIWindow *window in windows) {
+        UIView *found = BugseeUnityFindView(window, 0);
+        if (found) { gBugseeUnityView = found; *outWindow = window; return found; }
+        if (window.isKeyWindow && !keyWindow) keyWindow = window;
+    }
+    if (!keyWindow || !keyWindow.rootViewController.view) return nil;
+    *outWindow = keyWindow;
+    return keyWindow.rootViewController.view;
+}
+
+// Where Unity's own view sits on the screen, in points with a top-left origin (x, y, width, height into outRect). Differs from
 // UIScreen.bounds under iPad Split View, Slide Over and Stage Manager. Returns 0 when there is no window or view.
 int _bugsee_unity_view_region(float *outRect)
 {
     if (!outRect) return 0;
-    UIWindow *window = BugseeUnityKeyWindow();
-    if (!window) return 0;
-    UIView *view = BugseeUnityFindView(window.rootViewController.view ?: window, 0) ?: window.rootViewController.view;
-    if (!view) return 0;
-    CGRect r = [view convertRect:view.bounds toView:nil];
+    UIWindow *window = nil;
+    UIView *view = BugseeUnityViewAndWindow(&window);
+    if (!view || !window) return 0;
+    // Explicitly the screen's coordinate space (a window's own space leaves out its origin under Split View / Stage Manager).
+    CGRect r = [view convertRect:view.bounds toCoordinateSpace:window.screen.coordinateSpace];
     if (r.size.width <= 0 || r.size.height <= 0) return 0;
     outRect[0] = (float)r.origin.x;
     outRect[1] = (float)r.origin.y;
     outRect[2] = (float)r.size.width;
     outRect[3] = (float)r.size.height;
+    return 1;
+}
+
+// The size in points of the screen Unity's view is on (the main screen when it is not found), into outWH; 0 when unusable. The
+// fallback surface when Unity's view region cannot be read. Points need no scale here: the managed side multiplies by the main
+// screen's scale and the snapshot divides by it again.
+int _bugsee_screen_points(float *outWH)
+{
+    if (!outWH) return 0;
+    UIWindow *window = nil;
+    UIView *view = BugseeUnityViewAndWindow(&window);
+    CGSize size = (view && window ? window.screen : [UIScreen mainScreen]).bounds.size;
+    if (size.width <= 0 || size.height <= 0) return 0;
+    outWH[0] = (float)size.width;
+    outWH[1] = (float)size.height;
     return 1;
 }
 
@@ -1006,12 +1023,31 @@ void _bugsee_free(char *ptr)
 }
 
 // Deletes after the SDK is stopped, and reports the token back once the SDK says the wipe finished (its files
-// are cleared on a background thread), so the managed side can hold a following Launch until then. wiped is 1
+// are cleared on a background thread), so the managed side can hold a following Launch until then. scope picks how much is deleted (see the call). wiped is 1
 // when the SDK reported the wipe done, 0 when it failed or never ran (the SDK did not finish stopping).
 typedef void (*BugseeDeleteCompletionFn)(int token, int wiped);
 
-void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completion)
+#if BUGSEE_UNITY_TESTS
+// The tests record which SDK delete form ran: 0 flag form NO, 1 flag form YES, 2 form without a flag, -1 none (invalid scope).
+static int gLastDeleteForm = -1;
+int _bugsee_test_last_delete_form(void) { return gLastDeleteForm; }
+void _bugsee_test_reset_delete_form(void) { gLastDeleteForm = -1; }
+#define BUGSEE_NOTE_DELETE_FORM(form) (gLastDeleteForm = (form))
+#else
+#define BUGSEE_NOTE_DELETE_FORM(form) ((void)0)
+#endif
+
+void _bugsee_delete_collected_data(int token, int scope, BugseeDeleteCompletionFn completion)
 {
+    // Only the three managed scopes (0, 1, 2) are valid; anything else deletes nothing and is reported as not wiped, never as a wider wipe.
+    if (scope < 0 || scope > 2) {
+        BugseeRunOnMain(^{
+            if (completion) {
+                completion(token, 0);
+            }
+        });
+        return;
+    }
     BugseeRunOnMain(^{
         void (^runDelete)(void) = ^{
             BugseeDeleteCollectedDataCompletionBlock done = ^(BOOL success) {
@@ -1019,8 +1055,15 @@ void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completio
                     completion(token, success ? 1 : 0);
                 }
             };
-            // The flag form keeps the report bundles waiting for upload; this one deletes everything Bugsee collected.
-            [Bugsee deleteCollectedDataOnDevice:done];
+            // scope is the managed DeleteScope: 0 capture only, 1 capture and report snapshots, 2 everything. The flag
+            // form keeps the report bundles waiting for upload; the form without a flag deletes everything Bugsee
+            // collected (also the crashes not reported yet and the performance baselines).
+            BUGSEE_NOTE_DELETE_FORM(scope);
+            if (scope == 2) {
+                [Bugsee deleteCollectedDataOnDevice:done];
+            } else {
+                [Bugsee deleteCollectedDataOnDevice:(scope == 1) completion:done];
+            }
         };
         // Only a running SDK is stopped: on a stopped one the stop's block may land after a launch that follows
         // this call on the main thread, and the wipe would then be skipped.
@@ -1190,7 +1233,7 @@ int _bugsee_appearance_set_string(const char *propertyName, const char *property
 char *_bugsee_appearance_get_string(const char *propertyName) { (void)propertyName; return NULL; }
 void _bugsee_free(char *ptr) { (void)ptr; }
 typedef void (*BugseeDeleteCompletionFn)(int token, int wiped);
-void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completion) { if (completion) completion(token, 0); }
+void _bugsee_delete_collected_data(int token, int scope, BugseeDeleteCompletionFn completion) { if (completion) completion(token, 0); }
 void _bugsee_invalidate_managed_report_uploads(void) {}
 void _bugsee_upload_managed_report(const char *reportJson,
                                    uint64_t uploadId,

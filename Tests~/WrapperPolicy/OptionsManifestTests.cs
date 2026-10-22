@@ -28,24 +28,21 @@ namespace Bugsee.WrapperPolicy.Tests
     {
         // ---- Allow-lists (key -> reason) ----
 
-        // Android keys the manifest lists with no C# constant and no typed setter. bugsee/bugsee-unity#96.
-        // Add a constant and a setter (and gate it per platform) to remove an entry.
-        const string NoConstantAndroid = "#96: Android key without a C# constant";
-        static readonly Dictionary<string, string> AndroidNotExposed = Keys(NoConstantAndroid,
-            "config.max-data-size", "config.max-pending-report-age", "config.max-pending-reports", "config.notify-flush-delay", "crash-ndk.tombstone-logs",
-            "detect.anr.sampling", "detect.crash-ndk", "detect.exit.bg_low_memory_as_error", "detect.hang.sampling",
-            "detect.memory_leaks", "detect.memory_leaks.deep_sample_rate", "detect.memory_leaks.mode",
-            "detect.thread_leaks");
+        // Android keys the manifest lists that the wrapper deliberately does not expose. bugsee/bugsee-unity#96 exposed the
+        // rest (data limits, pending reports, sampling, NDK) as typed properties and constants.
+        const string NoLeakModule = "#96: option of the bugsee-android-leak module, which the wrapper does not ship (the SDK does not know the key without it)";
+        static readonly Dictionary<string, string> AndroidNotExposed = Keys(NoLeakModule,
+            "detect.memory_leaks", "detect.memory_leaks.deep_sample_rate", "detect.memory_leaks.mode", "detect.thread_leaks");
 
-        // iOS keys the iOS manifest lists with no C# constant. bugsee/bugsee-unity#97. The iOS typed options
-        // (IOSLaunchOptions) come with it; until then SetCustomOption reaches them.
-        static readonly Dictionary<string, string> IosNotExposed = Keys("#97: iOS key without a C# constant",
-            "capture.avplayer", "capture.bluetooth-status", "capture.camera-preview", "capture.crash-signals",
-            "capture.device-network-names", "capture.disk-space", "capture.logs.oslog",
-            "capture.on-device-symbolication", "capture.sample-buffer-display-layer", "capture.status-bar-info",
-            "capture.video.max-frame-rate", "capture.video.min-frame-rate", "capture.video.privacy-blur",
-            "capture.websocket", "config.build-target", "config.build-type", "config.data-encryption",
-            "detect.crash.fill_empty_exception_stacks", "detect.crash.swift_async_stacktraces", "reporting.ui.style");
+        // iOS keys the iOS manifest lists that the wrapper deliberately does not expose. bugsee/bugsee-unity#97 exposed the rest
+        // as typed IOSLaunchOptions properties (iOS-only, gated off Android by OptionPlatformGate).
+        static readonly Dictionary<string, string> IosNotExposed = Keys("#97: not exposed on purpose",
+            "capture.logs.oslog", "capture.status-bar-info");
+        static readonly Dictionary<string, string> IosNotExposedReasons = new Dictionary<string, string>
+        {
+            ["com.bugsee.option.capture.logs.oslog"] = "permanently disabled in the iOS SDK (accepted and ignored): a property would do nothing",
+            ["com.bugsee.option.capture.status-bar-info"] = "read only by a DEBUG build of the SDK, never the published one: a property would do nothing",
+        };
 
         // Hidden (internal) options that a public C# constant and setter expose anyway. Empty since bugsee/bugsee-unity#108 removed
         // Debug and Endpoint: a staging or test build sets the raw key with SetCustomOption. Keep it empty.
@@ -98,7 +95,7 @@ namespace Bugsee.WrapperPolicy.Tests
             public string Key, Type, Module, EnumName;
             public bool Hidden, Deprecated, StringValued;
             public Dictionary<string, long> EnumValues;
-            public string EnumDefault;
+            public string EnumDefault, DefaultText;
         }
 
         sealed class Manifest
@@ -148,6 +145,7 @@ namespace Bugsee.WrapperPolicy.Tests
                         Module = Required("module").GetString(),
                         Hidden = Required("hidden").GetBoolean(),
                         Deprecated = o.TryGetProperty("deprecated", out _),
+                        DefaultText = o.GetProperty("default").ToString().ToLowerInvariant(),
                     };
                     if (option.Type == "enum")
                     {
@@ -309,7 +307,7 @@ namespace Bugsee.WrapperPolicy.Tests
                     var enumType = EnumTypeOf(setter.Type);
                     var ok = o.Type == "enum" ? enumType != null
                         : o.Type == "boolean" ? setter.Type == "bool"
-                        : o.Type == "int" ? setter.Type == "int"
+                        : o.Type == "int" ? setter.Type == "int" || (enumType != null && enumType.IsDefined(typeof(FlagsAttribute), false))
                         : o.Type == "float" ? setter.Type == "float"
                         : o.Type == "string" ? setter.Type == "string"
                         : false;
@@ -475,11 +473,130 @@ namespace Bugsee.WrapperPolicy.Tests
                 "CaptureCrashHandlerType is iOS-only and must stay a key of the iOS manifest");
             Assert.That(Android.Options.ContainsKey(Bugsee.Contracts.Options.Options.CaptureCrashHandlerType), Is.False,
                 "Android now has capture.crash-handler-type: it is no longer iOS-only, so the platform gate must stop dropping it");
+            var iosOnly = new HashSet<string>(OptionPlatformGate.IosOnly);
+            foreach (var key in iosOnly)
+            {
+                Assert.That(Ios.Options.ContainsKey(key), Is.True, key + " is gated as iOS-only but is not a key of the iOS manifest");
+                Assert.That(Android.Options.ContainsKey(key), Is.False,
+                    "Android now has " + key + ": it is no longer iOS-only, so the platform gate must stop dropping it");
+            }
             var extra = constants.Where(c => Ios.Options.ContainsKey(c.Value) && !Android.Options.ContainsKey(c.Value) &&
-                c.Value != Bugsee.Contracts.Options.Options.CaptureCrashHandlerType).Select(c => "Options." + c.Key + " (" + SuffixOf(c.Value) + ")").ToList();
+                !iosOnly.Contains(c.Value)).Select(c => "Options." + c.Key + " (" + SuffixOf(c.Value) + ")").ToList();
             Assert.That(extra, Is.Empty,
                 "These constants are in the iOS manifest but not the Android one (Android " + Android.SdkVersion + " dropped or never had them), so they are iOS-only now: " +
                 string.Join(", ", extra) + ". They must be dropped from the Android launch (OptionPlatformGate.ForAndroid / IosOnly): update the gate and this test together.");
+        }
+
+        // The documented "Default when omitted" of each bool, int and enum property of IOSLaunchOptions is the iOS manifest default.
+        [Test]
+        public void Ios_bool_property_docs_state_the_manifest_default()
+        {
+            var keyOf = new Dictionary<string, string>();
+            foreach (var kv in Setters())
+                keyOf[kv.Value.Property] = Constants()[kv.Key];
+            var problems = new List<string>();
+            var doc = new StringBuilder();
+            int checkedCount = 0;
+            foreach (var line in File.ReadAllLines(RepoFile("Runtime/Contracts/Options/IOSLaunchOptions.cs")))
+            {
+                var trimmed = line.Trim();
+                if (trimmed.StartsWith("///")) { doc.Append(' ').Append(trimmed.Substring(3)); continue; }
+                var m = Regex.Match(trimmed, @"^public (\w+) (\w+)$");
+                if (m.Success && m.Groups[1].Value != "string")
+                {
+                    var type = m.Groups[1].Value;
+                    var prop = m.Groups[2].Value;
+                    var docText = doc.ToString();
+                    if (!keyOf.TryGetValue(prop, out var key) || !Ios.Options.TryGetValue(key, out var o))
+                        problems.Add(prop + " is not a typed setter of an iOS manifest key");
+                    else if (type == "bool" || type == "int")
+                    {
+                        var d = Regex.Match(docText, type == "bool" ? @"Default when omitted:\s*(true|false)\b" : @"Default when omitted:\s*(\d+)\b");
+                        var enumForm = Regex.Match(docText, @"Default when omitted:\s*<c>(\w+)\.(\w+)</c>");
+                        string documented = d.Success ? d.Groups[1].Value : null;
+                        if (documented == null && type == "int" && enumForm.Success)
+                            documented = ((int)Enum.Parse(EnumTypeOf(enumForm.Groups[1].Value), enumForm.Groups[2].Value)).ToString();
+                        if (documented == null) problems.Add(prop + " does not document its default as `Default when omitted: X.`");
+                        else
+                        {
+                            checkedCount++;
+                            if (o.DefaultText != documented) problems.Add(prop + " documents default " + documented + ", the iOS manifest says " + o.DefaultText);
+                        }
+                    }
+                    else if (EnumTypeOf(type) != null)
+                    {
+                        var d = Regex.Match(docText, @"Default when omitted:\s*<c>" + type + @"\.(\w+)</c>");
+                        if (!d.Success) problems.Add(prop + " does not document its default as `Default when omitted: <c>" + type + ".X</c>`");
+                        else
+                        {
+                            checkedCount++;
+                            var documentedDefault = d.Groups[1].Value;
+                            var expected = o.Type == "int" ? o.DefaultText : o.EnumDefault;
+                            var actual = o.Type == "int" ? ((int)Enum.Parse(EnumTypeOf(type), documentedDefault)).ToString() : documentedDefault;
+                            if (!string.Equals(expected, actual, StringComparison.Ordinal)) problems.Add(prop + " documents default " + documentedDefault + " (" + actual + "), the iOS manifest says " + expected);
+                        }
+                    }
+                }
+                doc.Clear();
+            }
+            Assert.That(checkedCount, Is.GreaterThan(10));
+            Assert.That(problems, Is.Empty, string.Join("\n", problems));
+        }
+
+        // The documented "Default when omitted" of each bool and int property that documents one (the #96 options on
+        // AndroidLaunchOptions, plus the shared MaxDataSize and NotifyFlushDelay, whose first number is the Android default) is
+        // the Android manifest default.
+        [Test]
+        public void Android_property_docs_state_the_manifest_default()
+        {
+            var keyOf = new Dictionary<string, string>();
+            foreach (var kv in Setters())
+                keyOf[kv.Value.Property] = Constants()[kv.Key];
+            var problems = new List<string>();
+            var doc = new StringBuilder();
+            int checkedCount = 0;
+            foreach (var file in new[] { "AndroidLaunchOptions.cs", "BugseeLaunchOptions.cs" })
+            {
+                doc.Clear();
+                foreach (var line in File.ReadAllLines(RepoFile("Runtime/Contracts/Options/" + file)))
+                {
+                    var trimmed = line.Trim();
+                    if (trimmed.StartsWith("///")) { doc.Append(' ').Append(trimmed.Substring(3)); continue; }
+                    var m = Regex.Match(trimmed, @"^public (bool|int) (\w+)$");
+                    var d = Regex.Match(doc.ToString(), @"Default when omitted:\s*(true|false|\d+)\b");
+                    if (m.Success && d.Success)
+                    {
+                        var prop = m.Groups[2].Value;
+                        if (!keyOf.TryGetValue(prop, out var key) || !Android.Options.TryGetValue(key, out var o))
+                            problems.Add(prop + " documents a default but is not a typed setter of an Android manifest key");
+                        else
+                        {
+                            checkedCount++;
+                            if (o.DefaultText != d.Groups[1].Value) problems.Add(prop + " documents default " + d.Groups[1].Value + ", the Android manifest says " + o.DefaultText);
+                        }
+                    }
+                    doc.Clear();
+                }
+            }
+            Assert.That(checkedCount, Is.GreaterThanOrEqualTo(9), "fewer than the 9 properties that document `Default when omitted:` (seven AndroidLaunchOptions ones, MaxDataSize, NotifyFlushDelay) were checked: a property or its doc line was removed, update this floor");
+            Assert.That(problems, Is.Empty, string.Join("\n", problems));
+        }
+
+        // MaxDataSize is shared and its default differs per platform; the doc names both ("150 on Android, 50 on iOS").
+        [Test]
+        public void Shared_max_data_size_docs_state_the_ios_default()
+        {
+            var text = File.ReadAllText(RepoFile("Runtime/Contracts/Options/BugseeLaunchOptions.cs"));
+            var m = Regex.Match(text, @"Default when omitted:\s*(\d+) on Android,\s*(\d+) on iOS");
+            Assert.That(m.Success, Is.True, "MaxDataSize must document `Default when omitted: N on Android, M on iOS`");
+            Assert.That(Android.Options["com.bugsee.option.config.max-data-size"].DefaultText, Is.EqualTo(m.Groups[1].Value));
+            Assert.That(Ios.Options["com.bugsee.option.config.max-data-size"].DefaultText, Is.EqualTo(m.Groups[2].Value));
+        }
+
+        [Test]
+        public void Ios_not_exposed_keys_have_a_reason()
+        {
+            Assert.That(IosNotExposedReasons.Keys, Is.EquivalentTo(IosNotExposed.Keys));
         }
 
         // Defaults the wrapper hardcodes are compared with the manifest of the platform they apply to (spec,

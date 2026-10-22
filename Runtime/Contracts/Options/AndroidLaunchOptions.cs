@@ -10,6 +10,26 @@ namespace Bugsee.Contracts.Options
 
         // --- Config (Android) ---
 
+        /// <summary>
+        /// Maximum number of reports waiting to be sent. Default when omitted: 30; the SDK raises a value below 1 to 1.
+        /// Over the limit, whole pending reports are deleted (errors first, then bug reports, then crashes, oldest first;
+        /// the newest crash and a report being exported or uploaded are kept). Lower values lose reports sooner.
+        /// </summary>
+        public int MaxPendingReports
+        {
+            set => Set(Options.MaxPendingReports, value);
+        }
+
+        /// <summary>
+        /// Maximum age in days of a report waiting to be sent; older ones are deleted whatever their type.
+        /// Default when omitted: 30. 0 or a negative value disables aging (reports then wait until sent or evicted by
+        /// <see cref="BugseeLaunchOptions.MaxDataSize"/> or <see cref="MaxPendingReports"/>).
+        /// </summary>
+        public int MaxPendingReportAge
+        {
+            set => Set(Options.MaxPendingReportAge, value);
+        }
+
         public bool ReportProcessingInProcess
         {
             set => Set(Options.ReportProcessingInProcess, value);
@@ -80,6 +100,56 @@ namespace Bugsee.Contracts.Options
         public bool DetectAndReportExitUnknown
         {
             set => Set(Options.DetectAndReportExitUnknown, value);
+        }
+
+        /// <summary>
+        /// Report a low-memory kill of a process that was not in the foreground at death as a non-fatal error instead of
+        /// a crash (foreground kills stay crashes). Default when omitted: false. Needs <see cref="DetectAndReportExitLowMemory"/>
+        /// and a device that reports low-memory kills; elsewhere a background SIGKILL is already a non-fatal error.
+        /// </summary>
+        public bool DetectAndReportExitLowMemoryBackgroundAsError
+        {
+            set => Set(Options.DetectAndReportExitLowMemoryBackgroundAsError, value);
+        }
+
+        /// <summary>
+        /// Sample the main thread's stack during a hang and blame the derived frames instead of one snapshot taken when
+        /// reporting. Default when omitted: true. Only has effect with <see cref="BugseeLaunchOptions.DetectAndReportHang"/>.
+        /// </summary>
+        public bool DetectAndReportHangSampling
+        {
+            set => Set(Options.DetectAndReportHangSampling, value);
+        }
+
+        /// <summary>
+        /// Sample the main thread's stack during an ANR and blame the derived frames instead of one snapshot taken
+        /// when the OS confirms it. Default when omitted: true. Only has effect with <see cref="DetectAndReportExitNotResponding"/>.
+        /// </summary>
+        public bool DetectAndReportAnrSampling
+        {
+            set => Set(Options.DetectAndReportAnrSampling, value);
+        }
+
+        /// <summary>
+        /// Detect and report native (NDK) crashes. Default when omitted: true. Also off whenever
+        /// <see cref="BugseeLaunchOptions.DetectAndReportCrash"/> is false. The key belongs to the <c>bugsee-android-ndk</c>
+        /// extension, which the wrapper always declares: the SDK knows it only once that extension has registered,
+        /// otherwise it is dropped. On Unity 6 builds that get the Bugsee Gradle plugin the extension was not
+        /// registered (observed on AGP 9.0; 8.6 to 8.10 unverified, bugsee-unity#226), so this option has no effect there.
+        /// </summary>
+        public bool DetectAndReportCrashNdk
+        {
+            set => Set(Options.DetectAndReportCrashNdk, value);
+        }
+
+        /// <summary>
+        /// Include the OS tombstone's raw log buffers in a native crash report. Default when omitted: false. Privacy: these
+        /// buffers skip Bugsee's log filters and redaction and can include text logged in-process by system or third-party libraries, so they are uploaded
+        /// unredacted. Same NDK-extension registration caveat as <see cref="DetectAndReportCrashNdk"/> (#226).
+        /// </summary>
+        public bool CrashNdkIncludeTombstoneLogs
+        {
+            set => Set(Options.CrashNdkIncludeTombstoneLogs, value);
         }
 
         public bool DetectAndReportMainThreadMisuse

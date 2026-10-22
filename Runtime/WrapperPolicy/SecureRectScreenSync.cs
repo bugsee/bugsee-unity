@@ -95,7 +95,10 @@ namespace Bugsee.WrapperPolicy
             return view;
         }
 
-        public void Add(float xMin, float yMin, float xMax, float yMax, int displayId)
+        /// <param name="screenWidth">Unity's screen size when the app made the call, when the call was made on the main thread; 0 reads it now
+        /// (a call queued from another thread). Without it a resolution change between the call and the frame that runs it would be
+        /// taken for the size the rectangle was given for.</param>
+        public void Add(float xMin, float yMin, float xMax, float yMax, int displayId, int screenWidth = 0, int screenHeight = 0)
         {
             if (float.IsNaN(xMin) || float.IsNaN(yMin) || float.IsNaN(xMax) || float.IsNaN(yMax))
             {
@@ -108,6 +111,8 @@ namespace Bugsee.WrapperPolicy
                 _warn("AddSecureScreenRectangle ignored: display " + displayId + " has no usable size (it does not exist, or is not active).");
                 return;
             }
+            if (screenWidth > 0 && screenHeight > 0)
+                view = new SecureRectView(screenWidth, screenHeight, view.Left, view.Top, view.Width, view.Height);
             _owners.Add(xMin, yMin, xMax, yMax, displayId, view, _registry);
             _push(displayId);
         }

@@ -68,7 +68,7 @@ namespace Bugsee.WrapperPolicy
                 var keysToRemove = new List<(string ownerId, int displayId)>();
                 foreach (var key in _rectsByOwnerDisplay.Keys)
                 {
-                    if (key.ownerId != null && key.ownerId.StartsWith(ownerIdPrefix))
+                    if (key.ownerId != null && key.ownerId.StartsWith(ownerIdPrefix, StringComparison.Ordinal))
                         keysToRemove.Add(key);
                 }
 

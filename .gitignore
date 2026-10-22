@@ -34,7 +34,7 @@ Samples~/**/[Bb]uilds/
 *.pdb
 *.mdb
 
-# Native binaries produced by Tools~/scripts/update-native-sdks.sh
+# Local iOS SDK binary (never committed; Tools~/scripts/assemble-local-ios-sdk.sh makes a package)
 Native~/ios/Bugsee/Bugsee.xcframework/
 
 # Local git worktrees for parallel task branches

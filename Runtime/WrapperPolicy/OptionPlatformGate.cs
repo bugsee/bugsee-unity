@@ -6,7 +6,8 @@ namespace Bugsee.WrapperPolicy
     /// <summary>
     /// Options one native SDK has no counterpart for. Android-only: absent from the iOS headers and binary as of
     /// 7.0.0-beta7 (iOS keeps an unknown key and getLaunchOptions then shows it). iOS-only: the Android SDK 7.4.2
-    /// drops keys it does not know.
+    /// drops keys it does not know (the typed ones are the <c>IOSLaunchOptions</c> properties; the gate drops them
+    /// from an Android launch so the result does not depend on that SDK's behaviour).
     /// </summary>
     public static class OptionPlatformGate
     {
@@ -17,6 +18,24 @@ namespace Bugsee.WrapperPolicy
         static readonly HashSet<string> IosOnlyKeys = new HashSet<string>
         {
             Options.CaptureCrashHandlerType,
+            Options.CaptureCrashSignals,
+            Options.CaptureOnDeviceSymbolication,
+            Options.DetectCrashSwiftAsyncStackTraces,
+            Options.DetectCrashFillEmptyExceptionStacks,
+            Options.CaptureWebSocket,
+            Options.CaptureAVPlayer,
+            Options.CaptureSampleBufferDisplayLayer,
+            Options.CaptureCameraPreview,
+            Options.CaptureBluetoothStatus,
+            Options.CaptureDiskSpace,
+            Options.CaptureDeviceNetworkNames,
+            Options.CaptureVideoPrivacyBlur,
+            Options.CaptureVideoMinFrameRate,
+            Options.CaptureVideoMaxFrameRate,
+            Options.DataEncryption,
+            Options.BuildTarget,
+            Options.BuildType,
+            Options.ReportingUIStyle,
         };
 
         public static readonly IReadOnlyCollection<string> IosOnly = new List<string>(IosOnlyKeys).AsReadOnly();
@@ -52,19 +71,19 @@ namespace Bugsee.WrapperPolicy
                 Options.PerformanceUploadMode,
                 Options.ReportProcessingInProcess,
                 Options.WebViewDomainAllowlist,
-                // Android keys with no constant in Options yet (typed options come with #96); the strings are the
-                // Android SDK 7.4.2 keys. iOS keeps an unknown key verbatim, so they are gated like the rest.
-                "com.bugsee.option.detect.crash-ndk",
-                "com.bugsee.option.crash-ndk.tombstone-logs",
-                "com.bugsee.option.detect.anr.sampling",
-                "com.bugsee.option.detect.hang.sampling",
+                Options.MaxPendingReports,
+                Options.MaxPendingReportAge,
+                Options.DetectAndReportExitLowMemoryBackgroundAsError,
+                Options.DetectAndReportCrashNdk,
+                Options.CrashNdkIncludeTombstoneLogs,
+                Options.DetectAndReportHangSampling,
+                Options.DetectAndReportAnrSampling,
+                // Android keys with no constant: the leak module (bugsee-android-leak) is not shipped by the wrapper.
+                // iOS keeps an unknown key verbatim, so they are gated like the rest.
                 "com.bugsee.option.detect.memory_leaks",
                 "com.bugsee.option.detect.memory_leaks.mode",
                 "com.bugsee.option.detect.memory_leaks.deep_sample_rate",
                 "com.bugsee.option.detect.thread_leaks",
-                "com.bugsee.option.detect.exit.bg_low_memory_as_error",
-                "com.bugsee.option.config.max-pending-reports",
-                "com.bugsee.option.config.max-pending-report-age",
             };
         }
 

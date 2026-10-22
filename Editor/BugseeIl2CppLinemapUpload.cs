@@ -17,7 +17,7 @@ namespace Bugsee.Editor
     ///
     /// Failure policy:
     /// - Auto-discovery miss → warn + continue (native symbols still upload).
-    /// - BUGSEE_NO_IL2CPP_MAPPING set → skip silently.
+    /// - BUGSEE_NO_IL2CPP_MAPPING or BUGSEE_NO_SYMBOL_UPLOAD set → skip silently.
     /// - BUGSEE_IL2CPP_MAPPING path set but missing → warn + skip (do not fail build).
     /// - No UUID(s) resolved → warn + skip (do not send an unkeyed blob).
     ///   On iOS this is expected at Unity export; archive-time Run Script uploads instead.
@@ -34,7 +34,9 @@ namespace Bugsee.Editor
             DeleteIosPendingLinemap(report);
             SweepIosIl2CppOutput(report);
 
-            if (Environment.GetEnvironmentVariable("BUGSEE_NO_IL2CPP_MAPPING") != null)
+            if (!SymbolUploadPolicy.LinemapUploadAllowed(
+                    Environment.GetEnvironmentVariable("BUGSEE_NO_SYMBOL_UPLOAD") != null,
+                    Environment.GetEnvironmentVariable("BUGSEE_NO_IL2CPP_MAPPING") != null))
             {
                 return;
             }
@@ -167,14 +169,16 @@ namespace Bugsee.Editor
 
             try
             {
-                var mayDelete = Environment.GetEnvironmentVariable("BUGSEE_NO_IL2CPP_MAPPING") == null
+                var mayDelete = SymbolUploadPolicy.LinemapUploadAllowed(
+                        Environment.GetEnvironmentVariable("BUGSEE_NO_SYMBOL_UPLOAD") != null,
+                        Environment.GetEnvironmentVariable("BUGSEE_NO_IL2CPP_MAPPING") != null)
                     && BugseeCliRunner.HasAppToken
                     && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("BUGSEE_IL2CPP_MAPPING"));
                 var projectRoot = Path.GetDirectoryName(Application.dataPath);
                 var buildSymbols = IosIl2CppOutputSweep.BuildSymbolsDirectory(
                     projectRoot, report.summary.platform == BuildTarget.tvOS ? "tvOS" : "iOS");
                 var result = IosIl2CppOutputSweep.Run(
-                    report.summary.outputPath, buildSymbols, report.summary.buildStartedAt, mayDelete);
+                    report.summary.outputPath, buildSymbols, BuildClock.StartedUtc(report.summary.buildStartedAt), mayDelete);
                 IosAgeCheckSafe = result.AgeCheckSafe;
                 foreach (var action in result.Actions)
                 {

@@ -5,7 +5,7 @@ namespace Bugsee.WrapperPolicy
 {
     /// <summary>
     /// Where Unity's rendered surface sits on its display, in the native pixels secure rectangles are registered in
-    /// (Android screen pixels, as the SDK measures its own views; iOS window points times the screen scale), and how big Unity's own screen is for that display.
+    /// (Android screen pixels, as the SDK measures its own views; iOS screen points times the screen scale), and how big Unity's own screen is for that display.
     /// </summary>
     public readonly struct SecureRectView : IEquatable<SecureRectView>
     {

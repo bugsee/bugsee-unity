@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 using Bugsee.Contracts.Lifecycle;
 using Bugsee.Contracts.Options;
 using UnityEngine;
-#if UNITY_IOS && !UNITY_EDITOR
+#if (UNITY_IOS || UNITY_ANDROID) && !UNITY_EDITOR
 using Bugsee.WrapperPolicy;
 #endif
 
@@ -260,7 +260,18 @@ namespace Bugsee.Sample
         {
             if (key.Contains("$$")) return true;
 #if UNITY_ANDROID && !UNITY_EDITOR
+#if UNITY_6000_0_OR_NEWER
+            // Unity 6 with the Gradle plugin: the NDK extension is not registered, so the SDK never reports its keys (#226). Elsewhere
+            // an absent NDK key is a mismatch.
+            if (key == Options.DetectAndReportCrashNdk || key == Options.CrashNdkIncludeTombstoneLogs)
+            {
+                var native = Bugsee.GetLaunchOptions();
+                if (native == null || !native.ContainsKey(key)) return true;
+            }
+#endif
             if (key.StartsWith("com.bugsee.option.unity.", StringComparison.Ordinal)) return true;
+            // iOS-only options (the privacy preset sets some through the builder): the platform gate drops them, so they never come back.
+            if (System.Linq.Enumerable.Contains(OptionPlatformGate.IosOnly, key)) return true;
 #endif
 #if UNITY_IOS && !UNITY_EDITOR
             if (System.Linq.Enumerable.Contains(OptionPlatformGate.AndroidOnly, key)) return true;

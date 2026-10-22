@@ -304,6 +304,15 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void AddUsesTheScreenSizeOfTheCallNotOfTheFrameThatRunsIt()
+        {
+            // The call was made at 500x1000; by the time it runs Unity renders 250x500 (same 1000x2000 surface).
+            var h = new Harness(Good(250, 500, 0, 0, 1000, 2000));
+            h.Sync.Add(50, 100, 150, 300, 0, 500, 1000);
+            Assert.That(Rect(h.Registry, 0, 0), Is.EqualTo(new[] { 100, 1400, 300, 1800 }));
+        }
+
+        [Test]
         public void NaNAndMissingDisplaysAreIgnoredWithAWarning()
         {
             var h = new Harness(Good(100, 100, 0, 0, 100, 100));

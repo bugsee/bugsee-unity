@@ -7,6 +7,24 @@ namespace Bugsee.Contracts.Options
     {
         public const string Duration = "com.bugsee.option.config.duration";
         public const string WifiOnlyUpload = "com.bugsee.option.config.wifi-only-upload";
+        /// <summary>Both platforms: int megabytes of disk the pending reports may use. Android default 150 (a value below 10 is raised to 10), iOS default 50; iOS 7.0.0-beta7 accepts the key but does not enforce it.</summary>
+        public const string MaxDataSize = "com.bugsee.option.config.max-data-size";
+        /// <summary>Both platforms: int milliseconds the notification relay waits before draining its queue, default 0.</summary>
+        public const string NotifyFlushDelay = "com.bugsee.option.config.notify-flush-delay";
+        /// <summary>Android only: int, maximum number of reports waiting to be sent, default 30; the SDK raises a value below 1 to 1.</summary>
+        public const string MaxPendingReports = "com.bugsee.option.config.max-pending-reports";
+        /// <summary>Android only: int days a report may wait to be sent, default 30; 0 or negative disables aging.</summary>
+        public const string MaxPendingReportAge = "com.bugsee.option.config.max-pending-report-age";
+        /// <summary>Android only: bool, default false.</summary>
+        public const string DetectAndReportExitLowMemoryBackgroundAsError = "com.bugsee.option.detect.exit.bg_low_memory_as_error";
+        /// <summary>Android only: bool, default true (needs the NDK extension, which registers the key).</summary>
+        public const string DetectAndReportCrashNdk = "com.bugsee.option.detect.crash-ndk";
+        /// <summary>Android only: bool, default false (needs the NDK extension, which registers the key).</summary>
+        public const string CrashNdkIncludeTombstoneLogs = "com.bugsee.option.crash-ndk.tombstone-logs";
+        /// <summary>Android only: bool, default true; only has effect with <see cref="DetectAndReportHang"/>.</summary>
+        public const string DetectAndReportHangSampling = "com.bugsee.option.detect.hang.sampling";
+        /// <summary>Android only: bool, default true; only has effect with <see cref="DetectAndReportExitNotResponding"/>.</summary>
+        public const string DetectAndReportAnrSampling = "com.bugsee.option.detect.anr.sampling";
         public const string ReportProcessingInProcess = "com.bugsee.option.config.report-processing-in-process";
         public const string ReportHandlerCallbackTimeout = "com.bugsee.option.config.report-handler-callback-timeout";
         public const string DetectAndReportExit = "com.bugsee.option.detect.exit";
@@ -48,6 +66,42 @@ namespace Bugsee.Contracts.Options
         public const string CaptureBreadcrumbsExtras = "com.bugsee.option.capture.breadcrumbs.extras";
         /// <summary>iOS only: a <see cref="CrashHandlerType"/>, sent as its int value.</summary>
         public const string CaptureCrashHandlerType = "com.bugsee.option.capture.crash-handler-type";
+        /// <summary>iOS only: a <see cref="CrashSignals"/> bit set, sent as its int value.</summary>
+        public const string CaptureCrashSignals = "com.bugsee.option.capture.crash-signals";
+        /// <summary>iOS only: bool.</summary>
+        public const string CaptureOnDeviceSymbolication = "com.bugsee.option.capture.on-device-symbolication";
+        /// <summary>iOS only: bool.</summary>
+        public const string DetectCrashSwiftAsyncStackTraces = "com.bugsee.option.detect.crash.swift_async_stacktraces";
+        /// <summary>iOS only: bool.</summary>
+        public const string DetectCrashFillEmptyExceptionStacks = "com.bugsee.option.detect.crash.fill_empty_exception_stacks";
+        /// <summary>iOS only: bool.</summary>
+        public const string CaptureWebSocket = "com.bugsee.option.capture.websocket";
+        /// <summary>iOS only: bool.</summary>
+        public const string CaptureAVPlayer = "com.bugsee.option.capture.avplayer";
+        /// <summary>iOS only: bool.</summary>
+        public const string CaptureSampleBufferDisplayLayer = "com.bugsee.option.capture.sample-buffer-display-layer";
+        /// <summary>iOS only: bool.</summary>
+        public const string CaptureCameraPreview = "com.bugsee.option.capture.camera-preview";
+        /// <summary>iOS only: bool.</summary>
+        public const string CaptureBluetoothStatus = "com.bugsee.option.capture.bluetooth-status";
+        /// <summary>iOS only: bool.</summary>
+        public const string CaptureDiskSpace = "com.bugsee.option.capture.disk-space";
+        /// <summary>iOS only: bool.</summary>
+        public const string CaptureDeviceNetworkNames = "com.bugsee.option.capture.device-network-names";
+        /// <summary>iOS only: bool.</summary>
+        public const string CaptureVideoPrivacyBlur = "com.bugsee.option.capture.video.privacy-blur";
+        /// <summary>iOS only: int frames per second, clamped by the SDK to 0..30 (0 = derived from the frame rate).</summary>
+        public const string CaptureVideoMinFrameRate = "com.bugsee.option.capture.video.min-frame-rate";
+        /// <summary>iOS only: int frames per second, clamped by the SDK to 0..30 (0 = derived from the frame rate).</summary>
+        public const string CaptureVideoMaxFrameRate = "com.bugsee.option.capture.video.max-frame-rate";
+        /// <summary>iOS only: a <see cref="DataEncryptionMode"/>, sent as its int value.</summary>
+        public const string DataEncryption = "com.bugsee.option.config.data-encryption";
+        /// <summary>iOS only: string.</summary>
+        public const string BuildTarget = "com.bugsee.option.config.build-target";
+        /// <summary>iOS only: string.</summary>
+        public const string BuildType = "com.bugsee.option.config.build-type";
+        /// <summary>iOS only: a <see cref="Bugsee.Contracts.Options.ReportingUIStyle"/>, sent as its int value.</summary>
+        public const string ReportingUIStyle = "com.bugsee.option.reporting.ui.style";
         public const string AdvancedWebViewCapture = "com.bugsee.option.capture.webview.advanced";
         public const string WebViewDomainAllowlist = "com.bugsee.option.capture.webview.domain-allowlist";
         public const string WebViewReportTrigger = "com.bugsee.option.capture.webview.report-trigger";

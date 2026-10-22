@@ -71,7 +71,7 @@ See [Documentation~/index.md](Documentation~/index.md) for:
 Runtime/           # C# runtime API + asmdef
 Editor/            # Android Gradle injection, iOS SPM, linemap + symbol upload
 Plugins/           # iOS ObjC++ bridge, Android UnityManagedException.java
-Native~/ios/Bugsee # Unused local SPM stub (Xcode uses github.com/bugsee/spm)
+Native~/ios/Bugsee # Local SPM package, used only when UseRemoteSpm is off (default: github.com/bugsee/spm); no xcframework is committed
 Tools~/            # Version pins + maintenance scripts
 Documentation~/    # Package docs shown in Package Manager
 Samples~/
