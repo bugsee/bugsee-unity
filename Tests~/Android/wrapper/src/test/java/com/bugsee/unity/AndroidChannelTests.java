@@ -113,11 +113,22 @@ public class AndroidChannelTests {
     }
 
     @Test
-    public void channelLogFallsBackToCustomForAnOutOfRangeSource() {
+    public void channelLogFallsBackToCustomForAValueThatIsNoSourceAfterTheByteCast() {
         RecordingChannel channel = attach();
         UnityWrapper.channelLog("x", 3, 42);
         UnityWrapper.channelLog("y", 3, -5);
         assertSame(LogSource.Custom, channel.logs.get(0).source);
+        assertSame(LogSource.Custom, channel.logs.get(1).source);
+    }
+
+    // The wrapper casts the int to a byte before the lookup, so values outside the byte range wrap around. C# only sends
+    // 0, 1, 2, 5 and 98, so this is not reachable today; the test pins the current behaviour rather than endorsing it.
+    @Test
+    public void channelLogTruncatesTheSourceToAByteBeforeTheLookup() {
+        RecordingChannel channel = attach();
+        UnityWrapper.channelLog("a", 3, 256); // wraps to 0
+        UnityWrapper.channelLog("b", 3, 354); // wraps to 98
+        assertSame(LogSource.Unknown, channel.logs.get(0).source);
         assertSame(LogSource.Custom, channel.logs.get(1).source);
     }
 
