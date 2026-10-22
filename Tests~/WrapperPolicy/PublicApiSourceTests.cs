@@ -146,6 +146,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(host, Does.Contain("Bridge.GetHostLaunchOptions()"));
             Assert.That(host, Does.Contain("new ReadOnlyDictionary<string, object>"));
             string all = ExtractExpressionBody(facade, "public static IReadOnlyDictionary<string, object> GetAllAttributes()");
+            Assert.That(all, Does.Contain("new Dictionary<string, object>(Bridge.GetAllAttributes())"), "a copy: later changes do not show in an earlier snapshot");
             Assert.That(all, Does.Contain("Bridge.GetAllAttributes()"));
             Assert.That(all, Does.Not.Contain("LaunchOptionsWire"), "attributes are not launch options: no key filtering");
             string rects = ExtractMethodBody(facade, "public static RectInt[] GetAllSecureRectangles()");
