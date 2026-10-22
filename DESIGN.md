@@ -178,7 +178,7 @@ Logging: `Log`, `Trace`, `Event`, `LogException`, `LogUnhandledException`, `Test
 Reporting: `ShowReportDialog`, `Upload`, `CreateReport`, `SetReportHandler`, `Upload(Report)`  
 Filters: network / log / breadcrumb  
 Exchange: `GetExchangeFactory`, `AddNetworkEvent`, `AddBreadcrumb`  
-Privacy: secure rectangles (Unity-relevant; `AddSecureRectangle` covers Unity-drawn content). Native `addSecureActivity` (Android only) and `addSecureView` take a native Activity or View a Unity script does not own and are not exposed directly
+Privacy: secure rectangles (Unity-relevant; `AddSecureRectangle` covers Unity-drawn content). Native `addSecureActivity` (Android only), `addSecureView` and `addSecureWebView` take a native Activity, View or WebView that a Unity script does not own, so they are not exposed as-is (any WebView support is a wrapper API that takes the plugin's native handle)
 Identity: `SetUserIdentifier` / `Get` / `Clear` (not email-as-primary)  
 Attributes: set/get/clear/clearAll/getAll  
 Appearance: `GetAppearance()`  
