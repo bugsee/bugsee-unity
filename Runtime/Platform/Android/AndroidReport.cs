@@ -184,6 +184,11 @@ namespace Bugsee.Platform.Android
         }
 
         public void ClearAttachments() { if (!Closed) _report.Call("clearAttachments"); }
+
+        public IReadOnlyList<int> ScreenshotDisplayIds => AndroidReportScreenshots.DisplayIds(_report, _gate);
+        public byte[] GetScreenshotPng(int displayId) => AndroidReportScreenshots.GetPng(_report, _gate, displayId);
+        public bool SetScreenshotPng(int displayId, byte[] png) => AndroidReportScreenshots.SetPng(_report, _gate, displayId, png);
+        public bool IsScreenshotChanged => AndroidReportScreenshots.IsChanged(_report, _gate);
     }
 
     sealed class AndroidAttachment : IAttachment
@@ -416,6 +421,18 @@ namespace Bugsee.Platform.Android
         }
 
         void MarkAttachmentsDirty() => _attachmentsDirty = true;
+
+        // A managed snapshot has no native report: nothing is captured and a set would never reach the upload.
+        public IReadOnlyList<int> ScreenshotDisplayIds => new int[0];
+        public byte[] GetScreenshotPng(int displayId) => null;
+
+        public bool SetScreenshotPng(int displayId, byte[] png)
+        {
+            AndroidReportScreenshots.SnapshotNotice();
+            return false;
+        }
+
+        public bool IsScreenshotChanged => false;
 
         internal void ApplyTo(AndroidJavaObject javaReport)
         {

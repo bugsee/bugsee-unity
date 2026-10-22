@@ -74,11 +74,14 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Build_guid_and_message_are_not_inputs_and_the_type_is()
+        public void Type_is_an_input_and_is_normalised_to_the_short_name()
         {
             var t = new[] { "at A.M () (at A.cs:5)" };
-            Assert.That(Sig(t), Is.EqualTo(Sig(t)));
             Assert.That(ManagedSignatureRecipe.Compute("Other", t, null, "", null), Is.Not.EqualTo(Sig(t)));
+            var full = ManagedSignatureRecipe.Compute("System.NullReferenceException", t, null, "", null);
+            Assert.That(ManagedSignatureRecipe.Compute("NullReferenceException", t, null, "", null), Is.EqualTo(full));
+            Assert.That(ManagedSignatureRecipe.Compute("My.Ex`1[[System.Int32, mscorlib, Version=4.0.0.0]]", t, null, "", null),
+                Is.EqualTo(ManagedSignatureRecipe.Compute("Other.Ex", t, null, "", null)));
         }
 
         [Test]
@@ -150,11 +153,74 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Handled_flag_is_not_an_input_and_output_is_sha256_hex()
+        public void Output_is_sha256_hex()
         {
-            var s = Sig(new[] { "at A.M () (at A.cs:5)" });
-            Assert.That(s, Has.Length.EqualTo(64));
-            Assert.That(s, Does.Match("^[0-9a-f]{64}$"));
+            Assert.That(Sig(new[] { "at A.M () (at A.cs:5)" }), Does.Match("^[0-9a-f]{64}$"));
+        }
+
+        [Test]
+        public void Mixed_il2cpp_frames_address_recipe_needs_the_throw_site_address()
+        {
+            // Throw site has file:line (so no address was paired), the dispatcher below has an address only.
+            var siteA = new[] { "at A.ThrowOne () (at A.cs:5)", "at D.Dispatch () (at <h>:0)" };
+            var siteB = new[] { "at A.ThrowTwo () (at A.cs:9)", "at D.Dispatch () (at <h>:0)" };
+            var addr = new[] { null, "0x777" };
+            Assert.That(Sig(siteA, addr, "u"), Is.Not.EqualTo(Sig(siteB, addr, "u")));
+        }
+
+        [Test]
+        public void Address_recipe_keeps_the_line_of_addressless_frames()
+        {
+            var one = new[] { "at A.M () (at <h>:0)", "at B.N () (at B.cs:3)" };
+            var two = new[] { "at A.M () (at <h>:0)", "at B.N () (at B.cs:4)" };
+            var addr = new[] { "0x10", null };
+            Assert.That(Sig(one, addr, "u"), Is.Not.EqualTo(Sig(two, addr, "u")));
+        }
+
+        [Test]
+        public void Throw_frames_still_on_the_live_stack_are_not_trimmed()
+        {
+            var t = new[] { "at A.Throw () (at A.cs:5)", "at A.Observe () (at A.cs:9)", "at R.Run () (at R.cs:1)" };
+            var live = "at Bugsee.Internal.P.F ()\nat A.Filter () (at A.cs:8)\nat A.Throw () (at A.cs:5)\nat A.Observe () (at A.cs:9)\nat R.Run () (at R.cs:1)";
+            Assert.That(ManagedSignatureRecipe.TrimCallerTail(t, live), Is.EqualTo(3));
+        }
+
+        [Test]
+        public void Matching_stops_at_a_bugsee_frame_of_the_live_stack()
+        {
+            var t = new[] { "at A.M () (at A.cs:5)", "at Bugsee.Internal.P.F ()" };
+            var live = "at Bugsee.Internal.P.F ()";
+            Assert.That(ManagedSignatureRecipe.TrimCallerTail(t, live), Is.EqualTo(2));
+        }
+
+        [Test]
+        public void Recursion_and_same_named_overloads_match_by_method_name()
+        {
+            var t = new[] { "at A.R (System.Int32 n) (at A.cs:5)", "at A.R (System.Int32 n) (at A.cs:6)", "at A.Top () (at A.cs:9)" };
+            var live = "at Bugsee.Internal.P.F ()\nat A.R (System.String s) (at A.cs:6)\nat A.Top () (at A.cs:9)";
+            // Documented: overloads match by name, the cut is at most the shared tail below the catch frame.
+            Assert.That(ManagedSignatureRecipe.TrimCallerTail(t, live), Is.EqualTo(2));
+        }
+
+        [Test]
+        public void Separators_and_rethrow_lines_are_not_frames()
+        {
+            var plain = new[] { "at A.M () (at A.cs:5)" };
+            var withSeps = new[]
+            {
+                "Rethrow as InvalidOperationException: boom", "at A.M () (at A.cs:5)",
+                "--- End of stack trace from previous location where exception was thrown ---",
+            };
+            Assert.That(Sig(withSeps), Is.EqualTo(Sig(plain)));
+        }
+
+        [Test]
+        public void Log_text_and_thrown_text_of_one_site_agree_when_the_file_and_line_are_there()
+        {
+            var thrown = new[] { "at App.Site.Throw (System.String m) [0x0000c] in /Users/a/Assets/Site.cs:10" };
+            var logged = new[] { "App.Site.Throw (System.String m) (at Assets/Site.cs:10)" };
+            Assert.That(ManagedSignatureRecipe.Compute("System.InvalidOperationException", thrown, null, "", null),
+                Is.EqualTo(ManagedSignatureRecipe.Compute("InvalidOperationException", logged, null, "", null)));
         }
 
         [Test]

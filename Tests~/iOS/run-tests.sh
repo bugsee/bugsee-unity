@@ -75,6 +75,7 @@ build_test() { # test source, output binary
         -framework Foundation \
         -framework UIKit \
         -framework CoreGraphics \
+        -framework CoreImage \
         -framework QuartzCore \
         -framework SystemConfiguration \
         -framework Security \

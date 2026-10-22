@@ -121,39 +121,9 @@ namespace Bugsee.Editor
 
             try
             {
-                if (File.Exists(outputPath))
+                foreach (var archive in AndroidNativeLibs.BuiltArchivePaths(outputPath, buildStartedUtc))
                 {
-                    ids.Add(ReadAppAssetId(outputPath));
-                    return ids;
-                }
-
-                // Split APKs by target architecture: Unity turns the output path into a folder holding one APK per ABI.
-                if (Directory.Exists(outputPath))
-                {
-                    foreach (var apk in Directory.GetFiles(outputPath, "*.apk"))
-                    {
-                        if (IsFromThisBuild(apk, buildStartedUtc))
-                        {
-                            ids.Add(ReadAppAssetId(apk));
-                        }
-                    }
-
-                    return ids;
-                }
-
-                var dir = Path.GetDirectoryName(Path.GetFullPath(outputPath));
-                var stem = Path.GetFileNameWithoutExtension(outputPath);
-                if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir) && !string.IsNullOrEmpty(stem) &&
-                    outputPath.EndsWith(".apk", StringComparison.OrdinalIgnoreCase))
-                {
-                    foreach (var apk in Directory.GetFiles(dir, "*.apk"))
-                    {
-                        // "Game.arm64-v8a.apk" yes; "GameLite.apk" (another player) and APKs of earlier builds no.
-                        if (AndroidUploadIdentity.IsSplitApkOf(Path.GetFileName(apk), stem) && IsFromThisBuild(apk, buildStartedUtc))
-                        {
-                            ids.Add(ReadAppAssetId(apk));
-                        }
-                    }
+                    ids.Add(ReadAppAssetId(archive));
                 }
             }
             catch (Exception ex)
@@ -163,9 +133,6 @@ namespace Bugsee.Editor
 
             return ids;
         }
-
-        static bool IsFromThisBuild(string file, DateTime buildStartedUtc) =>
-            File.GetLastWriteTimeUtc(file) >= buildStartedUtc;
 
         /// <summary>The id in one APK/AAB's build id asset, or null (no such asset, not an archive, unreadable).</summary>
         static string ReadAppAssetId(string path)

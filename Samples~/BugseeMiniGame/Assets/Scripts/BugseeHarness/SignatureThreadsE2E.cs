@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Threading;
 using Bugsee.Internal;
+using Bugsee.WrapperPolicy;
 using UnityEngine;
 
 namespace Bugsee.Sample
@@ -87,6 +88,23 @@ namespace Bugsee.Sample
             {
                 var payload = ManagedExceptionPayload.FromException(ex);
                 result.Client = payload != null ? payload.signature : "";
+                if (payload != null && payload.frames != null)
+                {
+                    // Prove the caller-tail trim ran: frames of the payload, how many the signature keeps, and the user frames among those.
+                    var traces = new string[payload.frames.Length];
+                    for (var i = 0; i < traces.Length; i++) traces[i] = payload.frames[i].trace;
+                    var live = new System.Diagnostics.StackTrace(false).ToString();
+                    var kept = ManagedSignatureRecipe.TrimCallerTail(traces, live);
+                    Debug.Log("[SIGTHREADS] " + thread + " frames=" + traces.Length + " kept=" + kept
+                        + " userBefore=" + ManagedSignatureRecipe.CountUserFrames(traces, traces.Length)
+                        + " userAfter=" + ManagedSignatureRecipe.CountUserFrames(traces, kept));
+                    // One log line per frame (logcat cuts long lines): the captured text is used as unit-test fixtures.
+                    for (var i = 0; i < traces.Length; i++) Debug.Log("[SIGTHREADS-TRACE] " + thread + " " + i + " " + traces[i]);
+                    var liveLines = live.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = 0; i < liveLines.Length; i++) Debug.Log("[SIGTHREADS-LIVE] " + thread + " " + i + " " + liveLines[i].Trim());
+                    for (var i = 0; i < payload.frames.Length; i++)
+                        if (!string.IsNullOrEmpty(payload.frames[i].address)) Debug.Log("[SIGTHREADS-ADDR] " + thread + " " + i + " " + payload.frames[i].address);
+                }
 #if UNITY_ANDROID && !UNITY_EDITOR
                 try
                 {

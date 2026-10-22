@@ -140,8 +140,35 @@ Other platform differences, not aligned:
 - `IReport.Email` set on a report from `CreateReport` is used on Android; on iOS it is dropped with a warning (the managed upload cannot carry it): use `SetUserIdentifier` there.
 - `IAppearance.ToMap()` returns what the SDK reports on Android; on iOS it lists only the properties set through the wrapper that the native theme applied.
 - `ResetVideoCapturePermission()` forgets the stored screen-capture decision on Android; it matters only with `VideoMode.Fullscreen` and `CaptureVideoFullscreenRememberUserDecision`, has no effect before launch (the SDK only warns in logcat), does not change a session that is already capturing, and applies to the next capture start. iOS has no such permission, so the call does nothing there and logs a warning once per process; in the Editor it does nothing.
-- The native per-report screenshot members (both SDKs: display ids, get, set, changed; and `exportVideo`) are not exposed on `IReport` yet, because reports cross the bridge as managed snapshots and only Android's report handler path holds a live native report (tracked in bugsee-unity#224). To omit the SDK's screenshot from reports use `CaptureScreenshot = false`; secure rectangles and blackout only redact what is captured, they do not remove the screenshot. `AddAttachmentFile` / `AddAttachmentBytes` add files; they cannot remove, replace or redact the SDK's screenshot.
+- Per-report screenshots (`IReport.ScreenshotDisplayIds`, `GetScreenshotPng`, `SetScreenshotPng`, `IsScreenshotChanged`, #224) work on the report a report handler receives (`SetReportHandler`, before and after phase), on Android and iOS, and are not available on a report from `CreateReport` (a managed snapshot with no captured screenshot: the getters return nothing, a set returns false and warns once). `exportVideo` is not exposed. See "Report screenshots" below. To omit the SDK's screenshot from reports use `CaptureScreenshot = false`; secure rectangles and blackout only redact what is captured. `AddAttachmentFile` / `AddAttachmentBytes` add files; they cannot remove, replace or redact the SDK's screenshot.
 - `Trace(name, value)`: both platforms send a map, list or array as the same JSON (see "Trace values"); the iOS SDK receives it as a structure (a dictionary or array), the Android SDK as a string.
+
+## Report screenshots
+
+In a report handler (`Bugsee.SetReportHandler`), the report's per-display screenshots can be listed, read, replaced and removed as PNG bytes:
+
+```csharp
+public override void OnBeforeReportCreated(IReport report, bool isTerminating, Action done)
+{
+    foreach (var display in report.ScreenshotDisplayIds)        // usually just 0
+    {
+        byte[] png = report.GetScreenshotPng(display);           // null: not listed, or listed but unreadable (see below)
+        // report.SetScreenshotPng(display, redactedPng);       // replace
+        // report.SetScreenshotPng(display, null);              // remove
+    }
+    done();
+}
+```
+
+- Works in both phases on Android (the live Java report) and iOS (the live native report, addressed by the handler's request); after the handler has answered, was skipped or abandoned, the getters return nothing and a set returns false with a warning once. A report from `Bugsee.CreateReport` never holds screenshots (see above). The Editor has no report handler, so there is nothing to call there.
+- Call from the handler on Unity's main thread, inside its turn. `GetScreenshotPng` blocks that thread while the SDK produces the PNG (it waits for the SDK's answer with no timeout of its own).
+- `SetScreenshotPng` returns true when the report took the change. It returns false, with a warning, for data that is not a PNG (no signature), over 32 MiB (`ReportScreenshotPolicy.MaxPngBytes`; also the limit for what a read returns), a PNG with a zero or unreadable size, a side over 8192 pixels or more than 33554432 pixels in total (`ReportScreenshotPolicy`; a small file can declare a huge canvas), or a PNG the platform cannot decode. `null` removes the display's screenshot. Android decodes the bytes with `BitmapFactory`, iOS with `UIImage`, so the stored pixels are what the platform makes of the PNG.
+- On iOS a screenshot edit reaches the native report immediately, so it stays even if the handler later throws or answers after the SDK's deadline; the other report edits travel in the handler's result and are dropped then. Android edits are live too, but stop at the end of the handler's turn.
+- `GetScreenshotPng` returns null both for a display with no screenshot and for a listed display whose screenshot cannot be read (too large, over 32 MiB as PNG, or not encodable by the platform; a warning says so). Test `ScreenshotDisplayIds`: a null for a listed display is not "nothing to redact", replace or remove it.
+- `IsScreenshotChanged` becomes true when a screenshot the report holds is replaced or removed, on both platforms. Adding a screenshot to a display that held none does not set it (both SDKs count changes to an existing entry), so do not use it to detect your own first set.
+- **Privacy.** A screenshot is the screen as captured and can show personal data and content you marked secure; secure rectangles and blackout redact the capture, and nothing here re-checks a bitmap you read or replace. Do not log the bytes or send them anywhere the report does not go. A screenshot you set replaces the captured one in the report and its upload, with no redaction added for you. To send none at all use `CaptureScreenshot = false`.
+- The gate that ends the handler's turn is checked before each call, not locked across it: a call that races the end of the turn on another thread can still land (the attribute setters have the same window), which is why the calls belong on Unity's main thread inside the turn.
+- Sample scenario `screenshots` checks all of this on a device.
 
 ## Crash & exception capture
 
@@ -220,10 +247,26 @@ Troubleshooting: an "Append" export after the IL2CPP arguments changed can make 
 |---|---|---|
 | `LineNumberMappings.json` + `MethodMap.tsv` (the package passes `--emit-source-mapping --emit-method-map` to IL2CPP for every IL2CPP build, token or not) | Android post-build; iOS at **Xcode build** (every configuration) | `il2cpp-linemap` |
 | Android `symbols.zip` / ELF | Android post-build | `elf` |
+| Android native libraries that still carry symbols (plugin and AAR libraries, see below) | Android post-build (APK/AAB) | `elf` |
 | ProGuard / R8 `mapping.txt` | Android post-build when present | `proguard` |
 | iOS `.dSYM` | Xcode Run Script (`Bugsee Upload Symbols`), every configuration | `dsym` |
 
 Failure policy: **never fail the Unity build**. Missing maps/UUIDs/CLI → warn and continue.
+
+#### Native libraries beyond Unity's `symbols.zip` (Android APK/AAB)
+
+Unity's `symbols.zip` holds `libil2cpp.so`, `libunity.so` and `libmain.so` only. After it, the Editor looks at the other native libraries of the built app: the `.so` files of your own `Assets/Plugins/Android` folders and of the AARs that Gradle merged into the build (`<generated Gradle project>/<module>/build/intermediates/merged_native_libs`, the folder before stripping; Unity keeps it under `Library/Bee/Android/Prj/<IL2CPP|Mono2x>/Gradle`). A library is uploaded (`elf`, one more `bugsee-cli debug-files upload` call on a temporary folder under `Library/Bugsee/native-libs-upload`, deleted afterwards; its time limit grows with the size, 2 s per MiB over the usual 5 minutes, at most 30 minutes) when all of these hold:
+
+- it still has a symbol table (`.symtab` that names at least one function, object or TLS symbol, not just null, file and section symbols) or DWARF (`.debug_info`). The APK's copy is stripped by Unity 6's AGP (checked on 6000.0.84f1) but was not by Unity 2021.3's and 2022.3's AGP 4.0.1 / 7.4.2 builds checked, and on neither does the symbols server get a library from the APK: a crash frame in a library whose symbols were never uploaded stays a module and an offset;
+- it is the library the app contains: the same ABI folder, file name and GNU build-id as the entry in the built APK (every APK of Split APKs by target architecture, written beside the player path or in a folder of that name) or AAB, so a leftover of an earlier build in the intermediates folder is never sent;
+- its ABI is one of Player Settings' target architectures, and it is not already in Unity's zip (by ABI and file name, `.sym`/`.dbg` entries, also spelled `libfoo.sym.so`, counted: Unity 6's zip holds the plugin and AAR libraries as well, as symbol tables, so there is nothing more to send; Unity 2021.3's and 2022.3's holds the three Unity libraries only);
+- it fits the limits: 256 MB per library and 512 MB for the build (the smaller ones are kept first; a library left out is logged).
+
+**Not uploaded: libraries with dynamic symbols only.** All Bugsee libraries (`libbugsee-native.so`, `libbugsee-crashcp.so`, the crashpad libraries) ship stripped in the 7.4.2 AARs (`llvm-readelf`: `.dynsym`, no `.symtab`, no `.debug_info`; the copies in the AAR, the Gradle intermediates and the APK have the same build-id and size), as do most third-party AARs. This was not checked against the backend: whether a dynamic-symbols-only copy would let the worker name a few exported functions of such a library was not tested. It is left out because the symbols server keeps the first copy of a build-id at a given level, with the CLI labelling such a copy `symtab` (see Export Project above), so sending it could stand in the way of better symbols for that build-id. The consequence is plain: **frames inside the Bugsee libraries (and any other stripped library) stay unsymbolicated** (module and offset, or only the exported names a tombstone carries); symbolicating them needs symbols from the SDK team, not from the app build. The same rule is what AGP's `native-debug-symbols.zip` does for the Gradle plugin (it holds the libraries that have symbols), so the two paths send the same kind of file. With the Gradle plugin on (AGP 8.6+) the plugin uploads the same libraries from `native-debug-symbols.zip`, and a repeat of a build-id is answered as a duplicate.
+
+An Export Project build uploads none of this (Gradle has not run; the Bugsee Gradle plugin of the exported project, AGP 8.6+, or your own `bugsee-cli debug-files upload <module>/build/intermediates/merged_native_libs/<variant> --type elf --uuid <build id> --version <v> --build <n>` call after your Gradle build does). `BUGSEE_NO_SYMBOL_UPLOAD` and a missing `BUGSEE_APP_TOKEN` turn it off with the other uploads, and a failure only logs a warning. What the build logs: `Bugsee: uploading N native libraries with symbols (...)`, or `Bugsee: no native library besides Unity's own carries a symbol table or debug info`.
+
+Verified (Unity 2021.3.45f1 Development and Release, 2022.3.62f3 Development, IL2CPP, arm64, Gradle AGP 4.0.1 / 7.4.2, `bugsee-cli` replaced by a logging stand-in, `BUGSEE_CLI_PATH`): a sample with a plugin library built with `-g` (`libbugseetest_dwarf.so`) and an AAR with one library stripped to its symbol table (`libbugseetest_symtab.so`) and one stripped to dynamic symbols (`libbugseetest_stripped.so`), each for arm64-v8a and x86_64 (the build targets arm64). Before: the elf upload was `symbols.zip` (`libil2cpp.so`, `libunity.so`, `libmain.so`) only. After (the same on all three builds): that zip, plus a second call on a folder holding `arm64-v8a/libbugseetest_dwarf.so` and `arm64-v8a/libbugseetest_symtab.so`; the stripped library, the x86_64 copies and the Bugsee libraries were not sent. On 6000.0.84f1 (Release, AGP 9.0.0) Unity's own zip listed `libbugseetest_dwarf.so`, `libbugseetest_symtab.so`, `libc++_shared.so`, `libswappywrapper.so` besides the Unity libraries and no second upload was made. Installed on an HONOR WOD-LX1 (Android 14) the 2021.3 build launched and a forced native crash (`nullrefnochk`) was recovered on the next launch.
 
 ### Windows Editor
 

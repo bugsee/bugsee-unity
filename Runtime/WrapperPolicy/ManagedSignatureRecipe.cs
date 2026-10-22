@@ -93,9 +93,48 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>
+        /// Type name as hashed: no namespace, no generic arguments or assembly versions. The Unity log path only has the short
+        /// name Unity prints ("NullReferenceException"), the throw path has the full name; both must hash alike.
+        /// </summary>
+        public static string NormalizeType(string type)
+        {
+            if (string.IsNullOrEmpty(type)) return "";
+            var t = type.Trim();
+            var bracket = t.IndexOf('[');
+            if (bracket >= 0) t = t.Substring(0, bracket);
+            var tick = t.IndexOf('`');
+            if (tick >= 0) t = t.Substring(0, tick);
+            var dot = t.LastIndexOf('.');
+            return dot >= 0 ? t.Substring(dot + 1) : t;
+        }
+
+        /// <summary>A line that is not a frame: segment separators ("--- End of stack trace ...") and Unity's "Rethrow as X: message".</summary>
+        public static bool IsSeparatorLine(string frame)
+        {
+            if (string.IsNullOrEmpty(frame)) return false;
+            var t = frame.TrimStart();
+            return t.StartsWith("---", StringComparison.Ordinal) || t.StartsWith("Rethrow as ", StringComparison.Ordinal);
+        }
+
+        /// <summary>How many of the first <paramref name="count"/> frames are user frames (diagnostics).</summary>
+        public static int CountUserFrames(string[] frames, int count)
+        {
+            var n = 0;
+            if (frames == null) return 0;
+            for (var i = 0; i < count && i < frames.Length; i++)
+            {
+                if (!IsSeparatorLine(frames[i]) && !IsEngineFrame(frames[i])) n++;
+            }
+            return n;
+        }
+
+        /// <summary>
         /// How many leading frames to keep: drops the frames the exception's trace shares with the stack that is live where the
         /// payload is built (its caller chain), keeping the one frame that is the catch frame itself. <paramref name="callerStack"/>
-        /// is the text of the live stack; null or no common tail keeps every frame.
+        /// is the text of the live stack; null or no common tail keeps every frame. Frames are matched by <c>Type.Method</c> only
+        /// (no arguments or lines), so same-named overloads match each other; at worst a few extra frames are cut. Nothing is cut
+        /// when the shared tail is the whole trace and the live stack, without its leading Bugsee frames, is longer (the throw frames are still on the stack, as in an
+        /// exception filter or before the unwind), and matching stops at a Bugsee frame of the live stack.
         /// </summary>
         public static int TrimCallerTail(string[] frames, string callerStack)
         {
@@ -105,55 +144,75 @@ namespace Bugsee.WrapperPolicy
             var common = 0;
             while (common < frames.Length && common < live.Length)
             {
+                var liveFrame = live[live.Length - 1 - common];
                 var a = MethodToken(frames[frames.Length - 1 - common]);
-                var b = MethodToken(live[live.Length - 1 - common]);
-                if (a.Length == 0 || a != b) break;
+                var b = MethodToken(liveFrame);
+                if (a.Length == 0 || a != b || IsBugseeFrame(liveFrame)) break;
                 common++;
             }
+            var top = 0;
+            while (top < live.Length && IsBugseeFrame(live[top])) top++;
+            if (common == frames.Length && live.Length - top > common) return frames.Length;
             // The first shared frame (from the throw side) is the method that caught the exception: keep it.
             return common <= 1 ? frames.Length : frames.Length - (common - 1);
         }
 
-        /// <summary>The signature (lowercase SHA-256 hex) of an exception type and its frames; see the class summary.</summary>
+        static bool IsBugseeFrame(string frame)
+        {
+            var t = MethodToken(frame);
+            return t.StartsWith("Bugsee.", StringComparison.Ordinal) && !t.StartsWith(SampleNamespace, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The signature (lowercase SHA-256 hex) of an exception type and its frames; see the class summary. Takes the first
+        /// <see cref="MaxFrames"/> user frames (after the caller-tail trim) and describes each by its best identity: the
+        /// module-relative address when it has one, else file:line, else the method token. The address recipe applies when the
+        /// throw site (first user frame) has an address and the UUID is known; else the file:line recipe when any user frame has a
+        /// file and line; else the weak recipe (method tokens, or the type alone).
+        /// </summary>
         /// <param name="traces">Frame lines, throw site first.</param>
         /// <param name="addresses">Module-relative hex address per frame (null or empty entries for none), or null.</param>
         /// <param name="moduleUuid">UUID of the image the addresses belong to, "" when unknown.</param>
         /// <param name="callerStack">Text of the live stack where the payload is built (see <see cref="TrimCallerTail"/>), or null.</param>
         public static string Compute(string type, string[] traces, string[] addresses, string moduleUuid, string callerStack)
         {
-            type = type ?? "";
+            type = NormalizeType(type);
             traces = traces ?? new string[0];
             var count = TrimCallerTail(traces, callerStack);
 
-            var rvas = new List<string>();
-            var files = new List<string>();
-            var tokens = new List<string>();
-            for (var i = 0; i < count; i++)
+            var addressTokens = new List<string>();
+            var lineTokens = new List<string>();
+            var weakTokens = new List<string>();
+            var anyLine = false;
+            var throwSiteHasAddress = false;
+            for (var i = 0; i < count && weakTokens.Count < MaxFrames; i++)
             {
-                if (IsEngineFrame(traces[i])) continue;
-                if (tokens.Count < MaxFrames) tokens.Add(MethodToken(traces[i]));
+                if (IsSeparatorLine(traces[i]) || IsEngineFrame(traces[i])) continue;
+                var method = MethodToken(traces[i]);
                 var rva = NormalizeAddress(addresses != null && i < addresses.Length ? addresses[i] : null);
-                if (rva != null && rvas.Count < MaxFrames) rvas.Add(rva);
                 string file;
                 int line;
-                if (TryFileLine(traces[i], out file, out line) && files.Count < MaxFrames)
-                {
-                    files.Add(file + ":" + line.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                }
+                var hasLine = TryFileLine(traces[i], out file, out line);
+                var lineToken = hasLine ? "f:" + file + ":" + line.ToString(System.Globalization.CultureInfo.InvariantCulture) : "m:" + method;
+                if (weakTokens.Count == 0) throwSiteHasAddress = rva != null;
+                anyLine |= hasLine;
+                weakTokens.Add(method);
+                lineTokens.Add(lineToken);
+                addressTokens.Add(rva != null ? "r:" + rva : lineToken);
             }
 
             string input;
-            if (rvas.Count > 0 && !string.IsNullOrEmpty(moduleUuid))
+            if (throwSiteHasAddress && !string.IsNullOrEmpty(moduleUuid))
             {
-                input = "A|" + type + "|" + moduleUuid.ToLowerInvariant() + "|" + string.Join(",", rvas.ToArray());
+                input = "A|" + type + "|" + moduleUuid.ToLowerInvariant() + "|" + string.Join(",", addressTokens.ToArray());
             }
-            else if (files.Count > 0)
+            else if (anyLine)
             {
-                input = "F|" + type + "|" + string.Join("|", files.ToArray());
+                input = "F|" + type + "|" + string.Join("|", lineTokens.ToArray());
             }
             else
             {
-                input = "W|" + type + "|" + string.Join("|", tokens.ToArray());
+                input = "W|" + type + "|" + string.Join("|", weakTokens.ToArray());
             }
             return Sha256Hex(input);
         }
