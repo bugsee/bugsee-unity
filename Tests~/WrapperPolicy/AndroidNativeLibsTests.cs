@@ -13,7 +13,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
         // A minimal ELF with the given sections: build-id note, and optionally .symtab / .debug_info (type 1 or NOBITS 8).
         static byte[] Elf(bool is64 = true, bool le = true, string buildId = Id, bool symtab = false, bool debug = false, int debugType = 1,
-            bool sectionHeaders = true)
+            bool sectionHeaders = true, int symtabBytes = 96, bool programHeaders = true)
         {
             var sections = new List<(string name, int type, byte[] data)>();
             if (buildId != null)
@@ -25,7 +25,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 sections.Add((".note.gnu.build-id", 7, note.ToArray()));
             }
 
-            if (symtab) sections.Add((".symtab", 2, new byte[48]));
+            if (symtab) sections.Add((".symtab", 2, new byte[symtabBytes]));
             if (debug) sections.Add((".debug_info", debugType, new byte[16]));
 
             var names = new MemoryStream();
@@ -38,19 +38,20 @@ namespace Bugsee.WrapperPolicy.Tests
                 names.Write(b, 0, b.Length);
             }
 
-            int ehsize = is64 ? 64 : 52, shentsize = is64 ? 64 : 40;
+            int ehsize = is64 ? 64 : 52, shentsize = is64 ? 64 : 40, phentsize = is64 ? 56 : 32;
+            int dataStart = ehsize + phentsize;
             var body = new MemoryStream();
             var offsets = new List<long>();
             foreach (var s in sections)
             {
-                offsets.Add(ehsize + body.Length);
+                offsets.Add(dataStart + body.Length);
                 body.Write(s.data, 0, s.data.Length);
             }
 
-            long namesOffset = ehsize + body.Length;
+            long namesOffset = dataStart + body.Length;
             var nb = names.ToArray();
             body.Write(nb, 0, nb.Length);
-            long shoff = ehsize + body.Length;
+            long shoff = dataStart + body.Length;
             int shnum = sections.Count + 2; // null + sections + shstrtab
 
             var file = new MemoryStream();
@@ -61,7 +62,19 @@ namespace Bugsee.WrapperPolicy.Tests
             Put(h, is64 ? 58 : 46, shentsize, 2, le);
             Put(h, is64 ? 60 : 48, sectionHeaders ? shnum : 0, 2, le);
             Put(h, is64 ? 62 : 50, shnum - 1, 2, le);
+            if (programHeaders && buildId != null)
+            {
+                Put(h, is64 ? 32 : 28, ehsize, is64 ? 8 : 4, le);
+                Put(h, is64 ? 54 : 42, phentsize, 2, le);
+                Put(h, is64 ? 56 : 44, 1, 2, le);
+            }
+
             file.Write(h, 0, h.Length);
+            var ph = new byte[phentsize];
+            Put(ph, 0, 4, 4, le); // PT_NOTE
+            Put(ph, is64 ? 8 : 4, offsets.Count > 0 ? offsets[0] : 0, is64 ? 8 : 4, le);
+            Put(ph, is64 ? 32 : 16, buildId != null ? sections[0].data.Length : 0, is64 ? 8 : 4, le);
+            file.Write(ph, 0, ph.Length);
             body.WriteTo(file);
 
             var table = new byte[shnum * shentsize];
@@ -314,6 +327,266 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(chosen, Is.Empty);
         }
 
+        [Test]
+        public void A_symbol_table_with_only_the_null_and_file_symbols_is_not_symbols()
+        {
+            Assert.That(Inspect(Elf(symtab: true, symtabBytes: 48)).CarriesSymbols, Is.False);
+            Assert.That(Inspect(Elf(symtab: true, symtabBytes: 24 * 3)).CarriesSymbols, Is.True);
+        }
+
+        [Test]
+        public void An_oversized_section_entry_size_or_table_is_rejected_without_allocating_it()
+        {
+            var bytes = Elf(symtab: true);
+            bytes[58] = 0xff; bytes[59] = 0xff; // e_shentsize 65535 x e_shnum: ~268 MB if trusted
+            Assert.That(Inspect(bytes).BuildId, Is.Null);
+
+            bytes = Elf(symtab: true);
+            bytes[60] = 0xff; bytes[61] = 0x7f; // e_shnum 32767: more entries than the file holds
+            Assert.That(Inspect(bytes).BuildId, Is.Null);
+        }
+
+        [Test]
+        public void A_64_bit_offset_past_the_file_or_past_two_to_the_62_is_rejected()
+        {
+            var bytes = Elf(symtab: true);
+            for (int i = 40; i < 48; i++) bytes[i] = 0xff; // e_shoff = 2^64 - 1
+            Assert.That(Inspect(bytes).BuildId, Is.Null);
+
+            bytes = Elf(symtab: true);
+            for (int i = 40; i < 48; i++) bytes[i] = 0;
+            bytes[47] = 0x40; // e_shoff = 2^62
+            Assert.That(Inspect(bytes).BuildId, Is.Null);
+        }
+
+        [Test]
+        public void The_build_id_is_read_from_the_program_header_note_of_a_short_prefix()
+        {
+            foreach (var is64 in new[] { true, false })
+            foreach (var le in new[] { true, false })
+            {
+                var bytes = Elf(is64, le, symtab: true);
+                Assert.That(AndroidNativeLibs.BuildIdFromPrefix(bytes, bytes.Length), Is.EqualTo(Id), is64 + "/" + le);
+            }
+
+            Assert.That(AndroidNativeLibs.BuildIdFromPrefix(Elf(programHeaders: false), 1000), Is.Null);
+            Assert.That(AndroidNativeLibs.BuildIdFromPrefix(new byte[10], 10), Is.Null);
+            Assert.That(AndroidNativeLibs.BuildIdFromPrefix(null, 0), Is.Null);
+        }
+
+        [Test]
+        public void The_prefix_reader_never_throws_on_damaged_input()
+        {
+            var good = Elf(symtab: true);
+            var rng = new Random(11);
+            for (int i = 0; i < 500; i++)
+            {
+                var bytes = (byte[])good.Clone();
+                bytes[rng.Next(bytes.Length)] = (byte)rng.Next(256);
+                Assert.DoesNotThrow(() => AndroidNativeLibs.BuildIdFromPrefix(bytes, rng.Next(bytes.Length + 1)));
+            }
+        }
+
+        static string Fixture(string name)
+        {
+            var dir = TestContext.CurrentContext.TestDirectory;
+            return Path.Combine(dir, "Fixtures", "android-native", name);
+        }
+
+        [Test]
+        public void Real_clang_built_libraries_classify_as_dwarf_symtab_and_stripped_with_one_reading_each_way()
+        {
+            // libfixture_*.so: aarch64 NDK clang, -g; _symtab is `llvm-strip -g` of it, _stripped is `llvm-strip --strip-all`.
+            foreach (var (name, dwarf, symtab) in new[] { ("libfixture_dwarf.so", true, true), ("libfixture_symtab.so", false, true), ("libfixture_stripped.so", false, false) })
+            {
+                var bytes = File.ReadAllBytes(Fixture(name));
+                var info = Inspect(bytes);
+
+                Assert.That(info.BuildId, Has.Length.EqualTo(40), name);
+                Assert.That(info.HasDebugInfo, Is.EqualTo(dwarf), name);
+                Assert.That(info.HasSymtab, Is.EqualTo(symtab), name);
+                Assert.That(AndroidNativeLibs.BuildIdFromPrefix(bytes, Math.Min(bytes.Length, AndroidNativeLibs.PrefixBytes)), Is.EqualTo(info.BuildId), name);
+            }
+        }
+
+        [Test]
+        public void ScanLibraries_keeps_the_libraries_that_carry_symbols_and_counts_the_rest()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "bugsee-nl-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var lib = Path.Combine(root, "debug", "out", "lib", "arm64-v8a");
+                Directory.CreateDirectory(lib);
+                foreach (var n in new[] { "libfixture_dwarf.so", "libfixture_symtab.so", "libfixture_stripped.so" })
+                    File.Copy(Fixture(n), Path.Combine(lib, n));
+                File.WriteAllText(Path.Combine(lib, "libnotelf.so"), "text, not an elf, long enough to read");
+                File.WriteAllText(Path.Combine(root, "libloose.so"), "x");
+                var notes = new List<string>();
+
+                var found = AndroidNativeLibs.ScanLibraries(
+                    Directory.GetFiles(root, "*.so", SearchOption.AllDirectories), out var without, notes);
+
+                Assert.That(found.Select(l => l.Name).OrderBy(n => n).ToList(), Is.EqualTo(new[] { "libfixture_dwarf.so", "libfixture_symtab.so" }));
+                Assert.That(found.All(l => l.Abi == "arm64-v8a" && l.Length > 0), Is.True);
+                Assert.That(without, Is.EqualTo(1));
+                Assert.That(notes, Is.Empty);
+            }
+            finally
+            {
+                Directory.Delete(root, true);
+            }
+        }
+
+        [Test]
+        public void ScanLibraries_skips_an_unreadable_file_and_goes_on()
+        {
+            var notes = new List<string>();
+
+            var found = AndroidNativeLibs.ScanLibraries(
+                new[] { "/nonexistent/lib/arm64-v8a/libgone.so", "/nonexistent/lib/x86_64/libgone2.so" },
+                out _, notes);
+
+            Assert.That(notes.Count, Is.EqualTo(2), "both paths are missing files here");
+            Assert.That(found, Is.Empty);
+        }
+
+        static byte[] Zip(params (string name, byte[] data)[] entries)
+        {
+            var ms = new MemoryStream();
+            using (var zip = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Create, true))
+            {
+                foreach (var (name, data) in entries)
+                {
+                    using (var s = zip.CreateEntry(name).Open()) s.Write(data, 0, data.Length);
+                }
+            }
+
+            return ms.ToArray();
+        }
+
+        [Test]
+        public void Packaged_build_ids_are_read_from_wanted_apk_and_aab_entries_only()
+        {
+            var a = File.ReadAllBytes(Fixture("libfixture_dwarf.so"));
+            var b = File.ReadAllBytes(Fixture("libfixture_symtab.so"));
+            var apk = Zip(("lib/arm64-v8a/libfixture_dwarf.so", a), ("base/lib/arm64-v8a/libfixture_symtab.so", b),
+                ("lib/arm64-v8a/libother.so", b), ("lib/x86_64/libfixture_dwarf.so", a), ("assets/x", new byte[3]));
+            var into = new HashSet<string>();
+
+            AndroidNativeLibs.ReadPackagedBuildIds(new MemoryStream(apk), new HashSet<string> { "arm64-v8a/libfixture_dwarf.so", "arm64-v8a/libfixture_symtab.so" }, into);
+
+            var idA = Inspect(a).BuildId;
+            var idB = Inspect(b).BuildId;
+            Assert.That(into, Is.EquivalentTo(new[]
+            {
+                AndroidNativeLibs.PackagedKey("arm64-v8a", "libfixture_dwarf.so", idA),
+                AndroidNativeLibs.PackagedKey("arm64-v8a", "libfixture_symtab.so", idB),
+            }));
+        }
+
+        [Test]
+        public void Unity_zip_keys_are_read_from_a_zip_stream_and_symbol_suffixes_are_stripped()
+        {
+            var zip = Zip(("arm64-v8a/libil2cpp.so", new byte[1]), ("arm64-v8a/libfoo.so.sym", new byte[1]), ("x86_64/libbar.so.dbg", new byte[1]), ("arm64-v8a/", new byte[0]));
+
+            var keys = AndroidNativeLibs.ZipLibraryKeys(new MemoryStream(zip));
+
+            Assert.That(keys, Is.EquivalentTo(new[] { "arm64-v8a/libil2cpp.so", "arm64-v8a/libfoo.so", "x86_64/libbar.so" }));
+        }
+
+        [Test]
+        public void Staging_keeps_two_builds_of_one_library_name_apart()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "bugsee-nl-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var one = Fixture("libfixture_dwarf.so");
+                var two = Fixture("libfixture_symtab.so");
+                var a = Lib("arm64-v8a", "libplugin.so", "aa", path: one);
+                var b = Lib("arm64-v8a", "libplugin.so", "bb", path: two);
+
+                AndroidNativeLibs.Stage(new[] { a, b }, root);
+
+                Assert.That(File.ReadAllBytes(Path.Combine(root, "arm64-v8a", "aa", "libplugin.so")), Is.EqualTo(File.ReadAllBytes(one)));
+                Assert.That(File.ReadAllBytes(Path.Combine(root, "arm64-v8a", "bb", "libplugin.so")), Is.EqualTo(File.ReadAllBytes(two)));
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+
+        [Test]
+        public void Two_build_ids_of_one_name_are_both_chosen_when_both_are_packaged()
+        {
+            var a = Lib("arm64-v8a", "libplugin.so", "aa", path: "/g/base/libplugin.so");
+            var b = Lib("arm64-v8a", "libplugin.so", "bb", path: "/g/feature/libplugin.so");
+
+            var chosen = AndroidNativeLibs.Choose(new[] { a, b }, Packaged(a, b), new HashSet<string>(), new HashSet<string> { "arm64-v8a" }, new List<string>());
+
+            Assert.That(chosen, Has.Count.EqualTo(2));
+        }
+
+        [Test]
+        public void An_oversized_library_is_noted_as_oversized_not_as_unpackaged()
+        {
+            var big = Lib("arm64-v8a", "libbig.so", "b1", AndroidNativeLibs.MaxFileBytes + 1);
+            var notes = new List<string>();
+
+            AndroidNativeLibs.Choose(new[] { big }, new HashSet<string>(), new HashSet<string>(), new HashSet<string> { "arm64-v8a" }, notes);
+
+            Assert.That(notes.Single(), Does.Contain("size limit").And.Not.Contain("not the copy packaged"));
+        }
+
+        [Test]
+        public void The_upload_time_scales_with_the_staged_size_and_is_capped()
+        {
+            Assert.That(AndroidNativeLibs.UploadTimeoutMs(0, 300000), Is.EqualTo(300000));
+            Assert.That(AndroidNativeLibs.UploadTimeoutMs(100L * 1024 * 1024, 300000), Is.EqualTo(500000));
+            Assert.That(AndroidNativeLibs.UploadTimeoutMs(10_000L * 1024 * 1024, 300000), Is.EqualTo(30 * 60 * 1000));
+        }
+
+        [Test]
+        public void Built_archives_are_the_output_file_the_split_folder_or_the_split_files_beside_a_missing_player()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "bugsee-nl-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            try
+            {
+                var started = DateTime.UtcNow.AddMinutes(-1);
+                var old = DateTime.UtcNow.AddHours(-2);
+                string P(string n) => Path.Combine(root, n);
+
+                File.WriteAllText(P("Game.apk"), "x");
+                Assert.That(AndroidNativeLibs.BuiltArchivePaths(P("Game.apk"), started), Is.EqualTo(new[] { P("Game.apk") }));
+                File.Delete(P("Game.apk"));
+
+                // Split APKs written beside the player path: this build's only, and not another player's.
+                File.WriteAllText(P("Game.arm64-v8a.apk"), "x");
+                File.WriteAllText(P("Game.armeabi-v7a.apk"), "x");
+                File.WriteAllText(P("Game.x86.apk"), "x"); File.SetLastWriteTimeUtc(P("Game.x86.apk"), old);
+                File.WriteAllText(P("GameLite.apk"), "x");
+                Assert.That(AndroidNativeLibs.BuiltArchivePaths(P("Game.apk"), started).OrderBy(x => x).ToList(),
+                    Is.EqualTo(new[] { P("Game.arm64-v8a.apk"), P("Game.armeabi-v7a.apk") }));
+
+                // Split APKs in a folder named like the player: the stale one is left out here too.
+                Directory.CreateDirectory(P("Folder.apk"));
+                File.WriteAllText(Path.Combine(P("Folder.apk"), "a.apk"), "x");
+                File.WriteAllText(Path.Combine(P("Folder.apk"), "b.apk"), "x"); File.SetLastWriteTimeUtc(Path.Combine(P("Folder.apk"), "b.apk"), old);
+                Assert.That(AndroidNativeLibs.BuiltArchivePaths(P("Folder.apk"), started), Is.EqualTo(new[] { Path.Combine(P("Folder.apk"), "a.apk") }));
+
+                // An exported project and nothing at all.
+                Directory.CreateDirectory(P("proj"));
+                Assert.That(AndroidNativeLibs.BuiltArchivePaths(P("proj"), started), Is.Empty);
+                Assert.That(AndroidNativeLibs.BuiltArchivePaths(P("None.aab"), started), Is.Empty);
+                Assert.That(AndroidNativeLibs.BuiltArchivePaths(null, started), Is.Empty);
+            }
+            finally
+            {
+                Directory.Delete(root, true);
+            }
+        }
+
         // The Editor scripts are compiled only by Unity: these check the wiring in source text, a real build checks the behaviour.
         static string Source(string relative)
         {
@@ -333,7 +606,7 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             var source = Source("Editor/BugseeSymbolUpload.cs");
             int gate = source.IndexOf("BUGSEE_NO_SYMBOL_UPLOAD", StringComparison.Ordinal);
-            int zip = source.IndexOf("UploadSymbolsZipOrElf(report, roots", StringComparison.Ordinal);
+            int zip = source.IndexOf("UploadSymbolsZipOrElf(roots, version", StringComparison.Ordinal);
             int libs = source.IndexOf("BugseeAndroidNativeLibUpload.Upload(", StringComparison.Ordinal);
 
             Assert.That(gate, Is.GreaterThan(0));
@@ -345,15 +618,16 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void The_native_library_upload_never_fails_the_build_and_cleans_up_its_staging_folder()
+        public void The_editor_class_only_finds_files_and_runs_the_cli_through_the_policy()
         {
             var source = Source("Editor/BugseeAndroidNativeLibUpload.cs");
 
-            Assert.That(source, Does.Contain("catch (Exception ex)"));
             Assert.That(source, Does.Contain("build continues"));
-            Assert.That(source, Does.Contain("Directory.Delete(staging, true)"));
+            Assert.That(source, Does.Contain("AndroidNativeLibs.BuiltArchivePaths("));
             Assert.That(source, Does.Contain("AndroidNativeLibs.Choose("));
-            Assert.That(source, Does.Contain("AndroidUploadIdentity.ElfArguments(staging"));
+            Assert.That(source, Does.Contain("AndroidNativeLibs.Stage("));
+            Assert.That(source, Does.Contain("Directory.Delete(staging, true)"));
+            Assert.That(Source("Editor/BugseeBuildIdentity.cs"), Does.Contain("AndroidNativeLibs.BuiltArchivePaths("), "one helper for the identity and the upload");
         }
     }
 }

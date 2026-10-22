@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Text;
 
 namespace Bugsee.WrapperPolicy
@@ -36,9 +37,10 @@ namespace Bugsee.WrapperPolicy
     /// symbols for: the libraries that still carry a symbol table or DWARF in the Gradle build's pre-strip folder
     /// (<c>merged_native_libs</c>: the developer's own plugin libraries and AAR libraries that ship unstripped) and
     /// whose ABI and GNU build-id are the ones in the built APK/AAB. A library with dynamic symbols only (every
-    /// Bugsee library, as the AAR ships it) adds nothing the crash report does not already have, so it is not sent:
-    /// the symbols server keeps the first copy of a build-id at a given level, and the CLI labels such a copy
-    /// <c>symtab</c> (see Documentation~/index.md, "Native libraries beyond Unity's symbols zip").
+    /// Bugsee library, as the AAR ships it) is not sent: the symbols server keeps the first copy of a build-id at a
+    /// given level and the CLI labels such a copy <c>symtab</c>, so it could stand in the way of better symbols for
+    /// that build-id (see Documentation~/index.md, "Native libraries beyond Unity's symbols zip"). The consequence is
+    /// that frames inside such a library stay unsymbolicated.
     /// </summary>
     public static class AndroidNativeLibs
     {
@@ -50,6 +52,10 @@ namespace Bugsee.WrapperPolicy
 
         const int MaxSectionNamesBytes = 1024 * 1024;
         const int MaxSections = 4096;
+        const int MinSymtabEntries = 2;
+
+        /// <summary>How much of an archive entry is read to find the build-id (the note is in the first segment).</summary>
+        public const int PrefixBytes = 64 * 1024;
 
         /// <summary>
         /// Reads the build-id and what the library carries. Never throws for damaged input: a stream that is not a
@@ -107,12 +113,20 @@ namespace Bugsee.WrapperPolicy
             int shnum = U16(ident, is64 ? 60 : 48, le);
             int shstrndx = U16(ident, is64 ? 62 : 50, le);
             int minEntry = is64 ? 64 : 40;
-            if (shoff <= 0 || shentsize < minEntry || shnum <= 0 || shnum > MaxSections || shstrndx >= shnum)
+            // The entry size of the class (a larger one only pads); the table must lie inside the file before it is read.
+            if (shoff <= 0 || shentsize < minEntry || shentsize > 256 || shnum <= 0 || shnum > MaxSections || shstrndx >= shnum)
             {
                 return;
             }
 
-            var table = new byte[shnum * shentsize];
+            long length = s.Length;
+            long tableBytes = (long)shnum * shentsize;
+            if (shoff + tableBytes > length)
+            {
+                return;
+            }
+
+            var table = new byte[tableBytes];
             s.Seek(shoff, SeekOrigin.Begin);
             if (Fill(s, table, 0, table.Length) < table.Length)
             {
@@ -123,6 +137,13 @@ namespace Bugsee.WrapperPolicy
             long Size(int i) => is64 ? I64(table, i * shentsize + 32, le) : U32(table, i * shentsize + 20, le);
             int Type(int i) => (int)U32(table, i * shentsize + 4, le);
             int NameIndex(int i) => (int)U32(table, i * shentsize, le);
+            bool Inside(int i) => Offset(i) >= 0 && Size(i) >= 0 && Offset(i) + Size(i) <= length;
+            int symEntry = is64 ? 24 : 16;
+
+            if (!Inside(shstrndx))
+            {
+                return;
+            }
 
             long namesSize = Size(shstrndx);
             if (namesSize <= 0 || namesSize > MaxSectionNamesBytes)
@@ -142,11 +163,17 @@ namespace Bugsee.WrapperPolicy
                 string name = CString(names, NameIndex(i));
                 int type = Type(i);
                 long size = Size(i);
-                if (name == ".symtab" && type == 2 && size > 0)
+                if (!Inside(i))
                 {
+                    continue;
+                }
+
+                if (name == ".symtab" && type == 2 && size > MinSymtabEntries * symEntry)
+                {
+                    // More than the null, file and section symbols a stripped library can keep.
                     info.HasSymtab = true;
                 }
-                else if (name == ".debug_info" && type != 8 && size > 0)
+                else if ((name == ".debug_info" || name == ".zdebug_info") && type != 8 && size > 0)
                 {
                     // SHT_NOBITS (8): `objcopy --only-keep-debug` style placeholder, nothing to read.
                     info.HasDebugInfo = true;
@@ -306,9 +333,25 @@ namespace Bugsee.WrapperPolicy
                 }
 
                 var parts = entry.Replace('\\', '/').Split('/');
-                if (parts.Length >= 2 && parts[parts.Length - 1].EndsWith(".so", StringComparison.Ordinal))
+                if (parts.Length < 2)
                 {
-                    keys.Add(parts[parts.Length - 2] + "/" + parts[parts.Length - 1]);
+                    continue;
+                }
+
+                // AGP's native-debug-symbols.zip names them libfoo.so.sym / libfoo.so.dbg.
+                var file = parts[parts.Length - 1];
+                foreach (var suffix in new[] { ".sym", ".dbg" })
+                {
+                    if (file.EndsWith(".so" + suffix, StringComparison.Ordinal))
+                    {
+                        file = file.Substring(0, file.Length - suffix.Length);
+                        break;
+                    }
+                }
+
+                if (file.EndsWith(".so", StringComparison.Ordinal))
+                {
+                    keys.Add(parts[parts.Length - 2] + "/" + file);
                 }
             }
 
@@ -347,6 +390,12 @@ namespace Bugsee.WrapperPolicy
                     continue;
                 }
 
+                if (lib.Length > MaxFileBytes)
+                {
+                    notes?.Add(lib.Abi + "/" + lib.Name + " (" + lib.Length + " bytes) is over the upload size limit and is left out");
+                    continue;
+                }
+
                 var key = PackagedKey(lib.Abi, lib.Name, lib.BuildId);
                 if (packaged == null || !packaged.Contains(key))
                 {
@@ -365,7 +414,7 @@ namespace Bugsee.WrapperPolicy
             long total = 0;
             foreach (var lib in eligible)
             {
-                if (lib.Length > MaxFileBytes || total + lib.Length > MaxTotalBytes)
+                if (total + lib.Length > MaxTotalBytes)
                 {
                     notes?.Add(lib.Abi + "/" + lib.Name + " (" + lib.Length + " bytes) is over the upload size limit and is left out");
                     continue;
@@ -376,6 +425,264 @@ namespace Bugsee.WrapperPolicy
             }
 
             return chosen;
+        }
+
+        /// <summary>Where a chosen library is staged below the upload folder: the build-id keeps two builds of one name apart.</summary>
+        public static string StagingRelativePath(NativeLibCandidate lib) =>
+            lib.Abi + "/" + lib.BuildId + "/" + lib.Name;
+
+        /// <summary>The CLI time allowed for <paramref name="bytes"/> staged: the base, plus 2 s per MiB, at most 30 minutes.</summary>
+        public static int UploadTimeoutMs(long bytes, int baseMs)
+        {
+            long ms = baseMs + (Math.Max(0, bytes) / (1024 * 1024)) * 2000;
+            return (int)Math.Min(ms, 30L * 60 * 1000);
+        }
+
+        /// <summary>
+        /// The build id of a library from the start of its file (program headers and the note they point at, so a
+        /// 64 KiB prefix of a compressed archive entry is enough), or null.
+        /// </summary>
+        public static string BuildIdFromPrefix(byte[] data, int length)
+        {
+            if (data == null || length > data.Length)
+            {
+                length = data?.Length ?? 0;
+            }
+
+            if (length < 52 || data[0] != 0x7f || data[1] != (byte)'E' || data[2] != (byte)'L' || data[3] != (byte)'F')
+            {
+                return null;
+            }
+
+            bool is64 = data[4] == 2;
+            if (!is64 && data[4] != 1)
+            {
+                return null;
+            }
+
+            bool le = data[5] == 1;
+            if (!le && data[5] != 2)
+            {
+                return null;
+            }
+
+            if (is64 && length < 64)
+            {
+                return null;
+            }
+
+            long phoff = is64 ? I64(data, 32, le) : U32(data, 28, le);
+            int phentsize = U16(data, is64 ? 54 : 42, le);
+            int phnum = U16(data, is64 ? 56 : 44, le);
+            if (phoff <= 0 || phentsize < (is64 ? 56 : 32) || phentsize > 256 || phnum <= 0)
+            {
+                return null;
+            }
+
+            for (int i = 0; i < phnum; i++)
+            {
+                long ph = phoff + (long)i * phentsize;
+                if (ph + phentsize > length)
+                {
+                    break;
+                }
+
+                if (U32(data, (int)ph, le) != 4) // PT_NOTE
+                {
+                    continue;
+                }
+
+                long offset = is64 ? I64(data, (int)ph + 8, le) : U32(data, (int)ph + 4, le);
+                long size = is64 ? I64(data, (int)ph + 32, le) : U32(data, (int)ph + 16, le);
+                if (offset < 0 || size < 16 || size > 4096 || offset + size > length)
+                {
+                    continue;
+                }
+
+                // A segment can hold several notes; the build-id is the one named GNU with type 3.
+                long at = offset, end = offset + size;
+                while (at + 12 <= end)
+                {
+                    long namesz = U32(data, (int)at, le);
+                    long descsz = U32(data, (int)at + 4, le);
+                    long type = U32(data, (int)at + 8, le);
+                    long descStart = at + 12 + ((namesz + 3) & ~3L);
+                    long next = descStart + ((descsz + 3) & ~3L);
+                    if (descStart + descsz > end || next <= at)
+                    {
+                        break;
+                    }
+
+                    if (type == 3 && namesz == 4 && descsz > 0 && descsz <= 64
+                        && data[at + 12] == (byte)'G' && data[at + 13] == (byte)'N' && data[at + 14] == (byte)'U')
+                    {
+                        var sb = new StringBuilder((int)descsz * 2);
+                        for (long b = 0; b < descsz; b++)
+                        {
+                            sb.Append(data[descStart + b].ToString("x2"));
+                        }
+
+                        return sb.ToString();
+                    }
+
+                    at = next;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// The archives this build wrote: the output file, or the APKs of Split APKs by target architecture (a folder of
+        /// them, or "Game.arm64-v8a.apk" files beside the player path "Game.apk" that does not exist), those written
+        /// since <paramref name="buildStartedUtc"/>. Empty for an Export Project and when nothing is found.
+        /// </summary>
+        public static List<string> BuiltArchivePaths(string outputPath, DateTime buildStartedUtc)
+        {
+            var archives = new List<string>();
+            if (string.IsNullOrEmpty(outputPath))
+            {
+                return archives;
+            }
+
+            if (File.Exists(outputPath))
+            {
+                archives.Add(outputPath);
+                return archives;
+            }
+
+            if (Directory.Exists(outputPath))
+            {
+                // Split APKs by target architecture: Unity turns the output path into a folder holding one APK per ABI
+                // (an exported project holds none).
+                foreach (var apk in Directory.GetFiles(outputPath, "*.apk"))
+                {
+                    if (File.GetLastWriteTimeUtc(apk) >= buildStartedUtc)
+                    {
+                        archives.Add(apk);
+                    }
+                }
+
+                return archives;
+            }
+
+            var dir = Path.GetDirectoryName(Path.GetFullPath(outputPath));
+            var stem = Path.GetFileNameWithoutExtension(outputPath);
+            if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir) && !string.IsNullOrEmpty(stem)
+                && outputPath.EndsWith(".apk", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var apk in Directory.GetFiles(dir, "*.apk"))
+                {
+                    // "Game.arm64-v8a.apk" yes; "GameLite.apk" (another player) and APKs of earlier builds no.
+                    if (AndroidUploadIdentity.IsSplitApkOf(Path.GetFileName(apk), stem) && File.GetLastWriteTimeUtc(apk) >= buildStartedUtc)
+                    {
+                        archives.Add(apk);
+                    }
+                }
+            }
+
+            return archives;
+        }
+
+        /// <summary>
+        /// Reads each <c>lib/&lt;abi&gt;/&lt;name&gt;.so</c> file path (the Gradle merge folder) and returns those that carry
+        /// symbols; <paramref name="withoutSymbols"/> counts the readable libraries that do not. A file that cannot be
+        /// read is skipped with a line in <paramref name="notes"/>.
+        /// </summary>
+        public static List<NativeLibCandidate> ScanLibraries(IEnumerable<string> files, out int withoutSymbols, List<string> notes)
+        {
+            var carrying = new List<NativeLibCandidate>();
+            withoutSymbols = 0;
+            foreach (var path in files)
+            {
+                if (!TryParseLibPath(path, out var abi, out var name))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    {
+                        var info = Inspect(stream);
+                        if (info.BuildId == null)
+                        {
+                            continue;
+                        }
+
+                        if (!info.CarriesSymbols)
+                        {
+                            withoutSymbols++;
+                            continue;
+                        }
+
+                        carrying.Add(new NativeLibCandidate { Path = path, Abi = abi, Name = name, BuildId = info.BuildId, Length = stream.Length });
+                    }
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    notes?.Add(path + " could not be read (" + ex.Message + ")");
+                }
+            }
+
+            return carrying;
+        }
+
+        /// <summary>
+        /// The (ABI, name, build-id) of every library of <paramref name="wanted"/> (<c>abi/name</c>) that an APK/AAB
+        /// holds. Only the wanted entries are opened, and only the first <see cref="PrefixBytes"/> of each is read.
+        /// </summary>
+        public static void ReadPackagedBuildIds(Stream archive, ISet<string> wanted, ISet<string> into)
+        {
+            using (var zip = new ZipArchive(archive, ZipArchiveMode.Read, true))
+            {
+                foreach (var entry in zip.Entries)
+                {
+                    if (!TryParseLibPath(entry.FullName, out var abi, out var name) || !wanted.Contains(abi + "/" + name))
+                    {
+                        continue;
+                    }
+
+                    var buffer = new byte[PrefixBytes];
+                    int read;
+                    using (var raw = entry.Open())
+                    {
+                        read = Fill(raw, buffer, 0, buffer.Length);
+                    }
+
+                    var id = BuildIdFromPrefix(buffer, read);
+                    if (id != null)
+                    {
+                        into.Add(PackagedKey(abi, name, id));
+                    }
+                }
+            }
+        }
+
+        /// <summary><see cref="ZipLibraryKeys"/> of a zip stream.</summary>
+        public static ISet<string> ZipLibraryKeys(Stream zip)
+        {
+            using (var archive = new ZipArchive(zip, ZipArchiveMode.Read, true))
+            {
+                var names = new List<string>();
+                foreach (var entry in archive.Entries)
+                {
+                    names.Add(entry.FullName);
+                }
+
+                return ZipLibraryKeys(names);
+            }
+        }
+
+        /// <summary>Copies the chosen libraries below <paramref name="root"/> at <see cref="StagingRelativePath"/>.</summary>
+        public static void Stage(IEnumerable<NativeLibCandidate> chosen, string root)
+        {
+            foreach (var lib in chosen)
+            {
+                var target = Path.Combine(root, StagingRelativePath(lib).Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(target));
+                File.Copy(lib.Path, target, true);
+            }
         }
     }
 }

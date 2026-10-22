@@ -130,11 +130,13 @@ namespace Bugsee.Editor
             {
                 WarnMappingMissing(report, roots, stem, seen, version, build);
             }
-            // Unity "Create symbols.zip" / Gradle native debug symbols.
-            UploadSymbolsZipOrElf(report, roots, version, build, identity.ElfUuid ?? Guid.NewGuid().ToString("D"));
+            // Unity "Create symbols.zip" / Gradle native debug symbols. The id only correlates the uploads with the build's
+            // logs (each library is keyed by its own build-id), so one is used for both.
+            var elfUuid = identity.ElfUuid ?? Guid.NewGuid().ToString("D");
+            var symbolsZip = FindSymbolsZip(report);
+            UploadSymbolsZipOrElf(roots, version, build, elfUuid, symbolsZip);
             // The libraries Unity's zip does not hold: the developer's plugin libraries and AAR libraries that ship with symbols.
-            // The id only correlates the upload with the build's logs (each library is keyed by its own build-id).
-            BugseeAndroidNativeLibUpload.Upload(report, version, build, identity.ElfUuid ?? Guid.NewGuid().ToString("D"), FindSymbolsZip(report));
+            BugseeAndroidNativeLibUpload.Upload(report, version, build, elfUuid, symbolsZip);
         }
 
         static string FindLauncherIcon()
@@ -157,9 +159,8 @@ namespace Bugsee.Editor
             }
         }
 
-        static void UploadSymbolsZipOrElf(BuildReport report, List<string> roots, string version, string build, string buildUuid)
+        static void UploadSymbolsZipOrElf(List<string> roots, string version, string build, string buildUuid, string bestZip)
         {
-            var bestZip = FindSymbolsZip(report);
             var elfDirs = new List<string>();
 
             foreach (var root in roots)
