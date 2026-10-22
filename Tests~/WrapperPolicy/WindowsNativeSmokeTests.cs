@@ -217,15 +217,53 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(BuildPathExclusion.IsExcludedPath(file.ToUpperInvariant(), root.ToLowerInvariant()), Is.False);
         }
 
-        [Test]
-        public void A_path_beyond_260_characters_can_be_written_and_found_by_a_recursive_scan()
+        static string LongDirectory(string root, int segments) =>
+            Path.Combine(root, string.Join("\\", Enumerable.Repeat(new string('d', 40), segments)));
+
+        static string LongPathsEnabledSetting()
         {
-            // Records what this host does with long paths; the Editor's own handling stays on the manual checklist.
-            string dir = Path.Combine(_root, string.Join("\\", Enumerable.Repeat(new string('d', 40), 7)));
-            Assert.That(dir.Length, Is.GreaterThan(260));
+            if (!OperatingSystem.IsWindows())
+            {
+                return "(not Windows)";
+            }
+
+            try
+            {
+                using (var k = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\FileSystem"))
+                {
+                    return k?.GetValue("LongPathsEnabled")?.ToString() ?? "(unset)";
+                }
+            }
+            catch (Exception ex)
+            {
+                return "(unreadable: " + ex.Message + ")";
+            }
+        }
+
+        [Test]
+        public void A_file_beyond_260_characters_is_read_by_the_calls_the_scans_make_and_by_a_child_process()
+        {
+            // Issue 212, the part a runner can show: .NET (not Unity's Mono, not the real CLI) on this host, whatever
+            // LongPathsEnabled says (logged below). The scans enumerate, rank, take the mtime and length, and the CLI is
+            // handed the path as an argument.
+            string dir = LongDirectory(_root, 7);
+            string file = Path.Combine(dir, "libil2cpp.so");
+            Assert.That(file.Length, Is.GreaterThan(260));
+            TestContext.Out.WriteLine("LongPathsEnabled=" + LongPathsEnabledSetting() + " path length=" + file.Length);
             Directory.CreateDirectory(dir);
-            File.WriteAllText(Path.Combine(dir, "libil2cpp.so"), "x");
-            Assert.That(Directory.GetFiles(_root, "libil2cpp.so", SearchOption.AllDirectories), Has.Length.EqualTo(1));
+            File.WriteAllText(file, "0123456789");
+
+            var found = Directory.EnumerateFiles(_root, "libil2cpp.so", SearchOption.AllDirectories).ToArray();
+            Assert.That(found, Is.EqualTo(new[] { file }));
+            Assert.That(BuildPathExclusion.IsExcludedPath(found[0], _root), Is.False);
+            Assert.That(File.GetLastWriteTimeUtc(found[0]), Is.GreaterThan(DateTime.UtcNow.AddHours(-1)));
+            Assert.That(new FileInfo(found[0]).Length, Is.EqualTo(10));
+
+            string exe = Install(Path.Combine(_root, "bin"));
+            string output = Run(exe, new[] { "upload", "--probe=" + file }, out var code);
+            Assert.That(code, Is.EqualTo(0));
+            Assert.That(output, Does.Contain("[--probe=" + file + "]"));
+            Assert.That(output, Does.Contain("probe exists=True length=10"));
         }
     }
 }
