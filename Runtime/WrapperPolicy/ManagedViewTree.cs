@@ -86,7 +86,7 @@ namespace Bugsee.WrapperPolicy
     /// [x, y, w, h], optional id, options, subitems), the shape the viewer reads (specs: sdk/wrapper-data-requests).
     /// The SDK stores the reply byte for byte and never looks inside it, so the privacy rules are applied here: no
     /// text content ever reaches a node, and a node whose box overlaps a secure rectangle loses its name and component
-    /// list. Each node is judged by its own box (a full-screen container overlaps, its far-away children do not). The
+    /// list (it still writes class_name, which is the first component type, and its bounds). Each node is judged by its own box (a full-screen container overlaps, its far-away children do not). The
     /// bugsee_protected_view flag is deliberately not written: the viewer draws it as a secured region, and a container
     /// that merely overlaps a rectangle is not one.
     /// </summary>
@@ -106,7 +106,7 @@ namespace Bugsee.WrapperPolicy
             ManagedViewNode root, int[] secureRects, int secureCount, float pixelsPerNativeUnit) =>
             Write(root, secureRects, secureCount, pixelsPerNativeUnit, out _);
 
-        /// <param name="protectedNodes">How many nodes lost their name and component list to a secure rectangle.</param>
+        /// <param name="protectedNodes">How many nodes had a name or component list that a secure rectangle removed.</param>
         public static string Write(
             ManagedViewNode root, int[] secureRects, int secureCount, float pixelsPerNativeUnit, out int protectedNodes)
         {
