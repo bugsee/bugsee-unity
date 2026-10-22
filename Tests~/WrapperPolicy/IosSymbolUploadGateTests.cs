@@ -21,6 +21,20 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(text, Does.Contain("${CONFIGURATION}\" = \"Debug\""));
         }
 
+        // The Xcode build that archives is often another process than the Unity export: the switch is read when the script runs.
+        [TestCase("1")]
+        [TestCase("")]
+        public void Archive_script_uploads_nothing_when_the_symbol_upload_opt_out_is_set(string value)
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, noSymbolUpload: value);
+            Assert.That(run.Calls, Is.Empty, run.Output);
+            Assert.That(run.Output, Does.Contain("skip symbol upload (BUGSEE_NO_SYMBOL_UPLOAD is set)"));
+            Assert.That(run.ExitCode, Is.EqualTo(0));
+
+            var without = RunScript(new[] { "BugseeMiniGame.app.dSYM" });
+            Assert.That(without.Calls.Any(c => c.Contains("--type dsym")), Is.True, without.Output);
+        }
+
         // Unity's Debug configuration writes no dSYM, so an upload there would otherwise end silently with nothing sent.
         [Test]
         public void Archive_script_warns_when_the_build_has_no_dsym()
@@ -263,6 +277,18 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(run.Output, Does.Contain("older than this export"));
             Assert.That(run.Output, Does.Contain("LineNumberMappings.json"));
             Assert.That(run.ExitCode, Is.EqualTo(0));
+        }
+
+        // The mapping opt-out turns off only the line map: the dSYMs still go up.
+        [Test]
+        public void Archive_script_skips_the_line_map_but_not_the_dsyms_when_the_mapping_opt_out_is_set()
+        {
+            var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, exportStart: ExportStart, uuids: Uuid, noIl2CppMapping: true, plant: root =>
+                PlantPending(root, PlantMap(root, SymbolsMap, ExportStart + 20)));
+
+            Assert.That(Linemaps(run), Is.Empty, run.Output);
+            Assert.That(run.Output, Does.Contain("skip il2cpp-linemap (BUGSEE_NO_IL2CPP_MAPPING is set)"));
+            Assert.That(run.Calls.Any(c => c.Contains("--type dsym")), Is.True, run.Output);
         }
 
         [Test]
@@ -614,7 +640,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
         static ScriptRun RunScript(string[] dsymBundles, int cliExitCode = 0, string token = "test-token",
             string platform = "iphoneos", Action<string> plant = null, long exportStart = 0, string uuids = null, string tmpDir = null,
-            string[] cliNoise = null, string action = null, Dictionary<string, string> env = null)
+            string[] cliNoise = null, string action = null, Dictionary<string, string> env = null, string noSymbolUpload = null, bool noIl2CppMapping = false)
         {
             if (!File.Exists("/bin/sh"))
                 Assert.Ignore("needs /bin/sh");
@@ -656,6 +682,10 @@ namespace Bugsee.WrapperPolicy.Tests
                 info.Environment["PLATFORM_NAME"] = platform;
                 info.Environment["PROJECT_DIR"] = projectDir;
                 info.Environment.Remove("BUGSEE_SKIP_UPLOAD_ON_DEBUG");
+                if (noSymbolUpload != null) info.Environment["BUGSEE_NO_SYMBOL_UPLOAD"] = noSymbolUpload;
+                else info.Environment.Remove("BUGSEE_NO_SYMBOL_UPLOAD");
+                if (noIl2CppMapping) info.Environment["BUGSEE_NO_IL2CPP_MAPPING"] = "1";
+                else info.Environment.Remove("BUGSEE_NO_IL2CPP_MAPPING");
                 // The developer's own overrides must not leak into a run.
                 foreach (var inherited in new[] { "BUGSEE_VERSION", "BUGSEE_BUILD", "TARGET_BUILD_DIR", "INFOPLIST_PATH" })
                     info.Environment.Remove(inherited);

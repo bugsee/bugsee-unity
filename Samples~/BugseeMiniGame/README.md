@@ -131,12 +131,14 @@ runs scenarios on one Android device.
 | Scenario | What it does |
 |----------|--------------|
 | `interactions`, `actions`, `filters`, `presets`, `nested` | self-checking (`PASS`/`FAIL` lines), described below; `nested` sends a handled exception with a three-level `InnerException` chain and checks that its payload has 3 levels and 2 `cause` keys (`[Sample] nested PASS levels=3 causes=2`) |
+| `vh` | self-checking (issue #111): calls `Bugsee.CaptureViewHierarchy()` twice and checks the native SDK asked and the wrapper built a non-null managed tree within the SDK's 500 ms window (development build only; it stops with a `SKIP` line when the preset turned `CaptureViewHierarchy` off). It does not prove the reply reached a report. Every capture in the sample is truncated (more than 1500 active objects, hard cap 1500 nodes, about 80 ms walk budget), so a complete tree is never seen. Use `WAIT=40` with `Tools~/scripts/e2e-android.sh` (the default 25 s can lose the `done` line) |
 | `sig` (default), `handled`, `unhandled`, `pipeline`, `upload`, `labels`, `logerror` | send handled / unhandled exceptions, a pipeline exception, a plain `Upload`, a handled exception with labels, or a Unity `LogError`, to see that a report arrives (`sig` sends three, to check the grouping signature) |
 | `crash`, `native`, `abort`, `fatal`, `java`, `hang` | kill the process (or block the main thread) for the crash matrix; one per run |
 | `sigraise` | raise SIGSEGV (iOS only; does nothing on Android) |
 | `nullderef` | write to an unmapped address, a hardware fault on both platforms |
 | `attrsnoop`, `attrsedit` | a report handler runs on a report with an int, bool, double, string and numeric-looking-string attribute; `attrsedit` also adds, changes and removes attributes. Logged `[ATTRS]` with each attribute's managed type before and after the handler; `attrsedit` also logs `[ATTRS] check ...` PASS/FAIL lines (integers read back as `long`; a list and a map set in the handler must carry their data: JSON text on Android, a managed container on iOS, never a type name) |
 | `severity`, `severitylabels` | reports with no severity must take `ReportingDefaultBugPriority` (`bugsee_bug_priority`), an explicit severity must win; `severitylabels` does it with labels. Logged by a handler; ends on an open report dialog to dismiss |
+| `trace` | `Trace` with a map, a list, an array, oversized lists (one with an emoji at the cap), a string, an int, a float 1.0 and a `byte[]`; asserts on what the bridge handed to the SDK (`TraceProbe`: the JSON string on iOS, the boxed Java value on Android) and fails if the SDK did not launch. Logs `[TRACE] wire ...` and `[Sample] trace PASS\|FAIL ...` lines ending in `trace e2e done failures=N` |
 | `culture` | self-checking: under de-DE and ru-RU sends double, float, decimal and bool values as attributes (read back with GetAttribute, must be 1.5 and true, not "1,5" or "True") and through event parameters, a trace value, LogException fields and a breadcrumb filter (issue #143; only the attribute read-back can detect the bug, the rest is logged as SMOKE ONLY); logs `[Sample] culture PASS/FAIL` lines |
 | `netfilter` | four network event filters (pass-through, redacting, one that empties the body, one that returns a replacement event) over events from the exchange factory; each logs what it was handed and left, tagged `[NETFILTER]`, and the run ends with `managed checks` (what native applied is not visible from C#) |
 | `options` | logs which launch-option keys the platform gate lets reach the native SDK, tagged `[OPTIONS]` |
@@ -225,6 +227,8 @@ The iOS presets also set the typed iOS-only options of `IOSLaunchOptions` (`Cras
 set the booleans to opposite values and the `privacy` preset sets some through `OptionsBuilder`. Android never sets them and drops them
 if they are sent (the `options` scenario sends every one and checks that Android reports none). `detect` turns on
 `CaptureBluetoothStatus`, which only reports a status when the app itself got Bluetooth permission (the sample never asks, so it reads unknown).
+
+The presets also set the Android 7.4.2 options with typed properties (#96): `MaxDataSize` and `NotifyFlushDelay` on both platforms, and on Android `MaxPendingReports`, `MaxPendingReportAge`, the hang and ANR sampling switches, `DetectAndReportExitLowMemoryBackgroundAsError`, `DetectAndReportCrashNdk` and `CrashNdkIncludeTombstoneLogs`. The two NDK keys are skipped in the comparison when the SDK does not report them (the NDK extension is not registered on Unity 6 with the Gradle plugin, #226). The `options` scenario sends each at a non-default value and logs `[OPTIONS] key sent=... native=...`.
 
 ### Filter check (`filters` e2e scenario)
 
