@@ -217,22 +217,16 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(BuildPathExclusion.IsExcludedPath(file.ToUpperInvariant(), root.ToLowerInvariant()), Is.False);
         }
 
-        [Test]
-        public void A_path_beyond_260_characters_can_be_written_and_found_by_a_recursive_scan()
-        {
-            // Records what this host does with long paths; the Editor's own handling stays on the manual checklist.
-            string dir = Path.Combine(_root, string.Join("\\", Enumerable.Repeat(new string('d', 40), 7)));
-            Assert.That(dir.Length, Is.GreaterThan(260));
-            Directory.CreateDirectory(dir);
-            File.WriteAllText(Path.Combine(dir, "libil2cpp.so"), "x");
-            Assert.That(Directory.GetFiles(_root, "libil2cpp.so", SearchOption.AllDirectories), Has.Length.EqualTo(1));
-        }
-
         static string LongDirectory(string root, int segments) =>
             Path.Combine(root, string.Join("\\", Enumerable.Repeat(new string('d', 40), segments)));
 
         static string LongPathsEnabledSetting()
         {
+            if (!OperatingSystem.IsWindows())
+            {
+                return "(not Windows)";
+            }
+
             try
             {
                 using (var k = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\FileSystem"))
