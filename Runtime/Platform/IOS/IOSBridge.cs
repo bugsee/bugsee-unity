@@ -1035,6 +1035,9 @@ namespace Bugsee.Platform.IOS
             static readonly UnsupportedApiNotice Notice = new UnsupportedApiNotice(Debug.LogWarning);
             // The listener the SDK calls into: one per process, the native side keeps a single listener too.
             static volatile IFeedbackListener _listener;
+            // Native keeps these function pointers: hold the delegates for the life of the process.
+            static readonly FeedbackReceivedNativeCallback ReceivedCallback = OnReceived;
+            static readonly FeedbackSentNativeCallback SentCallback = OnSent;
 
             // The BugseeFeedback package is optional (see FeedbackOptIn): without it every call says so, once.
             static bool Available()
@@ -1059,7 +1062,7 @@ namespace Bugsee.Platform.IOS
                 if (!Available()) return;
                 _listener = listener;
                 if (listener == null) _bugsee_feedback_set_listener(null, null);
-                else _bugsee_feedback_set_listener(OnReceived, OnSent);
+                else _bugsee_feedback_set_listener(ReceivedCallback, SentCallback);
             }
 
             // Native calls these on the main queue; nothing may escape a reverse P/Invoke.

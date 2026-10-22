@@ -56,7 +56,7 @@ Bugsee.Launch(appToken, options);
 | Property | Key suffix | Type, default |
 |---|---|---|
 | `CrashHandlerType` | `capture.crash-handler-type` | `CrashHandlerType`, `MachAndBSD` |
-| `CrashSignals` | `capture.crash-signals` | `[Flags] CrashSignals` bit set, `Default` (every signal). Leave `Segv`/`Bus` out only if a hosted runtime handles them itself; leaving out `Abrt` stops uncaught Objective-C exceptions from being reported. `Default` is only honoured on its own |
+| `CrashSignals` | `capture.crash-signals` | `[Flags] CrashSignals` bit set, `Default` (every signal; the SDK drops `Segv`/`Bus` only for its Xamarin/.NET wrappers, not for Unity) is right for Unity: leave it alone, see the note below. Leaving out `Abrt` stops uncaught Objective-C exceptions from being reported. `Default` is only honoured on its own |
 | `CaptureOnDeviceSymbolication` | `capture.on-device-symbolication` | bool, false |
 | `CrashSwiftAsyncStackTraces` | `detect.crash.swift_async_stacktraces` | bool, true |
 | `CrashFillEmptyExceptionStacks` | `detect.crash.fill_empty_exception_stacks` | bool, false (can change crash grouping) |
@@ -72,6 +72,8 @@ Bugsee.Launch(appToken, options);
 | `DataEncryption` | `config.data-encryption` | `DataEncryptionMode` (`None`, `OnDevice`, `EndToEnd`), `None`. `EndToEnd` leaves some features out, such as the video preview |
 | `BuildTarget`, `BuildType` | `config.build-target`, `config.build-type` | string, none |
 | `ReportingUIStyle` | `reporting.ui.style` | `ReportingUIStyle` (`Light`, `Dusk`, `BasedOnStatusBar`, `System`), `System` |
+
+**Null references and `CrashSignals` on iOS.** The iOS SDK's header warns that .NET hosts turn `SIGSEGV`/`SIGBUS` into `NullReferenceException` and that those signals should then be left out. That applies to Mono/.NET runtimes that raise the exception from a signal handler; Unity's IL2CPP player, the only scripting backend on iOS, does not: it compiles an explicit null check before each access, so a null reference (caught or not) is an ordinary managed exception and never reaches the crash reporter as a signal. Verified on an iPhone XS (iOS, Unity 2022.3 IL2CPP, Release build): a caught `NullReferenceException`, one thrown on a coroutine and one in a thread-pool task produced no crash report and no `RelaunchedAfterCrash` on the next launch, and the process kept running. Keep the default (`CrashSignals.Default`, which reports `Segv` and `Bus`): a real fault (a bad native pointer, or a null access in code compiled with IL2CPP's `NullChecks` option switched off, see `Il2CppSetOption`) kills the process with `SIGSEGV`, and without `Segv`/`Bus` in the set that crash is not reported at all (observed: the app died with signal 11, the next launch saw no crash). Android has no such option; the same IL2CPP behaviour was observed on an HONOR WOD-LX1 (Android 14, Unity 2022.3 IL2CPP, Release): no crash for managed null references, a reported crash (`RelaunchedAfterCrash`) for the unchecked access. Mono on Android (ARMv7 only) implements null checks with a SIGSEGV handler, and the Android NDK crash handler is installed ahead of it, so a managed null reference there may be reported as a native crash; untested (no 32-bit-capable device). See [#233](https://github.com/bugsee/bugsee-unity/issues/233). The sample scenarios `nullref` and `nullrefnochk` reproduce both cases.
 
 Three keys have no property: `capture.logs.oslog` (the iOS SDK accepts and ignores it, permanently disabled), `capture.status-bar-info` (only a DEBUG build of the SDK reads it; the published SDK never does) and `capture.mach-exceptions` (removed from the SDK, which ignores it with a warning; use `CrashHandlerType`).
 
@@ -473,38 +475,6 @@ Bugsee.SetNetworkEventFilter(e =>
     // Android: SDK defaults, in place. If it could not run (false), drop the event rather than record it unredacted.
     // On iOS it always returns false: there the filter's own redaction is all there is.
     if (!Bugsee.ApplyDefaultNetworkSanitizer(e) && Application.platform == RuntimePlatform.Android) return null;
-    e.Url = e.Url.Replace("/internal/", "/x/");
-    return e;
-});
-```
-
-It returns true when it ran and false on iOS and in the Editor: the iOS SDK (7.0.0-beta7) has no public sanitizer, so there is nothing to call and the filter's own redaction is all there is. Inside the filter it needs nothing else. On an event you built yourself (`Bugsee.GetExchangeFactory()`, or your own `INetworkEvent`) the SDK hands out a native copy only while it is launched with network capture on, so outside that the call redacts nothing and returns false: check the result. A copy that worked has its redacted fields copied back. A failure inside the SDK is logged and also returns false.
-
-### WebView secure views
-
-An app that embeds a WebView plugin can keep its content out of the video with `Bugsee.AddSecureWebView(handle)` and `Bugsee.RemoveSecureWebView(handle)`. Pass the plugin's native handle: the `android.webkit.WebView` as an `AndroidJavaObject` on Android, the `WKWebView*` as an `IntPtr` on iOS (typed overloads; a plugin that does not expose its native handle cannot use them). They return false for a null or zero handle, for an object of another class (a plain view) and in the Editor.
-
-- **Android:** calls `Bugsee.addSecureWebView` on the UI thread (the SDK measures the view's geometry on the calling thread) and waits for it. The SDK buffers a registration made before launch. It does not survive `Stop()`: register again after a relaunch.
-- **iOS:** the SDK's `+addSecureWebView:` alone does not hide the view (it protects secure areas inside the page), so the wrapper also calls `+addSecureView:`, which masks the view in the video, as Android's call does. The work runs on the main queue. The SDK masks a view only while it is launched, unlike Android: a call made before the launch finished has no effect on the video, so call it once `Bugsee.IsLaunched` is true. `RemoveSecureWebView` calls `+removeSecureView:`, which also lifts a mask the app set on the same view itself; the page-level protection stays, harmlessly. The pointer must be a live Objective-C object: another class is refused, a stale or non-object pointer is undefined.
-
-Limits: it marks a native view, so it does nothing for a page drawn into a Unity texture (use `AddSecureRectangle` for that) and nothing while the Android Unity frame pusher is the capture source (it does not know native views, see below).
-
-### Native APIs that are not exposed
-
-Decided in #103 against the Android 7.4.2 and iOS 7.0.0-beta7 public APIs:
-
-- `+[Bugsee logError:]` (iOS `NSError`): an `NSError` can only come from native code, which already calls the SDK directly; Unity code has `Bugsee.LogException`. Android has no counterpart.
-- `+[Bugsee showVideoCapturePreview]` / `hideVideoCapturePreview` (iOS): a developer diagnostic of the SDK's own capture, with no Android counterpart; it shows nothing about the Unity pipeline, which pushes its own frames.
-- The `requiresFiltering` overloads of `log` and `addNetworkEvent`: for `log` the wrapper keeps the SDK's default, which skips the log filter on both platforms (Android `Bugsee.Log` calls `Bugsee.log(message, LogLevel)`, iOS `_bugsee_log` calls `+log:level:`), and does not expose the opt-in; this matches #182. Network events from `Bugsee.AddNetworkEvent` already go through the wrapper channel with filtering on, so the network half needs nothing.
-
-### Network filter and the default sanitizer (Android)
-
-On Android a filter set with `Bugsee.SetNetworkEventFilter` (or declared in the manifest) turns the SDK's built-in redaction off: `Authorization` and `Cookie` headers, `token` query values, `user:password@` URL credentials and `password` body fields are recorded as is unless the filter redacts them. Call `Bugsee.ApplyDefaultNetworkSanitizer(event)` first in the filter to keep the built-in redaction, then add your own:
-
-```csharp
-Bugsee.SetNetworkEventFilter(e =>
-{
-    Bugsee.ApplyDefaultNetworkSanitizer(e); // Android: SDK defaults, in place
     e.Url = e.Url.Replace("/internal/", "/x/");
     return e;
 });

@@ -208,7 +208,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string native = Read("Plugins", "iOS", "BugseeUnityBridge.mm");
 
             Assert.That(ios, Does.Contain("FeedbackOptIn.IosMissingMessage"));
-            Assert.That(ios, Does.Contain("_bugsee_feedback_set_listener(OnReceived, OnSent)"));
+            Assert.That(ios, Does.Contain("_bugsee_feedback_set_listener(ReceivedCallback, SentCallback)"));
             Assert.That(android, Does.Contain("FeedbackOptIn.AndroidMissingMessage"));
             Assert.That(editor, Does.Contain("FeedbackOptIn.EditorMessage").And.Contain("FeedbackOptIn.PlayerMessage"));
             Assert.That(ios, Does.Contain("_bugsee_feedback_set_greeting(greeting)"));
