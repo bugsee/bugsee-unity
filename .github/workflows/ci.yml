@@ -105,7 +105,30 @@ jobs:
           dotnet-version: 8.0.x
 
       - name: Test
-        run: dotnet test Tests~/WrapperPolicy/Bugsee.WrapperPolicy.Tests.csproj --nologo --configuration Release --filter "FullyQualifiedName~IosSymbolUploadGateTests|FullyQualifiedName~IosBuildTokenFingerprintScriptTests|FullyQualifiedName~IosCliResolutionTests"
+        run: dotnet test Tests~/WrapperPolicy/Bugsee.WrapperPolicy.Tests.csproj --nologo --configuration Release --filter "FullyQualifiedName~IosSymbolUploadGateTests|FullyQualifiedName~IosBuildTokenFingerprintScriptTests|FullyQualifiedName~IosCliResolutionTests" --logger "trx;LogFileName=mac.trx" --results-directory "$RUNNER_TEMP/trx"
+
+      # A renamed class would make the filter select nothing (a green no-op), and a skip counts as a pass: require every
+      # class to have executed tests and none skipped.
+      - name: Check that the iOS Run Script tests ran
+        run: |
+          python3 - "$RUNNER_TEMP/trx/mac.trx" <<'PY'
+          import sys, collections
+          import xml.etree.ElementTree as ET
+          root = ET.parse(sys.argv[1]).getroot()
+          ns = {"t": root.tag.split("}")[0].strip("{")}
+          cls = {u.get("id"): u.find("t:TestMethod", ns).get("className") for u in root.iterfind(".//t:UnitTest", ns)}
+          counts = collections.defaultdict(collections.Counter)
+          for r in root.iterfind(".//t:UnitTestResult", ns):
+              counts[cls.get(r.get("testId"), "")][r.get("outcome")] += 1
+          bad = False
+          for name in ("IosSymbolUploadGateTests", "IosBuildTokenFingerprintScriptTests", "IosCliResolutionTests"):
+              c = sum((v for k, v in counts.items() if k.endswith(name)), collections.Counter())
+              print(name, dict(c))
+              if c["Passed"] == 0 or sum(c.values()) != c["Passed"]:
+                  print("::error::" + name + " must have executed tests and none skipped or failed: " + str(dict(c)))
+                  bad = True
+          sys.exit(1 if bad else 0)
+          PY
 
   unity-compile:
     name: Unity C# compile check
