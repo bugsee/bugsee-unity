@@ -25,6 +25,9 @@ namespace Bugsee.Platform
         /// <summary>The effective launch options (SDK defaults merged with the host's), or null when the SDK has none.</summary>
         IReadOnlyDictionary<string, object> GetLaunchOptions();
 
+        /// <summary>Only the launch options the host supplied (no SDK defaults); never null, empty before a launch.</summary>
+        IReadOnlyDictionary<string, object> GetHostLaunchOptions();
+
         void StartBlackout();
         void EndBlackout();
         bool IsBlackout();
@@ -61,6 +64,9 @@ namespace Bugsee.Platform
 
         void SetAttribute(string key, object value);
         object GetAttribute(string key);
+
+        /// <summary>Every attribute set, typed like <see cref="GetAttribute"/>; never null, empty when none.</summary>
+        IReadOnlyDictionary<string, object> GetAllAttributes();
         void ClearAttribute(string key);
         void ClearAllAttributes();
 
@@ -69,6 +75,13 @@ namespace Bugsee.Platform
 
         /// <summary>Scale divisor for <see cref="SecureRectRegistry.Snapshot"/> (1 on Android, screen scale on iOS).</summary>
         float GetSecureRectSnapshotScale();
+
+        /// <summary>
+        /// Where Unity's surface sits, in the native pixels secure rectangles are registered in (top-left origin), given
+        /// Unity's own screen size. False when it cannot be read. <paramref name="settled"/> is false when the numbers were read but
+        /// disagree with Unity's screen (a view caught mid-rotation): the caller keeps the last settled surface. Main thread only.
+        /// </summary>
+        bool TryGetSecureRectViewRegion(int screenWidth, int screenHeight, out int left, out int top, out int width, out int height, out bool settled);
 
         void CaptureViewHierarchy();
         void ResetVideoCapturePermission();

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Bugsee.Contracts.Lifecycle;
 
 namespace Bugsee.Platform
 {
@@ -14,12 +15,20 @@ namespace Bugsee.Platform
         void Launch(string appToken, IDictionary<string, object> options, Action<bool> started);
 
         /// <inheritdoc cref="Launch"/>
-        void Relaunch(IDictionary<string, object> options, Action<bool> started);
+        /// <param name="joined">Android only: runs (on the main thread, before <paramref name="started"/>) when the
+        /// request joined a relaunch already in flight, so the options it passed were never applied.</param>
+        void Relaunch(IDictionary<string, object> options, Action<bool> started, Action joined);
 
         /// <summary><paramref name="finished"/> runs once, when the stop is over: true when the stop ran (even
         /// if a later Launch dropped the ordinary Stop completions), false when the SDK had not reported it within the
         /// soft deadline (10 s from the call) or, on iOS, when the main thread did not take it. Android queues the call to
         /// the main thread and never refuses it: a stalled main thread leaves <paramref name="finished"/> pending.</summary>
         void Stop(Action<bool> finished);
+
+        /// <summary>Deletes the data of <paramref name="scope"/>, stopping the SDK first when it is not stopped.
+        /// <paramref name="done"/> (may be null) runs once, with true when the SDK reported the data deleted and false when it
+        /// refused or never answered (the soft deadline on Android, the hard one on iOS) or, on iOS, when the main thread did not
+        /// take the call.</summary>
+        void DeleteCollectedData(DeleteScope scope, Action<bool> done);
     }
 }

@@ -58,10 +58,10 @@ namespace Bugsee.Editor
                     }
                     break;
                 case BuildTarget.Android:
-                    return AndroidNameSettings(report).VersionCode.ToString();
+                    return AndroidNameSettings(report).VersionCode.ToString(System.Globalization.CultureInfo.InvariantCulture);
             }
 
-            return DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+            return DateTime.UtcNow.ToString("yyyyMMddHHmmss", System.Globalization.CultureInfo.InvariantCulture);
         }
 
         /// <summary>
@@ -75,7 +75,7 @@ namespace Bugsee.Editor
         {
             var names = AndroidNameSettings(report);
             string name = names.BundleVersion;
-            string code = names.VersionCode.ToString();
+            string code = names.VersionCode.ToString(System.Globalization.CultureInfo.InvariantCulture);
             // What the APK carries, when the generated launcher says so plainly (split APK codes, overrides).
             var root = BugseeAndroidGradleSetup.GeneratedProjectRoot;
             var launcher = string.IsNullOrEmpty(root) ? null : BugseeAndroidMavenDependencies.FindGradleFile(Path.Combine(root, "launcher"), "build");
@@ -93,7 +93,7 @@ namespace Bugsee.Editor
                 Debug.LogWarning($"Bugsee: could not read the generated launcher's version: {ex.Message}");
             }
 
-            var appId = AndroidUploadIdentity.SelectAppAssetId(ReadAppAssetIds(report?.summary.outputPath, report == null ? DateTime.MinValue : report.summary.buildStartedAt.ToUniversalTime()), out var conflict);
+            var appId = AndroidUploadIdentity.SelectAppAssetId(ReadAppAssetIds(report?.summary.outputPath, report == null ? DateTime.MinValue : BuildClock.StartedUtc(report.summary.buildStartedAt)), out var conflict);
             if (conflict != null)
             {
                 Debug.LogWarning("Bugsee: " + conflict);

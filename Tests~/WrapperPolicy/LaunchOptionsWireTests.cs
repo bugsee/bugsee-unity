@@ -46,8 +46,10 @@ namespace Bugsee.WrapperPolicy.Tests
             var map = LaunchOptionsWire.Normalize(new Dictionary<string, object>
             {
                 { "$$ENDPOINT", "x" }, { "$$DEBUG", true }, { "$$WRAPPER", "w" }, { "keep", 1 }, { "a$$b", 2 },
+                { "com.bugsee.option.$$ENDPOINT", "x" }, { "com.bugsee.option.$$DEBUG", true }, { "com.bugsee.option.$$WRAPPER", "w" },
+                { "com.bugsee.option.capture.logs", true }, { "com.bugsee.option.a$$b", 3 }, { "wrapper_info", new Dictionary<string, object>() },
             });
-            Assert.That(map.Keys, Is.EquivalentTo(new[] { "keep", "a$$b" }));
+            Assert.That(map.Keys, Is.EquivalentTo(new[] { "keep", "a$$b", "com.bugsee.option.capture.logs", "com.bugsee.option.a$$b" }));
         }
 
         [Test]

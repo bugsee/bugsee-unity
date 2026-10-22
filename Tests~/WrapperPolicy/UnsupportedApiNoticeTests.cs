@@ -26,10 +26,22 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void A_throwing_logger_does_not_reach_the_caller()
+        public void A_throwing_logger_does_not_reach_the_caller_and_the_message_is_retried()
         {
-            var notice = new UnsupportedApiNotice(_ => throw new System.InvalidOperationException());
-            Assert.DoesNotThrow(() => notice.Once("x"));
+            var fail = true;
+            var lines = new List<string>();
+            var notice = new UnsupportedApiNotice(m => { if (fail) throw new System.InvalidOperationException(); lines.Add(m); });
+            Assert.That(notice.Once("x"), Is.False, "nothing was logged");
+            fail = false;
+            Assert.That(notice.Once("x"), Is.True, "the failed attempt did not use up the message");
+            Assert.That(notice.Once("x"), Is.False);
+            Assert.That(lines, Is.EqualTo(new[] { "x" }));
+        }
+
+        [Test]
+        public void Without_a_logger_nothing_is_reported_as_logged()
+        {
+            Assert.That(new UnsupportedApiNotice(null).Once("x"), Is.False);
         }
 
         [Test]

@@ -187,7 +187,7 @@ namespace Bugsee.Capture
         int _captureW, _captureH;
         long _requestTimestampMs;
 
-        // Where Unity's surface sits in the window, in native window pixels (what secure rectangles are registered in), read
+        // Where Unity's surface sits on the screen, in native screen pixels (what secure rectangles are registered in), read
         // at every request and every readback. Width 0 means unknown (fail closed).
         SourceRegion _viewRegion, _requestRegion, _loggedRegion;
         int[] _rects;
@@ -427,7 +427,7 @@ namespace Bugsee.Capture
             }
         }
 
-        // Secure rectangles are native window pixels, and Unity's view need not fill the window (status bar, cutout,
+        // Secure rectangles are native screen pixels, and Unity's view need not fill the window (status bar, cutout,
         // multi-window, reduced render resolution), so the rectangles are mapped relative to the Unity surface's position in
         // the window. Read at every request and at every readback (no time-based cache), with raw JNI (no managed garbage).
         // The Unity view is the first SurfaceView under the activity's content view; if there is none, or anything fails,
@@ -447,7 +447,7 @@ namespace Bugsee.Capture
                 AndroidJNI.DeleteLocalRef(content);
                 if (surface == IntPtr.Zero) { ClearPendingException(); return default; }
                 _jni.ArrayArgs[0].l = _jni.LocationArray;
-                AndroidJNI.CallVoidMethod(surface, _jni.GetLocationInWindow, _jni.ArrayArgs);
+                AndroidJNI.CallVoidMethod(surface, _jni.GetLocationOnScreen, _jni.ArrayArgs);
                 int left = AndroidJNI.GetIntArrayElement(_jni.LocationArray, 0);
                 int top = AndroidJNI.GetIntArrayElement(_jni.LocationArray, 1);
                 int width = AndroidJNI.CallIntMethod(surface, _jni.GetWidth, _noArgs);
@@ -493,7 +493,7 @@ namespace Bugsee.Capture
         // Cached JNI handles for ReadViewRegion (main thread only).
         sealed class ViewJni
         {
-            public IntPtr PlayerClass, CurrentActivityField, FindViewById, GetLocationInWindow, GetWidth, GetHeight,
+            public IntPtr PlayerClass, CurrentActivityField, FindViewById, GetLocationOnScreen, GetWidth, GetHeight,
                 GetChildCount, GetChildAt, SurfaceViewClass, ViewGroupClass, LocationArray;
             public readonly jvalue[] IntArgs = new jvalue[1];
             public readonly jvalue[] ArrayArgs = new jvalue[1];
@@ -509,13 +509,13 @@ namespace Bugsee.Capture
                     return false;
                 CurrentActivityField = AndroidJNI.GetStaticFieldID(player, "currentActivity", "Landroid/app/Activity;");
                 FindViewById = AndroidJNI.GetMethodID(activity, "findViewById", "(I)Landroid/view/View;");
-                GetLocationInWindow = AndroidJNI.GetMethodID(view, "getLocationInWindow", "([I)V");
+                GetLocationOnScreen = AndroidJNI.GetMethodID(view, "getLocationOnScreen", "([I)V");
                 GetWidth = AndroidJNI.GetMethodID(view, "getWidth", "()I");
                 GetHeight = AndroidJNI.GetMethodID(view, "getHeight", "()I");
                 GetChildCount = AndroidJNI.GetMethodID(group, "getChildCount", "()I");
                 GetChildAt = AndroidJNI.GetMethodID(group, "getChildAt", "(I)Landroid/view/View;");
                 IntPtr array = AndroidJNI.ToIntArray(new int[2]);
-                if (CurrentActivityField == IntPtr.Zero || FindViewById == IntPtr.Zero || GetLocationInWindow == IntPtr.Zero
+                if (CurrentActivityField == IntPtr.Zero || FindViewById == IntPtr.Zero || GetLocationOnScreen == IntPtr.Zero
                     || GetWidth == IntPtr.Zero || GetHeight == IntPtr.Zero || GetChildCount == IntPtr.Zero
                     || GetChildAt == IntPtr.Zero || array == IntPtr.Zero)
                 {
@@ -641,7 +641,7 @@ namespace Bugsee.Capture
         string AvgMs(long ticks)
         {
             long n = Interlocked.Read(ref _timedFrames);
-            return n > 0 ? (ticks * 1000.0 / System.Diagnostics.Stopwatch.Frequency / n).ToString("F1") : "-";
+            return n > 0 ? (ticks * 1000.0 / System.Diagnostics.Stopwatch.Frequency / n).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) : "-";
         }
 
         // Colour of the centre pixel of the first and last buffer rows, to tell which row is the screen's top.

@@ -32,6 +32,11 @@ namespace Bugsee
         static ILifecycleEventListener _appLifecycleListener;
         const int DefaultSecureRectDisplayId = 0;
         static readonly SecureRectManualOwners _manualSecureRectOwners = new SecureRectManualOwners();
+        static readonly SecureRectScreenSync _screenSecureRects = new SecureRectScreenSync(
+            SecureRectRegistry.Instance, ReadSecureRectView, PushSecureBufferForDisplay,
+            message => Debug.LogWarning("[Bugsee] " + message));
+        // Snapshot and push of one display happen under this lock, so a stale snapshot cannot land after a newer one.
+        static readonly object _secureBufferLock = new object();
 
         /// <summary>Raised for every native lifecycle event (all 7.x <see cref="LifecycleEvents"/> strings).</summary>
         public static event Action<string, object> LifecycleEvent;
@@ -83,9 +88,16 @@ namespace Bugsee
         }
 
         /// <summary>
-        /// Relaunch the SDK with new options. Does not wait for the SDK, and waits for a stop in flight like
+        /// Relaunch the SDK with new options. The options REPLACE the whole option set (native SDKs do not merge): every
+        /// native option, the endpoint, <c>CaptureManagedExceptions</c> and <c>CaptureUnobservedTaskExceptions</c> not passed
+        /// again goes back to its default, and a call without options resets every option to its default (handlers, filters and
+        /// the lifecycle listener are kept). <c>TreatUnityLogExceptionsAsFatal</c> is only read when the managed exception
+        /// hooks are installed, so a Relaunch that keeps them does not change it. Pass the full option set you launched
+        /// with. Does not wait for the SDK, and waits for a stop in flight like
         /// <see cref="Launch"/> (the same 5 s main-thread hand-off applies on iOS). Android ignores it with a
-        /// warning unless the SDK is Launched. See <see cref="RelaunchAsync"/> for the result.
+        /// warning unless the SDK is Launched (the SDK refuses it). On Android (SDK 7.4.2) a Relaunch while one is in flight
+        /// joins it and its options are IGNORED, and a Stop before the relaunch has launched cancels it. See
+        /// <see cref="RelaunchAsync"/> for the result.
         /// </summary>
         public static void Relaunch(Dictionary<string, object> options = null)
         {
@@ -93,7 +105,11 @@ namespace Bugsee
             if (Bridge is ILifecycleResultBridge bridge)
             {
                 Interlocked.Increment(ref _pendingLaunches);
-                bridge.Relaunch(options, accepted => AfterLaunchResultCounted(accepted, startPusher, options));
+                // A relaunch that joined one in flight applied nothing of its own: it is answered as a request that changed
+                // nothing (the request it joined decides the pusher), which still lets a fallback deferred for it run.
+                var joined = false;
+                bridge.Relaunch(options, accepted =>
+                    AfterLaunchResultCounted(!joined && accepted, startPusher, joined ? null : options), () => joined = true);
             }
             else
             {
@@ -231,7 +247,11 @@ namespace Bugsee
             return result.Task;
         }
 
-        /// <summary><see cref="Relaunch"/> that completes with the SDK's answer, as <see cref="LaunchAsync"/>.</summary>
+        /// <summary>
+        /// <see cref="Relaunch"/> that completes with the SDK's answer, as <see cref="LaunchAsync"/>. Like <see cref="Relaunch"/> it
+        /// replaces the whole option set: options not passed again go back to their defaults (see its note on
+        /// <c>TreatUnityLogExceptionsAsFatal</c>).
+        /// </summary>
         public static Task<bool> RelaunchAsync(Dictionary<string, object> options = null)
         {
             options = ApplyCapturePolicy(options, out bool startPusher);
@@ -239,11 +259,12 @@ namespace Bugsee
             if (Bridge is ILifecycleResultBridge bridge)
             {
                 Interlocked.Increment(ref _pendingLaunches);
+                var joined = false; // a joined relaunch applied nothing of its own (Android): the request it joined decides the pusher
                 bridge.Relaunch(options, accepted =>
                 {
-                    try { AfterLaunchResultCounted(accepted, startPusher, options); }
+                    try { AfterLaunchResultCounted(!joined && accepted, startPusher, joined ? null : options); }
                     finally { result.TrySetResult(accepted); }
-                });
+                }, () => joined = true);
             }
             else
             {
@@ -289,18 +310,36 @@ namespace Bugsee
         public static BugseeStatus Status => Bridge.GetStatus();
 
         /// <summary>
-        /// The options the SDK is running with: its defaults with the ones passed to <see cref="Launch"/> merged over
-        /// them, as a read-only snapshot (changing it changes nothing). Null while the SDK is not launched. Keys are
-        /// the native SDK's own option names and differ between Android and iOS; values are string, bool, long,
-        /// double (or a nested dictionary or list); narrower numeric types are widened the same way on both platforms. The
-        /// SDK's internal keys (starting with a double dollar sign) are left out. A value with no such form, such as a
-        /// Java array, reads as its text.
+        /// The options the SDK is running with: its defaults with the ones passed to the last <see cref="Launch"/> or
+        /// <see cref="Relaunch"/> merged over them, as a read-only snapshot (changing it changes nothing). Null while the SDK
+        /// is not launched. Keys are the native SDK's own option names and differ between Android and iOS; values are string,
+        /// bool, long, double (or a nested dictionary or list); narrower numeric types are widened the same way on both
+        /// platforms. The SDK's internal keys (a double-dollar-sign name, bare or after the <c>com.bugsee.option.</c> prefix,
+        /// such as the endpoint) and the iOS wrapper_info map are left out. The Unity-only <c>unity.*</c> options are not reported on Android and can be
+        /// echoed on iOS, so this cannot rebuild the full set for a <see cref="Relaunch"/>: pass the set you launched with.
+        /// A value with no such form, such as a Java array, reads as its text.
         /// </summary>
         public static IReadOnlyDictionary<string, object> GetLaunchOptions()
         {
             var options = LaunchOptionsWire.Normalize(Bridge.GetLaunched() ? Bridge.GetLaunchOptions() : null);
             return options == null ? null : new ReadOnlyDictionary<string, object>(options);
         }
+
+        /// <summary>
+        /// Only the launch options the app itself passed to <see cref="Launch"/>/Relaunch, without the
+        /// SDK defaults that <see cref="GetLaunchOptions"/> merges them over, so "the app asked for this" can be told
+        /// from "this is the default". Never null: empty when nothing was passed (before the first launch it is empty,
+        /// unless the SDK restored the previous run's configuration, which it then returns). It keeps
+        /// describing the last applied configuration after <see cref="Stop"/> and is replaced, not merged, by the next
+        /// Launch or Relaunch (so a Relaunch with no options leaves it empty). Keys, value types and the left-out
+        /// internal keys are as in <see cref="GetLaunchOptions"/>; the keys are the native SDK's own and may differ
+        /// between Android and iOS. On iOS an option passed with its default value may be missing (the SDK drops
+        /// typed options equal to their default), and the wrapper's own <c>com.bugsee.option.unity.*</c> keys appear
+        /// (Android drops them). A read-only snapshot.
+        /// </summary>
+        public static IReadOnlyDictionary<string, object> GetHostLaunchOptions() =>
+            new ReadOnlyDictionary<string, object>(
+                LaunchOptionsWire.Normalize(Bridge.GetHostLaunchOptions()) ?? new Dictionary<string, object>());
 
         public static void StartBlackout() => Bridge.StartBlackout();
 
@@ -314,6 +353,7 @@ namespace Bugsee
         [Obsolete("Use StartBlackout/EndBlackout instead.")]
         public static void Resume() => EndBlackout();
 
+        /// <summary>Write a line to the Bugsee log. It skips the log filter (<see cref="SetLogEventFilter"/>): the native default; the wrapper does not expose the opt-in.</summary>
         public static void Log(string message, LogLevel level = LogLevel.Info) =>
             Bridge.Log(message, level);
 
@@ -323,7 +363,8 @@ namespace Bugsee
         /// <summary>
         /// Delete the data collected on the device, including finished report bundles. Stops the SDK first if it
         /// is not stopped (joining a stop in flight) and leaves it stopped: Launch again to resume. It has no
-        /// result; a failure is logged. On Android it runs in request order with Launch/Relaunch (ones requested
+        /// result; a failure is logged (use <see cref="DeleteCollectedDataOnDeviceAsync"/> for one, or to delete less).
+        /// On Android it runs in request order with Launch/Relaunch (ones requested
         /// earlier run first); on iOS a Launch/Relaunch requested after it waits for the wipe. A delete already
         /// handed to the native SDK can finish after the 10 s warning, and after the 60 s hard deadline an Android
         /// Launch can run while a native delete is still wiping.
@@ -334,11 +375,75 @@ namespace Bugsee
             Bridge.DeleteCollectedDataOnDevice();
         }
 
-        public static IReport CreateReport() => Bridge.CreateReport();
+        /// <summary>
+        /// <see cref="DeleteCollectedDataOnDevice()"/> for the data of <paramref name="scope"/> only. The narrower
+        /// scopes keep what the wider one deletes (see <see cref="DeleteScope"/>); the SDK is stopped either way.
+        /// </summary>
+        public static void DeleteCollectedDataOnDevice(DeleteScope scope)
+        {
+            CheckScope(scope);
+            ForgetPusherSession(); // it stops the SDK
+            if (Bridge is ILifecycleResultBridge bridge) bridge.DeleteCollectedData(scope, null);
+            else Bridge.DeleteCollectedDataOnDevice();
+        }
+
+        /// <summary>
+        /// <see cref="DeleteCollectedDataOnDevice(DeleteScope)"/> that completes with the SDK's answer: true when it
+        /// reported the data deleted, false when it refused, gave no answer in time, or on iOS the call did not reach
+        /// the Unity main thread within 5 s (a delete that was never started). It never completes with a
+        /// <see cref="TimeoutException"/> as <see cref="StopAsync"/> does: a timeout is a false. The time is counted
+        /// on Android from when this delete starts, after the operations requested before it, and includes its stop
+        /// (10 s); on iOS the stop and the wipe each give up after 60 s, so up to about 120 s, more behind another
+        /// wipe. A false after a timeout can still be followed by the wipe finishing. Deletes
+        /// <see cref="DeleteScope.Everything"/> by default, as <see cref="DeleteCollectedDataOnDevice()"/>. The SDK is
+        /// left stopped. On the other players, the Editor included, nothing is collected, so it completes true. A
+        /// value that is not a <see cref="DeleteScope"/> throws <see cref="ArgumentOutOfRangeException"/>. A failure of
+        /// the call is carried by the Task. Awaited from the Unity main thread, the continuation resumes there.
+        /// </summary>
+        public static Task<bool> DeleteCollectedDataOnDeviceAsync(DeleteScope scope = DeleteScope.Everything)
+        {
+            CheckScope(scope);
+            ForgetPusherSession(); // it stops the SDK
+            var result = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            try
+            {
+                if (Bridge is ILifecycleResultBridge bridge)
+                {
+                    bridge.DeleteCollectedData(scope, wiped => result.TrySetResult(wiped));
+                }
+                else
+                {
+                    Bridge.DeleteCollectedDataOnDevice();
+                    result.TrySetResult(true);
+                }
+            }
+            catch (Exception ex)
+            {
+                result.TrySetException(ex); // a failure of the call is carried by the Task, not thrown from the Async method
+            }
+            return result.Task;
+        }
+
+        // An undefined value, such as (DeleteScope)5, is refused: no native SDK may read it as one of the three, least of all as the widest.
+        static void CheckScope(DeleteScope scope)
+        {
+            if (!Enum.IsDefined(typeof(DeleteScope), scope))
+                throw new ArgumentOutOfRangeException(nameof(scope), scope, "Not a DeleteScope value.");
+        }
+
+        public static IReport CreateReport()
+        {
+            Internal.AttachmentSnapshotBootstrap.EnsureConfigured();
+            return Bridge.CreateReport();
+        }
 
         /// <summary>Release a report from <see cref="CreateReport"/> without uploading.</summary>
         public static void Discard(IReport report) => Bridge.DiscardReport(report);
 
+        /// <summary>
+        /// Add a breadcrumb to the report. Does nothing unless the launch option <c>CaptureBreadcrumbs</c> is true:
+        /// both native SDKs default it to false, and the breadcrumb filter is not called either.
+        /// </summary>
         public static void AddBreadcrumb(string category, string message, string levelName) =>
             Bridge.AddBreadcrumb(category, message, levelName);
 
@@ -446,6 +551,15 @@ namespace Bugsee
 
         public static object GetAttribute(string key) => Bridge.GetAttribute(key);
 
+        /// <summary>
+        /// A read-only snapshot of every attribute set with <see cref="SetAttribute"/>, typed as
+        /// <see cref="GetAttribute"/> reads them: string, bool, long or double. A container set natively reads as a
+        /// nested dictionary or list on Android and as its JSON text on iOS. Never null: empty when none is set.
+        /// </summary>
+        public static IReadOnlyDictionary<string, object> GetAllAttributes() =>
+            new ReadOnlyDictionary<string, object>(
+                new Dictionary<string, object>(Bridge.GetAllAttributes()));
+
         public static void ClearAttribute(string key) => Bridge.ClearAttribute(key);
 
         public static void ClearAllAttributes() => Bridge.ClearAllAttributes();
@@ -459,7 +573,9 @@ namespace Bugsee
         /// Limitation: the rectangle must already be in the native display's coordinate space. With Android
         /// Resolution Scaling or <c>Screen.SetResolution</c>, or a non-fullscreen Unity view (status bar or notch
         /// offset), <c>Screen.height</c> and pixels differ from native pixels, so scale or offset the rectangle
-        /// yourself. On iOS the wrapper divides by <c>UIScreen.scale</c>, which is wrong if the render size
+        /// yourself, or use <see cref="AddSecureScreenRectangle"/>, which takes Unity screen space and does it for you.
+        /// Adding the same rectangle twice needs two removals.
+        /// On iOS the wrapper divides by <c>UIScreen.scale</c>, which is wrong if the render size
         /// differs from points x scale.
         /// </summary>
         public static void AddSecureRectangle(RectInt pixelRect)
@@ -491,17 +607,140 @@ namespace Bugsee
             PushSecureBufferForDisplay(DefaultSecureRectDisplayId);
         }
 
+        /// <summary>
+        /// The rectangles currently hidden through <see cref="AddSecureRectangle"/>, in the top-left-origin pixels
+        /// they were registered with (normalised: an inverted rectangle has its corners in order), in no particular
+        /// order; empty when none. Each distinct rectangle is listed once and stays until removed as often as it was
+        /// added; rectangles added with <c>AddSecureScreenRectangle</c> are not returned. Answered by the wrapper, not the native
+        /// SDK: the wrapper hands the SDK its rectangles through its own secure-buffer provider, so the SDK's own
+        /// getAllSecureRectangles list is always empty here.
+        /// </summary>
+        public static RectInt[] GetAllSecureRectangles()
+        {
+            var rects = SecureRectRegistry.Instance.GetRects(
+                SecureRectManualOwners.OwnerIdPrefix, DefaultSecureRectDisplayId);
+            var result = new RectInt[rects.Count];
+            for (int i = 0; i < result.Length; i++)
+            {
+                int[] r = rects[i];
+                result[i] = new RectInt(r[0], r[1], r[2] - r[0], r[3] - r[1]);
+            }
+            return result;
+        }
+
         public static void RemoveAllSecureRectangles()
         {
             _manualSecureRectOwners.RemoveAll(SecureRectRegistry.Instance);
             PushSecureBufferForDisplay(DefaultSecureRectDisplayId);
+            // Queued like every screen-space call, so an add made before it, on any thread, is removed too.
+            MainThreadDispatcher.Post(() => _screenSecureRects.RemoveAll());
         }
+
+        /// <summary>
+        /// Hides a region given in Unity screen space: pixels of <c>Screen.width</c> x <c>Screen.height</c> with the origin at
+        /// the BOTTOM-left, as <c>Input.mousePosition</c> and <c>RectTransform.GetWorldCorners</c> of a Screen Space - Overlay
+        /// canvas give it (not <c>RectTransformUtility.PixelAdjustRect</c>, which is local to the canvas). The wrapper flips
+        /// it, scales it by the Unity surface's size over <c>Screen</c> (Resolution Scaling, <c>Screen.SetResolution</c>, iOS
+        /// render scale), offsets it by where the surface sits on the display (Android: its position on the screen; iOS: Unity's
+        /// view on the screen) and rounds outwards.
+        /// <para>
+        /// Contract: the rectangle is remembered as a FRACTION of the screen it was added for. It is converted again, within a
+        /// frame, when the screen size or the surface position changes, so it follows Resolution Scaling, a moving surface and
+        /// any layout that scales with the screen. It does NOT know about your layout: after a rotation, or any change that moves
+        /// the content differently (fixed-size UI, anchored elements), call <see cref="RemoveSecureScreenRectangle"/> with the
+        /// rectangle you added and add the new one, or it covers the wrong place.
+        /// </para>
+        /// <para>
+        /// It runs on the main thread, always queued: it takes effect on the next frame, in call order with the other
+        /// screen-space calls and with <see cref="RemoveAllSecureRectangles"/> (which removes the manual ones at once). Adding the same rectangle twice needs
+        /// two removals. Remove with exactly the values that were added (a rectangle recomputed from floats may differ in the
+        /// last bit and then removes nothing). NaN is ignored with a warning.
+        /// </para>
+        /// <paramref name="displayId"/> 0 is the main display and the only one verified on devices. For another one the rectangle
+        /// is in that <c>Display.displays[displayId]</c> rendering space and is converted with the display's system size and no
+        /// offset; whether the native SDKs ask for that display's rectangles was not verified. A display that does not exist
+        /// registers nothing and logs a warning; a negative id throws. A rectangle entirely off screen hides nothing.
+        /// </summary>
+        public static void AddSecureScreenRectangle(Rect unityScreenRect, int displayId = DefaultSecureRectDisplayId)
+        {
+            if (displayId < 0) throw new ArgumentOutOfRangeException(nameof(displayId));
+            // On the main thread the screen size is the one the rectangle was given for, read now; from another thread it is read
+            // when the call runs (Unity's Screen cannot be read there).
+            int sw = 0, sh = 0;
+            if (MainThreadDispatcher.IsMainThread)
+            {
+                if (displayId == DefaultSecureRectDisplayId)
+                {
+                    sw = Screen.width;
+                    sh = Screen.height;
+                }
+                else if (displayId < Display.displays.Length)
+                {
+                    sw = Display.displays[displayId].renderingWidth;
+                    sh = Display.displays[displayId].renderingHeight;
+                }
+            }
+            MainThreadDispatcher.Post(() => _screenSecureRects.Add(
+                unityScreenRect.xMin, unityScreenRect.yMin, unityScreenRect.xMax, unityScreenRect.yMax, displayId, sw, sh));
+        }
+
+        /// <summary>Stops hiding a rectangle added with <see cref="AddSecureScreenRectangle"/>; pass exactly the same rectangle and display.</summary>
+        public static void RemoveSecureScreenRectangle(Rect unityScreenRect, int displayId = DefaultSecureRectDisplayId)
+        {
+            if (displayId < 0) throw new ArgumentOutOfRangeException(nameof(displayId));
+            MainThreadDispatcher.Post(() => _screenSecureRects.Remove(
+                unityScreenRect.xMin, unityScreenRect.yMin, unityScreenRect.xMax, unityScreenRect.yMax, displayId));
+        }
+
+        // Unity's screen size and the surface's place in native pixels, for one display. Main thread only.
+        static SecureRectViewRead ReadSecureRectView(int displayId)
+        {
+            var read = new SecureRectViewRead();
+            if (displayId == DefaultSecureRectDisplayId)
+            {
+                read.ScreenWidth = Screen.width;
+                read.ScreenHeight = Screen.height;
+                // Android reports the display's real size here even when rendering at a lower resolution.
+                var current = Screen.currentResolution;
+                bool android = Application.platform == RuntimePlatform.Android;
+                read.FallbackWidth = android ? current.width : Screen.width;
+                read.FallbackHeight = android ? current.height : Screen.height;
+                read.Ok = Bridge.TryGetSecureRectViewRegion(
+                    read.ScreenWidth, read.ScreenHeight,
+                    out read.Left, out read.Top, out read.Width, out read.Height, out read.Settled);
+                // An unreadable surface may still report the display's native size (iOS): that is the better fallback.
+                if (!read.Ok && read.Width > 0 && read.Height > 0)
+                {
+                    read.FallbackWidth = read.Width;
+                    read.FallbackHeight = read.Height;
+                }
+                return read;
+            }
+
+            var displays = Display.displays;
+            if (displayId < displays.Length)
+            {
+                var d = displays[displayId];
+                read.ScreenWidth = d.renderingWidth;
+                read.ScreenHeight = d.renderingHeight;
+                read.Ok = read.Settled = true;
+                read.Width = read.FallbackWidth = d.systemWidth;
+                read.Height = read.FallbackHeight = d.systemHeight;
+            }
+            return read; // a display that does not exist: not Ok, no size
+        }
+
+        /// <summary>Called every frame by the dispatcher: converts screen-space rectangles again when their view changed.</summary>
+        internal static void TickSecureScreenRects() => _screenSecureRects.Tick();
 
         static void PushSecureBufferForDisplay(int displayId)
         {
-            float pixelsPerNativeUnit = Bridge.GetSecureRectSnapshotScale();
-            int[] packed = SecureRectRegistry.Instance.Snapshot(displayId, pixelsPerNativeUnit);
-            Bridge.SetSecureBuffer(displayId, packed);
+            lock (_secureBufferLock)
+            {
+                float pixelsPerNativeUnit = Bridge.GetSecureRectSnapshotScale();
+                int[] packed = SecureRectRegistry.Instance.Snapshot(displayId, pixelsPerNativeUnit);
+                Bridge.SetSecureBuffer(displayId, packed);
+            }
         }
 
         public static void CaptureViewHierarchy() => Bridge.CaptureViewHierarchy();
@@ -571,9 +810,19 @@ namespace Bugsee
         public static bool RemoveSecureWebView(IntPtr nativeWebView) =>
             Bridge.RemoveSecureWebView(nativeWebView);
 
+        /// <summary>
+        /// Filter the captured logs: the Unity log the wrapper forwards, and logcat on Android (both need
+        /// <c>CaptureLogs</c>). Lines written with <see cref="Log"/> skip this filter (the native default; the wrapper
+        /// does not expose the opt-in).
+        /// </summary>
         public static void SetLogEventFilter(EventFilter<ILogEvent> filter) =>
             Bridge.SetLogEventFilter(filter);
 
+        /// <summary>
+        /// Filter breadcrumbs before they are recorded. The filter is called only while the launch option
+        /// <c>CaptureBreadcrumbs</c> is true; both native SDKs default it to false, so with the default no
+        /// breadcrumb (from <see cref="AddBreadcrumb"/> or the SDK) reaches it.
+        /// </summary>
         public static void SetBreadcrumbFilter(EventFilter<IBreadcrumb> filter) =>
             Bridge.SetBreadcrumbFilter(filter);
 

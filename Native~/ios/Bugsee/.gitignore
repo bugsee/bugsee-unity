@@ -1,4 +1,4 @@
-# Built by Tools~/scripts/update-native-sdks.sh — do not commit the xcframework.
+# Do not commit the xcframework (get a 7.0.0-beta7 package from Tools~/scripts/assemble-local-ios-sdk.sh).
 Bugsee.xcframework/
 *.xcframework/
 .DS_Store

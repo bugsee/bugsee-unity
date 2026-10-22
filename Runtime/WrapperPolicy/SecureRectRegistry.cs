@@ -68,7 +68,7 @@ namespace Bugsee.WrapperPolicy
                 var keysToRemove = new List<(string ownerId, int displayId)>();
                 foreach (var key in _rectsByOwnerDisplay.Keys)
                 {
-                    if (key.ownerId != null && key.ownerId.StartsWith(ownerIdPrefix))
+                    if (key.ownerId != null && key.ownerId.StartsWith(ownerIdPrefix, StringComparison.Ordinal))
                         keysToRemove.Add(key);
                 }
 
@@ -122,6 +122,29 @@ namespace Bugsee.WrapperPolicy
                     count++;
                 }
                 return count;
+            }
+        }
+
+        /// <summary>
+        /// The rectangles of a display whose owner id starts with <paramref name="ownerIdPrefix"/>, each as
+        /// [l, t, r, b] (registered pixels, no scaling), ordered by owner id.
+        /// </summary>
+        public List<int[]> GetRects(string ownerIdPrefix, int displayId)
+        {
+            lock (_sync)
+            {
+                var owners = new List<string>();
+                foreach (var key in _rectsByOwnerDisplay.Keys)
+                {
+                    if (key.displayId == displayId && key.ownerId != null &&
+                        key.ownerId.StartsWith(ownerIdPrefix, StringComparison.Ordinal))
+                        owners.Add(key.ownerId);
+                }
+                owners.Sort(StringComparer.Ordinal);
+                var result = new List<int[]>(owners.Count);
+                foreach (var owner in owners)
+                    result.Add((int[])_rectsByOwnerDisplay[(owner, displayId)].Clone());
+                return result;
             }
         }
 

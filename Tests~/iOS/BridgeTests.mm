@@ -13,6 +13,8 @@ const char *_bugsee_test_copy_wrapper_version(void);
 const char *_bugsee_test_copy_wrapper_build(void);
 int _bugsee_test_wrapper_installed(void);
 const char *_bugsee_test_apply_breadcrumb_result(const char *startDataJson, const char *resultJson);
+const char *_bugsee_test_apply_breadcrumb_fields(const char *category, const char *message, const char *type, int level, const char *resultJson);
+const char *_bugsee_test_apply_log_result(const char *startText, int startLevel, const char *resultJson);
 const char *_bugsee_test_copy_context_value(const char *key);
 const char *_bugsee_test_apply_network_result(const char *startJson, const char *resultJson);
 typedef void (*BugseeDataRequestFn)(int64_t requestId, const char *dataType);
@@ -29,6 +31,8 @@ void _bugsee_set_attribute(const char *key, const char *valueJson);
 char *_bugsee_get_attribute(const char *key);
 void _bugsee_clear_attribute(const char *key);
 char *_bugsee_get_launch_options(void);
+char *_bugsee_get_host_launch_options(void);
+char *_bugsee_get_all_attributes(void);
 int _bugsee_test_default_bug_severity(void);
 const char *_bugsee_test_last_report_overload(void);
 int _bugsee_test_last_report_severity(void);
@@ -61,8 +65,10 @@ void _bugsee_start_blackout(void);
 void _bugsee_end_blackout(void);
 int _bugsee_is_blackout(void);
 typedef void (*BugseeDeleteCompletionFn)(int token, int wiped);
-void _bugsee_delete_collected_data(int token, BugseeDeleteCompletionFn completion);
+void _bugsee_delete_collected_data(int token, int scope, BugseeDeleteCompletionFn completion);
 const char *_bugsee_test_exception_options(const char *optionsJson);
+int _bugsee_test_last_delete_form(void);
+void _bugsee_test_reset_delete_form(void);
 int _bugsee_test_simulator_warning_count(void);
 int _bugsee_exceptions_filed(void);
 void _bugsee_logException(const char *name, const char *reason, bool handled, const char *optionsJson);
@@ -412,6 +418,25 @@ int main(void)
     expect(localized != NULL && same(localized, "i:1234567"), "integer attribute has no grouping under a comma locale");
     free(localized);
     _bugsee_clear_attribute("localized");
+    // The whole set comes back as one JSON object of tagged values (the text _bugsee_get_attribute returns).
+    _bugsee_set_attribute("all_s", "\"x\"");
+    _bugsee_set_attribute("all_i", "7");
+    _bugsee_set_attribute("all_b", "true");
+    _bugsee_set_attribute("all_d", "1.5");
+    char *allAttrs = _bugsee_get_all_attributes();
+    id parsedAll = allAttrs ? [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:allAttrs length:strlen(allAttrs)] options:0 error:nil] : nil;
+    expect([parsedAll isKindOfClass:[NSDictionary class]]
+           && [parsedAll[@"all_s"] isEqual:@"s:x"] && [parsedAll[@"all_i"] isEqual:@"i:7"]
+           && [parsedAll[@"all_b"] isEqual:@"b:1"] && [parsedAll[@"all_d"] isEqual:@"d:1.5"],
+           "all attributes come back as a JSON object of tagged values");
+    free(allAttrs);
+    _bugsee_clear_attribute("all_s");
+    _bugsee_clear_attribute("all_i");
+    _bugsee_clear_attribute("all_b");
+    _bugsee_clear_attribute("all_d");
+    allAttrs = _bugsee_get_all_attributes();
+    expect(allAttrs != NULL && ![[NSString stringWithUTF8String:allAttrs] containsString:@"all_"], "cleared attributes leave the snapshot");
+    free(allAttrs);
     setlocale(LC_ALL, "C");
     [defaults removeObjectForKey:@"AppleLocale"];
     [defaults removeObjectForKey:@"AppleLanguages"];
@@ -486,6 +511,16 @@ int main(void)
            "launch options come back as a JSON object with the defaults");
     expect([parsedOptions[BugseeMaxRecordingTimeKey] intValue] == 60, "launch options hold the host's value");
     free(launchOptions);
+    // Only what the host passed, none of the SDK defaults: a JSON object with fewer keys than the effective options (the device
+    // run of the sample's readapis scenario checks the values).
+    char *hostOptions = _bugsee_get_host_launch_options();
+    id parsedHost = hostOptions
+        ? [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:hostOptions length:strlen(hostOptions)] options:0 error:nil]
+        : nil;
+    expect([parsedHost isKindOfClass:[NSDictionary class]] && [parsedHost count] < [parsedOptions count]
+           && !parsedHost[BugseeMaxRecordingTimeKey], // 60 is the SDK default, which beta7 drops from the host options
+           "host launch options come back as a JSON object without the defaults");
+    free(hostOptions);
     // An omitted report severity is the SDK default, High until the host configures ReportingDefaultBugPriority.
     expect(_bugsee_test_default_bug_severity() == (int)BugseeSeverityHigh, "the default bug severity is High");
     // Which SDK overload each report entry point reaches (omitted severity is 0): the ones without a severity read
@@ -529,6 +564,34 @@ int main(void)
         const char *emptied = _bugsee_test_apply_breadcrumb_result(start, "{\"data\":{}}");
         expect(emptied != NULL && same(emptied, "{}"), "an empty data object clears the crumb data");
         free((void *)emptied);
+    }
+    // Issue 160: log event and breadcrumb filter results apply only the keys present; a JSON null clears a string.
+    {
+        const char *r;
+        r = _bugsee_test_apply_log_result("orig", 3, "{}");
+        expect(r != NULL && same(r, "{\"level\":3,\"text\":\"orig\"}"), "an empty log result keeps text and level");
+        free((void *)r);
+        r = _bugsee_test_apply_log_result("orig", 3, "{\"level\":5}");
+        expect(r != NULL && same(r, "{\"level\":5,\"text\":\"orig\"}"), "a log result with only a level keeps the text");
+        free((void *)r);
+        r = _bugsee_test_apply_log_result("orig", 3, "{\"message\":\"\"}");
+        expect(r != NULL && same(r, "{\"level\":3,\"text\":\"\"}"), "an empty log message applies as empty");
+        free((void *)r);
+        r = _bugsee_test_apply_log_result("orig", 3, "{\"message\":null}");
+        expect(r != NULL && same(r, "{\"level\":3,\"text\":\"\"}"), "a null log message applies as empty");
+        free((void *)r);
+        r = _bugsee_test_apply_breadcrumb_fields("c", "m", "t", 2, "{}");
+        expect(r != NULL && same(r, "{\"category\":\"c\",\"level\":2,\"message\":\"m\",\"type\":\"t\"}"),
+               "an empty breadcrumb result keeps every field");
+        free((void *)r);
+        r = _bugsee_test_apply_breadcrumb_fields(NULL, NULL, NULL, 2, "{\"level\":4}");
+        expect(r != NULL && same(r, "{\"category\":\"\",\"level\":4,\"message\":\"\",\"type\":\"\"}"),
+               "a breadcrumb result with only a level leaves the strings as the SDK stored them (it stores nil as empty)");
+        free((void *)r);
+        r = _bugsee_test_apply_breadcrumb_fields("c", "m", "t", 2, "{\"category\":\"\",\"message\":null}");
+        expect(r != NULL && same(r, "{\"category\":\"\",\"level\":2,\"message\":\"\",\"type\":\"t\"}"),
+               "a breadcrumb result applies empty and null strings as empty and keeps the rest");
+        free((void *)r);
     }
     // A report handler result reaches the SDK report as a change set: typed values stay typed, attributes the
     // handler did not touch are left alone, and only an explicit clear replaces the set.
@@ -608,9 +671,31 @@ int main(void)
     expect(waitFor(^{ return gStartedCount == 2 ? 1 : 0; }, 5) && gStartedToken == 42,
            "relaunch reports the SDK's started answer with its token");
     // The wipe reports back with its token once the SDK has finished it (it stops a running SDK first).
-    _bugsee_delete_collected_data(9, OnDeleted);
+    _bugsee_test_reset_delete_form();
+    _bugsee_delete_collected_data(9, 2, OnDeleted);
     expect(waitFor(^{ return gDeletedToken == 9 ? 1 : 0; }, 15), "delete reports its completion with its token");
     expect(gDeletedWiped == 1, "delete reports wiped on the normal path");
+    expect(_bugsee_test_last_delete_form() == 2, "scope 2 runs the SDK's form without a flag");
+    // The narrower scopes (capture only, capture and snapshots) call the flag form and report the same way.
+    for (int scope = 0; scope <= 1; scope++) {
+        int token = 20 + scope;
+        gDeletedWiped = -1;
+        _bugsee_delete_collected_data(token, scope, OnDeleted);
+        expect(waitFor(^{ return gDeletedToken == token ? 1 : 0; }, 15), "a scoped delete reports its completion with its token");
+        expect(gDeletedWiped == 1, "a scoped delete reports wiped on the normal path");
+        expect(_bugsee_test_last_delete_form() == scope, "a narrow scope runs the flag form, never the form without a flag");
+    }
+    // An undefined scope deletes nothing: it is reported as not wiped and no SDK delete form runs.
+    for (int bad = 0; bad < 2; bad++) {
+        int scope = bad == 0 ? 5 : -1;
+        int token = 30 + bad;
+        gDeletedWiped = -1;
+        _bugsee_test_reset_delete_form();
+        _bugsee_delete_collected_data(token, scope, OnDeleted);
+        expect(waitFor(^{ return gDeletedToken == token ? 1 : 0; }, 15), "an invalid scope still reports its completion");
+        expect(gDeletedWiped == 0, "an invalid scope reports not wiped");
+        expect(_bugsee_test_last_delete_form() == -1, "an invalid scope runs no SDK delete form");
+    }
     _bugsee_launch("00000000-0000-0000-0000-000000000000", NULL, 0, NULL);
     // The tests run on a simulator: the warning that exceptions are not filed there shows once, however many launches.
     expect(_bugsee_test_simulator_warning_count() == 1, "the simulator warning is logged once across launches");

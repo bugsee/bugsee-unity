@@ -108,6 +108,8 @@ used for symbol upload), `BUGSEE_ENDPOINT` (API host without `/v2`), `BUGSEE_E2E
 `BUGSEE_E2E_DEV` (`1` default | `0`), `BUGSEE_E2E_MINIFY`, `BUGSEE_E2E_OUT`, `BUGSEE_E2E_FORMAT` (Android: `apk` default | `aab` | `export`, a Gradle project), `BUGSEE_E2E_LAUNCH_TOKEN` (launch with a token other than the build's, to see the token-mismatch warning), `BUGSEE_E2E_NO_TOKEN` = 1 (build as a CI without the token: a dummy launch token and no symbol upload), and for iOS `BUGSEE_E2E_IOS_SIM`,
 `BUGSEE_E2E_IOS_SIM_ARCH`, `BUGSEE_E2E_APPEND`, `BUGSEE_E2E_SETTING_DEV`. A build modifies the tracked `ProjectSettings`.
 
+The sample sets the SDK-internal `$$ENDPOINT` launch option (from `BUGSEE_ENDPOINT`; both platforms) and `$$DEBUG` (Android only; the iOS SDK has no such option) with `SetCustomOption` and the raw keys in `InternalOptionKeys`: the native manifests mark them hidden, so the package has no typed `Endpoint`/`Debug` option (#108).
+
 ## Build Android
 
 1. Switch platform to Android.
@@ -128,20 +130,28 @@ runs scenarios on one Android device.
 
 | Scenario | What it does |
 |----------|--------------|
-| `interactions`, `actions`, `filters`, `presets` | self-checking (`PASS`/`FAIL` lines), described below |
+| `interactions`, `actions`, `filters`, `presets`, `nested`, `lifecycle` | self-checking (`PASS`/`FAIL` lines), described below; `nested` sends a handled exception with a three-level `InnerException` chain and checks that its payload has 3 levels and 2 `cause` keys (`[Sample] nested PASS levels=3 causes=2`) |
+| `vh` | self-checking (issue #111): calls `Bugsee.CaptureViewHierarchy()` twice and checks the native SDK asked and the wrapper built a non-null managed tree within the SDK's 500 ms window (development build only; it stops with a `SKIP` line when the preset turned `CaptureViewHierarchy` off). It does not prove the reply reached a report. Every capture in the sample is truncated (more than 1500 active objects, hard cap 1500 nodes, about 80 ms walk budget), so a complete tree is never seen. Use `WAIT=40` with `Tools~/scripts/e2e-android.sh` (the default 25 s can lose the `done` line) |
 | `sig` (default), `handled`, `unhandled`, `pipeline`, `upload`, `labels`, `logerror` | send handled / unhandled exceptions, a pipeline exception, a plain `Upload`, a handled exception with labels, or a Unity `LogError`, to see that a report arrives (`sig` sends three, to check the grouping signature) |
 | `crash`, `native`, `abort`, `fatal`, `java`, `hang` | kill the process (or block the main thread) for the crash matrix; one per run |
 | `sigraise` | raise SIGSEGV (iOS only; does nothing on Android) |
 | `nullderef` | write to an unmapped address, a hardware fault on both platforms |
-| `attrsnoop`, `attrsedit` | a report handler runs on a report with an int, bool, double, string and numeric-looking-string attribute; `attrsedit` also adds, changes and removes attributes. Logged `[ATTRS]` with each attribute's managed type before and after the handler |
+| `attrsnoop`, `attrsedit` | a report handler runs on a report with an int, bool, double, string and numeric-looking-string attribute; `attrsedit` also adds, changes and removes attributes. Logged `[ATTRS]` with each attribute's managed type before and after the handler; `attrsedit` also logs `[ATTRS] check ...` PASS/FAIL lines (integers read back as `long`; a list and a map set in the handler must carry their data: JSON text on Android, a managed container on iOS, never a type name) |
 | `severity`, `severitylabels` | reports with no severity must take `ReportingDefaultBugPriority` (`bugsee_bug_priority`), an explicit severity must win; `severitylabels` does it with labels. Logged by a handler; ends on an open report dialog to dismiss |
+| `trace` | `Trace` with a map, a list, an array, oversized lists (one with an emoji at the cap), a string, an int, a float 1.0 and a `byte[]`; asserts on what the bridge handed to the SDK (`TraceProbe`: the JSON string on iOS, the boxed Java value on Android) and fails if the SDK did not launch. Logs `[TRACE] wire ...` and `[Sample] trace PASS\|FAIL ...` lines ending in `trace e2e done failures=N` |
+| `culture` | self-checking: under de-DE and ru-RU sends double, float, decimal and bool values as attributes (read back with GetAttribute, must be 1.5 and true, not "1,5" or "True") and through event parameters, a trace value, LogException fields and a breadcrumb filter (issue #143; only the attribute read-back can detect the bug, the rest is logged as SMOKE ONLY); logs `[Sample] culture PASS/FAIL` lines |
 | `netfilter` | four network event filters (pass-through, redacting, one that empties the body, one that returns a replacement event) over events from the exchange factory; each logs what it was handed and left, tagged `[NETFILTER]`, and the run ends with `managed checks` (what native applied is not visible from C#) |
 | `options` | logs which launch-option keys the platform gate lets reach the native SDK, tagged `[OPTIONS]` |
+| `securerect` | paints a green box at a Unity screen rectangle, registers it with `AddSecureScreenRectangle` and logs the native rectangle the wrapper made of it, tagged `[SECURERECT]`, again whenever it changes (`bugsee_secure_scale` / `BUGSEE_SECURE_SCALE` = N renders at 1/N resolution first, `bugsee_secure_rotate_s` / `BUGSEE_SECURE_ROTATE_S` = S rotates after S seconds); the scenario also logs the bounding box of the rendered green box; compare with a screenshot |
+| `sigthreads` | the same managed exception thrown at one site and reported from the main thread and from a worker thread; logs `[SIGTHREADS]` with the client signature and (Android) the SDK's own signature for each, `PASS` (Android only; `INCONCLUSIVE` if the probe could not run, `SKIP` elsewhere) when they agree and the control differs; a plain Java exception is logged as a control that differs per thread |
 | `blackout` | logs `IsBlackout` after StartBlackout, EndBlackout, StartBlackout + Relaunch, StartBlackout + Stop and a fresh Launch, tagged `[BLACKOUT]` |
 | `feedback` | calls `Feedback.SetDefaultGreeting`, `SetListener` and `ShowFeedbackUi`, then logs the Unity focus (and, on iOS, the view controllers presented over Unity) for 3 s and the count of the wrapper's "Feedback is not available" warning, tagged `[FEEDBACK]`; pass `bugsee_feedback=on` / `BUGSEE_E2E_FEEDBACK=on` for a build made with the add-on (`BUGSEE_FEEDBACK=1` or the `BUGSEE_FEEDBACK` scripting define: expect no warning and the native chat on top), `off` for one without (expect exactly one warning); the native UI is checked on the device (screenshot, `dumpsys`) |
 | `videoperm` | calls `ResetVideoCapturePermission` twice and counts the wrapper's warning for the iOS no-op (expected: iOS one, Android none); logs `[VIDPERM] RESULT PASS` or `FAIL`; the iOS warning is once per process, so run it in a fresh process (an earlier Reset call from the debug panel makes it report `already warned` and FAIL) |
+| `readapis` | self-checking (`[Sample] readapis PASS\|FAIL ...`, ending in `readapis e2e done failures=N`): relaunches with known options and compares `GetHostLaunchOptions` with them (and with `GetLaunchOptions`), sets attributes of every type and compares `GetAllAttributes`, adds and removes secure rectangles and compares `GetAllSecureRectangles` |
 | `delete` | `DeleteCollectedDataOnDevice`, a relaunch, then an upload |
+| `deletescope` | self-checking (`PASS`/`FAIL`): for each `DeleteScope`, makes capture data, a draft report and a report whose upload fails (the SDK is relaunched against a dead endpoint, so its bundle waits for upload), calls `DeleteCollectedDataOnDeviceAsync` and checks the result, the status and the SDK's files left on disk (capture, snapshots, bundles); also the plain call, the default argument, the synchronous scoped overload, two scopes at once and a launch right after the delete |
 | `apm`, `apmoff`, `apmleak`, `apmpool`, `apmthrnew`, `apmthrjava`, `apmthrui` | APM stress and API-shape checks |
+| `logpath` | self-checking (`PASS`/`FAIL`): feeds `ManagedExceptionPayload.FromUnityLog` the text Unity really rendered for a logged exception, plus synthetic frames with IL offsets, Mono method starts, `#00 pc` and absolute `0x` values, and checks no frame carries an address and `moduleUUID` is set on IL2CPP. It tests `FromUnityLog` itself, not the payload the SDK sent (a normal `Debug.LogException` takes the throw path); also logs the throw path's payload and image, tagged `[LOGPATH]` (issue #105) |
 | `shapes` | throw shapes for frame/IP pairing, logged tagged `[SHAPE]` |
 | `none` | arm nothing (recovery launch) |
 
@@ -196,15 +206,14 @@ preset in use, the number of option keys the SDK reports, one button per preset 
 button that logs every key.
 
 A relaunch REPLACES the SDK's option set on both platforms (the native SDKs do not merge): the options that are not passed again go
-back to their defaults, including the managed `unity.*` options and the endpoint, and `Relaunch()` without options resets everything
-to the defaults. The Relaunch bubble therefore passes the whole option set of the last launch again (on Android it used to pass
+back to their defaults, including the endpoint, `CaptureManagedExceptions` and `CaptureUnobservedTaskExceptions` (`TreatUnityLogExceptionsAsFatal`
+is only read when the managed exception hooks are installed, so a relaunch that keeps them does not change it), and `Relaunch()` without options resets every option to its default. The Relaunch bubble therefore passes the whole option set of the last launch again (on Android it used to pass
 only the video options, on iOS nothing).
 
-`BUGSEE_E2E_SCENARIO=presets` waits for the SDK to launch, relaunches with no options to learn each option's SDK default, then
+`BUGSEE_E2E_SCENARIO=presets` waits for the SDK to launch, relaunches with only the options the sample cannot run without (endpoint, debug, video capture and mode) to learn each other option's SDK default, then
 relaunches with each preset in turn (`RelaunchAsync`) and compares every option the sample sent with what
 `Bugsee.GetLaunchOptions()` reports (numbers by value; the Android SDK reports enum options by name, such as `V2` or `Verbose`, and
-never reports the Unity-only options, so those are not compared there; the SDK's own `$$` keys and, on iOS, the Android-only options
-are left out; at least 5 keys must be compared). An option whose value equals the SDK default proves nothing, so the scenario counts
+never reports the Unity-only options, so those are not compared there; the SDK's own `$$` keys, on iOS the Android-only options and on Android the iOS-only options (the gate drops them) are left out; at least 5 keys must be compared). An option whose value equals the SDK default proves nothing, so the scenario counts
 only the options that differ from the default: every non-default preset must have at least 8, every option the presets set must
 differ from the default in at least one preset, and each preset must read back differently from the launch before it. It also
 checks that the Relaunch bubble keeps the whole set, that a relaunch with only `Duration` applies it and leaves the others at their
@@ -216,16 +225,33 @@ checked as such: with `CaptureBreadcrumbs` a breadcrumb reaches the breadcrumb f
 a network event reaches the network filter and without it none does. The effect of the other options is not observable from the sample.
 It logs `[Sample] presets PASS|FAIL ...` lines ending in `presets e2e done failures=N`.
 
+The iOS presets also set the typed iOS-only options of `IOSLaunchOptions` (`CrashSignals`, `CaptureWebSocket`, `CaptureAVPlayer`,
+`CaptureVideoPrivacyBlur`, the frame-rate limits, `DataEncryption`, `ReportingUIStyle`, `BuildTarget`, ... #97); `minimal` and `detect`
+set the booleans to opposite values and the `privacy` preset sets some through `OptionsBuilder`. Android never sets them and drops them
+if they are sent (the `options` scenario sends every one and checks that Android reports none). `detect` turns on
+`CaptureBluetoothStatus`, which only reports a status when the app itself got Bluetooth permission (the sample never asks, so it reads unknown).
+
+The presets also set the Android 7.4.2 options with typed properties (#96): `MaxDataSize` and `NotifyFlushDelay` on both platforms, and on Android `MaxPendingReports`, `MaxPendingReportAge`, the hang and ANR sampling switches, `DetectAndReportExitLowMemoryBackgroundAsError`, `DetectAndReportCrashNdk` and `CrashNdkIncludeTombstoneLogs`. The two NDK keys are skipped in the comparison when the SDK does not report them (the NDK extension is not registered on Unity 6 with the Gradle plugin, #226). The `options` scenario sends each at a non-default value and logs `[OPTIONS] key sent=... native=...`.
+
+### Lifecycle check (`lifecycle` e2e scenario, Android)
+
+The `lifecycle` scenario (Android intent extra `bugsee_e2e`, issue #176) runs Launch/Relaunch/Stop sequences once the SDK is launched. Part 1 calls the native
+`Bugsee.relaunch/stop/launch` directly and logs what the SDK itself answers (`[Sample] lifecycle RAW ...`): a refused relaunch, two
+relaunches in a row, `stop()` during a relaunch, `launch()` during a relaunch's stop, and `stop()` in a relaunch's launch half. The
+same scenario in a build that pins another Android SDK version shows what a release changed; PASS/FAIL is judged only when the build
+pins SDK 7.4.2. Part 2 runs the same sequences through the public facade (the wrapper's lifecycle machine) and logs
+`[Sample] lifecycle PASS|FAIL ...`, ending in `lifecycle e2e done failures=N`. It does nothing on iOS.
+
 ### Filter check (`filters` e2e scenario)
 
 `BUGSEE_E2E_SCENARIO=filters` (iOS env var, Android intent extra `bugsee_e2e`) waits for the SDK to launch, turns the Filters
 bubble on, and sends what the Network Event and Breadcrumb bubbles send plus, on Android, a Debug line written to logcat. It
 waits for each filter's counter to move: the network filter redacts the `password-reset` URL and the body, the breadcrumb filter
 drops every breadcrumb (the scenario counts its own `e2e` breadcrumbs apart from the SDK's `http` ones), and the log filter drops
-Debug and Verbose lines. `Bugsee.Log` lines skip the log filter on both platforms (the wrapper submits them without filtering), so
-the log filter only sees what the SDK captures itself (the Unity log, logcat on Android); on iOS which Debug lines it drops depends
+Debug and Verbose lines. `Bugsee.Log` lines skip the log filter on both platforms (the native log API defaults to no filtering and the wrapper does not expose the opt-in), so
+the log filter only sees the captured logs (the Unity log the wrapper forwards, logcat on Android); on iOS which Debug lines it drops depends
 on what the SDK logs, so the scenario only requires that it ran there. It then turns the filters off and checks that the SDK calls
-no filter any more (the seen counters stay 0). It logs `[Sample] filters PASS|FAIL ...` lines ending in
+no filter any more (the seen counters stay 0), then runs the filters in pass-through mode (nothing dropped; one breadcrumb is left alone, one has only its message edited) to exercise results that carry only the touched fields (#160); it checks that the filter saw the untouched breadcrumb and edited the marked one (the SDK has no read-back, so the applied values are covered by `BridgeTests`). It logs `[Sample] filters PASS|FAIL ...` lines ending in
 `filters e2e done failures=N`. The sample launches with `CaptureBreadcrumbs = true`: the option is off by default, and without it no
 breadcrumb reaches the breadcrumb filter. The HUD shows the live counters on its `flt on|off nR/S lD/S bD/S` line (redacted or
 dropped / seen, for the network, log and breadcrumb filter); the network and breadcrumb filters also log each redaction or drop.

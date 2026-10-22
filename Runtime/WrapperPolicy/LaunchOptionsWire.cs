@@ -7,12 +7,24 @@ namespace Bugsee.WrapperPolicy
     /// <summary>
     /// Makes the launch options read the same on both platforms: integer types widen to long and float to double
     /// (Android returns Integer/Float for some defaults, iOS parses JSON as long/double), also inside nested maps and
-    /// lists, and the SDK-internal keys starting with <c>$$</c> (Android's <c>$$ENDPOINT</c>, <c>$$DEBUG</c>,
-    /// <c>$$WRAPPER</c>) are left out.
+    /// lists, and the SDK-internal keys (a <c>$$</c> name, bare or after the <c>com.bugsee.option.</c> prefix: Android's
+    /// <c>$$ENDPOINT</c>, <c>$$DEBUG</c>, <c>$$WRAPPER</c>, iOS's <c>$$ENDPOINT</c>) are left out.
     /// </summary>
     public static class LaunchOptionsWire
     {
         public const string InternalKeyPrefix = "$$";
+        /// <summary>iOS: the map the wrapper adds to identify itself (Android's <c>$$WRAPPER</c>); left out like the hidden keys.</summary>
+        public const string WrapperInfoKey = "wrapper_info";
+        const string OptionKeyPrefix = "com.bugsee.option.";
+
+        /// <summary>True for a hidden SDK-internal key: <c>$$X</c> or <c>com.bugsee.option.$$X</c>.</summary>
+        public static bool IsInternalKey(string key)
+        {
+            if (key == null) return false;
+            if (key.StartsWith(InternalKeyPrefix, StringComparison.Ordinal)) return true;
+            return key.StartsWith(OptionKeyPrefix, StringComparison.Ordinal)
+                && string.CompareOrdinal(key, OptionKeyPrefix.Length, InternalKeyPrefix, 0, InternalKeyPrefix.Length) == 0;
+        }
 
         public static Dictionary<string, object> Normalize(IEnumerable<KeyValuePair<string, object>> options)
         {
@@ -20,7 +32,7 @@ namespace Bugsee.WrapperPolicy
             var result = new Dictionary<string, object>();
             foreach (var kv in options)
             {
-                if (kv.Key == null || kv.Key.StartsWith(InternalKeyPrefix, StringComparison.Ordinal)) continue;
+                if (kv.Key == null || IsInternalKey(kv.Key) || kv.Key == WrapperInfoKey) continue;
                 result[kv.Key] = Value(kv.Value);
             }
             return result;

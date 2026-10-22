@@ -21,6 +21,20 @@ namespace Bugsee.WrapperPolicy.Tests
             throw new InvalidOperationException("Could not locate repo root (package.json).");
         }
 
+        /// <summary>An expression-bodied member (=&gt;): from its signature to the terminating semicolon.</summary>
+        static string ExtractExpressionBody(string source, string signature)
+        {
+            int start = source.IndexOf(signature, StringComparison.Ordinal);
+            Assert.That(start, Is.GreaterThanOrEqualTo(0), "Method missing: " + signature);
+            int arrow = source.IndexOf("=>", start, StringComparison.Ordinal);
+            int brace = source.IndexOf('{', start);
+            Assert.That(arrow, Is.GreaterThan(start), "Not expression-bodied: " + signature);
+            Assert.That(brace < 0 || arrow < brace, "Not expression-bodied (a block comes first): " + signature);
+            int end = source.IndexOf(';', arrow);
+            Assert.That(end, Is.GreaterThan(arrow));
+            return source.Substring(start, end - start + 1);
+        }
+
         static string ExtractMethodBody(string source, string methodSignature)
         {
             int start = source.IndexOf(methodSignature, StringComparison.Ordinal);
@@ -125,6 +139,22 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Facade_read_apis_are_never_null_read_only_and_answered_per_source()
+        {
+            string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));
+            string host = ExtractExpressionBody(facade, "public static IReadOnlyDictionary<string, object> GetHostLaunchOptions()");
+            Assert.That(host, Does.Contain("Bridge.GetHostLaunchOptions()"));
+            Assert.That(host, Does.Contain("new ReadOnlyDictionary<string, object>"));
+            string all = ExtractExpressionBody(facade, "public static IReadOnlyDictionary<string, object> GetAllAttributes()");
+            Assert.That(all, Does.Contain("new Dictionary<string, object>(Bridge.GetAllAttributes())"), "a copy: later changes do not show in an earlier snapshot");
+            Assert.That(all, Does.Contain("Bridge.GetAllAttributes()"));
+            Assert.That(all, Does.Not.Contain("LaunchOptionsWire"), "attributes are not launch options: no key filtering");
+            string rects = ExtractMethodBody(facade, "public static RectInt[] GetAllSecureRectangles()");
+            Assert.That(rects, Does.Contain("SecureRectManualOwners.OwnerIdPrefix"));
+            Assert.That(rects, Does.Not.Contain("Bridge."), "the wrapper's registry answers: the SDK's own list is never fed");
+        }
+
+        [Test]
         public void Facade_notify_requires_a_title_and_cleans_the_fields_before_the_bridge()
         {
             string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));
@@ -154,7 +184,8 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(launch, Does.Contain("finally { result.TrySetResult(accepted); }"));
             string relaunch = ExtractMethodBody(facade, "public static Task<bool> RelaunchAsync(Dictionary<string, object> options = null)");
             Assert.That(relaunch, Does.Contain("bridge.Relaunch(options, accepted =>"));
-            Assert.That(relaunch, Does.Contain("try { AfterLaunchResultCounted(accepted, startPusher, options); }"));
+            Assert.That(relaunch, Does.Contain("AfterLaunchResultCounted(!joined && accepted, startPusher, joined ? null : options)"));
+            Assert.That(relaunch, Does.Contain("() => joined = true"), "a joined relaunch must not touch the pusher: the request it joined decides");
             Assert.That(relaunch, Does.Contain("finally { result.TrySetResult(accepted); }"));
             string stop = ExtractMethodBody(facade, "public static Task StopAsync()");
             Assert.That(stop, Does.Contain("bridge.Stop("));
@@ -315,8 +346,8 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Android_delete_collected_data_stops_then_deletes()
         {
             string android = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs"));
-            string body = ExtractMethodBody(android, "internal void DeleteCollectedDataOnDevice(Action<bool> completion)");
-            Assert.That(body, Does.Contain("Lifecycle.DeleteCollectedData(completion)"));
+            string body = ExtractMethodBody(android, "internal void DeleteCollectedDataOnDevice(DeleteScope scope, Action<bool> completion)");
+            Assert.That(body, Does.Contain("Lifecycle.DeleteCollectedData(scope, completion)"));
             Assert.That(body, Does.Contain("MainThreadDispatcher.Run("));
 
             string callback = File.ReadAllText(RepoFile("Runtime/Platform/Android/Proxies/CallbackProxies.cs"));
@@ -346,7 +377,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string launchBody = ExtractMethodBody(bridge, "internal void Launch(string appToken, IDictionary<string, object> options, Action<bool> completion)");
             Assert.That(launchBody.IndexOf("MainThreadDispatcher.Run", StringComparison.Ordinal),
                 Is.LessThan(launchBody.IndexOf("ManagedExceptionPayload.EnsureBuildIdentity()", StringComparison.Ordinal)));
-            Assert.That(ExtractMethodBody(bridge, "internal void Relaunch(IDictionary<string, object> options, Action<bool> completion)"),
+            Assert.That(ExtractMethodBody(bridge, "internal void Relaunch(IDictionary<string, object> options, Action<bool> completion, Action joined = null)"),
                 Does.Contain("Lifecycle.Relaunch(options, ok =>").And.Contain("completion?.Invoke(ok);"));
             Assert.That(ExtractMethodBody(bridge, "void Stop(Action completion, Action<bool> finished)"),
                 Does.Contain("Lifecycle.Stop(completion, finished)"));
@@ -360,8 +391,45 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(System.Text.RegularExpressions.Regex.Matches(bridge, "new BooleanCallback1Proxy\\(OnMain\\(done\\)\\)").Count, Is.EqualTo(3));
             Assert.That(bridge, Does.Contain("new RunnableProxy(() => MainThreadDispatcher.Run(done))"));
             Assert.That(bridge, Does.Contain("_bridge.Lifecycle.Tick()"));
+            // The scope picks the two flags: Everything is (true, true), the narrower ones keep the report bundles.
             Assert.That(System.Text.RegularExpressions.Regex.IsMatch(bridge,
-                @"""deleteCollectedDataOnDevice"",\s*true,\s*true,"), Is.True, "includingIntermediate and includingBundles");
+                @"""deleteCollectedDataOnDevice"",\s*scope != DeleteScope.CaptureOnly,\s*scope == DeleteScope.Everything,"),
+                Is.True, "includingIntermediate and includingBundles");
+        }
+
+        [Test]
+        public void Delete_scopes_reach_both_natives_and_the_default_stays_the_widest()
+        {
+            string facade = File.ReadAllText(RepoFile("Runtime/Bugsee.cs"));
+            Assert.That(ExtractMethodBody(facade, "public static void DeleteCollectedDataOnDevice()"),
+                Does.Contain("Bridge.DeleteCollectedDataOnDevice();"));
+            Assert.That(facade, Does.Contain("DeleteCollectedDataOnDeviceAsync(DeleteScope scope = DeleteScope.Everything)"));
+            Assert.That(ExtractMethodBody(facade, "public static void DeleteCollectedDataOnDevice(DeleteScope scope)"),
+                Does.Contain("bridge.DeleteCollectedData(scope, null)"));
+            Assert.That(ExtractMethodBody(facade, "public static Task<bool> DeleteCollectedDataOnDeviceAsync(DeleteScope scope = DeleteScope.Everything)"),
+                Does.Contain("ForgetPusherSession()").And.Contain("bridge.DeleteCollectedData(scope, wiped => result.TrySetResult(wiped))"));
+
+            string android = File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidBridge.cs"));
+            Assert.That(android, Does.Contain("public void DeleteCollectedDataOnDevice() => DeleteCollectedDataOnDevice(DeleteScope.Everything, null);"));
+            string ios = File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs"));
+            Assert.That(ios, Does.Contain("public void DeleteCollectedDataOnDevice() => DeleteCollectedData(DeleteScope.Everything, null);"));
+            Assert.That(ios, Does.Contain("WipeResults.Settle(token, wiped != 0, RunResult)"));
+            Assert.That(ios, Does.Contain("WipeResults.Settle(token, false, RunResult)"), "the hard deadline answers the wipe");
+
+            string native = File.ReadAllText(RepoFile("Plugins/iOS/BugseeUnityBridge.mm"));
+            string body = ExtractNativeFunctionBody(native, "_bugsee_delete_collected_data");
+            Assert.That(body, Does.Contain("[Bugsee deleteCollectedDataOnDevice:(scope == 1) completion:done]"));
+            Assert.That(body, Does.Contain("if (scope == 2)"));
+            Assert.That(body, Does.Contain("if (scope < 0 || scope > 2)"), "an undefined scope deletes nothing, never everything");
+            Assert.That(ExtractMethodBody(facade, "static void CheckScope(DeleteScope scope)"), Does.Contain("Enum.IsDefined"));
+            Assert.That(ExtractMethodBody(facade, "public static void DeleteCollectedDataOnDevice(DeleteScope scope)"), Does.Contain("CheckScope(scope)"));
+            Assert.That(ExtractMethodBody(facade, "public static Task<bool> DeleteCollectedDataOnDeviceAsync(DeleteScope scope = DeleteScope.Everything)"),
+                Does.Contain("CheckScope(scope)").And.Contain("TrySetException"));
+            Assert.That(android, Does.Contain("if (!Enum.IsDefined(typeof(DeleteScope), scope)) { done(false); return; }"));
+            // The enum values are the wire values of the native scope argument.
+            Assert.That(new[] { (int)Bugsee.Contracts.Lifecycle.DeleteScope.CaptureOnly,
+                (int)Bugsee.Contracts.Lifecycle.DeleteScope.CaptureAndIntermediate,
+                (int)Bugsee.Contracts.Lifecycle.DeleteScope.Everything }, Is.EqualTo(new[] { 0, 1, 2 }));
         }
 
         [Test]
@@ -418,7 +486,7 @@ namespace Bugsee.WrapperPolicy.Tests
             string stop = ExtractMethodBody(android, "public void Stop(Action completion = null)");
             Assert.That(stop, Does.Contain("AndroidManagedReportUploadFence.Invalidate"));
             Assert.That(stop, Does.Contain("_openReport = null"));
-            string delete = ExtractMethodBody(android, "public void DeleteCollectedDataOnDevice()");
+            string delete = ExtractMethodBody(android, "internal void DeleteCollectedDataOnDevice(DeleteScope scope, Action<bool> completion)");
             Assert.That(delete, Does.Contain("AndroidManagedReportUploadFence.Invalidate"));
             Assert.That(delete, Does.Contain("_openReport = null"));
         }
@@ -530,19 +598,20 @@ namespace Bugsee.WrapperPolicy.Tests
 
             string iosDelete = ExtractMethodBody(
                 File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs")),
-                "public void DeleteCollectedDataOnDevice()");
+                "void DeleteCollectedData(DeleteScope scope, Action<bool> done)");
             Assert.That(iosDelete, Does.Not.Contain("CaptureForPendingDelete"));
             Assert.That(iosDelete, Does.Not.Contain("RunIfCurrent"));
 
             // The wipe is a native operation in flight that holds a following launch until it is reported.
             string beginDelete = ExtractMethodBody(
                 File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs")),
-                "static void BeginNativeDelete()");
-            Assert.That(beginDelete, Does.Contain("holdsLaunch: true"));
-            Assert.That(beginDelete, Does.Contain("if (StopWaiters.TryCoalesceWipe()) return;"));
-            Assert.That(iosDelete, Does.Contain("if (StopWaiters.TryCoalesceWipe()) return;"));
+                "static void BeginNativeDelete(DeleteScope scope, Action<bool> done)");
+            Assert.That(File.ReadAllText(RepoFile("Runtime/WrapperPolicy/NativeWipeGate.cs")), Does.Contain("holdsLaunch: true"));
+            Assert.That(beginDelete, Does.Contain("if (WipeGate.TryJoinOrQueue(scope, done, () => BeginNativeDelete(scope, done))) return;"));
+            Assert.That(iosDelete, Does.Contain("if (WipeGate.TryJoinOrQueue(scope, done, () => BeginNativeDelete(scope, done))) return;"));
+            Assert.That(iosDelete, Does.Contain("Interlocked.CompareExchange(ref started, 2, 0) == 0"), "done is answered once");
             Assert.That(beginDelete, Does.Contain("GiveUpIfStopNotReported(token)"));
-            Assert.That(beginDelete, Does.Contain("_bugsee_delete_collected_data(token, OnNativeDeleted)"));
+            Assert.That(beginDelete, Does.Contain("_bugsee_delete_collected_data(token, (int)scope, OnNativeDeleted)"));
             Assert.That(body, Does.Contain("completion(token, success ? 1 : 0)"));
             // The timeout path reports "not wiped" instead of ordinary completion, and managed code warns about it
             // but still releases the deferred launch.
@@ -553,7 +622,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(deleted, Does.Contain("if (wiped == 0)"));
             Assert.That(deleted, Does.Contain("Debug.LogWarning"));
             Assert.That(deleted, Does.Contain("CompleteStop(token)"));
-            Assert.That(iosDelete, Does.Contain("StopNativeThen(BeginNativeDelete, first: true)"));
+            Assert.That(iosDelete, Does.Contain("StopNativeThen(() => BeginNativeDelete(scope, done), first: true)"));
         }
 
         [Test]
@@ -686,7 +755,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
             // Delete tears the managed hooks down unconditionally, in one main-thread closure: Launch installs them
             // even when the SDK then refuses it, and the SDK's status must not be read off the main thread.
-            string delete = ExtractMethodBody(ios, "public void DeleteCollectedDataOnDevice()");
+            string delete = ExtractMethodBody(ios, "void DeleteCollectedData(DeleteScope scope, Action<bool> done)");
             Assert.That(delete, Does.Contain("RunSyncLifecycle"));
             // ...and in request order: no generation fence skips it when a Launch follows.
             Assert.That(delete, Does.Not.Contain("DeleteCollectedDataLaunchGeneration"));
@@ -775,7 +844,7 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             string body = ExtractMethodBody(
                 File.ReadAllText(RepoFile("Runtime/Platform/IOS/IOSBridge.cs")),
-                "public void DeleteCollectedDataOnDevice()");
+                "void DeleteCollectedData(DeleteScope scope, Action<bool> done)");
             Assert.That(body, Does.Contain("_openReport = null"));
             Assert.That(body, Does.Contain("_openReportHandle = null"));
             Assert.That(body, Does.Contain("_networkLaunchBuffer.SetPhase(NetworkLaunchPhase.Stopped)"));
