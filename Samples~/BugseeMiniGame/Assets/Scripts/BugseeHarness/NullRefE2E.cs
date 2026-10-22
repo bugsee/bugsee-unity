@@ -74,12 +74,13 @@ namespace Bugsee.Sample
             yield return new WaitForSeconds(1f);
             Debug.Log("[NULLREF] throwing an uncaught NullReferenceException on a coroutine");
             yield return null;
+            var before = _loggedNullRefs;
             host.StartCoroutine(Throwing()); // Unity logs the exception and ends that coroutine
             yield return new WaitForSeconds(1f);
-            Check("coroutine", _loggedNullRefs > 0, "Unity logged " + _loggedNullRefs + " uncaught NullReferenceException(s) from the coroutine");
+            Check("coroutine", _loggedNullRefs > before, "Unity logged " + (_loggedNullRefs - before) + " uncaught NullReferenceException(s) from the coroutine");
             var task = System.Threading.Tasks.Task.Run(() => _null.Value.ToString());
             yield return new WaitForSeconds(1f);
-            Check("task", task.IsFaulted, "a thread-pool task faulted with " + (task.Exception?.InnerException?.GetType().Name ?? "nothing"));
+            Check("task", task.IsFaulted && task.Exception?.InnerException is NullReferenceException, "a thread-pool task faulted with " + (task.Exception?.InnerException?.GetType().Name ?? "nothing"));
 
             yield return new WaitForSeconds(12f);
             // Reaching this line is the check; a process that died is judged by the script (e2e-android.sh) or by hand on iOS.
