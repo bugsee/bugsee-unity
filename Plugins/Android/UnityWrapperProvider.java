@@ -21,28 +21,38 @@ import java.util.concurrent.Executor;
 public final class UnityWrapperProvider extends BugseeExtensionInitProviderBase {
     @Override
     protected boolean onExtensionCreate() {
+        registerExtensions();
         UnityWrapper.install();
-        registerNdkExtension();
         return false;
     }
 
-    private static final String NDK_CLASS = "com.bugsee.library.BugseeNdk";
+    // The extensions the Bugsee Gradle plugin may consolidate (its ExtensionSpec.KNOWN) and that a Unity app can carry:
+    // each AAR's own init provider is stripped from the merged manifest and the plugin is meant to register it from
+    // BugseeInitProvider#initializeExtensions(). Seen with plugin 4.0.8 on Unity 6000.0.84f1 / AGP 9.0.0: the providers
+    // were gone and that method was empty, so nothing registered (#226). Registering here runs before
+    // Application.onCreate and Bugsee.Launch, is idempotent (a no-op when the AAR's provider already registered) and
+    // costs nothing without the plugin. Registration also contributes the extension's launch options (NDK, Leak), which
+    // the SDK drops when the extension is not registered at Launch. Reflective: an AAR the app does not carry is skipped.
+    static final String[][] EXTENSIONS = {
+        { "com.bugsee.library.BugseeNdk", "registerNdkExtension" },
+        { "com.bugsee.library.BugseeFeedback", "registerFeedbackExtension" },
+        { "com.bugsee.library.BugseeLeak", "registerLeakExtension" },
+        { "com.bugsee.library.BugseeRemoting", "registerRemotingExtension" },
+    };
 
-    /**
-     * The Bugsee Gradle plugin (AGP 8.6+) strips the NDK AAR's own BugseeNdkInitProvider from the merged manifest
-     * and is meant to register the extension from BugseeInitProvider#initializeExtensions(); on some Unity builds
-     * that method stays empty, so native crash capture would never be set up (#226). Registering here, before any
-     * app code and before Bugsee.Launch, is idempotent (a no-op when the provider already registered it) and costs
-     * nothing without the plugin. Reflective, so a project that excludes bugsee-android-ndk still builds.
-     */
-    static boolean registerNdkExtension() {
+    static void registerExtensions() {
+        for (String[] extension : EXTENSIONS) registerExtension(extension[0], extension[1]);
+    }
+
+    /** Calls {@code facade.method()}; true when it ran, false when the facade is absent or the call failed (logged). */
+    static boolean registerExtension(String facade, String method) {
         try {
-            Class.forName(NDK_CLASS).getMethod("registerNdkExtension").invoke(null);
+            Class.forName(facade).getMethod(method).invoke(null);
             return true;
         } catch (ClassNotFoundException e) {
-            return false; // bugsee-android-ndk is not in the app
+            return false; // the AAR is not in the app
         } catch (Throwable t) {
-            Log.w("BugseeUnity", "Could not register the NDK extension; native crashes may not be captured", t);
+            Log.w("BugseeUnity", "Could not register " + facade + "." + method + "()", t);
             return false;
         }
     }

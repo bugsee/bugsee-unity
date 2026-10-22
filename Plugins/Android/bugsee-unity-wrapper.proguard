@@ -45,6 +45,10 @@
 # C# calls sanitize() on Bugsee.getDefaultNetworkSanitizer() by name (Bugsee.ApplyDefaultNetworkSanitizer).
 -keep interface com.bugsee.library.contracts.exchange.NetworkDataSanitizer { *; }
 -keep interface com.bugsee.library.contracts.common.DataRequestResultCallback { *; }
-# UnityWrapperProvider registers the NDK extension by reflection (BugseeNdk.registerNdkExtension). The NDK AAR's own
-# consumer rules keep it; stated here so the registration survives if those rules narrow.
+# UnityWrapperProvider registers the SDK extensions by reflection (each facade's register method; see
+# UnityWrapperProvider.EXTENSIONS). The AARs' own consumer rules keep them; stated here so the registration survives
+# if those rules narrow. A rule for a class the app does not carry matches nothing.
 -keep class com.bugsee.library.BugseeNdk { public static void registerNdkExtension(); }
+-keep class com.bugsee.library.BugseeFeedback { public static void registerFeedbackExtension(); }
+-keep class com.bugsee.library.BugseeLeak { public static void registerLeakExtension(); }
+-keep class com.bugsee.library.BugseeRemoting { public static void registerRemotingExtension(); }
