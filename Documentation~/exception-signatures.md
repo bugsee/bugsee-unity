@@ -1,7 +1,7 @@
 # Unity managed exception signatures
 
 Design for how the new Unity SDK computes, forwards, and uses **one** merge signature per managed error/crash.  
-Status: **approved for implementation**; the #107 part (Android: the wrapper's Java stack no longer feeds the SDK signature) is implemented, see *What the wrapper sends today*. The recipe rules (2, 3 and the client hash) remain open in #217; the SDK and worker parts are not implemented. Appserver merge remains `signatures: { $in: [...] }` per **application** (Android and iOS apps are separate).
+Status: **approved for implementation**; the #107 part (Android: the wrapper's Java stack no longer feeds the SDK signature) is implemented, see *What the wrapper sends today*. The client recipe (rules 2 and 3, the client hash) is implemented in `Runtime/WrapperPolicy/ManagedSignatureRecipe.cs` (#217); the SDK and worker parts are not implemented. Appserver merge remains `signatures: { $in: [...] }` per **application** (Android and iOS apps are separate).
 
 ## Scope (C′)
 
@@ -81,6 +81,10 @@ Inner/`cause`: hash the **leaf payload already selected** (single-inner unwrap).
 | AI merge (future) | Join issues; survivor keeps size-1 keys | `$each` both signature lists | Weak markers ≠ merge keys |
 | Handled bit | Not in hash | Native-style `"handled"` prefix | Same throw site must not split error vs crash |
 | Create-time | Native uses Unity key only (target; not true today, see below) | Android SHA-1 of wrapper + worker replace | Avoided AU-21 dual hashes |
+
+## Client recipe as implemented (#217)
+
+`ManagedSignatureRecipe.Compute` returns SHA-256 hex of `A|type|uuid|rvas`, `F|type|file:line|...` or `W|type|tokens` (first that applies; up to 8 user frames, throw site first). User frames: not `UnityEngine.`, `UnityEditor.`, `System.`, `Mono.`, `Microsoft.`, `Bugsee.` (except `Bugsee.Sample.`), Unity packages' `Unity.Collections/Jobs/Burst.`, `(wrapper ...)` or Java/Android frames. The weak recipe is computed on the client too, so the payload always carries a key; the worker is free to compute the same one. Mono caller tail: `ManagedExceptionPayload.FromException` passes the live stack and `TrimCallerTail` drops the frames both stacks share, keeping the catch frame (a thrown-then-stored exception logged from another call path has no shared tail and keeps every frame; Remaining caller frames inside the cap would only be user frames below the catch frame, which the trim removes). Payloads from Unity log text (`FromUnityLog`) can use the file:line and weak recipes only (no addresses). Deviations from the table above: none; the optional version fence is not used.
 
 ## What the wrapper sends today (Android, issue #107)
 
