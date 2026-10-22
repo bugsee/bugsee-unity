@@ -133,7 +133,7 @@ namespace Bugsee.WrapperPolicy
         /// payload is built (its caller chain), keeping the one frame that is the catch frame itself. <paramref name="callerStack"/>
         /// is the text of the live stack; null or no common tail keeps every frame. Frames are matched by <c>Type.Method</c> only
         /// (no arguments or lines), so same-named overloads match each other; at worst a few extra frames are cut. Nothing is cut
-        /// when the shared tail is the whole trace and the live stack, without its leading Bugsee frames, is longer (the throw frames are still on the stack, as in an
+        /// when the shared tail is the whole trace and the live stack, without its leading Bugsee and engine frames (the logger on the way in), is longer (the throw frames are still on the stack, as in an
         /// exception filter or before the unwind), and matching stops at a Bugsee frame of the live stack.
         /// </summary>
         public static int TrimCallerTail(string[] frames, string callerStack)
@@ -151,7 +151,7 @@ namespace Bugsee.WrapperPolicy
                 common++;
             }
             var top = 0;
-            while (top < live.Length && IsBugseeFrame(live[top])) top++;
+            while (top < live.Length && (IsBugseeFrame(live[top]) || IsEngineFrame(live[top]))) top++;
             if (common == frames.Length && live.Length - top > common) return frames.Length;
             // The first shared frame (from the throw side) is the method that caught the exception: keep it.
             return common <= 1 ? frames.Length : frames.Length - (common - 1);

@@ -186,6 +186,21 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Engine_logger_frames_above_the_catch_frame_do_not_block_the_trim()
+        {
+            // try { throw } catch (e) { Debug.LogException(e); } in one method: Debug.LogException -> pipeline -> FromException.
+            var t = new[] { "at A.M () (at A.cs:5)", "at Caller.X () (at C.cs:9)", "at Root.R () (at R.cs:1)" };
+            var live = "at Bugsee.Internal.P.F ()\nat Bugsee.Internal.ExceptionPipeline.LogException ()\n"
+                + "at UnityEngine.Logger.LogException (System.Exception e) (at <h>:0)\nat UnityEngine.Debug.LogException (System.Exception e) (at <h>:0)\n"
+                + "at A.M () (at A.cs:6)\nat Caller.X () (at C.cs:9)\nat Root.R () (at R.cs:1)";
+            Assert.That(ManagedSignatureRecipe.TrimCallerTail(t, live), Is.EqualTo(1));
+            // same site reached from another root: no shared tail beyond the catch frame
+            var t2 = new[] { "at A.M () (at A.cs:5)", "at Other.Y () (at O.cs:2)" };
+            var live2 = "at Bugsee.Internal.P.F ()\nat UnityEngine.Debug.LogException (System.Exception e) (at <h>:0)\nat A.M () (at A.cs:6)\nat Other.Y () (at O.cs:2)";
+            Assert.That(ManagedSignatureRecipe.TrimCallerTail(t2, live2), Is.EqualTo(1));
+        }
+
+        [Test]
         public void Matching_stops_at_a_bugsee_frame_of_the_live_stack()
         {
             var t = new[] { "at A.M () (at A.cs:5)", "at Bugsee.Internal.P.F ()" };
