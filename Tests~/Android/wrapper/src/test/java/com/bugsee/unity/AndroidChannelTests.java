@@ -2,6 +2,7 @@ package com.bugsee.unity;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
@@ -26,8 +27,10 @@ import org.junit.Test;
 
 /**
  * The static entry points C# reaches over JNI (channelLog, channelAddNetwork, setSecureBuffer, refineContext) and the
- * report callbacks the SDK calls. The Android filter/report proxies on the C# side are AndroidJavaProxy classes and
- * cannot run on a JVM; their policy is covered by Tests~/WrapperPolicy (FilterCompletionTests, ReportHandlerDeadlineTests).
+ * report callbacks the SDK calls on the wrapper. Not covered here: the Android filter and report proxies. They are all C#
+ * AndroidJavaProxy classes (Runtime/Platform/Android/Proxies/CallbackProxies.cs), so they cannot run on a JVM and are not
+ * compiled into Tests~/WrapperPolicy either; only their policy and source text are checked there (issue #204 stays open
+ * for C# round-trip tests of them).
  */
 public class AndroidChannelTests {
     private static final class LogCall {
@@ -95,20 +98,22 @@ public class AndroidChannelTests {
         for (LogCall call : channel.logs) assertSame(LogLevel.Info, call.level);
     }
 
+    // The values C# sends are WrapperLogSourcePolicy's: 0, 1, 2, 5 and 98 (Custom, also what anything else resolves to).
     @Test
-    public void channelLogPassesNoTagAndMapsTheSource() {
+    public void channelLogMapsEverySourceCSharpSends() {
         RecordingChannel channel = attach();
-        UnityWrapper.channelLog("custom", 3, 6);
-        UnityWrapper.channelLog("logcat", 3, 3);
-        UnityWrapper.channelLog("stderr", 3, 2);
-        assertNull("Unity messages carry no tag", channel.logs.get(0).tag);
-        assertSame(LogSource.Custom, channel.logs.get(0).source);
-        assertSame(LogSource.LogCat, channel.logs.get(1).source);
-        assertSame(LogSource.StdErr, channel.logs.get(2).source);
+        int[] sent = { 0, 1, 2, 5, 98 };
+        LogSource[] expected = { LogSource.Unknown, LogSource.StdOut, LogSource.StdErr, LogSource.WebView, LogSource.Custom };
+        for (int value : sent) UnityWrapper.channelLog("s" + value, 3, value);
+        assertEquals(sent.length, channel.logs.size());
+        for (int i = 0; i < sent.length; i++) {
+            assertNull("Unity messages carry no tag", channel.logs.get(i).tag);
+            assertSame("source " + sent[i], expected[i], channel.logs.get(i).source);
+        }
     }
 
     @Test
-    public void channelLogFallsBackToCustomForAnUnknownSource() {
+    public void channelLogFallsBackToCustomForAnOutOfRangeSource() {
         RecordingChannel channel = attach();
         UnityWrapper.channelLog("x", 3, 42);
         UnityWrapper.channelLog("y", 3, -5);
@@ -197,17 +202,21 @@ public class AndroidChannelTests {
 
     // ---- secure buffers ----
 
+    // Buffer layout: [version, count, rects...]. The SDK treats equal versions as "same rectangles", so every distinct
+    // non-empty set below carries its own version (2, 3, ...); version 1 is only the empty set, as in C#'s
+    // SecureRectRegistry.Snapshot.
     // The buffers are static; every test uses displays of its own so none sees another's rectangles.
     @Test
     public void secureRectanglesDefaultToVersionOneWithNoRectangles() {
+        // Must equal C#'s initial empty snapshot (version 1, no rectangles), or the first real set would look unchanged.
         assertArrayEquals(new int[] { 1, 0 }, wrapper.getSecureRectangles(9100));
     }
 
     @Test
     public void setSecureBufferThenReadBackThenClear() {
         int display = 9101;
-        UnityWrapper.setSecureBuffer(display, new int[] { 1, 1, 10, 20, 30, 40 });
-        assertArrayEquals(new int[] { 1, 1, 10, 20, 30, 40 }, wrapper.getSecureRectangles(display));
+        UnityWrapper.setSecureBuffer(display, new int[] { 2, 1, 10, 20, 30, 40 });
+        assertArrayEquals(new int[] { 2, 1, 10, 20, 30, 40 }, wrapper.getSecureRectangles(display));
         // An empty set is how managed code clears the display.
         UnityWrapper.setSecureBuffer(display, new int[] { 1, 0 });
         assertArrayEquals(new int[] { 1, 0 }, wrapper.getSecureRectangles(display));
@@ -215,10 +224,10 @@ public class AndroidChannelTests {
 
     @Test
     public void secureBuffersAreKeptPerDisplay() {
-        UnityWrapper.setSecureBuffer(9102, new int[] { 1, 1, 1, 2, 3, 4 });
-        UnityWrapper.setSecureBuffer(9103, new int[] { 1, 1, 5, 6, 7, 8 });
-        assertArrayEquals(new int[] { 1, 1, 1, 2, 3, 4 }, wrapper.getSecureRectangles(9102));
-        assertArrayEquals(new int[] { 1, 1, 5, 6, 7, 8 }, wrapper.getSecureRectangles(9103));
+        UnityWrapper.setSecureBuffer(9102, new int[] { 2, 1, 1, 2, 3, 4 });
+        UnityWrapper.setSecureBuffer(9103, new int[] { 3, 1, 5, 6, 7, 8 });
+        assertArrayEquals(new int[] { 2, 1, 1, 2, 3, 4 }, wrapper.getSecureRectangles(9102));
+        assertArrayEquals(new int[] { 3, 1, 5, 6, 7, 8 }, wrapper.getSecureRectangles(9103));
         assertArrayEquals("an untouched display is unaffected", new int[] { 1, 0 }, wrapper.getSecureRectangles(9104));
     }
 
@@ -230,24 +239,25 @@ public class AndroidChannelTests {
         UnityWrapper.setSecureBuffer(display, new int[] {});
         UnityWrapper.setSecureBuffer(display, new int[] { 1 });
         assertArrayEquals(new int[] { 1, 0 }, wrapper.getSecureRectangles(display));
-        UnityWrapper.setSecureBuffer(display, new int[] { 1, 1, 9, 9, 9, 9 });
+        UnityWrapper.setSecureBuffer(display, new int[] { 2, 1, 9, 9, 9, 9 });
         UnityWrapper.setSecureBuffer(display, new int[] { 1 });
         UnityWrapper.setSecureBuffer(display, null);
-        assertArrayEquals(new int[] { 1, 1, 9, 9, 9, 9 }, wrapper.getSecureRectangles(display));
+        assertArrayEquals(new int[] { 2, 1, 9, 9, 9, 9 }, wrapper.getSecureRectangles(display));
     }
 
     @Test
     public void secureBuffersAreCopiedOnTheWayInAndOut() {
+        // A wrapper choice (the SDK does not require copies): neither side can change the stored buffer afterwards.
         int display = 9106;
-        int[] given = { 1, 1, 1, 1, 1, 1 };
+        int[] given = { 2, 1, 1, 1, 1, 1 };
         UnityWrapper.setSecureBuffer(display, given);
         given[2] = 777; // the caller reuses its array
         int[] first = wrapper.getSecureRectangles(display);
-        assertArrayEquals(new int[] { 1, 1, 1, 1, 1, 1 }, first);
+        assertArrayEquals(new int[] { 2, 1, 1, 1, 1, 1 }, first);
         first[3] = 888; // the SDK mutates what it was given
         int[] second = wrapper.getSecureRectangles(display);
         assertNotSame(first, second);
-        assertArrayEquals(new int[] { 1, 1, 1, 1, 1, 1 }, second);
+        assertArrayEquals(new int[] { 2, 1, 1, 1, 1, 1 }, second);
     }
 
     @Test
@@ -258,7 +268,7 @@ public class AndroidChannelTests {
     }
 
     @Test
-    public void secureBufferProviderIsSafeUnderConcurrentWritersAndReaders() throws Exception {
+    public void everyConcurrentReaderGetsAWholeBufferOfItsOwn() throws Exception {
         final int display = 9108;
         final int rounds = 2000;
         final AtomicReference<Throwable> failure = new AtomicReference<Throwable>();
@@ -274,7 +284,7 @@ public class AndroidChannelTests {
                         start.await();
                         for (int i = 0; i < rounds; i++) {
                             // Every writer's buffer is internally uniform after the header, so a torn read shows.
-                            UnityWrapper.setSecureBuffer(display, new int[] { 1, 2, tag, tag, tag, tag, tag, tag, tag, tag });
+                            UnityWrapper.setSecureBuffer(display, new int[] { 1 + tag, 2, tag, tag, tag, tag, tag, tag, tag, tag });
                         }
                     } catch (Throwable t) {
                         failure.compareAndSet(null, t);
@@ -290,7 +300,7 @@ public class AndroidChannelTests {
                         start.await();
                         for (int i = 0; i < rounds; i++) {
                             int[] seen = wrapper.getSecureRectangles(display);
-                            boolean ok = seen.length == 2 ? seen[0] == 1 && seen[1] == 0 : seen.length == 10 && seen[0] == 1 && seen[1] == 2;
+                            boolean ok = seen.length == 2 ? seen[0] == 1 && seen[1] == 0 : seen.length == 10 && seen[0] >= 2 && seen[1] == 2;
                             for (int k = 3; ok && seen.length == 10 && k < 10; k++) ok = seen[k] == seen[2];
                             if (!ok) torn.incrementAndGet();
                             seen[0] = -1; // scribbling on a copy must never reach another reader
@@ -303,7 +313,10 @@ public class AndroidChannelTests {
         }
         for (Thread thread : threads) thread.start();
         start.countDown();
-        for (Thread thread : threads) thread.join(30000);
+        for (Thread thread : threads) {
+            thread.join(30000);
+            assertFalse("a worker did not finish", thread.isAlive());
+        }
         assertNull(failure.get());
         assertEquals("a reader saw a partial or shared buffer", 0, torn.get());
     }
@@ -312,9 +325,18 @@ public class AndroidChannelTests {
 
     // refineContext installs the wrapper into the real SDK, whose static state cannot start on a JVM; marking it
     // installed first skips only that registration and leaves the context logic under test.
+    private static boolean INSTALLED_BEFORE;
+
+    private static void restoreInstalled() throws Exception {
+        Field installed = UnityWrapper.class.getDeclaredField("installed");
+        installed.setAccessible(true);
+        installed.setBoolean(null, INSTALLED_BEFORE);
+    }
+
     private static UnityWrapper instance() throws Exception {
         Field installed = UnityWrapper.class.getDeclaredField("installed");
         installed.setAccessible(true);
+        INSTALLED_BEFORE = installed.getBoolean(null);
         installed.setBoolean(null, true);
         Field field = UnityWrapper.class.getDeclaredField("INSTANCE");
         field.setAccessible(true);
@@ -347,6 +369,7 @@ public class AndroidChannelTests {
             assertEquals("unity", live.getWrapperType());
         } finally {
             restore(saved);
+            restoreInstalled();
         }
     }
 
@@ -369,6 +392,7 @@ public class AndroidChannelTests {
             assertEquals("Android", live.getContext().get("unity_platform"));
         } finally {
             restore(saved);
+            restoreInstalled();
         }
     }
 
@@ -386,12 +410,14 @@ public class AndroidChannelTests {
 
     // ---- report callbacks ----
 
+    // The SDK contract marks the report and the completion non-null; the null report here is just a stand-in (the
+    // wrapper never reads it) and the null-completion test only checks the wrapper stays defensive.
     private static Report noReport() {
         return null;
     }
 
     @Test
-    public void reportCallbacksAlwaysRunTheCompletionOnceWithoutChangingTheReport() {
+    public void reportCallbacksRunTheCompletionExactlyOnce() {
         for (boolean terminating : new boolean[] { false, true }) {
             final AtomicInteger before = new AtomicInteger();
             final AtomicInteger after = new AtomicInteger();
@@ -413,7 +439,7 @@ public class AndroidChannelTests {
     }
 
     @Test
-    public void reportCallbacksRunTheCompletionOnTheCallingThread() throws Exception {
+    public void reportCallbacksCompleteInlineOnTheCallingThread() throws Exception {
         final AtomicReference<Thread> ranOn = new AtomicReference<Thread>();
         final Thread[] caller = new Thread[1];
         Thread worker = new Thread(new Runnable() {
@@ -430,11 +456,11 @@ public class AndroidChannelTests {
         }, "sdk-report-thread");
         worker.start();
         worker.join();
-        assertSame("the SDK waits on this call; completion must not be deferred", caller[0], ranOn.get());
+        assertSame("the wrapper completes inline (a wrapper choice; the SDK would also accept a later completion)", caller[0], ranOn.get());
     }
 
     @Test
-    public void reportCallbacksTolerateANullCompletion() {
+    public void reportCallbacksTolerateANullCompletionDefensively() {
         wrapper.onBeforeReportCreated(noReport(), false, null);
         wrapper.onAfterReportCreated(noReport(), true, null);
     }
