@@ -5,20 +5,29 @@ using NUnit.Framework;
 
 namespace Bugsee.WrapperPolicy.Tests
 {
-    // Models the Android 7.4.1 SDK (BugseeInternal) where it matters to the wrapper:
+    // Models the Android 7.4.2 SDK (BugseeInternal) where it matters to the wrapper. Every call calls back exactly once:
     // - launch(): Launching/Launched -> no-op, callback(true) inline, token and options ignored; Stopping -> callback(false)
-    //   inline; otherwise -> Launching, callback later.
-    // - relaunch(): only when Launched (-> Stopping inside the call, stop then continuation launch(), always calls back);
-    //   otherwise it logs and returns WITHOUT a callback.
-    // - stop(r): Stopped -> r at once; Stopping -> r joins; otherwise -> Stopping and r when stopped. Joiners run before
-    //   a relaunch's continuation launch().
+    //   inline; empty token -> callback(false) inline; otherwise -> Launching, callback later (false when a stop() came
+    //   meanwhile).
+    // - relaunch(): a relaunch in flight (not cancelled; waiting for its launch, or launching) is JOINED: the caller gets
+    //   its outcome, true when it launched. Otherwise only when Launched (-> Stopping inside the call, stop, then the
+    //   continuation launch()); Launching/Stopping/Stopped -> callback(false) inline. The outcome is false when a stop()
+    //   cancelled it, when something launched in the gap, or when its launch failed.
+    // - stop(r): a relaunch that is stopping or has stopped and not launched yet is CANCELLED (the SDK stays stopped);
+    //   Stopped -> r at once; Stopping -> r joins; otherwise -> Stopping and r when stopped. Joiners run before a
+    //   relaunch's continuation. A stop() while the relaunch is launching is a plain stop and the launch calls back false.
     sealed class FakeAndroidSdk : IAndroidLifecycleNative
     {
+        sealed class Flow
+        {
+            public readonly List<Action<bool>> Waiters = new List<Action<bool>>();
+            public bool Cancelled, Launching;
+        }
+
         public BugseeStatus Current = BugseeStatus.Stopped;
         public readonly List<string> Calls = new List<string>();
         public readonly List<string> Warnings = new List<string>();
         public Action<bool> PendingLaunch;
-        public Action<bool> PendingRelaunch;
         public Action<bool> PendingDelete;
         public readonly List<Action> StopJoiners = new List<Action>();
         public bool HooksInstalled;
@@ -26,6 +35,14 @@ namespace Bugsee.WrapperPolicy.Tests
         public string RunningToken;
         // Runs inside relaunch() before the SDK checks its status: another thread stopping the SDK in the gap.
         public Action BeforeRelaunchCheck;
+        Flow _flow;
+        // The gap between a relaunch's stop and its launch half: FinishStop leaves the continuation to RunContinuation.
+        public bool HoldContinuation;
+        // Errors the machine reports (a throwing callback) are collected instead of thrown.
+        public bool CollectErrors;
+        public readonly List<Exception> Errors = new List<Exception>();
+
+        public bool RelaunchInFlight => _flow != null;
 
         public BugseeStatus Status() => Current;
 
@@ -44,16 +61,31 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             Calls.Add("relaunch");
             BeforeRelaunchCheck?.Invoke();
-            if (Current != BugseeStatus.Launched) return; // no callback, ever
+            if (_flow != null && !_flow.Cancelled && (!_flow.Launching || Current == BugseeStatus.Launching))
+            {
+                _flow.Waiters.Add(done);
+                return;
+            }
+            if (Current != BugseeStatus.Launched) { done(false); return; }
+            _flow = new Flow();
+            _flow.Waiters.Add(done);
             Current = BugseeStatus.Stopping;
-            PendingRelaunch = done;
         }
 
         public void Stop(Action done)
         {
             Calls.Add("stop");
+            if (_flow != null && !_flow.Launching && !_flow.Cancelled &&
+                (Current == BugseeStatus.Stopping || Current == BugseeStatus.Stopped))
+            {
+                _flow.Cancelled = true;
+                if (Current == BugseeStatus.Stopped) done(); else StopJoiners.Add(done);
+                return;
+            }
             if (Current == BugseeStatus.Stopped) { done(); return; }
-            if (Current != BugseeStatus.Stopping) Current = BugseeStatus.Stopping;
+            if (Current == BugseeStatus.Stopping) { StopJoiners.Add(done); return; }
+            if (_flow != null) _flow.Cancelled = true;
+            Current = BugseeStatus.Stopping;
             StopJoiners.Add(done);
         }
 
@@ -72,23 +104,37 @@ namespace Bugsee.WrapperPolicy.Tests
         public readonly List<TimeSpan> ScheduledTicks = new List<TimeSpan>();
         public void ScheduleTick(TimeSpan delay) => ScheduledTicks.Add(Clock() + delay);
         public void Warn(string message) => Warnings.Add(message);
-        public void Error(Exception exception) => throw exception;
+        public void Error(Exception exception)
+        {
+            if (!CollectErrors) throw exception;
+            Errors.Add(exception);
+        }
 
-        // The SDK finishes a stop: STOPPED, joiners, then a relaunch's continuation launch().
+        // The SDK finishes a stop: STOPPED, joiners, then a relaunch's continuation (launch, or its outcome false).
         public void FinishStop()
         {
             Current = BugseeStatus.Stopped;
             var joiners = StopJoiners.ToArray();
             StopJoiners.Clear();
             foreach (var j in joiners) j();
-            if (PendingRelaunch != null)
-            {
-                var relaunchDone = PendingRelaunch;
-                PendingRelaunch = null;
-                if (Current != BugseeStatus.Stopped) { relaunchDone(false); return; }
-                Current = BugseeStatus.Launching;
-                PendingLaunch = relaunchDone;
-            }
+            if (!HoldContinuation) RunContinuation();
+        }
+
+        public void RunContinuation()
+        {
+            var flow = _flow;
+            if (flow == null || flow.Launching) return;
+            if (flow.Cancelled || Current != BugseeStatus.Stopped) { EndFlow(flow, false); return; }
+            flow.Launching = true;
+            Current = BugseeStatus.Launching;
+            PendingLaunch = ok => EndFlow(flow, ok);
+        }
+
+        void EndFlow(Flow flow, bool ok)
+        {
+            if (_flow == flow) _flow = null;
+            flow.Cancelled = true;
+            foreach (var w in flow.Waiters.ToArray()) w(ok);
         }
 
         // Capture started (or not): Launching -> Launched and callback(true); stopped meanwhile -> callback(false).
@@ -163,16 +209,6 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(AndroidLaunchStatePolicy.RelaunchAccepted(status), Is.EqualTo(accepted));
         }
 
-        [TestCase(BugseeStatus.Stopped, BugseeStatus.Launching, true)]
-        [TestCase(BugseeStatus.Stopped, BugseeStatus.Stopped, false)]
-        [TestCase(BugseeStatus.Stopping, BugseeStatus.Stopping, false)]
-        [TestCase(BugseeStatus.Launching, BugseeStatus.Launching, false)]
-        [TestCase(BugseeStatus.Launched, BugseeStatus.Launched, false)]
-        public void Only_a_launch_from_not_running_starts_a_session(BugseeStatus before, BugseeStatus after, bool started)
-        {
-            Assert.That(AndroidLaunchStatePolicy.LaunchStartedSession(before, after), Is.EqualTo(started));
-        }
-
         [Test]
         public void Launch_reports_the_sdk_result_and_installs_the_hooks()
         {
@@ -193,59 +229,26 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(_sdk.HooksInstalled, Is.False);
         }
 
-        // (A) relaunch() refused because another thread stopped the SDK between the wrapper's status check and the
-        // call: no callback ever. The claim must not block a pending delete forever.
+        // relaunch() refused because another thread stopped the SDK between the wrapper's status check and the call:
+        // 7.4.2 calls back false at once (7.4.1 never called back), so no deadline is involved and a waiting delete
+        // is not held up.
         [Test]
-        public void Relaunch_refused_after_a_concurrent_stop_releases_its_claim_by_the_deadline()
+        public void Relaunch_refused_after_a_concurrent_stop_is_answered_false_at_once()
         {
-            Launched();
+            Launched("t1", OptionsA);
             bool? relaunched = null, deleted = null;
             _sdk.BeforeRelaunchCheck = () => _sdk.Current = BugseeStatus.Stopping;
             _machine.Relaunch(OptionsB, ok => relaunched = ok);
+            Assert.That(relaunched, Is.False, "the SDK's refusal, no deadline needed");
+            Assert.That(_sdk.Warnings, Has.None.Contains("within 10 s"));
+            Assert.That(_sdk.HooksInstalled, Is.False, "the refused relaunch's hooks are rolled back");
             _machine.DeleteCollectedData(ok => deleted = ok);
-            Assert.That(_sdk.Calls, Does.Not.Contain("delete:Stopped"), "waits for the relaunch result");
-
-            _sdk.FinishStop(); // the other thread's stop completes; the SDK never calls the relaunch back
-            Elapse(AndroidLifecycleMachine.OperationTimeout - TimeSpan.FromMilliseconds(1));
-            Assert.That(relaunched, Is.Null);
-            Elapse(TimeSpan.FromMilliseconds(1));
-
-            Assert.That(relaunched, Is.False, "the soft deadline answers the caller with a warning");
-            Assert.That(_sdk.Warnings, Has.Some.Contains("within 10 s"));
-            Assert.That(_sdk.Calls, Does.Not.Contain("delete:Stopped"), "but keeps the claim: a continuation may still come");
-            Elapse(AndroidLifecycleMachine.HardTimeout - AndroidLifecycleMachine.OperationTimeout);
-            Assert.That(_sdk.Calls, Does.Contain("delete:Stopped"), "released by the hard deadline");
+            _sdk.FinishStop(); // the other thread's stop completes
+            Assert.That(_sdk.Calls, Does.Contain("delete:Stopped"));
             _sdk.FinishDelete(true);
             Assert.That(deleted, Is.True);
-        }
-
-        [Test]
-        public void Relaunch_refused_while_still_launched_releases_its_claim_at_once()
-        {
-            // Stopped and launched again by someone else around the call: relaunch() refused, the SDK is Launched.
-            Launched("t1", OptionsA);
-            bool? relaunched = null;
-            var machine = new AndroidLifecycleMachine(new RefusingRelaunchSdk(_sdk), () => _now);
-            machine.Relaunch(OptionsB, ok => relaunched = ok);
-            Assert.That(relaunched, Is.False, "no deadline needed");
-            Assert.That(_sdk.HookOptions, Is.Not.SameAs(OptionsB), "the hooks keep the running session's options");
-        }
-
-        // relaunch() that returns without a callback while the SDK stays Launched (refused, running again).
-        sealed class RefusingRelaunchSdk : IAndroidLifecycleNative
-        {
-            readonly FakeAndroidSdk _inner;
-            public RefusingRelaunchSdk(FakeAndroidSdk inner) { _inner = inner; }
-            public BugseeStatus Status() => _inner.Status();
-            public void Launch(string t, IDictionary<string, object> o, Action<bool> d) => _inner.Launch(t, o, d);
-            public void Relaunch(IDictionary<string, object> o, Action<bool> d) => _inner.Calls.Add("relaunch");
-            public void Stop(Action d) => _inner.Stop(d);
-            public void DeleteCollectedData(DeleteScope s, Action<bool> d) => _inner.DeleteCollectedData(s, d);
-            public void InstallHooks(IDictionary<string, object> o) => _inner.InstallHooks(o);
-            public void UninstallHooks() => _inner.UninstallHooks();
-            public void ScheduleTick(TimeSpan d) { }
-            public void Warn(string m) => _inner.Warn(m);
-            public void Error(Exception e) => throw e;
+            Elapse(AndroidLifecycleMachine.HardTimeout);
+            Assert.That(relaunched, Is.False, "answered once");
         }
 
         [Test]
@@ -277,10 +280,10 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(relaunched, Is.False);
             bool? launched = null;
             _machine.Launch("t2", OptionsA, ok => launched = ok); // waits for the relaunch's stop, then launches
-            _sdk.FinishStop(); // the relaunch's continuation now sees Launching and reports false, long after its reset
+            _sdk.FinishStop(); // the relaunch's continuation launch()es: Launching
             _sdk.FinishLaunch();
             Assert.That(relaunched, Is.False, "reported once");
-            Assert.That(launched, Is.True, "the stale false did not settle the newer launch");
+            Assert.That(_sdk.Current, Is.EqualTo(BugseeStatus.Launched));
             Assert.That(_sdk.HooksInstalled, Is.True);
         }
 
@@ -420,46 +423,53 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void Stop_result_during_a_relaunch_is_true_once_in_both_orders()
         {
-            // Relaunch first, then Stop.
+            // Relaunch first, then Stop: the SDK cancels the relaunch and stays stopped.
             Launched();
             var results = new List<bool>();
-            _machine.Relaunch(OptionsB);
+            bool? relaunched = null;
+            _machine.Relaunch(OptionsB, ok => relaunched = ok);
             _machine.Stop(null, results.Add);
-            _sdk.FinishStop(); // joiners (ours), then the relaunch continuation launch()
+            _sdk.FinishStop(); // joiners (ours), then the relaunch's outcome: cancelled
             Assert.That(results, Is.EqualTo(new[] { true }));
+            Assert.That(relaunched, Is.False);
             AdvanceFiringScheduledTicks(TimeSpan.FromSeconds(30));
-            _sdk.FinishLaunch(); // resurrected, stopped again
-            _sdk.FinishStop();
             Assert.That(results, Is.EqualTo(new[] { true }), "answered once");
             Assert.That(_sdk.Current, Is.EqualTo(BugseeStatus.Stopped));
+            Assert.That(_sdk.Calls, Is.EqualTo(new[] { "relaunch", "stop" }), "no launch afterwards");
 
-            // Stop first, then Relaunch (Relaunch is accepted only while Launched, so the SDK is stopping: refused).
+            // Stop first, then Relaunch (the SDK is stopping, so it is refused).
             SetUp();
             Launched();
             results.Clear();
+            relaunched = null;
             _machine.Stop(null, results.Add);
-            _machine.Relaunch(OptionsB);
+            _machine.Relaunch(OptionsB, ok => relaunched = ok);
             _sdk.FinishStop();
             Assert.That(results, Is.EqualTo(new[] { true }));
+            Assert.That(relaunched, Is.False);
             AdvanceFiringScheduledTicks(TimeSpan.FromSeconds(30));
             Assert.That(results, Is.EqualTo(new[] { true }));
         }
 
         [Test]
-        public void A_plain_stop_completion_still_waits_for_the_launch_result_while_the_result_is_already_answered()
+        public void A_plain_stop_completion_still_waits_for_a_launch_in_flight_to_report()
         {
             Launched();
-            _machine.Relaunch(OptionsB);
+            _machine.Stop();
+            _sdk.FinishStop();
+            bool? launched = null;
+            _machine.Launch("t2", OptionsA, ok => launched = ok); // Launching, callback pending
             var plain = 0;
             var results = new List<bool>();
             _machine.Stop(() => plain++, results.Add);
             _sdk.FinishStop();
             Assert.That(results, Is.EqualTo(new[] { true }));
-            Assert.That(plain, Is.EqualTo(0), "the continuation may still launch");
-            _sdk.FinishLaunch();
-            _sdk.FinishStop();
+            Assert.That(plain, Is.EqualTo(0), "the launch has not reported yet");
+            _sdk.FinishLaunch(); // the SDK was stopped meanwhile: the launch reports false
+            Assert.That(launched, Is.False);
             Assert.That(plain, Is.EqualTo(1));
             Assert.That(results, Is.EqualTo(new[] { true }));
+            Assert.That(_sdk.Current, Is.EqualTo(BugseeStatus.Stopped));
         }
 
         [Test]
@@ -487,16 +497,17 @@ namespace Bugsee.WrapperPolicy.Tests
         public void A_plain_completion_joining_after_the_sdk_reported_the_stop_still_waits_for_the_launch_result()
         {
             Launched();
-            _machine.Relaunch(OptionsB);
             _machine.Stop();
-            _sdk.FinishStop(); // reported; the continuation launch() is pending
+            _sdk.FinishStop();
+            _machine.Launch("t2", OptionsA); // Launching, callback pending
+            _machine.Stop();
+            _sdk.FinishStop(); // reported; the launch result is pending
             var plain = 0;
             var results = new List<bool>();
             _machine.Stop(() => plain++, results.Add);
             Assert.That(results, Is.EqualTo(new[] { true }));
             Assert.That(plain, Is.EqualTo(0));
             _sdk.FinishLaunch();
-            _sdk.FinishStop();
             Assert.That(plain, Is.EqualTo(1));
             Assert.That(results, Is.EqualTo(new[] { true }));
         }
@@ -640,10 +651,10 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(_sdk.Calls, Is.EqualTo(new[] { "stop", "delete:Stopped", "launch:t2" }));
         }
 
-        // Review 2, finding 1: Stop during a Relaunch. 7.4.1 stop() only joins the relaunch's stop and the continuation
-        // launch()es anyway; the stale result must not re-install the hooks, and the session is stopped again.
+        // Stop during a Relaunch's stop: 7.4.2 CANCELS the relaunch (7.4.1 launched again afterwards), so the SDK stays
+        // stopped, the relaunch calls back false, nothing is stopped a second time, and the hooks stay off.
         [Test]
-        public void Stop_during_relaunch_sticks()
+        public void Stop_during_relaunch_cancels_it()
         {
             Launched();
             bool? relaunched = null;
@@ -653,23 +664,40 @@ namespace Bugsee.WrapperPolicy.Tests
             _machine.Stop(() => { stopped++; order.Add("stop"); });
             Assert.That(_sdk.HooksInstalled, Is.False);
 
-            _sdk.FinishStop(); // joiners (our stop), then the continuation launch()
-            Assert.That(stopped, Is.EqualTo(0), "the continuation may still launch");
-            _sdk.FinishLaunch(); // the resurrected session reports true
-            Assert.That(relaunched, Is.True);
-            Assert.That(_sdk.HooksInstalled, Is.False, "a stale result never installs the hooks");
-            Assert.That(_sdk.Current, Is.EqualTo(BugseeStatus.Stopping), "stopped again");
-            _sdk.FinishStop();
+            _sdk.FinishStop(); // joiners (our stop), then the relaunch's outcome
+            Assert.That(relaunched, Is.False, "cancelled by the stop");
             Assert.That(stopped, Is.EqualTo(1));
+            Assert.That(_sdk.HooksInstalled, Is.False, "a stale result never installs the hooks");
             Assert.That(_sdk.Current, Is.EqualTo(BugseeStatus.Stopped));
+            Assert.That(_sdk.Calls, Is.EqualTo(new[] { "relaunch", "stop" }), "no launch, no second stop");
             Assert.That(order, Is.EqualTo(new[] { "relaunch", "stop" }));
         }
 
-        // Review 3: the relaunch's stop outlives the soft deadline, Stop was requested meanwhile, and the 7.4.1
-        // continuation then launch()es anyway. Waiters are answered at the deadline; the late result is still stopped.
+        // Stop while the relaunch is already launching is a plain stop: the launch reports false, the SDK stays stopped.
+        [Test]
+        public void Stop_during_the_launch_half_of_a_relaunch_is_a_plain_stop()
+        {
+            Launched();
+            bool? relaunched = null;
+            var stopped = 0;
+            _machine.Relaunch(OptionsB, ok => relaunched = ok);
+            _sdk.FinishStop(); // the continuation launch()es: Launching
+            Assert.That(_sdk.Current, Is.EqualTo(BugseeStatus.Launching));
+            _machine.Stop(() => stopped++);
+            Assert.That(_sdk.Current, Is.EqualTo(BugseeStatus.Stopping));
+            _sdk.FinishLaunch(); // reports false: stopped meanwhile
+            Assert.That(relaunched, Is.False);
+            _sdk.FinishStop();
+            Assert.That(stopped, Is.EqualTo(1));
+            Assert.That(_sdk.Current, Is.EqualTo(BugseeStatus.Stopped));
+            Assert.That(_sdk.HooksInstalled, Is.False);
+        }
+
+        // The relaunch's stop outlives the soft deadline and Stop was requested meanwhile. Waiters are answered at the
+        // deadline; the SDK, finally stopped, stays stopped (it cancelled the relaunch).
         [TestCase(10)]
-        [TestCase(61)]  // after the hard reset: the Stop intent is still honoured
-        public void Stop_during_a_slow_relaunch_sticks_after_the_deadline(int seconds)
+        [TestCase(61)]  // after the hard reset
+        public void Stop_during_a_slow_relaunch_stays_stopped_after_the_deadline(int seconds)
         {
             Launched();
             bool? relaunched = null;
@@ -681,21 +709,18 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(stopped, Is.EqualTo(1), "the Stop waiter is answered, with a warning");
 
             _sdk.Calls.Clear();
-            _sdk.FinishStop();   // finally stopped; the continuation launch()es: Launching
-            _sdk.FinishLaunch(); // late true
-            Assert.That(_sdk.Calls, Is.EqualTo(new[] { "stop" }), "the resurrected session is stopped again");
+            _sdk.FinishStop();   // finally stopped; the relaunch was cancelled
+            Assert.That(_sdk.Calls, Is.Empty, "nothing is launched or stopped again");
             Assert.That(_sdk.HooksInstalled, Is.False, "never given the hooks");
-            _sdk.FinishStop();
             Assert.That(_sdk.Current, Is.EqualTo(BugseeStatus.Stopped));
             Assert.That(relaunched, Is.False, "answered once");
             Assert.That(stopped, Is.EqualTo(1), "answered once");
         }
 
-        // Review 4: the caller launches from the Stop completion, which the soft deadline runs while the relaunch's
-        // stop is still going. That Launch must wait for the real stop and the continuation, not start (refused)
-        // and clear the Stop intent so the continuation's session is taken as wanted.
+        // The caller launches from the Stop completion, which the soft deadline runs while the relaunch's stop is
+        // still going. That Launch must wait for the real stop and the relaunch's outcome, not start (and be refused).
         [Test]
-        public void Launch_from_a_soft_timed_out_stop_completion_waits_for_the_relaunch_continuation()
+        public void Launch_from_a_soft_timed_out_stop_completion_waits_for_the_relaunch_outcome()
         {
             Launched("t1", OptionsA);
             bool? launched = null;
@@ -704,16 +729,13 @@ namespace Bugsee.WrapperPolicy.Tests
             Elapse(AndroidLifecycleMachine.OperationTimeout);
             Assert.That(_sdk.Calls, Does.Not.Contain("launch:t2"), "deferred: the SDK is still stopping");
 
-            _sdk.FinishStop();   // stopped; the continuation launch()es the relaunch
-            _sdk.FinishLaunch(); // its true: stale, so stopped again
-            Assert.That(_sdk.Calls, Does.Not.Contain("launch:t2"));
-            Assert.That(_sdk.HooksInstalled, Is.False);
-            _sdk.FinishStop();   // now really stopped: the deferred Launch runs
+            _sdk.FinishStop();   // stopped; the relaunch is cancelled; the deferred Launch runs
             Assert.That(_sdk.Calls, Does.Contain("launch:t2"));
             _sdk.FinishLaunch();
             Assert.That(launched, Is.True);
             Assert.That(_sdk.RunningToken, Is.EqualTo("t2"));
             Assert.That(_sdk.HookOptions, Is.SameAs(OptionsA));
+            Assert.That(_sdk.HooksInstalled, Is.True);
         }
 
         [Test]
@@ -723,7 +745,7 @@ namespace Bugsee.WrapperPolicy.Tests
             bool? launched = null;
             _machine.Stop(() => _machine.Launch("t2", OptionsA, ok => launched = ok));
             Elapse(AndroidLifecycleMachine.OperationTimeout);
-            Assert.That(_sdk.Calls, Does.Not.Contain("launch:t2"), "not into Stopping, where 7.4.1 refuses it");
+            Assert.That(_sdk.Calls, Does.Not.Contain("launch:t2"), "not into Stopping, where the SDK refuses it");
             _sdk.FinishStop();
             _sdk.FinishLaunch();
             Assert.That(launched, Is.True);
@@ -731,22 +753,96 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Launch_from_a_stop_completion_after_the_hard_reset_does_not_clear_the_stop_intent()
+        public void Launch_from_a_stop_completion_after_the_hard_reset_is_refused_by_the_still_stopping_sdk()
         {
             Launched("t1", OptionsA);
             bool? launched = null;
             _machine.Relaunch(OptionsB);
             _machine.Stop(() => _machine.Launch("t2", OptionsA, ok => launched = ok));
             Elapse(TimeSpan.FromSeconds(61));
-            // Hard reset: the Launch is no longer held back, and 7.4.1 refuses it while still Stopping.
+            // Hard reset: the Launch is no longer held back, and the SDK refuses it while still Stopping.
             Assert.That(launched, Is.False);
 
-            _sdk.FinishStop();   // the continuation launch()es anyway
-            _sdk.FinishLaunch(); // late true after the reset: the Stop intent still stands
-            Assert.That(_sdk.Current, Is.EqualTo(BugseeStatus.Stopping), "stopped again");
-            Assert.That(_sdk.HooksInstalled, Is.False);
-            _sdk.FinishStop();
+            _sdk.FinishStop();   // the relaunch was cancelled; its late outcome is ignored
             Assert.That(_sdk.Current, Is.EqualTo(BugseeStatus.Stopped));
+            Assert.That(_sdk.HooksInstalled, Is.False);
+        }
+
+        // A second Relaunch while one is in flight JOINS it (as the SDK does): one native relaunch, the joiner's options
+        // are ignored with a warning, and both callers get the outcome.
+        [Test]
+        public void A_second_relaunch_joins_the_one_in_flight_and_its_options_are_ignored()
+        {
+            Launched("t1", OptionsA);
+            bool? first = null, second = null;
+            _machine.Relaunch(OptionsB, ok => first = ok);
+            _machine.Relaunch(new Dictionary<string, object> { ["c"] = 3 }, ok => second = ok);
+            Assert.That(_sdk.Calls, Is.EqualTo(new[] { "relaunch" }), "one native relaunch");
+            Assert.That(_sdk.Warnings, Has.Some.Contains("IGNORED"));
+            Assert.That(first, Is.Null);
+            Assert.That(second, Is.Null);
+            _sdk.FinishStop();
+            _sdk.FinishLaunch();
+            Assert.That(first, Is.True);
+            Assert.That(second, Is.True);
+            Assert.That(_sdk.HookOptions, Is.SameAs(OptionsB), "the first call's options apply");
+        }
+
+        [Test]
+        public void A_joined_relaunch_gets_a_cancelled_outcome_too()
+        {
+            Launched();
+            bool? first = null, second = null;
+            _machine.Relaunch(OptionsB, ok => first = ok);
+            _machine.Relaunch(null, ok => second = ok);
+            Assert.That(_sdk.Warnings, Has.None.Contains("IGNORED"), "no options, nothing ignored");
+            _machine.Stop();
+            _sdk.FinishStop();
+            Assert.That(first, Is.False);
+            Assert.That(second, Is.False);
+        }
+
+        [Test]
+        public void A_relaunch_after_a_stop_does_not_join_the_cancelled_one()
+        {
+            Launched();
+            bool? first = null, second = null;
+            _machine.Relaunch(OptionsB, ok => first = ok);
+            _machine.Stop();
+            _machine.Relaunch(OptionsA, ok => second = ok);
+            _sdk.FinishStop();
+            Assert.That(first, Is.False);
+            Assert.That(second, Is.False, "refused: the SDK stayed stopped");
+            Assert.That(_sdk.Calls, Is.EqualTo(new[] { "relaunch", "stop" }), "the second one never reached the SDK");
+        }
+
+        [Test]
+        public void A_relaunch_that_joins_after_the_soft_deadline_is_answered_at_once()
+        {
+            Launched();
+            _machine.Relaunch(OptionsB);
+            Elapse(AndroidLifecycleMachine.OperationTimeout);
+            bool? second = null;
+            _machine.Relaunch(null, ok => second = ok);
+            Assert.That(second, Is.False, "the soft deadline's answer: the SDK is Stopping, not running");
+        }
+
+        // A Launch requested during a relaunch's stop waits for it (the SDK would refuse it while Stopping); the
+        // relaunch's session is running afterwards, so the Launch is the documented already-running no-op.
+        [Test]
+        public void Launch_during_a_relaunchs_stop_waits_and_then_finds_the_relaunched_session_running()
+        {
+            Launched("t1", OptionsA);
+            bool? relaunched = null, launched = null;
+            _machine.Relaunch(OptionsB, ok => relaunched = ok);
+            _machine.Launch("t2", OptionsA, ok => launched = ok);
+            Assert.That(_sdk.Calls, Is.EqualTo(new[] { "relaunch" }));
+            _sdk.FinishStop();
+            _sdk.FinishLaunch();
+            Assert.That(relaunched, Is.True);
+            Assert.That(launched, Is.True);
+            Assert.That(_sdk.RunningToken, Is.EqualTo("t1"), "the relaunch's session; the Launch's token is ignored");
+            Assert.That(_sdk.Warnings, Has.Some.Contains("already running"));
         }
 
         [Test]
@@ -762,7 +858,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(_sdk.HookOptions, Is.SameAs(OptionsB));
         }
 
-        // Review 2, finding 2: launch() while already running is a 7.4.1 no-op (true, token ignored). It must not
+        // Review 2, finding 2: launch() while already running is a no-op (true, token ignored). It must not
         // cancel or skip a delete waiting on a relaunch, and the new token must be applied after it.
         [Test]
         public void Launch_during_a_relaunch_does_not_skip_a_waiting_delete()
@@ -803,6 +899,114 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(_sdk.Calls, Is.EqualTo(new[] { "stop" }), "joins, does not launch into Stopping");
             _sdk.FinishStop();
             Assert.That(_sdk.Calls, Is.EqualTo(new[] { "stop", "launch:t2" }));
+        }
+
+        // A Delete queued behind a relaunch runs after it and before a later Relaunch, which therefore must not join.
+        [Test]
+        public void Relaunch_after_a_queued_delete_does_not_join_the_relaunch_in_flight()
+        {
+            Launched();
+            bool? first = null, second = null, deleted = null;
+            _machine.Relaunch(OptionsB, ok => first = ok);
+            _machine.DeleteCollectedData(ok => deleted = ok);
+            _machine.Relaunch(OptionsA, ok => second = ok);
+            Assert.That(_sdk.Calls, Is.EqualTo(new[] { "relaunch" }));
+            _sdk.FinishStop();
+            _sdk.FinishLaunch();
+            Assert.That(first, Is.True);
+            Assert.That(second, Is.Null, "waits behind the delete");
+            _sdk.FinishStop(); // the delete's stop
+            _sdk.FinishDelete(true);
+            Assert.That(deleted, Is.True);
+            Assert.That(second, Is.False, "the SDK is stopped after the delete: refused, as before");
+            Assert.That(_sdk.Calls, Is.EqualTo(new[] { "relaunch", "stop", "delete:Stopped" }));
+        }
+
+        [Test]
+        public void A_relaunch_joins_while_the_relaunch_is_launching()
+        {
+            Launched();
+            bool? first = null, second = null;
+            _machine.Relaunch(OptionsB, ok => first = ok);
+            _sdk.FinishStop(); // Launching
+            _machine.Relaunch(OptionsA, ok => second = ok);
+            Assert.That(_sdk.Calls, Is.EqualTo(new[] { "relaunch" }));
+            _sdk.FinishLaunch();
+            Assert.That(first, Is.True);
+            Assert.That(second, Is.True);
+        }
+
+        [Test]
+        public void Stop_in_the_gap_between_the_relaunchs_stop_and_its_launch_cancels_it()
+        {
+            Launched();
+            _sdk.HoldContinuation = true;
+            bool? relaunched = null;
+            var stopped = 0;
+            _machine.Relaunch(OptionsB, ok => relaunched = ok);
+            _sdk.FinishStop(); // Stopped, the launch half has not run
+            Assert.That(_sdk.Current, Is.EqualTo(BugseeStatus.Stopped));
+            _machine.Stop(() => stopped++); // cancels the relaunch; the SDK is stopped, so it answers at once
+            Assert.That(stopped, Is.EqualTo(0), "the machine still waits for the relaunch's result");
+            _sdk.RunContinuation();
+            Assert.That(relaunched, Is.False);
+            Assert.That(stopped, Is.EqualTo(1));
+            Assert.That(_sdk.Current, Is.EqualTo(BugseeStatus.Stopped));
+            Assert.That(_sdk.HooksInstalled, Is.False);
+        }
+
+        // The relaunch is abandoned at the hard reset with a Launch queued behind it: the Launch joins the SDK's stop
+        // (status Stopping), then launches, and the SDK skips the relaunch's launch half (superseded by that launch);
+        // the relaunch's late false is ignored.
+        [Test]
+        public void Hard_reset_of_a_relaunch_lets_the_queued_launch_run_after_the_sdks_stop()
+        {
+            Launched("t1", OptionsA);
+            bool? relaunched = null, launched = null;
+            _machine.Relaunch(OptionsB, ok => relaunched = ok);
+            _machine.Launch("t2", OptionsA, ok => launched = ok);
+            Assert.That(_sdk.Calls, Is.EqualTo(new[] { "relaunch" }));
+            Elapse(AndroidLifecycleMachine.HardTimeout);
+            Assert.That(relaunched, Is.False);
+            Assert.That(_sdk.Calls, Is.EqualTo(new[] { "relaunch", "stop" }), "joins the SDK's stop, no launch into Stopping");
+            _sdk.FinishStop();   // the stop ends: the Launch runs, then the relaunch's launch half finds it launched
+            Assert.That(_sdk.Calls, Does.Contain("launch:t2"));
+            _sdk.FinishLaunch();
+            Assert.That(launched, Is.True);
+            Assert.That(relaunched, Is.False, "answered once");
+            Assert.That(_sdk.RunningToken, Is.EqualTo("t2"));
+            Assert.That(_sdk.HooksInstalled, Is.True);
+        }
+
+        [Test]
+        public void A_throwing_completion_does_not_stop_the_others_or_the_machine()
+        {
+            Launched();
+            _sdk.CollectErrors = true;
+            bool? second = null;
+            _machine.Relaunch(OptionsB, ok => throw new InvalidOperationException("boom"));
+            _machine.Relaunch(null, ok => second = ok); // joins
+            _sdk.FinishStop();
+            _sdk.FinishLaunch();
+            Assert.That(second, Is.True);
+            Assert.That(_sdk.Errors, Has.Count.EqualTo(1));
+            bool? next = null;
+            _machine.Relaunch(OptionsA, ok => next = ok);
+            _sdk.FinishStop();
+            _sdk.FinishLaunch();
+            Assert.That(next, Is.True, "the machine carries on");
+        }
+
+        [Test]
+        public void The_joined_callback_runs_before_the_completion_and_only_for_a_join()
+        {
+            Launched();
+            var order = new List<string>();
+            _machine.Relaunch(OptionsB, ok => order.Add("first"), () => order.Add("first-joined"));
+            _machine.Relaunch(OptionsA, ok => order.Add("second"), () => order.Add("second-joined"));
+            _sdk.FinishStop();
+            _sdk.FinishLaunch();
+            Assert.That(order, Is.EqualTo(new[] { "second-joined", "first", "second" }));
         }
 
         [Test]

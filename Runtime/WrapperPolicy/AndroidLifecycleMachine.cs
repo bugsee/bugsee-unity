@@ -29,37 +29,44 @@ namespace Bugsee.WrapperPolicy
     /// One state machine for the Android SDK lifecycle: Launch, Relaunch, Stop and DeleteCollectedDataOnDevice, all
     /// driven from one thread.
     ///
-    /// Rules:
+    /// Rules (modelled on the Android 7.4.2 SDK, which calls back exactly once from every launch(), relaunch() and
+    /// stop(): a refused relaunch calls back false, a relaunch cancelled by stop() calls back false):
     /// - Launch, Relaunch and Delete run one at a time, in request order. One that arrives while a Stop, another of
     ///   them, or an SDK stop the wrapper did not start (status Stopping) is in flight is queued and started once
     ///   that settles - nothing blocks the caller. The latest intent wins: a queued Launch replaces queued
     ///   Launch/Relaunch requests after the last queued Delete, a queued Relaunch folds its options into the queued
     ///   Launch/Relaunch before it, and Stop drops every queued Launch/Relaunch. A Delete is never dropped or skipped
     ///   by a later Launch: it runs first, so it can only wipe data collected before the Launch.
-    /// - Stop is never queued: it starts (or joins) a native stop at once, and bumps the stop epoch. A Launch or
-    ///   Relaunch whose result arrives after a newer stop epoch is stale: it never installs the managed hooks, and if
-    ///   the SDK is running anyway (7.4.1 stop() only joins a relaunch's stop, whose continuation then launch()es) it
-    ///   is stopped again. The Stop's completion waits for that, so a Stop always ends with the SDK stopped.
+    /// - A Relaunch requested while a Relaunch is in flight (and no Stop came after it) JOINS it, as the SDK does:
+    ///   it gets that relaunch's outcome and its own options are IGNORED (a warning says so). The SDK answers a joiner
+    ///   true once the relaunch launched, also when the joiner's options were dropped.
+    /// - Stop is never queued: it starts (or joins) a native stop at once, and bumps the stop epoch. A Stop that
+    ///   arrives while a relaunch is stopping, or between its stop and its launch, CANCELS the relaunch in the SDK:
+    ///   the SDK stays stopped and the relaunch calls back false; a Stop while the relaunch is launching is a plain
+    ///   stop (the launch then calls back false). A Launch or Relaunch whose result belongs to an older stop epoch is
+    ///   stale: it never installs the managed hooks. The Stop's completion waits for that result (it follows the
+    ///   stop at once), so a Stop always ends with the SDK stopped and nothing else in flight.
     /// - The managed hooks are installed before launch() (a refusal is reported synchronously, from inside it) and,
     ///   for a current result, reconciled with the SDK's status: running installs them, a refusal removes them.
-    /// - Two-stage deadline, because the SDK does not always call back (relaunch() refuses silently when it is no
-    ///   longer Launched) and a slow stop can outlive any wait:
+    /// - Two-stage deadline, as a guard against a native call that never answers (a slow stop, a stalled capture
+    ///   start) - the SDK itself always calls back:
     ///   - Soft, <see cref="OperationTimeout"/> after an operation started, ONLY answers its callers, with a warning,
     ///     so nobody hangs: Stop completions run, Launch/Relaunch completions get true when the SDK is already running
     ///     (Launching/Launched: it accepted the launch, only the callback is missing) and false otherwise, Delete
     ///     completions get false. It releases nothing
     ///     else - the operation stays in flight, the queue stays blocked behind it, and a Launch/Relaunch requested
     ///     meanwhile (also from inside such a Stop completion) stays deferred until the SDK actually reports (the
-    ///     stop finished, the relaunch continuation called back) or the hard deadline passes. The native operation
+    ///     stop finished, the relaunch called back) or the hard deadline passes. The native operation
     ///     may still finish after its caller got false (a Delete then still deletes); its result is applied as usual.
     ///   - Hard, <see cref="HardTimeout"/>: the operation is reset - forgotten, its stop gate released - and the
-    ///     queue moves on. A callback after that is ignored (by token), except that a Launch/Relaunch result finding
-    ///     the SDK running while a Stop is the latest intent (_stopIntent) is stopped again. _stopIntent is set by
-    ///     Stop and by a Delete starting, and cleared only by a Launch or Relaunch that actually starts a session -
-    ///     never by a deadline, and never by a launch() the SDK refused. Residual race: a result after the hard reset
-    ///     with no Stop intent is ignored, so the managed hooks can be out of step with that session until the next
-    ///     lifecycle call; and a Delete started after the hard reset of a relaunch can overlap a continuation that
-    ///     launch()es later still (the Delete re-checks the status after its stop, but not during the native delete).
+    ///     queue moves on. A callback after that is ignored (by token). Residual race: a result after the hard reset
+    ///     is ignored, so the managed hooks can be out of step with that session until the next lifecycle call. A
+    ///     Delete started after the hard reset of a relaunch stops the SDK first, and that stop() cancels the
+    ///     abandoned relaunch (7.4.2), so the two overlap only when the status is already Stopped while the relaunch
+    ///     has not launched yet (the Delete re-checks the status after its stop, but not during the native delete).
+    /// - The same cancel applies to a stop the wrapper starts to join one it did not start (status Stopping, for
+    ///   instance a relaunch made from Java, or one abandoned at the hard reset with an operation queued): in 7.4.2
+    ///   stop() during a relaunch's stop cancels that relaunch instead of joining it.
     /// </summary>
     internal sealed class AndroidLifecycleMachine
     {
@@ -108,9 +115,6 @@ namespace Bugsee.WrapperPolicy
         readonly LinkedList<Op> _queue = new LinkedList<Op>();
         Op _active;
         StopOp _stop;
-        // The latest lifecycle intent is "stopped": set by Stop and by a Delete starting, cleared only by a
-        // Launch/Relaunch that actually starts a session. No deadline touches it.
-        bool _stopIntent;
         int _nextToken;
         int _stopEpoch;
         bool _skipStoppingJoin;
@@ -136,7 +140,8 @@ namespace Bugsee.WrapperPolicy
             Pump();
         }
 
-        public void Relaunch(IDictionary<string, object> options, Action<bool> completion = null)
+        /// <param name="joined">Runs at once when this request joins a relaunch in flight (its options are ignored).</param>
+        public void Relaunch(IDictionary<string, object> options, Action<bool> completion = null, Action joined = null)
         {
             var tail = _queue.Last?.Value;
             if (tail != null && tail.Kind != Kind.Delete)
@@ -144,6 +149,21 @@ namespace Bugsee.WrapperPolicy
                 // Launch(a) then Relaunch(b), both waiting: launch with b.
                 tail.Options = options;
                 Add(tail.Completions, completion);
+                return;
+            }
+
+            // The SDK joins a relaunch in flight: the joiner gets that relaunch's outcome and its options are ignored.
+            // Not after a Stop (the SDK cancelled that relaunch, nothing can join it), and only with nothing queued: a
+            // queued Delete runs after the relaunch and before this request, so joining would skip the request order.
+            if (_active != null && _active.Kind == Kind.Relaunch && _active.StopEpoch == _stopEpoch && _queue.Count == 0)
+            {
+                if (joined != null) Run(joined);
+                if (options != null && options.Count > 0)
+                    _native.Warn("Bugsee.Relaunch: a relaunch is already in progress, so these options are IGNORED; " +
+                                 "the options of the call that started it apply.");
+                Add(_active.Completions, completion);
+                // Joined after the soft deadline already answered the callers: answer this one the same way.
+                if (completion != null && _now() >= _active.Deadline) Tick();
                 return;
             }
 
@@ -179,7 +199,6 @@ namespace Bugsee.WrapperPolicy
         public void Stop(Action completion = null, Action<bool> result = null)
         {
             _stopEpoch++;
-            _stopIntent = true;
             var dropped = new List<Op>();
             for (var node = _queue.First; node != null;)
             {
@@ -251,7 +270,7 @@ namespace Bugsee.WrapperPolicy
         {
             while (_active == null && _stop == null && _queue.Count > 0)
             {
-                // 7.4.1 refuses launch() while Stopping. A stop the wrapper did not start is joined first, unless a
+                // The SDK refuses launch() and relaunch() while Stopping. A stop the wrapper did not start is joined first, unless a
                 // join already timed out (the next operation then runs and reports what the SDK says).
                 if (!_skipStoppingJoin && _native.Status() == BugseeStatus.Stopping)
                 {
@@ -267,7 +286,6 @@ namespace Bugsee.WrapperPolicy
                 op.Deadline = _now() + OperationTimeout;
                 op.HardDeadline = _now() + HardTimeout;
                 op.PreviousHookOptions = _hookOptions;
-                if (op.Kind == Kind.Delete) _stopIntent = true;
                 _active = op;
                 _native.ScheduleTick(OperationTimeout);
                 _native.ScheduleTick(HardTimeout);
@@ -297,16 +315,13 @@ namespace Bugsee.WrapperPolicy
 
             var token = op.Token;
             Call(op, () => _native.Launch(op.AppToken, op.Options, ok => OnResult(token, ok)));
-            // Only a launch() that started a session ends a Stop intent; a refusal (still stopping) or the
-            // already-running no-op does not.
-            if (AndroidLaunchStatePolicy.LaunchStartedSession(before, _native.Status())) _stopIntent = false;
         }
 
         void StartRelaunch(Op op)
         {
             if (!AndroidLaunchStatePolicy.RelaunchAccepted(_native.Status()))
             {
-                _native.Warn("Bugsee.Relaunch ignored: the SDK only relaunches once it is Launched.");
+                _native.Warn("Bugsee.Relaunch refused: the SDK only relaunches once it is Launched.");
                 Settle(op, false);
                 return;
             }
@@ -315,18 +330,8 @@ namespace Bugsee.WrapperPolicy
             _native.InstallHooks(_hookOptions);
             var token = op.Token;
             Call(op, () => _native.Relaunch(op.Options, ok => OnResult(token, ok)));
-            if (_active != op) return;
-
-            // relaunch() refuses without a callback when the SDK stopped between our check and the call.
-            if (AndroidLaunchStatePolicy.RelaunchClaimReleasedAfterCall(_native.Status()))
-            {
-                _native.Warn("Bugsee.Relaunch was not applied: the SDK was stopped concurrently.");
-                _hookOptions = op.PreviousHookOptions;
-                Settle(op, false);
-                return;
-            }
-
-            _stopIntent = false; // the SDK took it: its continuation launch() is wanted
+            // A relaunch the SDK refused after our status check (it was stopped meanwhile) has already called back
+            // false, inline: Settle rolled the hooks back.
         }
 
         // The SDK must be fully Stopped before the delete, and stays stopped after it. Stop (or join the stop in
@@ -378,18 +383,7 @@ namespace Bugsee.WrapperPolicy
                 return;
             }
 
-            // A Launch/Relaunch result after its hard reset: only a Stop intent is still honoured.
-            if (_stopIntent && AndroidLaunchStatePolicy.IsRunning(_native.Status()))
-            {
-                _native.Warn("A timed-out Bugsee launch started the SDK after Stop was requested; stopping it again.");
-                StopResurrected();
-            }
-        }
-
-        // The SDK runs although a Stop is the latest intent. A native stop still in progress needs nothing more.
-        void StopResurrected()
-        {
-            if (_stop == null || _stop.NativeDone) StartStop(null, restart: true);
+            // A result after the operation's hard reset is ignored.
         }
 
         // Ends the active operation: reconcile the hooks, complete it, then finish a Stop that was waiting on it.
@@ -403,8 +397,10 @@ namespace Bugsee.WrapperPolicy
                 var running = AndroidLaunchStatePolicy.IsRunning(_native.Status());
                 if (op.StopEpoch != _stopEpoch)
                 {
-                    // Stale: a Stop came after this started. Never re-install the hooks; stop a resurrected session.
-                    if (running) StopResurrected();
+                    // Stale: a Stop came after this started (the SDK cancelled it). Never re-install the hooks.
+                    if (running)
+                        _native.Warn("The SDK is running although Bugsee.Stop was requested after its Launch/Relaunch " +
+                                     "started (an SDK older than 7.4.2 launches again after a Stop during a relaunch).");
                 }
                 else if (running)
                 {
@@ -427,21 +423,18 @@ namespace Bugsee.WrapperPolicy
             if (op.Kind != Kind.Delete && _stop != null && _stop.NativeDone) FinishStop();
         }
 
-        void StartStop(Action completion, bool restart = false, Action continuation = null, Action<bool> result = null)
+        void StartStop(Action completion, Action continuation = null, Action<bool> result = null)
         {
-            if (_stop != null && !restart)
+            if (_stop != null)
             {
                 AddWaiter(completion, result);
                 Add(_stop.Continuations, continuation);
                 return;
             }
 
-            if (_stop == null)
-            {
-                _stop = new StopOp { Deadline = _now() + OperationTimeout, HardDeadline = _now() + HardTimeout };
-                _native.ScheduleTick(OperationTimeout);
-                _native.ScheduleTick(HardTimeout);
-            }
+            _stop = new StopOp { Deadline = _now() + OperationTimeout, HardDeadline = _now() + HardTimeout };
+            _native.ScheduleTick(OperationTimeout);
+            _native.ScheduleTick(HardTimeout);
 
             AddWaiter(completion, result);
             Add(_stop.Continuations, continuation);

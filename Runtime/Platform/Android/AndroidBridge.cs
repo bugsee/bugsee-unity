@@ -102,7 +102,7 @@ namespace Bugsee.Platform.Android
 
         public void Relaunch(IDictionary<string, object> options) => Relaunch(options, null);
 
-        internal void Relaunch(IDictionary<string, object> options, Action<bool> completion) =>
+        internal void Relaunch(IDictionary<string, object> options, Action<bool> completion, Action joined = null) =>
             MainThreadDispatcher.Run(() =>
             {
                 ReportHandlerProxy.InvalidateBudget();
@@ -110,14 +110,14 @@ namespace Bugsee.Platform.Android
                 {
                     ReportHandlerProxy.InvalidateBudget();
                     completion?.Invoke(ok);
-                });
+                }, joined);
             });
 
         void ILifecycleResultBridge.Launch(string appToken, IDictionary<string, object> options, Action<bool> started) =>
             Launch(appToken, options, started);
 
-        void ILifecycleResultBridge.Relaunch(IDictionary<string, object> options, Action<bool> started) =>
-            Relaunch(options, started);
+        void ILifecycleResultBridge.Relaunch(IDictionary<string, object> options, Action<bool> started, Action joined) =>
+            Relaunch(options, started, joined);
 
         // finished (StopAsync): true when the SDK reported the stop, false at the machine's 10 s soft deadline. The
         // stop is queued to the main thread like every lifecycle call here, so it is never skipped.

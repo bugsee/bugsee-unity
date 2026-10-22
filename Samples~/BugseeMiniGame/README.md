@@ -130,7 +130,7 @@ runs scenarios on one Android device.
 
 | Scenario | What it does |
 |----------|--------------|
-| `interactions`, `actions`, `filters`, `presets`, `nested` | self-checking (`PASS`/`FAIL` lines), described below; `nested` sends a handled exception with a three-level `InnerException` chain and checks that its payload has 3 levels and 2 `cause` keys (`[Sample] nested PASS levels=3 causes=2`) |
+| `interactions`, `actions`, `filters`, `presets`, `nested`, `lifecycle` | self-checking (`PASS`/`FAIL` lines), described below; `nested` sends a handled exception with a three-level `InnerException` chain and checks that its payload has 3 levels and 2 `cause` keys (`[Sample] nested PASS levels=3 causes=2`) |
 | `vh` | self-checking (issue #111): calls `Bugsee.CaptureViewHierarchy()` twice and checks the native SDK asked and the wrapper built a non-null managed tree within the SDK's 500 ms window (development build only; it stops with a `SKIP` line when the preset turned `CaptureViewHierarchy` off). It does not prove the reply reached a report. Every capture in the sample is truncated (more than 1500 active objects, hard cap 1500 nodes, about 80 ms walk budget), so a complete tree is never seen. Use `WAIT=40` with `Tools~/scripts/e2e-android.sh` (the default 25 s can lose the `done` line) |
 | `sig` (default), `handled`, `unhandled`, `pipeline`, `upload`, `labels`, `logerror` | send handled / unhandled exceptions, a pipeline exception, a plain `Upload`, a handled exception with labels, or a Unity `LogError`, to see that a report arrives (`sig` sends three, to check the grouping signature) |
 | `crash`, `native`, `abort`, `fatal`, `java`, `hang` | kill the process (or block the main thread) for the crash matrix; one per run |
@@ -231,6 +231,15 @@ if they are sent (the `options` scenario sends every one and checks that Android
 `CaptureBluetoothStatus`, which only reports a status when the app itself got Bluetooth permission (the sample never asks, so it reads unknown).
 
 The presets also set the Android 7.4.2 options with typed properties (#96): `MaxDataSize` and `NotifyFlushDelay` on both platforms, and on Android `MaxPendingReports`, `MaxPendingReportAge`, the hang and ANR sampling switches, `DetectAndReportExitLowMemoryBackgroundAsError`, `DetectAndReportCrashNdk` and `CrashNdkIncludeTombstoneLogs`. The two NDK keys are skipped in the comparison when the SDK does not report them (the NDK extension is not registered on Unity 6 with the Gradle plugin, #226). The `options` scenario sends each at a non-default value and logs `[OPTIONS] key sent=... native=...`.
+
+### Lifecycle check (`lifecycle` e2e scenario, Android)
+
+The `lifecycle` scenario (Android intent extra `bugsee_e2e`, issue #176) runs Launch/Relaunch/Stop sequences once the SDK is launched. Part 1 calls the native
+`Bugsee.relaunch/stop/launch` directly and logs what the SDK itself answers (`[Sample] lifecycle RAW ...`): a refused relaunch, two
+relaunches in a row, `stop()` during a relaunch, `launch()` during a relaunch's stop, and `stop()` in a relaunch's launch half. The
+same scenario in a build that pins another Android SDK version shows what a release changed; PASS/FAIL is judged only when the build
+pins SDK 7.4.2. Part 2 runs the same sequences through the public facade (the wrapper's lifecycle machine) and logs
+`[Sample] lifecycle PASS|FAIL ...`, ending in `lifecycle e2e done failures=N`. It does nothing on iOS.
 
 ### Filter check (`filters` e2e scenario)
 

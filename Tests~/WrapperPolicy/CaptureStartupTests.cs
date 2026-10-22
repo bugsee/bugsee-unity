@@ -52,6 +52,21 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(f.Warnings, Is.Empty);
         }
 
+        // A Relaunch that joined one in flight is answered as a request that changed nothing: it must not touch the pusher, but
+        // it is the "newer request" the first one's deferred fallback waits for, so it runs that fallback.
+        [Test]
+        public void A_joined_relaunch_answered_as_unchanged_runs_the_fallback_deferred_for_it()
+        {
+            var f = new Fake { Running = true, NativeMode = VideoMode.DirectBuffers, EnableResult = false, Latest = false };
+            f.Result(true, true, Mode(VideoMode.DirectBuffers)); // the pusher cannot start, a newer request is waiting
+            Assert.That(f.State.FallbackPending, Is.True);
+            Assert.That(f.Relaunches, Is.Empty);
+            f.Latest = true;
+            f.Result(false, true, null); // the joiner
+            Assert.That(f.Relaunches, Has.Count.EqualTo(1));
+            Assert.That(f.State.FallbackPending, Is.False);
+        }
+
         [Test]
         public void Accepted_launch_with_an_unreadable_mode_follows_the_request()
         {

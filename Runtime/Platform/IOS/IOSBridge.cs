@@ -78,7 +78,7 @@ namespace Bugsee.Platform.IOS
 
         public void Relaunch(IDictionary<string, object> options) => Relaunch(options, null);
 
-        void ILifecycleResultBridge.Relaunch(IDictionary<string, object> options, Action<bool> started) =>
+        void ILifecycleResultBridge.Relaunch(IDictionary<string, object> options, Action<bool> started, Action joined) =>
             Relaunch(options, started);
 
         void Relaunch(IDictionary<string, object> options, Action<bool> started)

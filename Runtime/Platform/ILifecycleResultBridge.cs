@@ -15,7 +15,9 @@ namespace Bugsee.Platform
         void Launch(string appToken, IDictionary<string, object> options, Action<bool> started);
 
         /// <inheritdoc cref="Launch"/>
-        void Relaunch(IDictionary<string, object> options, Action<bool> started);
+        /// <param name="joined">Android only: runs (on the main thread, before <paramref name="started"/>) when the
+        /// request joined a relaunch already in flight, so the options it passed were never applied.</param>
+        void Relaunch(IDictionary<string, object> options, Action<bool> started, Action joined);
 
         /// <summary><paramref name="finished"/> runs once, when the stop is over: true when the stop ran (even
         /// if a later Launch dropped the ordinary Stop completions), false when the SDK had not reported it within the
