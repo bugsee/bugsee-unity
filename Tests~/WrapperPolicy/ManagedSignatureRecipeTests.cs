@@ -201,6 +201,30 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Review_shape_logger_frames_between_bugsee_and_the_catch_frame()
+        {
+            var t = new[] { "at A.M () (at A.cs:5)", "at Caller.X () (at C.cs:9)", "at Root.R () (at R.cs:1)" };
+            var live = "at Bugsee.Internal.P.F ()\nat UnityEngine.Logger.LogException (System.Exception e) (at <h>:0)\n"
+                + "at UnityEngine.Debug.LogException (System.Exception e) (at <h>:0)\nat A.M () (at A.cs:6)\n"
+                + "at Caller.X () (at C.cs:9)\nat Root.R () (at R.cs:1)";
+            Assert.That(ManagedSignatureRecipe.TrimCallerTail(t, live), Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Native_lines_of_a_unity_log_are_engine_frames_and_do_not_use_the_cap()
+        {
+            Assert.That(ManagedSignatureRecipe.IsEngineFrame("#00 pc 0000000000a1b2c3 /data/app/x/lib/arm64/libunity.so (offset 0x1000)"), Is.True);
+            Assert.That(ManagedSignatureRecipe.IsEngineFrame("0x000000010a1b2c3d in UnityFramework"), Is.True);
+            Assert.That(ManagedSignatureRecipe.IsEngineFrame("A.M () in /p/libil2cpp.so"), Is.True);
+            Assert.That(ManagedSignatureRecipe.IsEngineFrame("at A.M () (at A.cs:5)"), Is.False);
+            var clean = new[] { "A.M () (at Assets/A.cs:5)" };
+            var many = new string[12];
+            for (var i = 0; i < 11; i++) many[i] = "#0" + i + " pc 00001 /data/app/x/libunity.so";
+            many[11] = clean[0];
+            Assert.That(Sig(many), Is.EqualTo(Sig(clean)));
+        }
+
+        [Test]
         public void Matching_stops_at_a_bugsee_frame_of_the_live_stack()
         {
             var t = new[] { "at A.M () (at A.cs:5)", "at Bugsee.Internal.P.F ()" };

@@ -32,6 +32,8 @@ namespace Bugsee.WrapperPolicy
             "UnityPlayer", "com.unity3d.", "com.bugsee.", "java.", "android.", "dalvik.", "libcore.",
         };
 
+        static readonly string[] NativeImages = { "libunity.so", "libil2cpp.so", "libmono", "UnityFramework", "UnityPlayer" };
+
         // Wrapper namespaces are engine; the sample app's own code lives in Bugsee.Sample and counts as user code.
         const string SampleNamespace = "Bugsee.Sample.";
 
@@ -59,6 +61,11 @@ namespace Bugsee.WrapperPolicy
         {
             var token = MethodToken(frame);
             if (token.Length == 0 || token[0] == '(') return true; // "(wrapper managed-to-native)" and the like
+            if (token[0] == '#' || token.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return true; // native lines of a Unity log: "#00 pc ...", "0x... in UnityFramework"
+            foreach (var lib in NativeImages)
+            {
+                if (frame.IndexOf(lib, StringComparison.Ordinal) >= 0) return true;
+            }
             if (token.StartsWith(SampleNamespace, StringComparison.Ordinal)) return false;
             foreach (var p in EnginePrefixes)
             {
