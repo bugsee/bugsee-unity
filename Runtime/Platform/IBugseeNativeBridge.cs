@@ -25,6 +25,9 @@ namespace Bugsee.Platform
         /// <summary>The effective launch options (SDK defaults merged with the host's), or null when the SDK has none.</summary>
         IReadOnlyDictionary<string, object> GetLaunchOptions();
 
+        /// <summary>Only the launch options the host supplied (no SDK defaults); never null, empty before a launch.</summary>
+        IReadOnlyDictionary<string, object> GetHostLaunchOptions();
+
         void StartBlackout();
         void EndBlackout();
         bool IsBlackout();
@@ -61,6 +64,9 @@ namespace Bugsee.Platform
 
         void SetAttribute(string key, object value);
         object GetAttribute(string key);
+
+        /// <summary>Every attribute set, typed like <see cref="GetAttribute"/>; never null, empty when none.</summary>
+        IReadOnlyDictionary<string, object> GetAllAttributes();
         void ClearAttribute(string key);
         void ClearAllAttributes();
 

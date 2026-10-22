@@ -418,6 +418,14 @@ namespace Bugsee.Sample
                         StartCoroutine(VhE2E.Run(this));
                     }
                     break;
+                case "readapis":
+                    // Reads back host launch options, attributes and secure rectangles through the read APIs (issue #100).
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        StartCoroutine(ReadApisE2E.Run(this, appToken));
+                    }
+                    break;
                 case "actions":
                     // Drives the action-catalog items the bubbles call (issue #115), once the SDK is launched.
                     if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))

@@ -13,6 +13,8 @@ namespace Bugsee.WrapperPolicy
     public static class LaunchOptionsWire
     {
         public const string InternalKeyPrefix = "$$";
+        /// <summary>iOS: the map the wrapper adds to identify itself (Android's <c>$$WRAPPER</c>); left out like the hidden keys.</summary>
+        public const string WrapperInfoKey = "wrapper_info";
         const string OptionKeyPrefix = "com.bugsee.option.";
 
         /// <summary>True for a hidden SDK-internal key: <c>$$X</c> or <c>com.bugsee.option.$$X</c>.</summary>
@@ -30,7 +32,7 @@ namespace Bugsee.WrapperPolicy
             var result = new Dictionary<string, object>();
             foreach (var kv in options)
             {
-                if (kv.Key == null || IsInternalKey(kv.Key)) continue;
+                if (kv.Key == null || IsInternalKey(kv.Key) || kv.Key == WrapperInfoKey) continue;
                 result[kv.Key] = Value(kv.Value);
             }
             return result;
