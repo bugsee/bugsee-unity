@@ -103,6 +103,22 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void TheWriterCountsTheNodesThatLostTheirNameOrComponents()
+        {
+            var field = Node(5, "InputField", "PasswordField", 100, 100, 200, 50);
+            field.Components = "Image,InputField";
+            var bare = Node(7, "Image", null, 120, 110, 10, 10);
+            var clear = Node(6, "Image", "Logo", 500, 500, 50, 50);
+            var root = Node(0, "UnityPlayer", null, 0, 0, 1000, 1000, field, bare, clear);
+            ManagedViewTreeJson.Write(root, new[] { 150, 110, 400, 160 }, 1, 1f, out var covered);
+            Assert.That(covered, Is.EqualTo(1), "only a node that had something to hide counts (the root and the nameless one do not)");
+            ManagedViewTreeJson.Write(root, null, 0, 1f, out covered);
+            Assert.That(covered, Is.EqualTo(0));
+            ManagedViewTreeJson.Write(null, new[] { 0, 0, 1, 1 }, 1, 1f, out covered);
+            Assert.That(covered, Is.EqualTo(0));
+        }
+
+        [Test]
         public void AContainerOverTheRectangleDoesNotCoverItsFarChildren()
         {
             var near = Node(3, "Text", "Balance", 5, 5, 10, 10);

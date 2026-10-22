@@ -103,8 +103,14 @@ namespace Bugsee.WrapperPolicy
         /// <param name="secureCount">How many rectangles of <paramref name="secureRects"/> are in use.</param>
         /// <param name="pixelsPerNativeUnit">1 on Android (the native tree is in pixels), the screen scale on iOS (points).</param>
         public static string Write(
-            ManagedViewNode root, int[] secureRects, int secureCount, float pixelsPerNativeUnit)
+            ManagedViewNode root, int[] secureRects, int secureCount, float pixelsPerNativeUnit) =>
+            Write(root, secureRects, secureCount, pixelsPerNativeUnit, out _);
+
+        /// <param name="protectedNodes">How many nodes lost their name and component list to a secure rectangle.</param>
+        public static string Write(
+            ManagedViewNode root, int[] secureRects, int secureCount, float pixelsPerNativeUnit, out int protectedNodes)
         {
+            protectedNodes = 0;
             if (root == null) return null;
             if (!(pixelsPerNativeUnit > 0f) || float.IsInfinity(pixelsPerNativeUnit)) pixelsPerNativeUnit = 1f;
             if (secureRects == null) secureCount = 0;
@@ -112,7 +118,7 @@ namespace Bugsee.WrapperPolicy
 
             Resolve(root, 1);
             var sb = new StringBuilder(4096);
-            WriteNode(sb, root, secureRects, secureCount, pixelsPerNativeUnit, 1);
+            WriteNode(sb, root, secureRects, secureCount, pixelsPerNativeUnit, 1, ref protectedNodes);
             return sb.ToString();
         }
 
@@ -161,12 +167,13 @@ namespace Bugsee.WrapperPolicy
         }
 
         static void WriteNode(
-            StringBuilder sb, ManagedViewNode node, int[] rects, int rectCount, float scale, int depth)
+            StringBuilder sb, ManagedViewNode node, int[] rects, int rectCount, float scale, int depth, ref int protectedNodes)
         {
             var hasBounds = node.ResolvedHas;
             float x = node.RX, y = node.RY, w = node.RW, h = node.RH;
             // Geometry that cannot be placed cannot be proven clear of a secure rectangle, so with any registered it counts as covered.
             var isProtected = rectCount > 0 && (!hasBounds || Overlaps(rects, rectCount, x, y, w, h));
+            if (isProtected && (!string.IsNullOrEmpty(node.Name) || !string.IsNullOrEmpty(node.Components))) protectedNodes++;
 
             sb.Append('{');
             sb.Append("\"id\":").Append(JsonWire.String(node.IdText ?? node.Id.ToString(CultureInfo.InvariantCulture)));
@@ -212,7 +219,7 @@ namespace Bugsee.WrapperPolicy
                     if (child == null) continue;
                     sb.Append(first ? ",\"subitems\":[" : ",");
                     first = false;
-                    WriteNode(sb, child, rects, rectCount, scale, depth + 1);
+                    WriteNode(sb, child, rects, rectCount, scale, depth + 1, ref protectedNodes);
                 }
 
                 if (!first) sb.Append(']');
