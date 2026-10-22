@@ -778,7 +778,7 @@ namespace Bugsee.Platform.IOS
 
         public float GetSecureRectSnapshotScale() => _bugsee_screen_scale();
 
-        // Unity's own view in its window, in points, times the screen scale (registered pixels are divided by the scale again by
+        // Unity's own view on the screen, in points, times the screen scale (registered pixels are divided by the scale again by
         // the snapshot): under iPad Split View, Slide Over or Stage Manager it is not the screen. A size that does not have the
         // orientation of Unity's screen (landscape against portrait) is a view caught mid-rotation, as UIKit and Unity update at
         // different moments: not settled. The aspect itself is not compared: a render size of another aspect is stretched.

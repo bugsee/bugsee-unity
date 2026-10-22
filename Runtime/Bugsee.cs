@@ -573,7 +573,7 @@ namespace Bugsee
         /// canvas give it (not <c>RectTransformUtility.PixelAdjustRect</c>, which is local to the canvas). The wrapper flips
         /// it, scales it by the Unity surface's size over <c>Screen</c> (Resolution Scaling, <c>Screen.SetResolution</c>, iOS
         /// render scale), offsets it by where the surface sits on the display (Android: its position on the screen; iOS: Unity's
-        /// view in its window) and rounds outwards.
+        /// view on the screen) and rounds outwards.
         /// <para>
         /// Contract: the rectangle is remembered as a FRACTION of the screen it was added for. It is converted again, within a
         /// frame, when the screen size or the surface position changes, so it follows Resolution Scaling, a moving surface and

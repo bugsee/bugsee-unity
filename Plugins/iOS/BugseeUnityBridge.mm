@@ -790,18 +790,6 @@ int _bugsee_screen_points(float *outWH)
     return 1;
 }
 
-static UIWindow *BugseeUnityKeyWindow(void)
-{
-    UIApplication *app = [UIApplication sharedApplication];
-    for (UIScene *scene in app.connectedScenes) {
-        if (![scene isKindOfClass:[UIWindowScene class]]) continue;
-        if (scene.activationState != UISceneActivationStateForegroundActive) continue;
-        for (UIWindow *window in ((UIWindowScene *)scene).windows)
-            if (window.isKeyWindow) return window;
-    }
-    return app.windows.firstObject;
-}
-
 static UIView *BugseeUnityFindView(UIView *view, int depth)
 {
     if ([NSStringFromClass([view class]) hasPrefix:@"UnityView"]) return view;
@@ -813,16 +801,37 @@ static UIView *BugseeUnityFindView(UIView *view, int depth)
     return nil;
 }
 
-// Where Unity's own view sits in its window, in points with a top-left origin (x, y, width, height into outRect). Differs from
+// Unity's view and the window that holds it. Every window of every scene is searched (an iPad can show several scenes), so an
+// unrelated key window is never taken for Unity's; only when no UnityView is found anywhere is the key window's root view used.
+static UIView *BugseeUnityViewAndWindow(UIWindow **outWindow)
+{
+    UIApplication *app = [UIApplication sharedApplication];
+    NSMutableArray<UIWindow *> *windows = [NSMutableArray array];
+    for (UIScene *scene in app.connectedScenes)
+        if ([scene isKindOfClass:[UIWindowScene class]]) [windows addObjectsFromArray:((UIWindowScene *)scene).windows];
+    for (UIWindow *window in app.windows)
+        if (![windows containsObject:window]) [windows addObject:window];
+    UIWindow *keyWindow = nil;
+    for (UIWindow *window in windows) {
+        UIView *found = BugseeUnityFindView(window, 0);
+        if (found) { *outWindow = window; return found; }
+        if (window.isKeyWindow && !keyWindow) keyWindow = window;
+    }
+    if (!keyWindow || !keyWindow.rootViewController.view) return nil;
+    *outWindow = keyWindow;
+    return keyWindow.rootViewController.view;
+}
+
+// Where Unity's own view sits on the screen, in points with a top-left origin (x, y, width, height into outRect). Differs from
 // UIScreen.bounds under iPad Split View, Slide Over and Stage Manager. Returns 0 when there is no window or view.
 int _bugsee_unity_view_region(float *outRect)
 {
     if (!outRect) return 0;
-    UIWindow *window = BugseeUnityKeyWindow();
-    if (!window) return 0;
-    UIView *view = BugseeUnityFindView(window.rootViewController.view ?: window, 0) ?: window.rootViewController.view;
-    if (!view) return 0;
-    CGRect r = [view convertRect:view.bounds toView:nil];
+    UIWindow *window = nil;
+    UIView *view = BugseeUnityViewAndWindow(&window);
+    if (!view || !window) return 0;
+    CGRect inWindow = [view convertRect:view.bounds toView:window];
+    CGRect r = [window convertRect:inWindow toWindow:nil]; // nil: the screen's coordinate space
     if (r.size.width <= 0 || r.size.height <= 0) return 0;
     outRect[0] = (float)r.origin.x;
     outRect[1] = (float)r.origin.y;

@@ -423,7 +423,7 @@ A `RectTransform` corner from `GetWorldCorners` in a screen-space overlay canvas
 
 ### Secure rectangles in Unity screen space
 
-`Bugsee.AddSecureScreenRectangle(Rect unityScreenRect, int displayId = 0)` and `RemoveSecureScreenRectangle(...)` take what Unity's screen space gives you (bottom-left origin, `Screen.width` x `Screen.height` pixels: `Input.mousePosition`, or `RectTransform.GetWorldCorners` of a Screen Space - Overlay canvas; `RectTransformUtility.PixelAdjustRect` is canvas-local and needs converting first) and do the conversion for you: the y flip, the scale of each axis from Unity's render size to the native surface (Android Resolution Scaling, any `Screen.SetResolution` including another aspect, iOS render scale), and the surface's position (Android: Unity's SurfaceView, the one whose buffer has `Screen`'s size, on the screen; iOS: Unity's view in its window). The result is rounded outwards and clamped to the surface.
+`Bugsee.AddSecureScreenRectangle(Rect unityScreenRect, int displayId = 0)` and `RemoveSecureScreenRectangle(...)` take what Unity's screen space gives you (bottom-left origin, `Screen.width` x `Screen.height` pixels: `Input.mousePosition`, or `RectTransform.GetWorldCorners` of a Screen Space - Overlay canvas; `RectTransformUtility.PixelAdjustRect` is canvas-local and needs converting first) and do the conversion for you: the y flip, the scale of each axis from Unity's render size to the native surface (Android Resolution Scaling, any `Screen.SetResolution` including another aspect, iOS render scale), and the surface's position (Android: Unity's SurfaceView, the one whose buffer has `Screen`'s size, on the screen; iOS: Unity's view on the screen). The result is rounded outwards and clamped to the surface.
 
 Contract:
 
