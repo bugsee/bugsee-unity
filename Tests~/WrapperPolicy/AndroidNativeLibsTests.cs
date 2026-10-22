@@ -28,10 +28,10 @@ namespace Bugsee.WrapperPolicy.Tests
             int symtabIndex = -1;
             if (symtab)
             {
-                sections.Add((".symtab", 2, Symtab(is64, le, symtabKinds, !unnamedSymbols)));
+                sections.Add((".symtab", 2, Symtab(is64, le, symtabKinds, !unnamedSymbols, strtabMode == 2 ? 1000 : 0)));
                 symtabIndex = sections.Count; // header index: the null section is 0
                 var count = (symtabKinds ?? new[] { 2, 1 }).Length + 8;
-                var str = new byte[strtabMode == 2 ? 1 : count + 1]; // 2: shorter than every name index
+                var str = new byte[count + 1]; // 2: the names index far beyond it
                 if (strtabMode != 1) for (int i = 0; i < str.Length - 1; i++) str[i] = (byte)'x'; // 1: every string is empty
                 sections.Add((".strtab", 3, str));
             }
@@ -104,7 +104,7 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         // One symbol per kind (STT_*), after the null symbol.
-        static byte[] Symtab(bool is64, bool le, int[] kinds, bool named = true)
+        static byte[] Symtab(bool is64, bool le, int[] kinds, bool named = true, int nameBase = 0)
         {
             kinds = kinds ?? new[] { 2, 1 };
             int entry = is64 ? 24 : 16;
@@ -112,7 +112,7 @@ namespace Bugsee.WrapperPolicy.Tests
             for (int i = 0; i < kinds.Length; i++)
             {
                 b[(i + 1) * entry + (is64 ? 4 : 12)] = (byte)kinds[i];
-                if (named) Put(b, (i + 1) * entry, i + 1, 4, le); // st_name
+                if (named) Put(b, (i + 1) * entry, nameBase + i + 1, 4, le); // st_name
             }
             return b;
         }
