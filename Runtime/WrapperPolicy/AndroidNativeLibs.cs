@@ -169,8 +169,10 @@ namespace Bugsee.WrapperPolicy
 
                 if (name == ".symtab" && type == 2 && size >= symEntry)
                 {
-                    // Only a table that names something counts: a stripped library can keep null, file and section symbols.
-                    info.HasSymtab = HasNamedSymbol(s, Offset(i), size, is64, le);
+                    // Only a table that names something counts (a name inside its linked string table): a stripped library can keep null, file and section symbols.
+                    int link = (int)U32(table, i * shentsize + (is64 ? 40 : 24), le);
+                    info.HasSymtab = link > 0 && link < shnum && Type(link) == 3 && Inside(link)
+                        && HasNamedSymbol(s, Offset(i), size, is64, le, Offset(link), Size(link));
                 }
                 else if ((name == ".debug_info" || name == ".zdebug_info") && type != 8 && size > 0)
                 {
@@ -189,16 +191,24 @@ namespace Bugsee.WrapperPolicy
             }
         }
 
-        // A named function, object, TLS or indirect-function symbol in a .symtab, scanned in entry-aligned chunks.
-        static bool HasNamedSymbol(Stream s, long offset, long size, bool is64, bool le)
+        // A function, object, TLS or indirect-function symbol in a .symtab whose st_name indexes a non-empty string inside the
+        // linked string table (sh_link), scanned in entry-aligned chunks.
+        static bool HasNamedSymbol(Stream s, long offset, long size, bool is64, bool le, long strOffset, long strSize)
         {
+            if (strSize <= 1)
+            {
+                return false;
+            }
+
             int entry = is64 ? 24 : 16;
             int infoAt = is64 ? 4 : 12;
             var chunk = new byte[entry * 2048];
-            s.Seek(offset, SeekOrigin.Begin);
+            long position = offset;
             long left = size - size % entry;
+            var one = new byte[1];
             while (left > 0)
             {
+                s.Seek(position, SeekOrigin.Begin);
                 int want = (int)Math.Min(chunk.Length, left);
                 int read = Fill(s, chunk, 0, want);
                 read -= read % entry;
@@ -210,12 +220,18 @@ namespace Bugsee.WrapperPolicy
                 for (int at = 0; at < read; at += entry)
                 {
                     int type = chunk[at + infoAt] & 0xf;
-                    if ((type == 1 || type == 2 || type == 6 || type == 10) && U32(chunk, at, le) != 0)
+                    long name = U32(chunk, at, le);
+                    if ((type == 1 || type == 2 || type == 6 || type == 10) && name > 0 && name < strSize)
                     {
-                        return true;
+                        s.Seek(strOffset + name, SeekOrigin.Begin);
+                        if (Fill(s, one, 0, 1) == 1 && one[0] != 0)
+                        {
+                            return true;
+                        }
                     }
                 }
 
+                position += read;
                 left -= read;
             }
 

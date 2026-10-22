@@ -13,7 +13,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
         // A minimal ELF with the given sections: build-id note, and optionally .symtab / .debug_info (type 1 or NOBITS 8).
         static byte[] Elf(bool is64 = true, bool le = true, string buildId = Id, bool symtab = false, bool debug = false, int debugType = 1,
-            bool sectionHeaders = true, int[] symtabKinds = null, bool programHeaders = true, bool unnamedSymbols = false)
+            bool sectionHeaders = true, int[] symtabKinds = null, bool programHeaders = true, bool unnamedSymbols = false, int strtabMode = 0, bool linkStrtab = true)
         {
             var sections = new List<(string name, int type, byte[] data)>();
             if (buildId != null)
@@ -25,7 +25,16 @@ namespace Bugsee.WrapperPolicy.Tests
                 sections.Add((".note.gnu.build-id", 7, note.ToArray()));
             }
 
-            if (symtab) sections.Add((".symtab", 2, Symtab(is64, le, symtabKinds, !unnamedSymbols)));
+            int symtabIndex = -1;
+            if (symtab)
+            {
+                sections.Add((".symtab", 2, Symtab(is64, le, symtabKinds, !unnamedSymbols)));
+                symtabIndex = sections.Count; // header index: the null section is 0
+                var count = (symtabKinds ?? new[] { 2, 1 }).Length + 8;
+                var str = new byte[strtabMode == 2 ? 1 : count + 1]; // 2: shorter than every name index
+                if (strtabMode != 1) for (int i = 0; i < str.Length - 1; i++) str[i] = (byte)'x'; // 1: every string is empty
+                sections.Add((".strtab", 3, str));
+            }
             if (debug) sections.Add((".debug_info", debugType, new byte[16]));
 
             var names = new MemoryStream();
@@ -80,6 +89,7 @@ namespace Bugsee.WrapperPolicy.Tests
             var table = new byte[shnum * shentsize];
             for (int i = 0; i < sections.Count; i++) Section(table, i + 1, nameOffsets[i], sections[i].type, offsets[i], sections[i].data.Length);
             Section(table, shnum - 1, nameOffsets[nameOffsets.Count - 1], 3, namesOffset, nb.Length);
+            if (symtabIndex > 0 && linkStrtab) Put(table, symtabIndex * shentsize + (is64 ? 40 : 24), symtabIndex + 1, 4, le); // sh_link
             file.Write(table, 0, table.Length);
             return file.ToArray();
 
@@ -348,6 +358,17 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(Inspect(Elf(symtab: true, symtabKinds: new[] { 4, 3, 3, 3, 3 })).CarriesSymbols, Is.False);
             Assert.That(Inspect(Elf(symtab: true, symtabKinds: new[] { 4, 3, 2 })).CarriesSymbols, Is.True);
             Assert.That(Inspect(Elf(false, false, symtab: true, symtabKinds: new[] { 3, 1 })).CarriesSymbols, Is.True);
+        }
+
+        [Test]
+        public void A_name_index_must_point_to_a_non_empty_string_in_the_linked_string_table()
+        {
+            Assert.That(Inspect(Elf(symtab: true)).CarriesSymbols, Is.True);
+            Assert.That(Inspect(Elf(symtab: true, strtabMode: 1)).CarriesSymbols, Is.False, "every named string is empty");
+            Assert.That(Inspect(Elf(symtab: true, strtabMode: 2)).CarriesSymbols, Is.False, "index beyond the string table");
+            Assert.That(Inspect(Elf(symtab: true, linkStrtab: false)).CarriesSymbols, Is.False, "no linked string table");
+            Assert.That(Inspect(Elf(false, false, symtab: true, strtabMode: 1)).CarriesSymbols, Is.False);
+            Assert.That(Inspect(Elf(false, false, symtab: true)).CarriesSymbols, Is.True);
         }
 
         [Test]
