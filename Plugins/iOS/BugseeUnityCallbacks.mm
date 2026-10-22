@@ -798,14 +798,12 @@ void _bugsee_set_wrapper_context(const char *json)
     gWrapperContext = [out copy];
 }
 
-void _bugsee_set_network_filter_enabled(int enabled)
+// The filters the SDK runs, one per kind. Each hands the event to C# (gFilterCb) and waits for _bugsee_complete_filter,
+// passes it through untouched once its filter was disabled, and drops it when C# has registered nothing. They are
+// built here, apart from the install, so the tests can run the same block the SDK is given.
+static BugseeNetworkEventFilterBlock BugseeUnityNetworkFilter(void)
 {
-    if (!enabled) {
-        gNetworkFilterCallbackInstalled = NO;
-        return;
-    }
-    gNetworkFilterCallbackInstalled = YES;
-    [Bugsee setNetworkEventFilter:^(BugseeNetworkEvent *event, BugseeNetworkFilterDecisionBlock decisionBlock) {
+    return ^(BugseeNetworkEvent *event, BugseeNetworkFilterDecisionBlock decisionBlock) {
         if (!gNetworkFilterCallbackInstalled) {
             decisionBlock(event);
             return;
@@ -819,17 +817,12 @@ void _bugsee_set_network_filter_enabled(int enabled)
         char *copy = BugseeUnityCopyUTF8(json);
         gFilterCb(requestId, 1, copy);
         free(copy);
-    }];
+    };
 }
 
-void _bugsee_set_log_filter_enabled(int enabled)
+static BugseeLogEventFilterBlock BugseeUnityLogFilter(void)
 {
-    if (!enabled) {
-        gLogFilterCallbackInstalled = NO;
-        return;
-    }
-    gLogFilterCallbackInstalled = YES;
-    [Bugsee setLogEventFilter:^(BugseeLogEvent *event, BugseeLogFilterDecisionBlock decisionBlock) {
+    return ^(BugseeLogEvent *event, BugseeLogFilterDecisionBlock decisionBlock) {
         if (!gLogFilterCallbackInstalled) {
             decisionBlock(event);
             return;
@@ -843,17 +836,12 @@ void _bugsee_set_log_filter_enabled(int enabled)
         char *copy = BugseeUnityCopyUTF8(json);
         gFilterCb(requestId, 2, copy);
         free(copy);
-    }];
+    };
 }
 
-void _bugsee_set_breadcrumb_filter_enabled(int enabled)
+static BugseeBreadcrumbFilterBlock BugseeUnityBreadcrumbFilter(void)
 {
-    if (!enabled) {
-        gBreadcrumbFilterCallbackInstalled = NO;
-        return;
-    }
-    gBreadcrumbFilterCallbackInstalled = YES;
-    [Bugsee setBreadcrumbFilter:^(id<BGSBreadcrumb> crumb, BugseeBreadcrumbFilterDecisionBlock decisionBlock) {
+    return ^(id<BGSBreadcrumb> crumb, BugseeBreadcrumbFilterDecisionBlock decisionBlock) {
         if (!gBreadcrumbFilterCallbackInstalled) {
             decisionBlock(crumb);
             return;
@@ -867,7 +855,37 @@ void _bugsee_set_breadcrumb_filter_enabled(int enabled)
         char *copy = BugseeUnityCopyUTF8(json);
         gFilterCb(requestId, 3, copy);
         free(copy);
-    }];
+    };
+}
+
+void _bugsee_set_network_filter_enabled(int enabled)
+{
+    if (!enabled) {
+        gNetworkFilterCallbackInstalled = NO;
+        return;
+    }
+    gNetworkFilterCallbackInstalled = YES;
+    [Bugsee setNetworkEventFilter:BugseeUnityNetworkFilter()];
+}
+
+void _bugsee_set_log_filter_enabled(int enabled)
+{
+    if (!enabled) {
+        gLogFilterCallbackInstalled = NO;
+        return;
+    }
+    gLogFilterCallbackInstalled = YES;
+    [Bugsee setLogEventFilter:BugseeUnityLogFilter()];
+}
+
+void _bugsee_set_breadcrumb_filter_enabled(int enabled)
+{
+    if (!enabled) {
+        gBreadcrumbFilterCallbackInstalled = NO;
+        return;
+    }
+    gBreadcrumbFilterCallbackInstalled = YES;
+    [Bugsee setBreadcrumbFilter:BugseeUnityBreadcrumbFilter()];
 }
 
 void _bugsee_complete_filter(int64_t requestId, int keep, const char *resultJson)
@@ -924,6 +942,67 @@ void _bugsee_complete_report(int64_t requestId, const char *resultJson)
 }
 
 #if defined(BUGSEE_UNITY_TESTS)
+// Runs the filter of `kind` (1 network, 2 log, 3 breadcrumb) on an event built from `json` (network: the wire dictionary;
+// log: {"message","level"}; breadcrumb: {"category","message","level"}), the way the SDK does, with a recording decision
+// block. Returns how many decisions were taken inside the call (0: the filter is waiting for C#).
+static int gTestDecisionCount = 0;
+static NSString *gTestDecisionJson = nil;
+
+int _bugsee_test_run_filter(int kind, const char *json)
+{
+    gTestDecisionCount = 0;
+    gTestDecisionJson = nil;
+    NSDictionary *d = BugseeUnityParseJson(json) ?: @{};
+    if (kind == 1) {
+        BugseeNetworkEvent *event = [BugseeNetworkEvent new];
+        if ([d[@"id"] isKindOfClass:[NSString class]]) event.ID = d[@"id"];
+        BugseeUnityApplyNetworkDict(event, d);
+        BugseeUnityNetworkFilter()(event, ^(BugseeNetworkEvent *out) {
+            gTestDecisionCount++;
+            gTestDecisionJson = out ? BugseeUnityJsonString(BugseeUnityNetworkToDict(out)) : @"null";
+        });
+    } else if (kind == 2) {
+        BugseeLogEvent *event = [BugseeLogEvent new];
+        event.text = d[@"message"];
+        event.level = (BugseeLogLevel)[d[@"level"] intValue];
+        BugseeUnityLogFilter()(event, ^(BugseeLogEvent *out) {
+            gTestDecisionCount++;
+            gTestDecisionJson = out ? BugseeUnityJsonString(BugseeUnityLogToDict(out)) : @"null";
+        });
+    } else {
+        id factory = [Bugsee getExchangeFactory];
+        id<BGSBreadcrumb> crumb = [factory createBreadcrumbWithTimestamp:1.0
+                                                                category:d[@"category"]
+                                                                   level:(BugseeLogLevel)[d[@"level"] intValue]
+                                                                 message:d[@"message"]
+                                                                    type:@"manual"
+                                                                    data:nil];
+        BugseeUnityBreadcrumbFilter()(crumb, ^(id<BGSBreadcrumb> out) {
+            gTestDecisionCount++;
+            gTestDecisionJson = out ? BugseeUnityJsonString(BugseeUnityBreadcrumbToDict(out)) : @"null";
+        });
+    }
+    return gTestDecisionCount;
+}
+
+int _bugsee_test_filter_decision_count(void) { return gTestDecisionCount; }
+
+// The event the last decision passed on, as the JSON C# would see it, or "null" for a drop. Caller frees.
+const char *_bugsee_test_copy_filter_decision(void)
+{
+    return gTestDecisionJson ? strdup(gTestDecisionJson.UTF8String) : NULL;
+}
+
+// The pending request count, so a test can see that an answered (or unknown) id leaves nothing behind.
+int _bugsee_test_pending_request_count(void)
+{
+    BugseeUnityEnsureState();
+    @synchronized (gLock) { return (int)gPending.count; }
+}
+
+// The wrapper the SDK was handed in +load (the one that holds the channel and answers secureRectanglesForDisplay:).
+void *_bugsee_test_wrapper(void) { return (__bridge void *)gWrapper; }
+
 const char *_bugsee_test_copy_wrapper_version(void)
 {
     return gWrapperVersion ? strdup(gWrapperVersion.UTF8String) : NULL;
