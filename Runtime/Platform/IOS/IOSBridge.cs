@@ -668,8 +668,12 @@ namespace Bugsee.Platform.IOS
         public void Log(string message, LogLevel level) =>
             _bugsee_log(message ?? "", (int)level);
 
-        public void Trace(string name, object value) =>
-            _bugsee_trace(name ?? "", ToJsonValue(value));
+        public void Trace(string name, object value)
+        {
+            var json = AttributeWire.ToTraceJson(value);
+            if (TraceProbe.Enabled) TraceProbe.Last = json;
+            _bugsee_trace(name ?? "", json);
+        }
 
         public void Event(string name, IDictionary<string, object> parameters) =>
             _bugsee_event(name ?? "", ToJsonObject(parameters));
@@ -908,8 +912,6 @@ namespace Bugsee.Platform.IOS
         }
 
         static string ToJsonObject(IDictionary<string, object> map) => JsonWire.Object(map);
-
-        static string ToJsonValue(object value) => JsonWire.Value(value);
 
         [DllImport("__Internal")] static extern void _bugsee_launch(
             string appToken, string optionsJson, int startedToken, LaunchStartedNativeCallback started);

@@ -137,7 +137,7 @@ Other platform differences, not aligned:
 - `IAppearance.ToMap()` returns what the SDK reports on Android; on iOS it lists only the properties set through the wrapper that the native theme applied.
 - `ResetVideoCapturePermission()` forgets the stored screen-capture decision on Android; it matters only with `VideoMode.Fullscreen` and `CaptureVideoFullscreenRememberUserDecision`, has no effect before launch (the SDK only warns in logcat), does not change a session that is already capturing, and applies to the next capture start. iOS has no such permission, so the call does nothing there and logs a warning once per process; in the Editor it does nothing.
 - The native per-report screenshot members (both SDKs: display ids, get, set, changed; and `exportVideo`) are not exposed on `IReport` yet, because reports cross the bridge as managed snapshots and only Android's report handler path holds a live native report (tracked in bugsee-unity#224). To omit the SDK's screenshot from reports use `CaptureScreenshot = false`; secure rectangles and blackout only redact what is captured, they do not remove the screenshot. `AddAttachmentFile` / `AddAttachmentBytes` add files; they cannot remove, replace or redact the SDK's screenshot.
-- `Trace(name, value)` with a collection: iOS sends a JSON structure, Android a JSON string (valid JSON, at most 8192 characters), no longer the type name. Other non-primitive values go as culture-invariant text on Android, and `IosNativeCallbacks` still uses `ToString()` for some values (#143).
+- `Trace(name, value)`: both platforms send a map, list or array as the same JSON (see "Trace values"); the iOS SDK receives it as a structure (a dictionary or array), the Android SDK as a string.
 
 ## Crash & exception capture
 
@@ -475,6 +475,13 @@ The script builds the xcframework as the beta release does (`scripts/build_new.s
 ### Attributes
 
 `SetAttribute` accepts a string (up to 1024 UTF-16 units), a bool or a number within the signed 64-bit range; anything else throws `ArgumentException`. `GetAttribute` returns the kind that was set: `string`, `bool`, an integer or a `double`. The numeric width is not promised (both platforms return `long` for an integer and `double` for floating point), and a 1.0 set as floating point stays floating. A map, list or array set from managed code in a report handler (`IReport.SetAttribute`) is stored by the Android SDK as JSON text (valid JSON of at most 8192 characters; entries that do not fit are dropped whole) and reads back as that string, while iOS stores it as a native structure and the handler's report keeps the managed container; a container set natively reads as a `Dictionary` on Android and as JSON text on iOS. On iOS the bridge returns the value as a type tag and payload (`s:`, `b:`, `i:`, `d:`, `j:`; see `AttributeWire`); the SDK stores the plain value, so reports show it unwrapped.
+
+### Trace values
+
+`Bugsee.Trace(name, value)` sends a value in these forms on both platforms:
+
+- A map (`IDictionary`), list or array (any `ICollection`, including generic collections) is written as JSON of at most 8192 UTF-16 units (invariant culture; a map entry whose value is `null` is left out, a `null` list element is `null`; a collection that contains itself writes `null` where it repeats). A container that does not fit keeps its leading entries whole and drops the rest, so the text is always valid JSON and is never cut inside an entry or an emoji. The iOS SDK receives that JSON as a dictionary or array; the Android SDK receives the same text as a string. Android used to record the type name (``System.Collections.Generic.Dictionary`2[...]``).
+- A string, bool, int or long is sent as is; a float or double stays floating (`1.0f` is `1.0`, never the integer 1). NaN and the infinities have no JSON form: iOS sends `null`, Android passes the non-finite number itself (the Android SDK drops a trace whose value is null, so mapping it to null there would lose the trace). An enum is its integer value, a `DateTime` or `DateTimeOffset` its ISO 8601 text, a `byte[]` its base64 text, and any other type its culture-invariant text. Other enumerables that are not collections (a Unity `Transform`, for example) are sent as text, not iterated.
 
 ### Launch options and notifications
 
