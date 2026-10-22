@@ -355,6 +355,50 @@ static NSInteger BugseeExceptionSkipFrames(NSDictionary *options)
     return [skipFrames integerValue];
 }
 
+// What happens once the SDK has made the report for a managed upload: the fence check, the report fields applied, the
+// callback (1) and then the upload through `upload`. Every refusal answers callback(0, uploadId) and uploads nothing.
+// Split from the upload export so the tests can drive it with a report and a recording `upload`.
+static void BugseeFinishManagedReportUpload(BugseeExtendedReport *_Nullable report,
+                                            NSString *jsonCopy,
+                                            uint64_t uploadId,
+                                            uint64_t uploadFence,
+                                            BugseeManagedReportCreateCallback callback,
+                                            void (^upload)(BugseeExtendedReport *))
+{
+    if (!BugseeManagedReportUploadStillActive(uploadId, uploadFence)) {
+        if (callback) {
+            callback(0, uploadId);
+        }
+        return;
+    }
+    if (!report) {
+        if (callback) {
+            callback(0, uploadId);
+        }
+        return;
+    }
+    NSDictionary *dict = BugseeDeserializeJson(jsonCopy.UTF8String);
+    if (![dict isKindOfClass:[NSDictionary class]]) {
+        if (callback) {
+            callback(0, uploadId);
+        }
+        return;
+    }
+    BugseeBridgeApplyExtendedReportDict(report, dict);
+    if (!BugseeManagedReportUploadStillActive(uploadId, uploadFence)) {
+        if (callback) {
+            callback(0, uploadId);
+        }
+        return;
+    }
+    if (callback) {
+        callback(1, uploadId);
+    }
+    if (BugseeManagedReportUploadStillActive(uploadId, uploadFence)) {
+        upload(report);
+    }
+}
+
 #if BUGSEE_UNITY_TESTS
 static int gDroppedOptionsWarningCount = 0;
 #endif
@@ -402,6 +446,31 @@ const char *_bugsee_test_apply_extended_attachments(const char *json)
         [summary appendFormat:@"|%@:%lu:%@", a.name, (unsigned long)a.data.length, mime.length > 0 ? mime : @"-"];
     }
     return strdup(summary.UTF8String);
+}
+// Runs the end of a managed upload against a fresh report with a recording upload step (no SDK launch needed), and returns
+// the calls in order, "cb<success>:<token>" and "up", joined by "," and then "|<summary>|<labels>" of the uploaded report
+// ("|-" when nothing was uploaded).
+static NSMutableArray<NSString *> *gTestUploadSequence = nil;
+static void BugseeTestUploadCallback(int succeeded, uint64_t token)
+{
+    [gTestUploadSequence addObject:[NSString stringWithFormat:@"cb%d:%llu", succeeded, (unsigned long long)token]];
+}
+const char *_bugsee_test_finish_managed_upload(const char *json, int withReport, uint64_t uploadId, uint64_t uploadFence)
+{
+    gTestUploadSequence = [NSMutableArray array];
+    __block NSString *uploaded = @"-";
+    BugseeExtendedReport *report = withReport ? [BugseeExtendedReport new] : nil;
+    BugseeFinishManagedReportUpload(report, json ? [NSString stringWithUTF8String:json] : @"", uploadId, uploadFence,
+                                    BugseeTestUploadCallback, ^(BugseeExtendedReport *ready) {
+        [gTestUploadSequence addObject:@"up"];
+        uploaded = [NSString stringWithFormat:@"%@|%@", ready.summary ?: @"-", [ready.labels componentsJoinedByString:@","] ?: @"-"];
+    });
+    return strdup([NSString stringWithFormat:@"%@|%@", [gTestUploadSequence componentsJoinedByString:@","], uploaded].UTF8String);
+}
+// The current upload fence, so a test can start an upload that is still active.
+uint64_t _bugsee_test_managed_upload_fence(void)
+{
+    @synchronized (gManagedReportUploadLock) { return gManagedReportUploadFence; }
 }
 const char *_bugsee_test_exception_options(const char *optionsJson)
 {
@@ -1253,38 +1322,8 @@ void _bugsee_upload_managed_report(const char *reportJson,
     }
     NSString *jsonCopy = [NSString stringWithUTF8String:reportJson];
     [Bugsee createReportWithCompletion:^(BugseeExtendedReport *_Nullable report) {
-        if (!BugseeManagedReportUploadStillActive(uploadId, uploadFence)) {
-            if (callback) {
-                callback(0, uploadId);
-            }
-            return;
-        }
-        if (!report) {
-            if (callback) {
-                callback(0, uploadId);
-            }
-            return;
-        }
-        NSDictionary *dict = BugseeDeserializeJson(jsonCopy.UTF8String);
-        if (![dict isKindOfClass:[NSDictionary class]]) {
-            if (callback) {
-                callback(0, uploadId);
-            }
-            return;
-        }
-        BugseeBridgeApplyExtendedReportDict(report, dict);
-        if (!BugseeManagedReportUploadStillActive(uploadId, uploadFence)) {
-            if (callback) {
-                callback(0, uploadId);
-            }
-            return;
-        }
-        if (callback) {
-            callback(1, uploadId);
-        }
-        if (BugseeManagedReportUploadStillActive(uploadId, uploadFence)) {
-            [Bugsee uploadReport:report completion:nil];
-        }
+        BugseeFinishManagedReportUpload(report, jsonCopy, uploadId, uploadFence, callback,
+                                        ^(BugseeExtendedReport *ready) { [Bugsee uploadReport:ready completion:nil]; });
     }];
 }
 

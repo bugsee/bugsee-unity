@@ -69,10 +69,14 @@ namespace Bugsee.WrapperPolicy.Tests
             string signature,
             string flagName,
             string nilSetter,
-            string keepDecisionBlock)
+            string keepDecisionBlock,
+            string builderSignature,
+            string installCall)
         {
-            string body = ExtractMethodBody(mm, signature);
-            AssertDisableBranchSetsFlag(body, flagName, nilSetter);
+            string setter = ExtractMethodBody(mm, signature);
+            AssertDisableBranchSetsFlag(setter, flagName, nilSetter);
+            Assert.That(setter, Does.Contain(installCall), "the setter must install the filter builder's block");
+            string body = ExtractMethodBody(mm, builderSignature);
             Assert.That(
                 DecisionBlockAfter(body, "if (!" + flagName + ")"),
                 Is.EqualTo(keepDecisionBlock));
@@ -163,19 +167,25 @@ namespace Bugsee.WrapperPolicy.Tests
                 "void _bugsee_set_network_filter_enabled(int enabled)",
                 "gNetworkFilterCallbackInstalled",
                 "setNetworkEventFilter:nil",
-                "decisionBlock(event)");
+                "decisionBlock(event)",
+                "static BugseeNetworkEventFilterBlock BugseeUnityNetworkFilter(void)",
+                "[Bugsee setNetworkEventFilter:BugseeUnityNetworkFilter()]");
             AssertNativeSetFilter(
                 mm,
                 "void _bugsee_set_log_filter_enabled(int enabled)",
                 "gLogFilterCallbackInstalled",
                 "setLogEventFilter:nil",
-                "decisionBlock(event)");
+                "decisionBlock(event)",
+                "static BugseeLogEventFilterBlock BugseeUnityLogFilter(void)",
+                "[Bugsee setLogEventFilter:BugseeUnityLogFilter()]");
             AssertNativeSetFilter(
                 mm,
                 "void _bugsee_set_breadcrumb_filter_enabled(int enabled)",
                 "gBreadcrumbFilterCallbackInstalled",
                 "setBreadcrumbFilter:nil",
-                "decisionBlock(crumb)");
+                "decisionBlock(crumb)",
+                "static BugseeBreadcrumbFilterBlock BugseeUnityBreadcrumbFilter(void)",
+                "[Bugsee setBreadcrumbFilter:BugseeUnityBreadcrumbFilter()]");
         }
 
         static string StripComments(string source)
