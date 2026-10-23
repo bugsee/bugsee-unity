@@ -150,7 +150,7 @@ namespace Bugsee.WrapperPolicy
         public static string UnreadableNotice(string reason, bool longPath = false) =>
             "The build id the built app carries could not be read (" + reason + "), so no mapping is uploaded: under an id " +
             "derived from the token, version name and code it could differ from the app's and never match. " +
-            (longPath ? "Build to a shorter output folder (the path is over 260 characters), or " : "Fix the read (a locked or damaged APK/AAB), or ") +
+            (longPath ? "Build to a shorter output folder (the path is 240 or more characters long), or " : "Fix the read (a locked or damaged APK/AAB), or ") +
             "set BUGSEE_BUILD_UUID to the id the app reports to upload the mapping anyway.";
 
         /// <summary>Whether an APK file name is a sibling of the player "Game.apk": "Game.arm64-v8a.apk", not "GameLite.apk".</summary>

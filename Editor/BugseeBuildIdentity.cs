@@ -138,7 +138,15 @@ namespace Bugsee.Editor
 
             try
             {
-                foreach (var archive in AndroidNativeLibs.BuiltArchivePaths(outputPath, buildStartedUtc))
+                var archives = AndroidNativeLibs.BuiltArchivePaths(outputPath, buildStartedUtc);
+                if (archives.Count == 0 &&
+                    (outputPath.EndsWith(".apk", StringComparison.OrdinalIgnoreCase) || outputPath.EndsWith(".aab", StringComparison.OrdinalIgnoreCase)))
+                {
+                    // A player file was asked for and none was found: the app's id is unknown, not "none".
+                    failures.Add(outputPath, "could not find its APK/AAB");
+                }
+
+                foreach (var archive in archives)
                 {
                     // An archive that could not be opened says nothing about the id (not even "none"): it is left out of the list, so
                     // another split APK that was read still gives the id.
