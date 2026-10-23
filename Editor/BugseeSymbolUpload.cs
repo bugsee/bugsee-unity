@@ -8,7 +8,6 @@ using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEditor.Callbacks;
-using UnityEditor.iOS.Xcode;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
 
@@ -536,8 +535,8 @@ namespace Bugsee.Editor
 
         static void InjectArchiveUploadScript(string pathToBuiltProject)
         {
-            var projectPath = PBXProject.GetPBXProjectPath(pathToBuiltProject);
-            var project = new PBXProject();
+            var projectPath = XcodeProject.GetPBXProjectPath(pathToBuiltProject);
+            var project = new XcodeProject();
             project.ReadFromFile(projectPath);
             var target = project.GetUnityMainTargetGuid();
 

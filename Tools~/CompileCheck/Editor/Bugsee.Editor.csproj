@@ -21,7 +21,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\..\Editor\**\*.cs" />
-    <Compile Include="UnityEditorXcodeStubs.cs" />
+    <!-- BugseeNoXcode=true: no UnityEditor.iOS.Xcode at all, like an Editor without iOS Build Support. -->
+    <Compile Include="UnityEditorXcodeStubs.cs" Condition="'$(BugseeNoXcode)' != 'true'" />
     <Compile Include="UnityEditorStubs.cs" />
   </ItemGroup>
 </Project>
