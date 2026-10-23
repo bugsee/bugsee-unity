@@ -52,3 +52,9 @@
 -keep class com.bugsee.library.BugseeFeedback { public static void registerFeedbackExtension(); }
 -keep class com.bugsee.library.BugseeLeak { public static void registerLeakExtension(); }
 -keep class com.bugsee.library.BugseeRemoting { public static void registerRemotingExtension(); }
+# The Android SDK (7.4.2) calls android.telephony.satellite.SatelliteManager behind a runtime check. android.jar carries it
+# only from API 36, and the SDK's own consumer rules have no -dontwarn, so a Minify build with a lower compile jar (Unity 6
+# with Target API Level 35 or lower) stops in R8 with "Missing class" (#255). On a device without the class the SDK never
+# reaches that code, so dropping the warning is safe.
+-dontwarn android.telephony.satellite.SatelliteManager
+-dontwarn android.telephony.satellite.SatelliteStateChangeListener

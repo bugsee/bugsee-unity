@@ -151,6 +151,17 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void The_sdks_platform_classes_missing_from_an_older_compile_jar_do_not_stop_R8()
+        {
+            // Bugsee Android 7.4.2 references android.telephony.satellite.* (absent from android.jar below API 36), and its
+            // consumer rules carry no -dontwarn, so a Unity 6 Minify build with Target API Level 35 fails in R8 (#255).
+            string rules = RulesFile();
+            foreach (string cls in new[] { "SatelliteManager", "SatelliteStateChangeListener" })
+                Assert.That(Regex.IsMatch(rules, @"^-dontwarn\s+android\.telephony\.satellite\." + cls + @"\s*$", RegexOptions.Multiline),
+                    Is.True, cls + " has no -dontwarn");
+        }
+
+        [Test]
         public void Wiring_only_the_editor_step_references_the_rules_file_and_policy()
         {
             string editor = File.ReadAllText(RepoFile("Editor/BugseeAndroidProguardRules.cs"));
