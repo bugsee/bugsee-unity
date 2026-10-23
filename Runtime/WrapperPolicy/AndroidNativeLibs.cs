@@ -426,7 +426,8 @@ namespace Bugsee.WrapperPolicy
             ISet<string> packaged,
             ISet<string> inUnityZip,
             ISet<string> abis,
-            List<string> notes)
+            List<string> notes,
+            string packagedUnreadable = null)
         {
             var chosen = new List<NativeLibCandidate>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -457,6 +458,14 @@ namespace Bugsee.WrapperPolicy
                 var key = PackagedKey(lib.Abi, lib.Name, lib.BuildId);
                 if (packaged == null || !packaged.Contains(key))
                 {
+                    if (!string.IsNullOrEmpty(packagedUnreadable))
+                    {
+                        // Unknown, not wrong: the APK/AAB could not be opened, so nothing says whether this is the packaged copy.
+                        notes?.Add(lib.Abi + "/" + lib.Name + " (build-id " + lib.BuildId + ") could not be checked against the app (" +
+                                   packagedUnreadable + ") and is left out");
+                        continue;
+                    }
+
                     // Left by an earlier build, or a library the build did not package: its build-id is not the app's.
                     notes?.Add(lib.Abi + "/" + lib.Name + " (build-id " + lib.BuildId + ") is not the copy packaged in the app");
                     continue;
@@ -647,7 +656,7 @@ namespace Bugsee.WrapperPolicy
         /// symbols; <paramref name="withoutSymbols"/> counts the readable libraries that do not. A file that cannot be
         /// read is skipped with a line in <paramref name="notes"/>.
         /// </summary>
-        public static List<NativeLibCandidate> ScanLibraries(IEnumerable<string> files, out int withoutSymbols, List<string> notes)
+        public static List<NativeLibCandidate> ScanLibraries(IEnumerable<string> files, out int withoutSymbols, List<string> notes, Func<string, Stream> open = null)
         {
             var carrying = new List<NativeLibCandidate>();
             withoutSymbols = 0;
@@ -660,7 +669,7 @@ namespace Bugsee.WrapperPolicy
 
                 try
                 {
-                    using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    using (var stream = open != null ? open(path) : new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                     {
                         var info = Inspect(stream);
                         if (info.BuildId == null)
@@ -732,14 +741,28 @@ namespace Bugsee.WrapperPolicy
             }
         }
 
-        /// <summary>Copies the chosen libraries below <paramref name="root"/> at <see cref="StagingRelativePath"/>.</summary>
-        public static void Stage(IEnumerable<NativeLibCandidate> chosen, string root)
+        /// <summary>
+        /// Copies the chosen libraries below <paramref name="root"/> at <see cref="StagingRelativePath"/>. The source is read through
+        /// <paramref name="open"/> when given (long-path safe); the target is written with a plain stream, which is fine while the
+        /// staging root (under the project's Library folder) is itself short.
+        /// </summary>
+        public static void Stage(IEnumerable<NativeLibCandidate> chosen, string root, Func<string, Stream> open = null)
         {
             foreach (var lib in chosen)
             {
                 var target = Path.Combine(root, StagingRelativePath(lib).Replace('/', Path.DirectorySeparatorChar));
                 Directory.CreateDirectory(Path.GetDirectoryName(target));
-                File.Copy(lib.Path, target, true);
+                if (open == null)
+                {
+                    File.Copy(lib.Path, target, true);
+                    continue;
+                }
+
+                using (var from = open(lib.Path))
+                using (var to = new FileStream(target, FileMode.Create, FileAccess.Write))
+                {
+                    from.CopyTo(to);
+                }
             }
         }
     }

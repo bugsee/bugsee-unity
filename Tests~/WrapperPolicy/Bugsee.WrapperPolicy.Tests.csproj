@@ -34,6 +34,7 @@
     <Compile Include="..\..\Runtime\Platform\IOS\IosExchangeEvents.cs" />
     <Compile Include="..\..\Runtime\Contracts\Exchange\*.cs" />
     <Compile Include="..\..\Editor\LocalPackageCopy.cs" />
+    <Compile Include="..\..\Editor\BugseeLongPathFile.cs" />
     <Compile Include="..\..\Editor\BugseeXcodeProject.cs" />
     <Compile Include="..\..\Tools~\CompileCheck\Editor\UnityEditorXcodeStubs.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\LogLevel.cs" />

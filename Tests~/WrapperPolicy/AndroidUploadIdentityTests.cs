@@ -199,5 +199,63 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(name, Is.EqualTo("0.1.0"));
             Assert.That(code, Is.Null, "the literal is not what each APK carries");
         }
+
+        [Test]
+        public void An_app_id_that_could_not_be_read_skips_the_mapping_instead_of_falling_back_to_the_derived_id()
+        {
+            var id = AndroidUploadIdentity.Decide(null, null, Synth, null, "game.apk: Could not find a part of the path");
+
+            Assert.That(id.SkipMapping, Is.True);
+            Assert.That(id.Uuid, Is.Null);
+            Assert.That(id.Source, Is.EqualTo(BuildIdSource.Unreadable));
+            Assert.That(id.Warning, Does.Contain("game.apk: Could not find a part of the path").And.Contain("no mapping is uploaded").And.Contain("BUGSEE_BUILD_UUID"));
+            Assert.That(id.ElfUuid, Is.EqualTo(Synth), "the native upload keeps the derived id as its correlation key");
+        }
+
+        [Test]
+        public void The_notice_names_the_cause_it_can_tell()
+        {
+            Assert.That(AndroidUploadIdentity.UnreadableNotice("game.apk: locked", false), Does.Contain("locked or damaged").And.Not.Contain("shorter"));
+            Assert.That(AndroidUploadIdentity.UnreadableNotice("game.apk: x", true), Does.Contain("shorter output folder"));
+            Assert.That(AndroidUploadIdentity.Decide(null, null, Synth, null, "game.apk: x", true).Warning, Does.Contain("shorter output folder"));
+        }
+
+        [Test]
+        public void A_split_apk_that_was_read_still_gives_the_id_when_a_sibling_could_not_be_opened()
+        {
+            // The editor leaves an unopenable archive out of the id list instead of counting it as "carries none".
+            var id = AndroidUploadIdentity.SelectAppAssetId(new[] { App }, out var conflict);
+            var decided = AndroidUploadIdentity.Decide(null, id, Synth, conflict, "game.x86.apk: locked");
+
+            Assert.That(conflict, Is.Null);
+            Assert.That(decided.Uuid, Is.EqualTo(App));
+            Assert.That(decided.SkipMapping, Is.False);
+        }
+
+        [Test]
+        public void An_id_the_user_states_or_the_app_carries_still_wins_over_an_unreadable_archive()
+        {
+            const string Env = "11111111-1111-1111-1111-111111111111";
+            var env = AndroidUploadIdentity.Decide(Env, null, Synth, null, "x");
+            var app = AndroidUploadIdentity.Decide(null, App, Synth, null, "other.apk: x");
+            var freeText = AndroidUploadIdentity.Decide("my-build", null, Synth, null, "x");
+
+            Assert.That(env.SkipMapping, Is.False);
+            Assert.That(env.Uuid, Is.EqualTo(Env));
+            Assert.That(app.SkipMapping, Is.False);
+            Assert.That(app.Uuid, Is.EqualTo(App));
+            Assert.That(freeText.SkipMapping, Is.True);
+            Assert.That(freeText.ElfUuid, Is.EqualTo("my-build"));
+            Assert.That(freeText.Warning, Does.Contain("not a UUID").And.Contain("no mapping is uploaded"));
+        }
+
+        [Test]
+        public void An_app_without_the_asset_that_was_read_fine_still_uses_the_derived_id()
+        {
+            var id = AndroidUploadIdentity.Decide(null, null, Synth, null, null);
+
+            Assert.That(id.SkipMapping, Is.False);
+            Assert.That(id.Uuid, Is.EqualTo(Synth));
+        }
     }
 }
