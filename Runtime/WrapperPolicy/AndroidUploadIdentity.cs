@@ -14,6 +14,8 @@ namespace Bugsee.WrapperPolicy
         Synthesized,
         /// <summary>Nothing known (no token): a random id, keyed by nothing the app can report.</summary>
         None,
+        /// <summary>The built APK/AAB could not be opened, so what the app carries is unknown: no mapping is uploaded.</summary>
+        Unreadable,
     }
 
     public sealed class UploadIdentity
@@ -25,6 +27,8 @@ namespace Bugsee.WrapperPolicy
         public BuildIdSource Source;
         /// <summary>Why the id may not match what the app reports; shown when a mapping is uploaded under it.</summary>
         public string Warning;
+        /// <summary>The app's own id could not be read: uploading the mapping under any other id would not match the app.</summary>
+        public bool SkipMapping;
     }
 
     /// <summary>
@@ -76,9 +80,9 @@ namespace Bugsee.WrapperPolicy
         /// BUGSEE_BUILD_UUID keeps its older meaning for the native upload (<see cref="UploadIdentity.ElfUuid"/>): any
         /// non-empty value is that upload's correlation key; without it the mapping's id is used.
         /// </summary>
-        public static UploadIdentity Decide(string env, string appAssetId, string synthesized, string appAssetConflict = null)
+        public static UploadIdentity Decide(string env, string appAssetId, string synthesized, string appAssetConflict = null, string appAssetUnreadable = null)
         {
-            var result = DecideMapping(env, appAssetId, synthesized);
+            var result = DecideMapping(env, appAssetId, synthesized, appAssetUnreadable);
             string envValue = string.IsNullOrWhiteSpace(env) ? null : env.Trim();
             result.ElfUuid = envValue ?? result.Uuid;
             if (appAssetConflict != null)
@@ -89,7 +93,7 @@ namespace Bugsee.WrapperPolicy
             return result;
         }
 
-        static UploadIdentity DecideMapping(string env, string appAssetId, string synthesized)
+        static UploadIdentity DecideMapping(string env, string appAssetId, string synthesized, string unreadable)
         {
             string app = IsUuid(appAssetId) ? appAssetId.Trim().ToLowerInvariant() : null;
             string envValue = string.IsNullOrWhiteSpace(env) ? null : env.Trim();
@@ -112,6 +116,19 @@ namespace Bugsee.WrapperPolicy
                 envNote = "BUGSEE_BUILD_UUID is not a UUID, so it is not used as the mapping's id (it still keys the native upload).";
             }
 
+            if (!string.IsNullOrEmpty(unreadable))
+            {
+                // The app may well carry an id (the asset is there, we could not look): the derived one is a guess that
+                // can differ, and a mapping under a wrong id silently never deobfuscates. Better no mapping than that.
+                return new UploadIdentity
+                {
+                    Uuid = null,
+                    Source = BuildIdSource.Unreadable,
+                    SkipMapping = true,
+                    Warning = (envNote == null ? "" : envNote + " ") + UnreadableNotice(unreadable),
+                };
+            }
+
             if (synthesized != null)
             {
                 return new UploadIdentity
@@ -127,6 +144,12 @@ namespace Bugsee.WrapperPolicy
 
             return new UploadIdentity { Uuid = null, Source = BuildIdSource.None, Warning = envNote };
         }
+
+        /// <summary>Why a mapping is not uploaded when the app's build id could not be read (<paramref name="reason"/>: the read failures).</summary>
+        public static string UnreadableNotice(string reason) =>
+            "The build id the built app carries could not be read (" + reason + "), so no mapping is uploaded: under an id " +
+            "derived from the token, version name and code it could differ from the app's and never match. Build to a shorter " +
+            "output folder, or set BUGSEE_BUILD_UUID to the id the app reports to upload the mapping anyway.";
 
         /// <summary>Whether an APK file name is a sibling of the player "Game.apk": "Game.arm64-v8a.apk", not "GameLite.apk".</summary>
         public static bool IsSplitApkOf(string fileName, string stem)

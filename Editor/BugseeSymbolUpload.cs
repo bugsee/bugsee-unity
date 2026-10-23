@@ -124,8 +124,22 @@ namespace Bugsee.Editor
             var icon = FindLauncherIcon();
             var mappingExtra = AndroidUploadIdentity.MappingArguments(identity.Uuid, icon);
             var seen = new List<MappingFileInfo>();
-            var found = UploadIfFound(roots, "*mapping.txt", "proguard", version, build,
-                path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), mappingExtra, identityWarning, seen, MappingUsable(report));
+            string found;
+            if (identity.SkipMapping)
+            {
+                // The app's own id is unknown (its archive could not be read): nothing is uploaded under a guess.
+                found = PickBest(roots, "*mapping.txt", path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), seen, MappingUsable(report));
+                if (found != null)
+                {
+                    Debug.LogWarning($"Bugsee: mapping {found} not uploaded. {identity.Warning}");
+                }
+            }
+            else
+            {
+                found = UploadIfFound(roots, "*mapping.txt", "proguard", version, build,
+                    path => BuildArtifactChoice.MappingRank(path, stem, allowGeneric), mappingExtra, identityWarning, seen, MappingUsable(report));
+            }
+
             if (found == null)
             {
                 WarnMappingMissing(report, roots, stem, seen, version, build);

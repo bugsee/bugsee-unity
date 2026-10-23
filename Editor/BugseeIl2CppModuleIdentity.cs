@@ -120,7 +120,7 @@ namespace Bugsee.Editor
         {
             try
             {
-                using (var archive = new System.IO.Compression.ZipArchive(File.OpenRead(zipPath), System.IO.Compression.ZipArchiveMode.Read))
+                using (var archive = new System.IO.Compression.ZipArchive(BugseeLongPathFile.OpenRead(zipPath), System.IO.Compression.ZipArchiveMode.Read))
                 {
                     foreach (var entry in archive.Entries)
                     {
@@ -231,7 +231,7 @@ namespace Bugsee.Editor
         {
             try
             {
-                var bytes = File.ReadAllBytes(path);
+                var bytes = BugseeLongPathFile.ReadAllBytes(path);
                 if (bytes.Length < 16)
                 {
                     return;

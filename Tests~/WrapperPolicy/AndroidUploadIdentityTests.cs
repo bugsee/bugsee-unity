@@ -199,5 +199,43 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(name, Is.EqualTo("0.1.0"));
             Assert.That(code, Is.Null, "the literal is not what each APK carries");
         }
+
+        [Test]
+        public void An_app_id_that_could_not_be_read_skips_the_mapping_instead_of_falling_back_to_the_derived_id()
+        {
+            var id = AndroidUploadIdentity.Decide(null, null, Synth, null, "game.apk: Could not find a part of the path");
+
+            Assert.That(id.SkipMapping, Is.True);
+            Assert.That(id.Uuid, Is.Null);
+            Assert.That(id.Source, Is.EqualTo(BuildIdSource.Unreadable));
+            Assert.That(id.Warning, Does.Contain("game.apk: Could not find a part of the path").And.Contain("no mapping is uploaded").And.Contain("BUGSEE_BUILD_UUID"));
+            Assert.That(id.ElfUuid, Is.Null, "the native upload gets a random correlation id");
+        }
+
+        [Test]
+        public void An_id_the_user_states_or_the_app_carries_still_wins_over_an_unreadable_archive()
+        {
+            const string Env = "11111111-1111-1111-1111-111111111111";
+            var env = AndroidUploadIdentity.Decide(Env, null, Synth, null, "x");
+            var app = AndroidUploadIdentity.Decide(null, App, Synth, null, "other.apk: x");
+            var freeText = AndroidUploadIdentity.Decide("my-build", null, Synth, null, "x");
+
+            Assert.That(env.SkipMapping, Is.False);
+            Assert.That(env.Uuid, Is.EqualTo(Env));
+            Assert.That(app.SkipMapping, Is.False);
+            Assert.That(app.Uuid, Is.EqualTo(App));
+            Assert.That(freeText.SkipMapping, Is.True);
+            Assert.That(freeText.ElfUuid, Is.EqualTo("my-build"));
+            Assert.That(freeText.Warning, Does.Contain("not a UUID").And.Contain("no mapping is uploaded"));
+        }
+
+        [Test]
+        public void An_app_without_the_asset_that_was_read_fine_still_uses_the_derived_id()
+        {
+            var id = AndroidUploadIdentity.Decide(null, null, Synth, null, null);
+
+            Assert.That(id.SkipMapping, Is.False);
+            Assert.That(id.Uuid, Is.EqualTo(Synth));
+        }
     }
 }

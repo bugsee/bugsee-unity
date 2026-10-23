@@ -44,7 +44,7 @@ namespace Bugsee.Editor
             }
 
             var notes = new List<string>();
-            var carrying = AndroidNativeLibs.ScanLibraries(MergedNativeLibFiles(), out var withoutSymbols, notes);
+            var carrying = AndroidNativeLibs.ScanLibraries(MergedNativeLibFiles(), out var withoutSymbols, notes, BugseeLongPathFile.OpenRead);
             if (carrying.Count == 0)
             {
                 Log(notes);
@@ -67,25 +67,29 @@ namespace Bugsee.Editor
             }
 
             var packaged = new HashSet<string>(StringComparer.Ordinal);
+            var unreadable = new List<string>();
             if (wanted.Count > 0)
             {
                 foreach (var archive in archives)
                 {
                     try
                     {
-                        using (var stream = new FileStream(archive, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                        using (var stream = BugseeLongPathFile.OpenRead(archive))
                         {
                             AndroidNativeLibs.ReadPackagedBuildIds(stream, wanted, packaged);
                         }
                     }
                     catch (Exception ex)
                     {
-                        Debug.LogWarning($"Bugsee: could not read the native libraries of {archive}: {ex.Message}");
+                        var why = LongPathPolicy.Describe(archive, ex.Message);
+                        unreadable.Add(Path.GetFileName(archive) + ": " + why);
+                        Debug.LogWarning($"Bugsee: could not read the native libraries of {archive}: {why}");
                     }
                 }
             }
 
-            var chosen = AndroidNativeLibs.Choose(carrying, packaged, inUnityZip, abis, notes);
+            var chosen = AndroidNativeLibs.Choose(carrying, packaged, inUnityZip, abis, notes,
+                unreadable.Count == 0 ? null : "the app's archive could not be read: " + string.Join("; ", unreadable));
             Log(notes);
             if (chosen.Count == 0)
             {
@@ -100,7 +104,7 @@ namespace Bugsee.Editor
                     Directory.Delete(staging, true);
                 }
 
-                AndroidNativeLibs.Stage(chosen, staging);
+                AndroidNativeLibs.Stage(chosen, staging, BugseeLongPathFile.OpenRead);
                 long bytes = 0;
                 foreach (var lib in chosen)
                 {
@@ -196,7 +200,7 @@ namespace Bugsee.Editor
 
             try
             {
-                using (var stream = File.OpenRead(zip))
+                using (var stream = BugseeLongPathFile.OpenRead(zip))
                 {
                     return AndroidNativeLibs.ZipLibraryKeys(stream);
                 }
