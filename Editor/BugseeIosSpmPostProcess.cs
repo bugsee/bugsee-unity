@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.IO;
 using UnityEditor;
 using UnityEditor.Build;
-using UnityEditor.iOS.Xcode;
 using Bugsee.WrapperPolicy;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
@@ -148,7 +147,7 @@ namespace Bugsee.Editor
                 LocalPackageCopy.CopyAndSwapIn(localPackageSource, packageFolder, overridePackage != null);
             }
 
-            string projectPath = PBXProject.GetPBXProjectPath(pathToBuiltProject);
+            string projectPath = XcodeProject.GetPBXProjectPath(pathToBuiltProject);
             // An export into an existing project (Append) keeps the links an earlier export added; drop them so the
             // package is linked once, whichever way (published tag or local package) the earlier export linked it.
             string existing = File.ReadAllText(projectPath);
@@ -169,7 +168,7 @@ namespace Bugsee.Editor
                 File.WriteAllText(projectPath, cleaned);
             }
 
-            var project = new PBXProject();
+            var project = new XcodeProject();
             project.ReadFromFile(projectPath);
 
             string mainTargetGuid = project.GetUnityMainTargetGuid();
@@ -228,7 +227,7 @@ namespace Bugsee.Editor
         /// UnityFramework, where the bridge that looks it up lives, when the project opted in (<see cref="FeedbackOptIn"/>).
         /// The add-on depends on the published core package, so it is not linked next to a local core package.
         /// </summary>
-        static void LinkFeedback(PBXProject project, string frameworkTargetGuid, bool localCore)
+        static void LinkFeedback(XcodeProject project, string frameworkTargetGuid, bool localCore)
         {
             if (!BugseeFeedbackSwitch.IsEnabled(NamedBuildTarget.iOS))
             {
@@ -253,7 +252,7 @@ namespace Bugsee.Editor
         /// Debug configurations default to plain DWARF, which leaves no dSYM to upload.
         /// Symbolication needs one for every configuration, on both the app and UnityFramework.
         /// </summary>
-        static void EnsureDsymGeneration(PBXProject project, string targetGuid)
+        static void EnsureDsymGeneration(XcodeProject project, string targetGuid)
         {
             if (string.IsNullOrEmpty(targetGuid))
             {
@@ -282,7 +281,7 @@ namespace Bugsee.Editor
             }
         }
 
-        static void EnsureMinIosDeploymentTarget(PBXProject project, string targetGuid)
+        static void EnsureMinIosDeploymentTarget(XcodeProject project, string targetGuid)
         {
             if (string.IsNullOrEmpty(targetGuid))
             {
