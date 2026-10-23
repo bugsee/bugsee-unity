@@ -52,3 +52,11 @@
 -keep class com.bugsee.library.BugseeFeedback { public static void registerFeedbackExtension(); }
 -keep class com.bugsee.library.BugseeLeak { public static void registerLeakExtension(); }
 -keep class com.bugsee.library.BugseeRemoting { public static void registerRemotingExtension(); }
+# The Android SDK (7.4.2) references classes newer than the compile jar: android.telephony.satellite.* (in android.jar only
+# from API 36) and android.app.ApplicationStartInfo (API 35). Its own consumer rules have no -dontwarn, and Unity 6's
+# proguard template no longer has -ignorewarnings, so a Minify build whose Target API Level selects an older jar stops in
+# R8 with "Missing class" (#255). The SDK's satellite capture requires API 36 and catches the class being absent at run
+# time; BugseeProcessInfoProvider reads ApplicationStartInfo only when SDK_INT >= 35. Dropping the warnings is safe.
+-dontwarn android.telephony.satellite.SatelliteManager
+-dontwarn android.telephony.satellite.SatelliteStateChangeListener
+-dontwarn android.app.ApplicationStartInfo
