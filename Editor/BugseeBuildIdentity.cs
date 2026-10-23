@@ -165,7 +165,8 @@ namespace Bugsee.Editor
             id = null;
             try
             {
-                using (var zip = new System.IO.Compression.ZipArchive(BugseeLongPathFile.OpenRead(path), System.IO.Compression.ZipArchiveMode.Read))
+                using (var stream = BugseeLongPathFile.OpenRead(path))
+                using (var zip = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Read))
                 {
                     foreach (var entry in zip.Entries)
                     {

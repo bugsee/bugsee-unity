@@ -60,7 +60,7 @@ namespace Bugsee.WrapperPolicy
             return path;
         }
 
-        /// <summary>Whether a path is at or over the 260-character limit that Windows tools and the Editor's Mono apply.</summary>
-        public static bool IsLongPath(string path) => path != null && path.Length >= 260;
+        /// <summary>Whether a path is long enough that the retry applies (<see cref="ExtendFrom"/>): the cause to name when a read fails.</summary>
+        public static bool IsLongPath(string path) => path != null && path.Length >= ExtendFrom;
     }
 }

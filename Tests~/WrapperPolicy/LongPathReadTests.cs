@@ -50,10 +50,10 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void The_limit_is_260_characters()
+        public void A_path_is_long_from_the_length_the_retry_starts_at()
         {
-            Assert.That(LongPathPolicy.IsLongPath(new string('a', 260)), Is.True);
-            Assert.That(LongPathPolicy.IsLongPath(new string('a', 259)), Is.False);
+            Assert.That(LongPathPolicy.IsLongPath(new string('a', LongPathPolicy.ExtendFrom)), Is.True);
+            Assert.That(LongPathPolicy.IsLongPath(new string('a', LongPathPolicy.ExtendFrom - 1)), Is.False);
             Assert.That(LongPathPolicy.IsLongPath(null), Is.False);
         }
 
