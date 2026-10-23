@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 
@@ -23,11 +24,19 @@ namespace Bugsee.Editor
             get
             {
                 if (projectType != null) return projectType;
-                projectType = Type.GetType(TypeName + ", UnityEditor.iOS.Extensions.Xcode", false)
-                    ?? AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetType(TypeName, false)).FirstOrDefault(t => t != null);
+                try
+                {
+                    projectType = Type.GetType(TypeName + ", UnityEditor.iOS.Extensions.Xcode", false)
+                        ?? AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetType(TypeName, false)).FirstOrDefault(t => t != null);
+                }
+                catch (Exception e) when (e is FileLoadException || e is BadImageFormatException)
+                {
+                    projectType = null;
+                }
+
                 if (projectType == null)
                 {
-                    throw new InvalidOperationException("[Bugsee] UnityEditor.iOS.Xcode is not available: install the iOS Build Support module " +
+                    throw new InvalidOperationException("UnityEditor.iOS.Xcode is not available: install the iOS Build Support module " +
                                                         "of this Unity Editor to export an iOS or tvOS project.");
                 }
 
@@ -95,7 +104,7 @@ namespace Bugsee.Editor
         public void SetBuildProperty(string targetGuid, string name, string value) =>
             Call(Method("SetBuildProperty", S, S, S), inner, targetGuid, name, value);
 
-        public void AddShellScriptBuildPhase(string targetGuid, string name, string shellPath, string shellScript) =>
-            Call(Method("AddShellScriptBuildPhase", S, S, S, S), inner, targetGuid, name, shellPath, shellScript);
+        public string AddShellScriptBuildPhase(string targetGuid, string name, string shellPath, string shellScript) =>
+            (string)Call(Method("AddShellScriptBuildPhase", S, S, S, S), inner, targetGuid, name, shellPath, shellScript);
     }
 }
