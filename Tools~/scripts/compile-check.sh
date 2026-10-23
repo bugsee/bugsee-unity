@@ -7,6 +7,8 @@
 # The android-player-unity-capture config type-checks the Unity 2022.2+ capture code against a local editor's Managed
 # directory (UNITY_MANAGED_DIR, default: the installed 6000.0.84f1 editor); it is skipped with a notice when there is none,
 # which is always the case on CI.
+# The editor-*-no-xcode configs leave out the UnityEditor.iOS.Xcode stubs (BugseeNoXcode=true): an Editor without iOS Build
+# Support, whose Bugsee.Editor assembly must still compile (issue #251).
 # Usage: sh Tools~/scripts/compile-check.sh   (needs the .NET SDK; DOTNET_ROLL_FORWARD=Major is fine)
 set -u
 
@@ -23,6 +25,8 @@ android-player-no-screencapture|true|UNITY_ANDROID
 editor-android|false|UNITY_EDITOR;UNITY_ANDROID
 editor-ios|false|UNITY_EDITOR;UNITY_IOS
 editor-standalone-il2cpp|false|UNITY_EDITOR;UNITY_STANDALONE_OSX;ENABLE_IL2CPP
+editor-android-no-xcode|false-noxcode|UNITY_EDITOR;UNITY_ANDROID
+editor-module-less-no-xcode|false-noxcode|UNITY_EDITOR
 '
 
 for p in Runtime Editor; do
@@ -52,8 +56,10 @@ fi
 
 for cfg in $configs; do
   name="${cfg%%|*}"; rest="${cfg#*|}"; player="${rest%%|*}"; defs="${rest#*|}"
+  noxcode=false
+  [ "$player" = false-noxcode ] && noxcode=true
   if [ "$player" = true ]; then proj="$dir/Runtime/Bugsee.Runtime.csproj"; else proj="$dir/Editor/Bugsee.Editor.csproj"; fi
-  out="$(dotnet build "$proj" --no-restore --no-incremental --nologo -v q \
+  out="$(dotnet build "$proj" --no-restore --no-incremental --nologo -v q "-p:BugseeNoXcode=$noxcode" \
     "-p:DefineConstants=$(printf '%s' "$defs" | sed 's/;/%3B/g')" 2>&1)"
   status=$?
   errors="$(printf '%s\n' "$out" | grep -E ': error ' | sed 's/ \[[^]]*\]$//' | sort -u)"
