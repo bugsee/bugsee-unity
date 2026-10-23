@@ -83,7 +83,7 @@ namespace Bugsee.Editor
             {
                 if (launcher != null)
                 {
-                    GradleTemplateDefaults.ReadGradleVersion(File.ReadAllText(launcher), out var gradleName, out var gradleCode);
+                    GradleTemplateDefaults.ReadGradleVersion(BugseeLongPathFile.ReadAllText(launcher), out var gradleName, out var gradleCode);
                     name = gradleName ?? name;
                     code = gradleCode ?? code;
                 }
@@ -93,7 +93,7 @@ namespace Bugsee.Editor
                 Debug.LogWarning($"Bugsee: could not read the generated launcher's version: {ex.Message}");
             }
 
-            var failures = new List<string>();
+            var failures = new ReadFailures();
             var appId = AndroidUploadIdentity.SelectAppAssetId(ReadAppAssetIds(report?.summary.outputPath, report == null ? DateTime.MinValue : BuildClock.StartedUtc(report.summary.buildStartedAt), failures), out var conflict);
             if (conflict != null)
             {
@@ -105,16 +105,30 @@ namespace Bugsee.Editor
                 appId,
                 AndroidBuildUuid.Synthesize(BugseeCliRunner.AppToken, name, code),
                 conflict,
-                failures.Count == 0 ? null : string.Join("; ", failures));
+                failures.Reasons.Count == 0 ? null : string.Join("; ", failures.Reasons),
+                failures.LongPath);
         }
 
         /// <summary>
         /// The build id asset of each APK/AAB this build produced: the output file itself, or, when Unity wrote one APK
         /// per ABI (Split APKs by target architecture), where that path is a folder holding them, every APK in it.
-        /// An entry is null when that file carries no id or cannot be read; a file that cannot be read is also described in
-        /// <paramref name="failures"/> (no id can then be told from "none": see <see cref="AndroidUploadIdentity.Decide"/>).
+        /// An entry is null when that file carries no id. A file that cannot be read adds no entry and is described in
+        /// <paramref name="failures"/>: with no id from any other file the mapping is skipped (see <see cref="AndroidUploadIdentity.Decide"/>).
         /// </summary>
-        static List<string> ReadAppAssetIds(string outputPath, DateTime buildStartedUtc, List<string> failures)
+        sealed class ReadFailures
+        {
+            public readonly List<string> Reasons = new List<string>();
+            /// <summary>Some archive that could not be read has a path over the 260-character limit.</summary>
+            public bool LongPath;
+
+            public void Add(string path, string reason)
+            {
+                Reasons.Add(Path.GetFileName(path.TrimEnd('/', '\\')) + ": " + reason);
+                LongPath |= LongPathPolicy.IsLongPath(path);
+            }
+        }
+
+        static List<string> ReadAppAssetIds(string outputPath, DateTime buildStartedUtc, ReadFailures failures)
         {
             var ids = new List<string>();
             if (string.IsNullOrEmpty(outputPath))
@@ -126,21 +140,29 @@ namespace Bugsee.Editor
             {
                 foreach (var archive in AndroidNativeLibs.BuiltArchivePaths(outputPath, buildStartedUtc))
                 {
-                    ids.Add(ReadAppAssetId(archive, failures));
+                    // An archive that could not be opened says nothing about the id (not even "none"): it is left out of the list, so
+                    // another split APK that was read still gives the id.
+                    if (!TryReadAppAssetId(archive, out var id, failures))
+                    {
+                        continue;
+                    }
+
+                    ids.Add(id);
                 }
             }
             catch (Exception ex)
             {
                 Debug.LogWarning($"Bugsee: could not look for split APKs of {outputPath}: {ex.Message}");
-                failures.Add("could not look for the APKs of " + outputPath + ": " + ex.Message);
+                failures.Add(outputPath, "could not look for its APKs: " + ex.Message);
             }
 
             return ids;
         }
 
-        /// <summary>The id in one APK/AAB's build id asset, or null (no such asset, not an archive, unreadable).</summary>
-        static string ReadAppAssetId(string path, List<string> failures)
+        /// <summary>Reads the id in one APK/AAB's build id asset (null: none); false when the file could not be read, described in <paramref name="failures"/>.</summary>
+        static bool TryReadAppAssetId(string path, out string id, ReadFailures failures)
         {
+            id = null;
             try
             {
                 using (var zip = new System.IO.Compression.ZipArchive(BugseeLongPathFile.OpenRead(path), System.IO.Compression.ZipArchiveMode.Read))
@@ -152,7 +174,8 @@ namespace Bugsee.Editor
                         {
                             using (var reader = new StreamReader(entry.Open()))
                             {
-                                return AndroidUploadIdentity.ParseAssetProperties(reader.ReadToEnd());
+                                id = AndroidUploadIdentity.ParseAssetProperties(reader.ReadToEnd());
+                                return true;
                             }
                         }
                     }
@@ -160,12 +183,12 @@ namespace Bugsee.Editor
             }
             catch (Exception ex)
             {
-                var why = LongPathPolicy.Describe(path, ex.Message);
-                Debug.LogWarning($"Bugsee: could not read the build id asset from {path}: {why}");
-                failures.Add(Path.GetFileName(path) + ": " + why);
+                Debug.LogWarning($"Bugsee: could not read the build id asset from {path}: {ex.Message}");
+                failures.Add(path, ex.Message);
+                return false;
             }
 
-            return null;
+            return true;
         }
 
     }

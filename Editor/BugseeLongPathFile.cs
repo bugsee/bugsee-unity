@@ -45,18 +45,53 @@ namespace Bugsee.Editor
             }
         }
 
+        /// <summary>The whole file, in one allocation of its length (a libil2cpp.so can be over a gigabyte).</summary>
         internal static byte[] ReadAllBytes(string path)
         {
             using (var stream = OpenRead(path))
-            using (var memory = new MemoryStream())
             {
-                stream.CopyTo(memory);
-                return memory.ToArray();
+                if (stream.Length > int.MaxValue)
+                {
+                    throw new IOException("The file is over 2 GB: " + path);
+                }
+
+                var bytes = new byte[(int)stream.Length];
+                var read = 0;
+                while (read < bytes.Length)
+                {
+                    var n = stream.Read(bytes, read, bytes.Length - read);
+                    if (n <= 0)
+                    {
+                        throw new EndOfStreamException("The file ended early: " + path);
+                    }
+
+                    read += n;
+                }
+
+                return bytes;
             }
         }
 
-        static FileStream TryOpenExtended(string path)
+        internal static string ReadAllText(string path)
         {
+            using (var reader = new StreamReader(OpenRead(path), System.Text.Encoding.UTF8, true))
+            {
+                return reader.ReadToEnd();
+            }
+        }
+
+        /// <summary>
+        /// The file opened through the extended-length form, or null when that does not apply (not Windows, a short or
+        /// relative path). Throws an <see cref="IOException"/> with the system's own message and the path when the system
+        /// refuses it (missing, locked, access denied): that is a different problem than the length.
+        /// </summary>
+        internal static FileStream TryOpenExtended(string path)
+        {
+            if (!IsWindows)
+            {
+                return null;
+            }
+
             string full;
             try { full = Path.GetFullPath(path); }
             catch { full = path; }
@@ -71,8 +106,7 @@ namespace Bugsee.Editor
             {
                 var code = Marshal.GetLastWin32Error();
                 handle.Dispose();
-                // The same exception type the plain open raises, so callers' handling does not change.
-                throw new IOException(LongPathPolicy.Describe(full, new Win32Exception(code).Message) + ": " + full);
+                throw new IOException(new Win32Exception(code).Message + ": " + full);
             }
 
             return new FileStream(handle, FileAccess.Read, 4096, false);

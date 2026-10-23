@@ -30,12 +30,18 @@ namespace Bugsee.WrapperPolicy
         /// </summary>
         public static string Extend(string path)
         {
-            if (string.IsNullOrEmpty(path) || IsExtended(path))
+            if (string.IsNullOrEmpty(path))
             {
                 return path;
             }
 
+            // Slashes first: "//?/C:/x" is the extended form too.
             var p = path.Replace('/', '\\');
+            if (IsExtended(p))
+            {
+                return p;
+            }
+
             if (p.StartsWith(@"\\.\", StringComparison.Ordinal))
             {
                 return path;
@@ -54,18 +60,7 @@ namespace Bugsee.WrapperPolicy
             return path;
         }
 
-        /// <summary>
-        /// The text for an Editor read failure of a build output at <paramref name="path"/>: names the length when the path
-        /// is at or over the limit, so the warning points at the cause instead of a bare "could not find a part of the path".
-        /// </summary>
-        public static string Describe(string path, string message)
-        {
-            if (path != null && path.Length >= 260)
-            {
-                return message + " (the path is " + path.Length + " characters long; Windows tools and the Editor's Mono limit paths to 260, build to a shorter folder)";
-            }
-
-            return message;
-        }
+        /// <summary>Whether a path is at or over the 260-character limit that Windows tools and the Editor's Mono apply.</summary>
+        public static bool IsLongPath(string path) => path != null && path.Length >= 260;
     }
 }

@@ -81,9 +81,8 @@ namespace Bugsee.Editor
                     }
                     catch (Exception ex)
                     {
-                        var why = LongPathPolicy.Describe(archive, ex.Message);
-                        unreadable.Add(Path.GetFileName(archive) + ": " + why);
-                        Debug.LogWarning($"Bugsee: could not read the native libraries of {archive}: {why}");
+                        unreadable.Add(Path.GetFileName(archive) + ": " + ex.Message);
+                        Debug.LogWarning($"Bugsee: could not read the native libraries of {archive}: {ex.Message}");
                     }
                 }
             }

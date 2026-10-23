@@ -80,11 +80,12 @@ namespace Bugsee.WrapperPolicy
         /// BUGSEE_BUILD_UUID keeps its older meaning for the native upload (<see cref="UploadIdentity.ElfUuid"/>): any
         /// non-empty value is that upload's correlation key; without it the mapping's id is used.
         /// </summary>
-        public static UploadIdentity Decide(string env, string appAssetId, string synthesized, string appAssetConflict = null, string appAssetUnreadable = null)
+        public static UploadIdentity Decide(string env, string appAssetId, string synthesized, string appAssetConflict = null, string appAssetUnreadable = null, bool unreadableLongPath = false)
         {
-            var result = DecideMapping(env, appAssetId, synthesized, appAssetUnreadable);
+            var result = DecideMapping(env, appAssetId, synthesized, appAssetUnreadable, unreadableLongPath);
             string envValue = string.IsNullOrWhiteSpace(env) ? null : env.Trim();
-            result.ElfUuid = envValue ?? result.Uuid;
+            // A skipped mapping leaves the native upload keyed by the derived id: it only correlates the uploads, each library has its own build-id.
+            result.ElfUuid = envValue ?? result.Uuid ?? (result.SkipMapping ? synthesized : null);
             if (appAssetConflict != null)
             {
                 result.Warning = result.Warning == null ? appAssetConflict : appAssetConflict + " " + result.Warning;
@@ -93,7 +94,7 @@ namespace Bugsee.WrapperPolicy
             return result;
         }
 
-        static UploadIdentity DecideMapping(string env, string appAssetId, string synthesized, string unreadable)
+        static UploadIdentity DecideMapping(string env, string appAssetId, string synthesized, string unreadable, bool longPath)
         {
             string app = IsUuid(appAssetId) ? appAssetId.Trim().ToLowerInvariant() : null;
             string envValue = string.IsNullOrWhiteSpace(env) ? null : env.Trim();
@@ -125,7 +126,7 @@ namespace Bugsee.WrapperPolicy
                     Uuid = null,
                     Source = BuildIdSource.Unreadable,
                     SkipMapping = true,
-                    Warning = (envNote == null ? "" : envNote + " ") + UnreadableNotice(unreadable),
+                    Warning = (envNote == null ? "" : envNote + " ") + UnreadableNotice(unreadable, longPath),
                 };
             }
 
@@ -146,10 +147,11 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>Why a mapping is not uploaded when the app's build id could not be read (<paramref name="reason"/>: the read failures).</summary>
-        public static string UnreadableNotice(string reason) =>
+        public static string UnreadableNotice(string reason, bool longPath = false) =>
             "The build id the built app carries could not be read (" + reason + "), so no mapping is uploaded: under an id " +
-            "derived from the token, version name and code it could differ from the app's and never match. Build to a shorter " +
-            "output folder, or set BUGSEE_BUILD_UUID to the id the app reports to upload the mapping anyway.";
+            "derived from the token, version name and code it could differ from the app's and never match. " +
+            (longPath ? "Build to a shorter output folder (the path is over 260 characters), or " : "Fix the read (a locked or damaged APK/AAB), or ") +
+            "set BUGSEE_BUILD_UUID to the id the app reports to upload the mapping anyway.";
 
         /// <summary>Whether an APK file name is a sibling of the player "Game.apk": "Game.arm64-v8a.apk", not "GameLite.apk".</summary>
         public static bool IsSplitApkOf(string fileName, string stem)

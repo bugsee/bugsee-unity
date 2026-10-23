@@ -209,7 +209,27 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(id.Uuid, Is.Null);
             Assert.That(id.Source, Is.EqualTo(BuildIdSource.Unreadable));
             Assert.That(id.Warning, Does.Contain("game.apk: Could not find a part of the path").And.Contain("no mapping is uploaded").And.Contain("BUGSEE_BUILD_UUID"));
-            Assert.That(id.ElfUuid, Is.Null, "the native upload gets a random correlation id");
+            Assert.That(id.ElfUuid, Is.EqualTo(Synth), "the native upload keeps the derived id as its correlation key");
+        }
+
+        [Test]
+        public void The_notice_names_the_cause_it_can_tell()
+        {
+            Assert.That(AndroidUploadIdentity.UnreadableNotice("game.apk: locked", false), Does.Contain("locked or damaged").And.Not.Contain("shorter"));
+            Assert.That(AndroidUploadIdentity.UnreadableNotice("game.apk: x", true), Does.Contain("shorter output folder"));
+            Assert.That(AndroidUploadIdentity.Decide(null, null, Synth, null, "game.apk: x", true).Warning, Does.Contain("shorter output folder"));
+        }
+
+        [Test]
+        public void A_split_apk_that_was_read_still_gives_the_id_when_a_sibling_could_not_be_opened()
+        {
+            // The editor leaves an unopenable archive out of the id list instead of counting it as "carries none".
+            var id = AndroidUploadIdentity.SelectAppAssetId(new[] { App }, out var conflict);
+            var decided = AndroidUploadIdentity.Decide(null, id, Synth, conflict, "game.x86.apk: locked");
+
+            Assert.That(conflict, Is.Null);
+            Assert.That(decided.Uuid, Is.EqualTo(App));
+            Assert.That(decided.SkipMapping, Is.False);
         }
 
         [Test]

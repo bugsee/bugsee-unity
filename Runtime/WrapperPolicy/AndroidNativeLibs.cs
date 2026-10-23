@@ -741,7 +741,11 @@ namespace Bugsee.WrapperPolicy
             }
         }
 
-        /// <summary>Copies the chosen libraries below <paramref name="root"/> at <see cref="StagingRelativePath"/>.</summary>
+        /// <summary>
+        /// Copies the chosen libraries below <paramref name="root"/> at <see cref="StagingRelativePath"/>. The source is read through
+        /// <paramref name="open"/> when given (long-path safe); the target is written with a plain stream, which is fine while the
+        /// staging root (under the project's Library folder) is itself short.
+        /// </summary>
         public static void Stage(IEnumerable<NativeLibCandidate> chosen, string root, Func<string, Stream> open = null)
         {
             foreach (var lib in chosen)

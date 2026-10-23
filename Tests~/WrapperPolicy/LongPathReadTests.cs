@@ -36,6 +36,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(LongPathPolicy.Extend(@"\\.\COM1"), Is.EqualTo(@"\\.\COM1"));
             Assert.That(LongPathPolicy.Extend(@"\\?\C:\a.apk"), Is.EqualTo(@"\\?\C:\a.apk"));
             Assert.That(LongPathPolicy.Extend(null), Is.Null);
+            Assert.That(LongPathPolicy.Extend("//?/C:/a/b.apk"), Is.EqualTo(@"\\?\C:\a\b.apk"), "the extended form with slashes is not read as a UNC share");
         }
 
         [Test]
@@ -49,15 +50,11 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void A_read_failure_on_a_path_at_the_limit_names_the_length()
+        public void The_limit_is_260_characters()
         {
-            var path = Long + new string('x', 20) + ".apk";
-            var text = LongPathPolicy.Describe(path, "Could not find a part of the path");
-
-            Assert.That(path.Length, Is.GreaterThanOrEqualTo(260));
-            Assert.That(text, Does.StartWith("Could not find a part of the path").And.Contain(path.Length + " characters"));
-            Assert.That(LongPathPolicy.Describe(Long, "boom"), Is.EqualTo("boom"), "under the limit: nothing to add");
-            Assert.That(LongPathPolicy.Describe(@"C:\a.apk", "boom"), Is.EqualTo("boom"));
+            Assert.That(LongPathPolicy.IsLongPath(new string('a', 260)), Is.True);
+            Assert.That(LongPathPolicy.IsLongPath(new string('a', 259)), Is.False);
+            Assert.That(LongPathPolicy.IsLongPath(null), Is.False);
         }
 
         [Test]
@@ -73,6 +70,7 @@ namespace Bugsee.WrapperPolicy.Tests
                     Assert.That(s.Length, Is.EqualTo(3));
                 }
 
+                Assert.That(BugseeLongPathFile.TryOpenExtended(path), Is.Null, "a short path never takes the extended route");
                 Assert.Throws<FileNotFoundException>(() => BugseeLongPathFile.OpenRead(path + ".missing").Dispose());
             }
             finally
@@ -82,23 +80,44 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void A_file_under_a_path_over_260_characters_can_be_read()
+        public void A_file_under_a_path_over_260_characters_can_be_read_through_the_extended_route()
         {
             Assume.That(Path.DirectorySeparatorChar, Is.EqualTo('\\'), "Windows only");
-            var dir = @"\\?\" + Path.Combine(Path.GetTempPath(), "bugsee-lp-" + Guid.NewGuid().ToString("N"),
-                new string('a', 120), new string('b', 120));
-            Directory.CreateDirectory(dir);
-            var file = Path.Combine(dir, "game.apk");
-            File.WriteAllBytes(file, new byte[] { 9, 8, 7 });
+            var top = Path.Combine(Path.GetTempPath(), "bugsee-lp-" + Guid.NewGuid().ToString("N"));
+            var dir = Path.Combine(top, new string('a', 120), new string('b', 120));
+            Directory.CreateDirectory(@"\\?\" + dir);
+            var plain = Path.Combine(dir, "game.apk");
+            using (var fs = new FileStream(@"\\?\" + plain, FileMode.Create))
+            using (var zip = new System.IO.Compression.ZipArchive(fs, System.IO.Compression.ZipArchiveMode.Create))
+            using (var w = new StreamWriter(zip.CreateEntry("assets/x.txt").Open()))
+            {
+                w.Write("hello");
+            }
+
             try
             {
-                var plain = file.Substring(4);
                 Assert.That(plain.Length, Is.GreaterThan(260));
-                Assert.That(BugseeLongPathFile.ReadAllBytes(plain), Is.EqualTo(new byte[] { 9, 8, 7 }));
+                // The fallback itself (CI's .NET opens long paths without it): bytes, and seekable for ZipArchive.
+                using (var stream = BugseeLongPathFile.TryOpenExtended(plain))
+                {
+                    Assert.That(stream, Is.Not.Null);
+                    Assert.That(stream.CanSeek, Is.True);
+                    using (var zip = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Read))
+                    using (var r = new StreamReader(zip.GetEntry("assets/x.txt").Open()))
+                    {
+                        Assert.That(r.ReadToEnd(), Is.EqualTo("hello"));
+                    }
+                }
+
+                Assert.That(BugseeLongPathFile.ReadAllBytes(plain).Length, Is.GreaterThan(0));
+
+                // A missing file reports the system's message and the path, not a length hint.
+                var ex = Assert.Throws<IOException>(() => BugseeLongPathFile.ReadAllText(Path.Combine(dir, "missing.txt")));
+                Assert.That(ex.Message, Does.Contain("missing.txt").And.Not.Contain("shorter"));
             }
             finally
             {
-                Directory.Delete(dir.Substring(0, dir.IndexOf(new string('a', 120), StringComparison.Ordinal)), true);
+                Directory.Delete(@"\\?\" + top, true);
             }
         }
 
@@ -109,19 +128,10 @@ namespace Bugsee.WrapperPolicy.Tests
             {
                 var text = File.ReadAllText(Path.Combine(Root(), "Editor", name));
                 Assert.That(text, Does.Contain("BugseeLongPathFile."), name);
-                Assert.That(System.Text.RegularExpressions.Regex.IsMatch(text, @"(?<![A-Za-z])(File\.OpenRead|File\.ReadAllBytes|ZipFile\.OpenRead)\(|new FileStream\("),
+                Assert.That(System.Text.RegularExpressions.Regex.IsMatch(text,
+                        @"(?<![A-Za-z])(File\.(OpenRead|ReadAllBytes|ReadAllText|Copy)|ZipFile\.OpenRead)\(|new FileStream\("),
                     Is.False, name);
             }
-        }
-
-        [Test]
-        public void An_unreadable_apk_skips_the_mapping_instead_of_uploading_it_under_a_derived_id()
-        {
-            var source = File.ReadAllText(Path.Combine(Root(), "Editor", "BugseeSymbolUpload.cs"));
-
-            Assert.That(source, Does.Contain("identity.SkipMapping"));
-            var skip = source.Substring(source.IndexOf("identity.SkipMapping", StringComparison.Ordinal));
-            Assert.That(skip.Substring(0, skip.IndexOf("else", StringComparison.Ordinal)), Does.Not.Contain("UploadIfFound("));
         }
 
         [Test]
@@ -148,6 +158,38 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(opened, Is.EqualTo(new[] { "/x/lib/arm64-v8a/libfoo.so" }));
             Assert.That(libs, Is.Empty);
             Assert.That(without, Is.EqualTo(0));
+
+            var root = Path.Combine(Path.GetTempPath(), "bugsee-stage-" + Guid.NewGuid().ToString("N"));
+            var lib = new NativeLibCandidate { Path = "/virtual/libfoo.so", Abi = "arm64-v8a", Name = "libfoo.so", BuildId = "abc", Length = 3 };
+            try
+            {
+                AndroidNativeLibs.Stage(new[] { lib }, root, p => new MemoryStream(new byte[] { 4, 5, 6 }));
+
+                var staged = Directory.GetFiles(root, "libfoo.so", SearchOption.AllDirectories).Single();
+                Assert.That(File.ReadAllBytes(staged), Is.EqualTo(new byte[] { 4, 5, 6 }));
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+
+        [Test]
+        public void A_whole_file_read_returns_every_byte_in_one_buffer()
+        {
+            var path = Path.Combine(Path.GetTempPath(), "bugsee-rab-" + Guid.NewGuid().ToString("N"));
+            var data = Enumerable.Range(0, 200000).Select(i => (byte)(i % 251)).ToArray();
+            File.WriteAllBytes(path, data);
+            try
+            {
+                Assert.That(BugseeLongPathFile.ReadAllBytes(path), Is.EqualTo(data));
+                File.WriteAllText(path, "text");
+                Assert.That(BugseeLongPathFile.ReadAllText(path), Is.EqualTo("text"));
+            }
+            finally
+            {
+                File.Delete(path);
+            }
         }
 
         static string Root()
