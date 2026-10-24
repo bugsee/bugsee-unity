@@ -236,8 +236,8 @@ namespace Bugsee.Editor
                 }
                 try
                 {
-                    foreach (var file in Directory.EnumerateFiles(
-                                 root, "LineNumberMappings.json", SearchOption.AllDirectories))
+                    foreach (var file in BugseeDirectoryScan.Files(
+                                 root, "LineNumberMappings.json"))
                     {
                         if (BuildPathExclusion.IsExcludedPath(file, root))
                         {
