@@ -18,6 +18,16 @@ namespace Bugsee.WrapperPolicy
     {
         static readonly string[] ExcludedFolders = { "Library", "Temp", "Bee", "obj" };
 
+        /// <summary>Whether a folder of this name (not a path) is one of the intermediate folders; names compare case-insensitively.</summary>
+        public static bool IsExcludedFolderName(string name)
+        {
+            foreach (var excluded in ExcludedFolders)
+            {
+                if (string.Equals(name, excluded, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+
         /// <summary>
         /// True when <paramref name="path"/> lies inside an excluded folder under <paramref name="root"/>. The path
         /// is a folder or file the scan found below the root, or already relative to it. Both separators are

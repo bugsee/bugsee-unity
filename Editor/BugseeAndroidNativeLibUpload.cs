@@ -168,15 +168,8 @@ namespace Bugsee.Editor
                         continue;
                     }
 
-                    string[] files;
-                    try { files = Directory.GetFiles(merged, "*.so", SearchOption.AllDirectories); }
-                    catch (Exception ex)
-                    {
-                        Debug.LogWarning($"Bugsee: could not scan {merged} for native libraries: {ex.Message}");
-                        continue;
-                    }
-
-                    foreach (var file in files)
+                    // No intermediate-folder rule here: the pre-strip libraries sit under build/intermediates by design.
+                    foreach (var file in BugseeDirectoryScan.Files(merged, "*.so", skipIntermediate: false))
                     {
                         yield return file;
                     }
@@ -184,11 +177,7 @@ namespace Bugsee.Editor
             }
         }
 
-        static string[] SafeDirectories(string path)
-        {
-            try { return Directory.GetDirectories(path); }
-            catch { return new string[0]; }
-        }
+        static List<string> SafeDirectories(string path) => BugseeDirectoryScan.ChildDirectories(path);
 
         static ISet<string> UnityZipKeys(string zip)
         {
