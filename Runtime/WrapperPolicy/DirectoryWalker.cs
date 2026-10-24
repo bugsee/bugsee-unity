@@ -237,7 +237,7 @@ namespace Bugsee.WrapperPolicy
         // A relative root never matches an absolute link target, so compare full paths.
         static string Full(string path)
         {
-            try { return Path.GetFullPath(path); }
+            try { return Path.IsPathRooted(path) ? path : Path.GetFullPath(path); }
             catch { return path; }
         }
 
