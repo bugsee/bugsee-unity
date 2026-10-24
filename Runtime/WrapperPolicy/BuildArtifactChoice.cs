@@ -127,7 +127,7 @@ namespace Bugsee.WrapperPolicy
 
         /// <summary>
         /// <see cref="Better(int,DateTime,int,DateTime)"/> with a fixed answer for equal rank and time: the shorter path
-        /// wins (the same file reached again through a link is spelled longer), and the later one only on equal length.
+        /// wins (a file reached again through a link is usually spelled longer; this is a stable tie-break, not a guarantee about links), and the later one only on equal length.
         /// Never depends on the order a scan listed the files in.
         /// </summary>
         public static bool Better(int rank, DateTime mtime, string path, int bestRank, DateTime bestMtime, string bestPath)

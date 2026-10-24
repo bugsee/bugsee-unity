@@ -29,9 +29,9 @@ namespace Bugsee.WrapperPolicy
     /// Windows (the Editor's Mono lists such a file but cannot open it the usual way).
     ///
     /// Order is deterministic: a folder's files, then its sub-folders, each in ordinal order, depth first. Results are
-    /// spelled under the root as passed. Links are followed as <c>AllDirectories</c> does, but only one level of them: a link
-    /// found below a link is not entered, which is what ends a loop on the Editor's Mono (it cannot resolve link targets;
-    /// where it can, a link back to a folder above is also recognised). A walk stops after <see cref="MaxFolders"/> folders.
+    /// spelled under the root as passed. Links are followed as <c>AllDirectories</c> does, but a link whose name was already
+    /// entered on the same path is not entered again, which is what ends a loop on the Editor's Mono (it cannot resolve link
+    /// targets; where it can, a link back to a folder above is also recognised). A walk stops after <see cref="MaxFolders"/> folders.
     /// With <c>skipIntermediate</c> the folders <see cref="BuildPathExclusion"/> excludes below the root are not entered
     /// at all, which gives the same results as filtering the paths afterwards and also spares their (often huge) trees.
     /// No <c>\\?\</c> prefixing: that is for reads (<see cref="LongPathPolicy"/>), not for listing.
@@ -85,7 +85,7 @@ namespace Bugsee.WrapperPolicy
             public string Path;
             public int Depth;
             public bool ParentWarnedLong;
-            public bool InLink;
+            public bool IsLinkFrame;
             public Frame Parent;
             public string LinkTarget;
         }
@@ -195,17 +195,20 @@ namespace Bugsee.WrapperPolicy
                         var child = dirs[i];
                         if (skipIntermediate && BuildPathExclusion.IsExcludedFolderName(LastSegment(child))) continue;
 
-                        var next = new Frame { Path = child, Depth = frame.Depth + 1, ParentWarnedLong = warnedLong, Parent = frame, InLink = frame.InLink };
+                        var next = new Frame { Path = child, Depth = frame.Depth + 1, ParentWarnedLong = warnedLong, Parent = frame };
                         var isLink = false;
                         try { isLink = fs.IsLink(child); } catch { /* not a link we can tell */ }
                         if (isLink)
                         {
-                            if (frame.InLink)
+                            // A loop's link sits inside the folder it points to, so below the link it comes up again under
+                            // the same name. A link name already entered on this path is therefore not entered twice;
+                            // other links (OneDrive placeholders, a second legitimate link) are.
+                            if (LinkNameEntered(frame, LastSegment(child)))
                             {
-                                budget.Warn("the link " + child + " is inside a link and is not entered (a link loop would never end)");
+                                budget.Warn("the link " + child + " has the name of a link already entered on this path and is not entered again (a link loop would never end)");
                                 continue;
                             }
-                            next.InLink = true;
+                            next.IsLinkFrame = true;
                             string target = null;
                             var resolveFailed = false;
                             try { target = fs.LinkTarget(child); } catch { resolveFailed = true; }
@@ -232,6 +235,15 @@ namespace Bugsee.WrapperPolicy
             {
                 budget.Done();
             }
+        }
+
+        static bool LinkNameEntered(Frame parent, string name)
+        {
+            for (var f = parent; f != null; f = f.Parent)
+            {
+                if (f.IsLinkFrame && string.Equals(LastSegment(f.Path), name, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
         }
 
         // A relative root never matches an absolute link target, so compare full paths.

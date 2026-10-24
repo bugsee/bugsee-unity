@@ -314,7 +314,7 @@ namespace Bugsee.WrapperPolicy.Tests
             var found = Files(fs, "*.so", w);
             Assert.That(sw.ElapsedMilliseconds, Is.LessThan(2000));
             Assert.That(found.Count, Is.LessThan(40));
-            Assert.That(w.Any(m => m.Contains("inside a link")), Is.True);
+            Assert.That(w.Any(m => m.Contains("already entered")), Is.True);
         }
 
         [Test]
@@ -330,15 +330,29 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void A_link_inside_a_link_is_not_entered()
+        public void A_link_whose_name_is_already_entered_on_the_path_is_not_entered_again_but_other_nested_links_are()
         {
             var fs = Tree("a/1.so");
             fs.Dir("/r/l1"); fs.Links["/r/l1"] = "/x";
             fs.Dir("/x"); fs.Dir("/x/l2"); fs.Links["/x/l2"] = "/y"; fs.Dir("/y"); fs.File("/y/n.so");
-            fs.Dirs["/x"] = new List<string> { "/x/l2" };
+            fs.Dir("/x/l1"); fs.Links["/x/l1"] = "/z"; fs.Dir("/z"); fs.File("/z/same.so");
             fs.File("/x/m.so");
             var w = new List<string>();
-            Assert.That(Files(fs, "*.so", w), Is.EqualTo(new[] { "/r/a/1.so", "/r/l1/m.so" }), "the inner link /r/l1/l2 is not entered");
+            Assert.That(Files(fs, "*.so", w), Is.EqualTo(new[] { "/r/a/1.so", "/r/l1/m.so" }));
+            Assert.That(fs.Listed, Does.Contain("/r/l1/l2"), "a differently named link below a link is entered");
+            Assert.That(fs.Listed, Does.Not.Contain("/r/l1/l1"), "the same link name again is not");
+        }
+
+        [Test]
+        public void Folders_that_all_report_a_reparse_point_with_no_target_are_still_walked_to_the_bottom()
+        {
+            // Cloud placeholders (OneDrive) are reparse points that are not links: nested ones must not be skipped.
+            var fs = Tree("p1/p2/p3/deep.so");
+            fs.ResolverMissing = true;
+            foreach (var d in new[] { "/r/p1", "/r/p1/p2", "/r/p1/p2/p3" }) fs.Links[d] = d;
+            var w = new List<string>();
+            Assert.That(Files(fs, "*.so", w), Is.EqualTo(new[] { "/r/p1/p2/p3/deep.so" }));
+            Assert.That(w, Is.Empty);
         }
 
         [Test]
