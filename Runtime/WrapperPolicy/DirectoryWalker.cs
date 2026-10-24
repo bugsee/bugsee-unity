@@ -86,6 +86,7 @@ namespace Bugsee.WrapperPolicy
             public int Depth;
             public bool ParentWarnedLong;
             public bool IsLinkFrame;
+            public long Signature;
             public Frame Parent;
             public string LinkTarget;
         }
@@ -154,6 +155,17 @@ namespace Bugsee.WrapperPolicy
                     }
 
                     files.Sort(StringComparer.Ordinal);
+                    dirs.Sort(StringComparer.Ordinal);
+
+                    // A link that loops lists the content of a folder above it. Without a resolvable target (the Editor's
+                    // Mono) that is how it is told apart from a placeholder folder that is merely a reparse point.
+                    frame.Signature = ContentSignature(files, dirs);
+                    if (frame.IsLinkFrame && frame.Signature != 0 && SameContentAbove(frame))
+                    {
+                        budget.Warn("the link " + frame.Path + " lists the same content as a folder above it (a link loop) and is not scanned");
+                        continue;
+                    }
+
                     var warnedLong = frame.ParentWarnedLong;
                     if (warnLongPaths && !warnedLong)
                     {
@@ -172,7 +184,6 @@ namespace Bugsee.WrapperPolicy
                     matched.Sort(StringComparer.Ordinal);
                     foreach (var match in matched) yield return match;
 
-                    dirs.Sort(StringComparer.Ordinal);
                     if (++visited > MaxFolders)
                     {
                         budget.Warn("the scan stopped after " + MaxFolders + " folders (a link loop?); the rest is not scanned");
@@ -235,6 +246,26 @@ namespace Bugsee.WrapperPolicy
             {
                 budget.Done();
             }
+        }
+
+        // 0 for an empty folder. Names only, not paths: the same folder reached through a link spells its paths differently.
+        static long ContentSignature(List<string> files, List<string> dirs)
+        {
+            if (files.Count == 0 && dirs.Count == 0) return 0;
+            long h = 17 + files.Count * 31L + dirs.Count;
+            foreach (var f in files) h = h * 1000003 + StringComparer.OrdinalIgnoreCase.GetHashCode(LastSegment(f));
+            h = h * 7919 + 1;
+            foreach (var d in dirs) h = h * 1000003 + StringComparer.OrdinalIgnoreCase.GetHashCode(LastSegment(d));
+            return h == 0 ? 1 : h;
+        }
+
+        static bool SameContentAbove(Frame frame)
+        {
+            for (var f = frame.Parent; f != null; f = f.Parent)
+            {
+                if (f.Signature == frame.Signature) return true;
+            }
+            return false;
         }
 
         static bool LinkNameEntered(Frame parent, string name)

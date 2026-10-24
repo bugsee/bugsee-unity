@@ -314,7 +314,7 @@ namespace Bugsee.WrapperPolicy.Tests
             var found = Files(fs, "*.so", w);
             Assert.That(sw.ElapsedMilliseconds, Is.LessThan(2000));
             Assert.That(found.Count, Is.LessThan(40));
-            Assert.That(w.Any(m => m.Contains("already entered")), Is.True);
+            Assert.That(w.Any(m => m.Contains("same content") || m.Contains("already entered")), Is.True);
         }
 
         [Test]
@@ -377,7 +377,7 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Many_sibling_links_that_all_loop_end_without_a_hang()
+        public void Many_sibling_links_that_all_loop_are_cut_at_once_and_the_real_siblings_are_still_found()
         {
             var fs = Tree("a/1.so", "z/9.so");
             fs.ResolverMissing = true;
@@ -387,9 +387,10 @@ namespace Bugsee.WrapperPolicy.Tests
                 fs.Links["/r/a/l" + i] = "/r/a";
             }
             var w = new List<string>();
-            var sw = Stopwatch.StartNew();
-            Files(fs, "*.so", w);
-            Assert.That(sw.ElapsedMilliseconds, Is.LessThan(20000));
+            var found = Files(fs, "*.so", w);
+            Assert.That(found, Is.EqualTo(new[] { "/r/a/1.so", "/r/z/9.so" }));
+            Assert.That(fs.Listed.Count, Is.LessThan(40));
+            Assert.That(w.Count(m => m.Contains("same content")), Is.EqualTo(10));
         }
 
         [Test]
