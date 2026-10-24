@@ -347,11 +347,11 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Folders_that_all_report_a_reparse_point_with_no_target_are_still_walked_to_the_bottom()
         {
             // Cloud placeholders (OneDrive) are reparse points that are not links: nested ones must not be skipped.
-            var fs = Tree("p1/p2/p3/deep.so");
+            var fs = Tree("p1/p2/p3/p4/p5/p6/deep.so");
             fs.ResolverMissing = true;
-            foreach (var d in new[] { "/r/p1", "/r/p1/p2", "/r/p1/p2/p3" }) fs.Links[d] = d;
+            foreach (var d in new[] { "/r/p1", "/r/p1/p2", "/r/p1/p2/p3", "/r/p1/p2/p3/p4", "/r/p1/p2/p3/p4/p5", "/r/p1/p2/p3/p4/p5/p6" }) fs.Links[d] = d;
             var w = new List<string>();
-            Assert.That(Files(fs, "*.so", w), Is.EqualTo(new[] { "/r/p1/p2/p3/deep.so" }));
+            Assert.That(Files(fs, "*.so", w), Is.EqualTo(new[] { "/r/p1/p2/p3/p4/p5/p6/deep.so" }));
             Assert.That(w, Is.Empty);
         }
 
