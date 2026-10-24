@@ -35,9 +35,35 @@ namespace Bugsee.WrapperPolicy.Tests
                 Files_[parent].Add(path);
             }
 
+            // A link folder lists what it points at, spelled under the link, as the real file systems do.
+            string Real(string dir, out string linkPath, out string target)
+            {
+                linkPath = null; target = null;
+                foreach (var l in Links)
+                {
+                    if ((dir == l.Key || dir.StartsWith(l.Key + "/")) && (linkPath == null || l.Key.Length > linkPath.Length))
+                    {
+                        linkPath = l.Key; target = l.Value;
+                    }
+                }
+                return linkPath == null ? dir : target + dir.Substring(linkPath.Length);
+            }
+
             public IEnumerable<string> Files(string dir, string pattern)
             {
-                Listed.Add(dir);
+                var real = Real(dir, out var lp, out var tg);
+                foreach (var f in FilesReal(dir, real, pattern)) yield return lp == null ? f : lp + f.Substring(tg.Length);
+            }
+
+            public IEnumerable<string> Directories(string dir, string pattern)
+            {
+                var real = Real(dir, out var lp, out var tg);
+                foreach (var f in DirectoriesReal(dir, real, pattern)) yield return lp == null ? f : lp + f.Substring(tg.Length);
+            }
+
+            IEnumerable<string> FilesReal(string spelled, string dir, string pattern)
+            {
+                Listed.Add(spelled);
                 if (Failing.Contains(dir)) throw new UnauthorizedAccessException("denied " + dir);
                 if (!Files_.TryGetValue(dir, out var list)) yield break;
                 foreach (var f in list)
@@ -47,7 +73,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 if (FailingMidway.Contains(dir)) throw new IOException("broke while listing " + dir);
             }
 
-            public IEnumerable<string> Directories(string dir, string pattern)
+            IEnumerable<string> DirectoriesReal(string spelled, string dir, string pattern)
             {
                 if (Failing.Contains(dir)) throw new UnauthorizedAccessException("denied " + dir);
                 if (!Dirs.TryGetValue(dir, out var list)) yield break;
@@ -57,7 +83,17 @@ namespace Bugsee.WrapperPolicy.Tests
                 }
             }
 
-            public string LinkTarget(string dir) => Links.TryGetValue(dir, out var t) ? t : null;
+            public readonly HashSet<string> UnresolvableLinks = new HashSet<string>();
+            public bool ResolverMissing;
+
+            public bool IsLink(string dir) => Links.ContainsKey(dir) || Links.ContainsKey(Real(dir, out _, out _)) || UnresolvableLinks.Contains(dir);
+
+            public string LinkTarget(string dir)
+            {
+                if (ResolverMissing) return null;
+                if (UnresolvableLinks.Contains(dir)) throw new IOException("link chain loops");
+                return Links.TryGetValue(dir, out var t) ? t : null;
+            }
 
             static bool Matches(string name, string pattern)
             {
@@ -142,39 +178,35 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void An_over_long_folder_is_warned_about_once_and_still_scanned()
+        public void A_file_path_of_260_characters_is_warned_about_once_for_its_branch_and_still_found()
         {
             var longName = new string('d', 250);
             var fs = Tree("ok/1.so", longName + "/a/2.so", longName + "/a/b/3.so");
             var w = new List<string>();
             var found = DirectoryWalker.EnumerateFiles("/r", "*.so", w.Add, true, true, fs).ToList();
             Assert.That(found, Has.Count.EqualTo(3));
-            Assert.That(w, Has.Count.EqualTo(1), "the folders below an over-long one are not warned about again");
-            Assert.That(w[0], Does.Contain("characters").And.Contain("248").And.Contain(longName));
+            Assert.That(w, Has.Count.EqualTo(1), "the files below are not warned about again");
+            Assert.That(w[0], Does.Contain("260").And.Contain("2.so"));
         }
 
         [Test]
-        public void A_branch_that_reaches_260_characters_is_warned_about_again_there_and_not_for_every_folder_below()
+        public void A_long_folder_whose_files_stay_under_260_characters_gives_no_warning()
         {
-            var longName = new string('d', 245);
-            var fs = Tree("ok/1.so", longName + "/a/2.so", longName + "/a/bbbbbbbbbbbbbbbbbbbbbbbb/3.so", longName + "/a/bbbbbbbbbbbbbbbbbbbbbbbb/c/4.so");
+            var fs = Tree(new string('d', 245) + "/x.so");
             var w = new List<string>();
-            Assert.That(Files(fs, "*.so", w), Has.Count.EqualTo(4));
-            Assert.That(w, Has.Count.EqualTo(2));
-            Assert.That(w[0], Does.Contain("248"));
-            Assert.That(w[1], Does.Contain("260").And.Contain("bbbbbbbbbbbbbbbbbbbbbbbb"));
+            Assert.That(Files(fs, "*.so", w), Has.Count.EqualTo(1));
+            Assert.That(w, Is.Empty);
         }
 
         [Test]
-        public void A_path_of_247_characters_is_fine_and_248_is_not()
+        public void A_file_path_of_259_characters_is_fine_and_260_is_not()
         {
-            string Folder(int total) => "/r/" + new string('d', total - 3);
-            var ok = Tree(); ok.Dir(Folder(247)); ok.File(Folder(247) + "/x.so");
+            string File_(int total) => "/r/" + new string('d', total - 3 - 5) + "/x.so";
+            var ok = Tree(); ok.Dir(File_(259).Substring(0, File_(259).LastIndexOf('/'))); ok.File(File_(259));
             var w = new List<string>();
             Assert.That(Files(ok, "*.so", w), Has.Count.EqualTo(1));
             Assert.That(w, Is.Empty);
-
-            var bad = Tree(); bad.Dir(Folder(248)); bad.File(Folder(248) + "/x.so");
+            var bad = Tree(); bad.Dir(File_(260).Substring(0, File_(260).LastIndexOf('/'))); bad.File(File_(260));
             Assert.That(Files(bad, "*.so", w), Has.Count.EqualTo(1));
             Assert.That(w, Has.Count.EqualTo(1));
         }
@@ -189,14 +221,14 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void An_over_long_folder_that_cannot_be_listed_gives_the_length_warning_and_the_failure()
+        public void An_unlistable_folder_with_a_long_name_gives_the_failure_and_the_scan_goes_on()
         {
             var longName = new string('d', 250);
             var fs = Tree("ok/1.so", longName + "/x.so");
             fs.Failing.Add("/r/" + longName);
             var w = new List<string>();
             Assert.That(Files(fs, "*.so", w), Is.EqualTo(new[] { "/r/ok/1.so" }));
-            Assert.That(w, Has.Count.EqualTo(2));
+            Assert.That(w, Has.Count.EqualTo(1));
         }
 
         [Test]
@@ -257,12 +289,95 @@ namespace Bugsee.WrapperPolicy.Tests
             fs.Links["/r/a/tob"] = "/r/b";
             fs.Links["/r/b/toa"] = "/r/a";
             // The link folders list nothing themselves in this fake (as a real link would list its target's content).
-            fs.Dirs["/r/a/tob"] = new List<string>(fs.Dirs["/r/b"]);
-            fs.Dirs["/r/b/toa"] = new List<string>(fs.Dirs["/r/a"]);
             var w = new List<string>();
             var found = Files(fs, "*.so", w);
             Assert.That(found.Count, Is.LessThan(50));
             Assert.That(found, Does.Contain("/r/a/1.so").And.Contain("/r/b/2.so"));
+        }
+
+        [Test]
+        public void Two_link_loops_with_no_resolvable_target_end_at_once_and_each_file_is_found_twice_at_most()
+        {
+            var fs = Tree("a/1.so", "b/2.so");
+            // Links that point at the parent, as on the Editor's Mono (no target can be resolved); each link folder
+            // lists what it points at, the way a real one does.
+            fs.ResolverMissing = true;
+            void Link(string at, string pointsAt)
+            {
+                fs.Dir(at);
+                fs.Links[at] = pointsAt;
+            }
+            Link("/r/a/up", "/r");
+            Link("/r/b/up2", "/r");
+            var w = new List<string>();
+            var sw = Stopwatch.StartNew();
+            var found = Files(fs, "*.so", w);
+            Assert.That(sw.ElapsedMilliseconds, Is.LessThan(2000));
+            Assert.That(found.Count, Is.LessThan(40));
+            Assert.That(w.Any(m => m.Contains("inside a link")), Is.True);
+        }
+
+        [Test]
+        public void One_legitimate_link_to_a_folder_elsewhere_is_still_walked_when_no_target_can_be_resolved()
+        {
+            var fs = Tree("a/1.so");
+            fs.ResolverMissing = true;
+            fs.Dir("/other"); fs.Dir("/other/deep"); fs.File("/other/deep/2.so");
+            fs.Dir("/r/lnk"); fs.Links["/r/lnk"] = "/other";
+            var w = new List<string>();
+            Assert.That(Files(fs, "*.so", w), Is.EqualTo(new[] { "/r/a/1.so", "/r/lnk/deep/2.so" }));
+            Assert.That(w, Is.Empty);
+        }
+
+        [Test]
+        public void A_link_inside_a_link_is_not_entered()
+        {
+            var fs = Tree("a/1.so");
+            fs.Dir("/r/l1"); fs.Links["/r/l1"] = "/x";
+            fs.Dir("/x"); fs.Dir("/x/l2"); fs.Links["/x/l2"] = "/y"; fs.Dir("/y"); fs.File("/y/n.so");
+            fs.Dirs["/x"] = new List<string> { "/x/l2" };
+            fs.File("/x/m.so");
+            var w = new List<string>();
+            Assert.That(Files(fs, "*.so", w), Is.EqualTo(new[] { "/r/a/1.so", "/r/l1/m.so" }), "the inner link /r/l1/l2 is not entered");
+        }
+
+        [Test]
+        public void A_link_whose_chain_cannot_be_resolved_is_not_entered()
+        {
+            var fs = Tree("a/1.so");
+            fs.Dir("/r/bad"); fs.UnresolvableLinks.Add("/r/bad");
+            fs.File("/r/bad/z.so");
+            var w = new List<string>();
+            Assert.That(Files(fs, "*.so", w), Is.EqualTo(new[] { "/r/a/1.so" }));
+            Assert.That(w.Single(), Does.Contain("cannot be resolved"));
+        }
+
+        [Test]
+        public void A_link_back_is_recognised_whatever_the_case_of_the_target()
+        {
+            var fs = Tree("a/1.so");
+            fs.Dir("/r/a/loop"); fs.Links["/r/a/loop"] = "/R";
+            var w = new List<string>();
+            Assert.That(Files(fs, "*.so", w), Is.EqualTo(new[] { "/r/a/1.so" }));
+            Assert.That(w.Single(), Does.Contain("link back"));
+        }
+
+        [Test]
+        public void The_walk_stops_after_the_folder_budget_with_one_warning()
+        {
+            var fs = new FakeFs();
+            fs.Dir("/r");
+            // A wide tree: more folders than the budget, none of them links.
+            var n = DirectoryWalker.MaxFolders / 1000 + 5;
+            for (var i = 0; i < 1000; i++)
+            {
+                var d = "/r/d" + i;
+                fs.Dir(d);
+                for (var j = 0; j < n; j++) fs.Dir(d + "/e" + j);
+            }
+            var w = new List<string>();
+            Files(fs, "*.so", w);
+            Assert.That(w.Any(m => m.Contains("stopped after")), Is.True);
         }
 
         [Test]
@@ -414,6 +529,24 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void On_disk_two_symlink_loops_end_quickly()
+        {
+            if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+            {
+                Assert.Ignore("Symlink creation needs privileges on Windows.");
+            }
+            Directory.CreateDirectory(Path.Combine(_tmp, "a")); Directory.CreateDirectory(Path.Combine(_tmp, "b"));
+            File.WriteAllText(Path.Combine(_tmp, "a", "x.so"), "x");
+            Directory.CreateSymbolicLink(Path.Combine(_tmp, "a", "up"), _tmp);
+            Directory.CreateSymbolicLink(Path.Combine(_tmp, "b", "up2"), _tmp);
+            var sw = Stopwatch.StartNew();
+            var found = DirectoryWalker.EnumerateFiles(_tmp, "x.so", null).ToList();
+            Assert.That(sw.ElapsedMilliseconds, Is.LessThan(3000));
+            Assert.That(found, Does.Contain(Path.Combine(_tmp, "a", "x.so")));
+            Assert.That(found.Count, Is.LessThanOrEqualTo(3));
+        }
+
+        [Test]
         public void A_tree_of_ten_thousand_files_is_walked_in_about_the_time_Directory_EnumerateFiles_takes()
         {
             for (var d = 0; d < 100; d++)
@@ -443,16 +576,24 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void The_six_editor_scans_use_the_walker_and_no_scan_is_left_on_AllDirectories()
+        public void No_editor_file_scans_a_tree_with_AllDirectories_except_the_two_that_do_not_scan_build_output()
         {
             var repo = AppContext.BaseDirectory;
             while (repo != null && !Directory.Exists(Path.Combine(repo, "Editor"))) repo = Path.GetDirectoryName(repo);
             Assert.That(repo, Is.Not.Null);
+            var allowed = new[] { "BugseeCliLocator.cs", "LocalPackageCopy.cs" };
+            foreach (var path in Directory.GetFiles(Path.Combine(repo, "Editor"), "*.cs"))
+            {
+                var name = Path.GetFileName(path);
+                if (allowed.Contains(name)) continue;
+                var code = string.Join("\n", File.ReadAllLines(path).Where(l => !l.TrimStart().StartsWith("//")));
+                Assert.That(code, Does.Not.Contain("SearchOption.AllDirectories"), name);
+                Assert.That(code, Does.Not.Match(@"\(SearchOption\)\s*1"), name);
+                Assert.That(code, Does.Not.Match(@"Directory\.(Enumerate|Get)(Files|Directories)\([^;]*AllDirectories"), name);
+            }
             foreach (var name in new[] { "BugseeSymbolUpload.cs", "BugseeIl2CppLinemapUpload.cs", "BugseeIl2CppModuleIdentity.cs", "BugseeAndroidNativeLibUpload.cs" })
             {
-                var src = File.ReadAllText(Path.Combine(repo, "Editor", name));
-                Assert.That(src, Does.Contain("BugseeDirectoryScan."), name);
-                Assert.That(src, Does.Not.Contain("SearchOption.AllDirectories"), name);
+                Assert.That(File.ReadAllText(Path.Combine(repo, "Editor", name)), Does.Contain("BugseeDirectoryScan."), name);
             }
         }
     }

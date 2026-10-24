@@ -254,13 +254,13 @@ namespace Bugsee.Editor
                             || norm.IndexOf("il2cppOutput", StringComparison.OrdinalIgnoreCase) >= 0;
                         if (preferred)
                         {
-                            if (bestPreferred == null || mtime >= bestPreferredTime)
+                            if (bestPreferred == null || BuildArtifactChoice.NotOlder(mtime, file, bestPreferredTime, bestPreferred))
                             {
                                 bestPreferred = file;
                                 bestPreferredTime = mtime;
                             }
                         }
-                        else if (bestAny == null || mtime >= bestAnyTime)
+                        else if (bestAny == null || BuildArtifactChoice.NotOlder(mtime, file, bestAnyTime, bestAny))
                         {
                             bestAny = file;
                             bestAnyTime = mtime;

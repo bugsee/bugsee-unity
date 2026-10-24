@@ -25,6 +25,7 @@ namespace Bugsee.Editor
 
         internal static List<string> ChildDirectories(string dir) => DirectoryWalker.ChildDirectories(dir, Warner(dir));
 
+        // Only the start of a build clears this, so scans run outside a build (none today) say a warning once per Editor session.
         // The scans of one build look at the same folders several times; each distinct warning is logged once per build.
         static readonly HashSet<string> Told = new HashSet<string>();
 

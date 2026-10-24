@@ -14,6 +14,9 @@ namespace Bugsee.WrapperPolicy
         /// <summary>Full paths of the folders directly in <paramref name="dir"/> matching <paramref name="pattern"/> ("*" for all). May throw, also while enumerating.</summary>
         IEnumerable<string> Directories(string dir, string pattern);
 
+        /// <summary>Whether <paramref name="dir"/> is a symbolic link or junction (a reparse point), which works on every runtime.</summary>
+        bool IsLink(string dir);
+
         /// <summary>The absolute target when <paramref name="dir"/> is a symbolic link or junction, null when it is not or cannot be told.</summary>
         string LinkTarget(string dir);
     }
@@ -22,27 +25,29 @@ namespace Bugsee.WrapperPolicy
     /// A scan of a build output tree that survives one bad folder. <c>Directory.EnumerateFiles(root, ..., AllDirectories)</c>
     /// stops the whole root at the first folder it cannot read, or (on runtimes that skip it) hides that folder without a
     /// word. This walks one level at a time instead: a folder that cannot be listed is reported through
-    /// <c>warn</c> and its siblings are still visited; so is a folder whose path is 248 characters or more on Windows
-    /// (the directory limit; the Editor's Mono lists such folders but cannot read the files in them the usual way).
+    /// <c>warn</c> and its siblings are still visited; so is the first file of a branch whose path is 260 characters or more on
+    /// Windows (the Editor's Mono lists such a file but cannot open it the usual way).
     ///
     /// Order is deterministic: a folder's files, then its sub-folders, each in ordinal order, depth first. Results are
-    /// spelled under the root as passed (links are followed, as <c>AllDirectories</c> does, with a guard against cycles).
+    /// spelled under the root as passed. Links are followed as <c>AllDirectories</c> does, but only one level of them: a link
+    /// found below a link is not entered, which is what ends a loop on the Editor's Mono (it cannot resolve link targets;
+    /// where it can, a link back to a folder above is also recognised). A walk stops after <see cref="MaxFolders"/> folders.
     /// With <c>skipIntermediate</c> the folders <see cref="BuildPathExclusion"/> excludes below the root are not entered
     /// at all, which gives the same results as filtering the paths afterwards and also spares their (often huge) trees.
     /// No <c>\\?\</c> prefixing: that is for reads (<see cref="LongPathPolicy"/>), not for listing.
     /// </summary>
     public static class DirectoryWalker
     {
-        /// <summary>A directory path from this length on is where Windows' limit for a folder (248) is reached.</summary>
-        public const int LongFolderFrom = 248;
-
         /// <summary>
-        /// A directory path from this length on is where the path limit (260) is reached: the Editor's Mono lists such a
-        /// folder but cannot open the files in it with the plain file calls.
+        /// A file path from this length on cannot be opened with the plain file calls on Windows (MAX_PATH is 260 and counts
+        /// the terminating NUL): the Editor's Mono lists such a file but its <c>FileStream</c> fails.
         /// </summary>
         public const int UnreadableFrom = 260;
 
-        /// <summary>Depth below the root where the walk stops (a backstop for loops that cannot be recognised).</summary>
+        /// <summary>Folders visited by one walk before it stops with a warning.</summary>
+        public const int MaxFolders = 100000;
+
+        /// <summary>Depth below the root where the walk stops; what is deeper is not scanned.</summary>
         public const int MaxDepth = 64;
 
         /// <summary>Warnings per walk; the rest is summarised in one line.</summary>
@@ -79,7 +84,8 @@ namespace Bugsee.WrapperPolicy
         {
             public string Path;
             public int Depth;
-            public int ParentLevel;
+            public bool ParentWarnedLong;
+            public bool InLink;
             public Frame Parent;
             public string LinkTarget;
         }
@@ -121,26 +127,12 @@ namespace Bugsee.WrapperPolicy
             var dirs = new List<string>();
             var matched = new List<string>();
             var depthWarned = false;
+            var visited = 0;
             try
             {
                 while (stack.Count > 0)
                 {
                     var frame = stack.Pop();
-                    // Warned once where a branch first reaches 248 characters and once more where it reaches 260,
-                    // not for every folder below.
-                    var level = warnLongPaths ? LengthLevel(frame.Path) : 0;
-                    if (level == 1 && frame.ParentLevel < 1)
-                    {
-                        budget.Warn("the folder path is " + frame.Path.Length + " characters (" + LongFolderFrom
-                            + " or more), over what Windows allows for a folder: " + frame.Path);
-                    }
-                    else if (level == 2 && frame.ParentLevel < 2)
-                    {
-                        budget.Warn("the folder path is " + frame.Path.Length + " characters (" + UnreadableFrom
-                            + " or more), the files below it cannot be opened with the plain file calls on Windows"
-                            + " (they are read through the extended-length path where the Editor needs them): " + frame.Path);
-                    }
-
                     files.Clear(); dirs.Clear(); matched.Clear();
                     Exception failure = null;
                     if (filePattern != null)
@@ -162,12 +154,30 @@ namespace Bugsee.WrapperPolicy
                     }
 
                     files.Sort(StringComparer.Ordinal);
+                    var warnedLong = frame.ParentWarnedLong;
+                    if (warnLongPaths && !warnedLong)
+                    {
+                        foreach (var file in files)
+                        {
+                            if (file.Length < UnreadableFrom) continue;
+                            warnedLong = true;
+                            budget.Warn("the file path is " + file.Length + " characters (" + UnreadableFrom
+                                + " or more), so it cannot be opened with the plain file calls on Windows"
+                                + " (it is read through the extended-length path where the Editor needs it): " + file);
+                            break;
+                        }
+                    }
                     foreach (var file in files) yield return file;
 
                     matched.Sort(StringComparer.Ordinal);
                     foreach (var match in matched) yield return match;
 
                     dirs.Sort(StringComparer.Ordinal);
+                    if (++visited > MaxFolders)
+                    {
+                        budget.Warn("the scan stopped after " + MaxFolders + " folders (a link loop?); the rest is not scanned");
+                        yield break;
+                    }
                     if (frame.Depth >= MaxDepth)
                     {
                         if (dirs.Count > 0 && !depthWarned)
@@ -185,17 +195,34 @@ namespace Bugsee.WrapperPolicy
                         var child = dirs[i];
                         if (skipIntermediate && BuildPathExclusion.IsExcludedFolderName(LastSegment(child))) continue;
 
-                        var next = new Frame { Path = child, Depth = frame.Depth + 1, ParentLevel = level, Parent = frame };
-                        string target = null;
-                        try { target = fs.LinkTarget(child); } catch { /* not a link we can tell */ }
-                        if (!string.IsNullOrEmpty(target))
+                        var next = new Frame { Path = child, Depth = frame.Depth + 1, ParentWarnedLong = warnedLong, Parent = frame, InLink = frame.InLink };
+                        var isLink = false;
+                        try { isLink = fs.IsLink(child); } catch { /* not a link we can tell */ }
+                        if (isLink)
                         {
-                            if (LoopsBack(frame, target))
+                            if (frame.InLink)
                             {
-                                budget.Warn("the folder " + child + " is a link back to " + target + " and is not scanned again");
+                                budget.Warn("the link " + child + " is inside a link and is not entered (a link loop would never end)");
                                 continue;
                             }
-                            next.LinkTarget = Normalize(target);
+                            next.InLink = true;
+                            string target = null;
+                            var resolveFailed = false;
+                            try { target = fs.LinkTarget(child); } catch { resolveFailed = true; }
+                            if (resolveFailed)
+                            {
+                                budget.Warn("the link " + child + " cannot be resolved (a chain that loops?) and is not entered");
+                                continue;
+                            }
+                            if (!string.IsNullOrEmpty(target))
+                            {
+                                if (LoopsBack(frame, target))
+                                {
+                                    budget.Warn("the folder " + child + " is a link back to " + target + " and is not scanned again");
+                                    continue;
+                                }
+                                next.LinkTarget = Normalize(target);
+                            }
                         }
                         stack.Push(next);
                     }
@@ -207,8 +234,12 @@ namespace Bugsee.WrapperPolicy
             }
         }
 
-        static int LengthLevel(string path) =>
-            path.Length >= UnreadableFrom ? 2 : path.Length >= LongFolderFrom ? 1 : 0;
+        // A relative root never matches an absolute link target, so compare full paths.
+        static string Full(string path)
+        {
+            try { return Path.GetFullPath(path); }
+            catch { return path; }
+        }
 
         // A link whose target is the folder it sits in or one of its ancestors, or a target a link above already led to.
         static bool LoopsBack(Frame parent, string target)
@@ -216,13 +247,13 @@ namespace Bugsee.WrapperPolicy
             var t = Normalize(target);
             for (var f = parent; f != null; f = f.Parent)
             {
-                var p = Normalize(f.Path);
-                if (t.Length <= p.Length && p.StartsWith(t, StringComparison.Ordinal)
+                var p = Normalize(Full(f.Path));
+                if (t.Length <= p.Length && p.StartsWith(t, StringComparison.OrdinalIgnoreCase)
                     && (p.Length == t.Length || p[t.Length] == '/' || t.EndsWith("/", StringComparison.Ordinal)))
                 {
                     return true;
                 }
-                if (f.LinkTarget != null && f.LinkTarget == t) return true;
+                if (f.LinkTarget != null && string.Equals(f.LinkTarget, t, StringComparison.OrdinalIgnoreCase)) return true;
             }
             return false;
         }
@@ -266,6 +297,12 @@ namespace Bugsee.WrapperPolicy
 
             public IEnumerable<string> Directories(string dir, string pattern) =>
                 Directory.EnumerateDirectories(dir, pattern, SearchOption.TopDirectoryOnly);
+
+            public bool IsLink(string dir)
+            {
+                try { return (new DirectoryInfo(dir).Attributes & FileAttributes.ReparsePoint) != 0; }
+                catch { return false; }
+            }
 
             public string LinkTarget(string dir)
             {

@@ -329,7 +329,7 @@ namespace Bugsee.Editor
                         {
                             continue;
                         }
-                        if (best == null || BuildArtifactChoice.Better(fileRank, mtime, bestRank, bestTime))
+                        if (best == null || BuildArtifactChoice.Better(fileRank, mtime, file, bestRank, bestTime, best))
                         {
                             best = file;
                             bestRank = fileRank;
@@ -464,7 +464,7 @@ namespace Bugsee.Editor
                         DateTime mtime;
                         try { mtime = File.GetLastWriteTimeUtc(zip); }
                         catch { mtime = DateTime.MinValue; }
-                        if (best == null || BuildArtifactChoice.Better(rank, mtime, bestRank, bestTime))
+                        if (best == null || BuildArtifactChoice.Better(rank, mtime, zip, bestRank, bestTime, best))
                         {
                             best = zip;
                             bestRank = rank;
