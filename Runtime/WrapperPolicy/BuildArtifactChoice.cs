@@ -125,6 +125,26 @@ namespace Bugsee.WrapperPolicy
         public static bool Better(int rank, DateTime mtime, int bestRank, DateTime bestMtime) =>
             rank != bestRank ? rank > bestRank : mtime >= bestMtime;
 
+        /// <summary>
+        /// <see cref="Better(int,DateTime,int,DateTime)"/> with a fixed answer for equal rank and time: the shorter path
+        /// wins (a file reached again through a link is usually spelled longer; this is a stable tie-break, not a guarantee about links), and the later one only on equal length.
+        /// Never depends on the order a scan listed the files in.
+        /// </summary>
+        public static bool Better(int rank, DateTime mtime, string path, int bestRank, DateTime bestMtime, string bestPath)
+        {
+            if (rank != bestRank) return rank > bestRank;
+            return NotOlder(mtime, path, bestMtime, bestPath);
+        }
+
+        /// <summary>Newer wins; on the same time the shorter path, then the later one.</summary>
+        public static bool NotOlder(DateTime mtime, string path, DateTime bestMtime, string bestPath)
+        {
+            if (mtime != bestMtime) return mtime > bestMtime;
+            var a = path == null ? 0 : path.Length;
+            var b = bestPath == null ? 0 : bestPath.Length;
+            return a <= b;
+        }
+
         /// <summary>libil2cpp.so, and the debug-file spellings Unity and the CLI use for it.</summary>
         public static bool IsIl2CppLibraryName(string name) =>
             !string.IsNullOrEmpty(name)

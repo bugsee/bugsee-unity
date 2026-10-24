@@ -319,5 +319,17 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.Fail("Unbalanced braces in " + relative);
             return null;
         }
+
+        [Test]
+        public void On_equal_rank_and_time_the_shorter_path_wins_whatever_order_the_scan_listed_them_in()
+        {
+            var t = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            const string real = "/out/a/m_mapping.txt";
+            const string viaLink = "/out/a/up/a/m_mapping.txt";
+            Assert.That(BuildArtifactChoice.Better(BuildArtifactChoice.Named, t, viaLink, BuildArtifactChoice.Named, t, real), Is.False);
+            Assert.That(BuildArtifactChoice.Better(BuildArtifactChoice.Named, t, real, BuildArtifactChoice.Named, t, viaLink), Is.True);
+            Assert.That(BuildArtifactChoice.Better(BuildArtifactChoice.Named, t.AddSeconds(1), viaLink, BuildArtifactChoice.Named, t, real), Is.True, "newer still wins");
+            Assert.That(BuildArtifactChoice.Better(BuildArtifactChoice.Named, t, "/o/x1", BuildArtifactChoice.Named, t, "/o/x2"), Is.True, "equal length: the later one, as before");
+        }
     }
 }

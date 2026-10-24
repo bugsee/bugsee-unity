@@ -163,7 +163,7 @@ namespace Bugsee.Editor
 
             try
             {
-                return AndroidIconPicker.Pick(Directory.EnumerateFiles(res, "app_icon.*", SearchOption.AllDirectories));
+                return AndroidIconPicker.Pick(BugseeDirectoryScan.Files(res, "app_icon.*", skipIntermediate: false));
             }
             catch (Exception ex)
             {
@@ -185,7 +185,7 @@ namespace Bugsee.Editor
 
                 try
                 {
-                    foreach (var so in Directory.EnumerateFiles(root, "libil2cpp.so", SearchOption.AllDirectories))
+                    foreach (var so in BugseeDirectoryScan.Files(root, "libil2cpp.so"))
                     {
                         if (BuildPathExclusion.IsExcludedPath(so, root))
                         {
@@ -308,7 +308,7 @@ namespace Bugsee.Editor
                 }
                 try
                 {
-                    foreach (var file in Directory.EnumerateFiles(root, pattern, SearchOption.AllDirectories))
+                    foreach (var file in BugseeDirectoryScan.Files(root, pattern))
                     {
                         if (BuildPathExclusion.IsExcludedPath(file, root))
                         {
@@ -329,7 +329,7 @@ namespace Bugsee.Editor
                         {
                             continue;
                         }
-                        if (best == null || BuildArtifactChoice.Better(fileRank, mtime, bestRank, bestTime))
+                        if (best == null || BuildArtifactChoice.Better(fileRank, mtime, file, bestRank, bestTime, best))
                         {
                             best = file;
                             bestRank = fileRank;
@@ -337,7 +337,10 @@ namespace Bugsee.Editor
                         }
                     }
                 }
-                catch { /* ignore */ }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"Bugsee: scan for {pattern} failed under {root}: {ex.Message}");
+                }
             }
 
             return best;
@@ -446,7 +449,7 @@ namespace Bugsee.Editor
 
                 try
                 {
-                    foreach (var zip in Directory.EnumerateFiles(root, "*.zip", SearchOption.AllDirectories))
+                    foreach (var zip in BugseeDirectoryScan.Files(root, "*.zip"))
                     {
                         if (BuildPathExclusion.IsExcludedPath(zip, root))
                         {
@@ -461,7 +464,7 @@ namespace Bugsee.Editor
                         DateTime mtime;
                         try { mtime = File.GetLastWriteTimeUtc(zip); }
                         catch { mtime = DateTime.MinValue; }
-                        if (best == null || BuildArtifactChoice.Better(rank, mtime, bestRank, bestTime))
+                        if (best == null || BuildArtifactChoice.Better(rank, mtime, zip, bestRank, bestTime, best))
                         {
                             best = zip;
                             bestRank = rank;

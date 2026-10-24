@@ -154,7 +154,7 @@ namespace Bugsee.Editor
         {
             foreach (var name in CandidateNames)
             {
-                foreach (var path in Directory.EnumerateFiles(root, name, SearchOption.AllDirectories))
+                foreach (var path in BugseeDirectoryScan.Files(root, name))
                 {
                     if (BuildPathExclusion.IsExcludedPath(path, root))
                     {
@@ -166,7 +166,7 @@ namespace Bugsee.Editor
                     into.Add((path, mtime, ScorePath(path, name)));
                 }
             }
-            foreach (var dir in Directory.EnumerateDirectories(root, "*.framework", SearchOption.AllDirectories))
+            foreach (var dir in BugseeDirectoryScan.Directories(root, "*.framework"))
             {
                 if (BuildPathExclusion.IsExcludedPath(dir, root))
                 {
