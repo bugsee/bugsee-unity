@@ -29,9 +29,11 @@ namespace Bugsee.WrapperPolicy
     /// Windows (the Editor's Mono lists such a file but cannot open it the usual way).
     ///
     /// Order is deterministic: a folder's files, then its sub-folders, each in ordinal order, depth first. Results are
-    /// spelled under the root as passed. Links are followed as <c>AllDirectories</c> does, but a link whose name was already
-    /// entered on the same path is not entered again, which is what ends a loop on the Editor's Mono (it cannot resolve link
-    /// targets; where it can, a link back to a folder above is also recognised). A walk stops after <see cref="MaxFolders"/> folders.
+    /// spelled under the root as passed. Links are followed as <c>AllDirectories</c> does, but a link is not entered when its
+    /// listing (the names of its folders and of the files the scan looks for) equals that of a folder above it, or when its name was
+    /// already entered on the same path. That is what ends a loop on the Editor's Mono, which cannot resolve link targets; where
+    /// the runtime can, a link back to a folder above is also recognised. The content test can wrongly cut a reparse-point
+    /// folder that is not a link and repeats its parent's names (for example <c>x/x</c> with nothing else), and says so. A walk stops after <see cref="MaxFolders"/> folders.
     /// With <c>skipIntermediate</c> the folders <see cref="BuildPathExclusion"/> excludes below the root are not entered
     /// at all, which gives the same results as filtering the paths afterwards and also spares their (often huge) trees.
     /// No <c>\\?\</c> prefixing: that is for reads (<see cref="LongPathPolicy"/>), not for listing.
