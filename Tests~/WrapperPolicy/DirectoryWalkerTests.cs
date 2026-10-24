@@ -377,6 +377,23 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Ten_sibling_links_that_all_loop_stay_far_below_the_folder_budget()
+        {
+            var fs = Tree("a/1.so", "z/9.so");
+            fs.ResolverMissing = true;
+            for (var i = 0; i < 10; i++)
+            {
+                fs.Dir("/r/a/l" + i);
+                fs.Links["/r/a/l" + i] = "/r/a";
+            }
+            var w = new List<string>();
+            var found = Files(fs, "*.so", w);
+            Assert.That(found, Does.Contain("/r/z/9.so"));
+            Assert.That(fs.Listed.Count, Is.LessThan(5000));
+            Assert.That(w.Any(m => m.Contains("stopped after")), Is.False);
+        }
+
+        [Test]
         public void The_walk_stops_after_the_folder_budget_with_one_warning()
         {
             var fs = new FakeFs();

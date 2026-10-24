@@ -44,6 +44,9 @@ namespace Bugsee.WrapperPolicy
         /// </summary>
         public const int UnreadableFrom = 260;
 
+        /// <summary>Links entered one inside another on one path, at most (bounds the orderings of distinct looping links).</summary>
+        public const int MaxLinksOnPath = 3;
+
         /// <summary>Folders visited by one walk before it stops with a warning.</summary>
         public const int MaxFolders = 100000;
 
@@ -203,9 +206,9 @@ namespace Bugsee.WrapperPolicy
                             // A loop's link sits inside the folder it points to, so below the link it comes up again under
                             // the same name. A link name already entered on this path is therefore not entered twice;
                             // other links (OneDrive placeholders, a second legitimate link) are.
-                            if (LinkNameEntered(frame, LastSegment(child)))
+                            if (LinkNameEntered(frame, LastSegment(child), out var linksOnPath) || linksOnPath >= MaxLinksOnPath)
                             {
-                                budget.Warn("the link " + child + " has the name of a link already entered on this path and is not entered again (a link loop would never end)");
+                                budget.Warn("the link " + child + " has the name of a link already entered on this path, or is the " + (MaxLinksOnPath + 1) + "th link on it, and is not entered again (a link loop would never end)");
                                 continue;
                             }
                             next.IsLinkFrame = true;
@@ -237,13 +240,17 @@ namespace Bugsee.WrapperPolicy
             }
         }
 
-        static bool LinkNameEntered(Frame parent, string name)
+        static bool LinkNameEntered(Frame parent, string name, out int linksOnPath)
         {
+            linksOnPath = 0;
+            var entered = false;
             for (var f = parent; f != null; f = f.Parent)
             {
-                if (f.IsLinkFrame && string.Equals(LastSegment(f.Path), name, StringComparison.OrdinalIgnoreCase)) return true;
+                if (!f.IsLinkFrame) continue;
+                linksOnPath++;
+                if (string.Equals(LastSegment(f.Path), name, StringComparison.OrdinalIgnoreCase)) entered = true;
             }
-            return false;
+            return entered;
         }
 
         // A relative root never matches an absolute link target, so compare full paths.
