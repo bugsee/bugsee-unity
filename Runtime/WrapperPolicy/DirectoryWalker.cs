@@ -44,9 +44,6 @@ namespace Bugsee.WrapperPolicy
         /// </summary>
         public const int UnreadableFrom = 260;
 
-        /// <summary>Times one link name is entered in one walk, at most.</summary>
-        public const int MaxEntriesPerLinkName = 100;
-
         /// <summary>Folders visited by one walk before it stops with a warning.</summary>
         public const int MaxFolders = 100000;
 
@@ -131,7 +128,6 @@ namespace Bugsee.WrapperPolicy
             var matched = new List<string>();
             var depthWarned = false;
             var visited = 0;
-            var linkEntries = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             try
             {
                 while (stack.Count > 0)
@@ -207,9 +203,9 @@ namespace Bugsee.WrapperPolicy
                             // A loop's link sits inside the folder it points to, so below the link it comes up again under
                             // the same name. A link name already entered on this path is therefore not entered twice;
                             // other links (OneDrive placeholders, a second legitimate link) are.
-                            if (LinkNameEntered(frame, LastSegment(child)) || OverEntered(linkEntries, LastSegment(child)))
+                            if (LinkNameEntered(frame, LastSegment(child)))
                             {
-                                budget.Warn("the link " + child + " has the name of a link already entered on this path, or has been entered " + MaxEntriesPerLinkName + " times in this scan, and is not entered again (a link loop would never end)");
+                                budget.Warn("the link " + child + " has the name of a link already entered on this path, and is not entered again (a link loop would never end)");
                                 continue;
                             }
                             next.IsLinkFrame = true;
@@ -247,16 +243,6 @@ namespace Bugsee.WrapperPolicy
             {
                 if (f.IsLinkFrame && string.Equals(LastSegment(f.Path), name, StringComparison.OrdinalIgnoreCase)) return true;
             }
-            return false;
-        }
-
-        // Counts this entry; true once a link name has been entered too often in one scan (distinct looping links reach
-        // each other in many orders, a count per name bounds that without calling a placeholder folder a loop).
-        static bool OverEntered(Dictionary<string, int> entries, string name)
-        {
-            entries.TryGetValue(name, out var n);
-            if (n >= MaxEntriesPerLinkName) return true;
-            entries[name] = n + 1;
             return false;
         }
 
