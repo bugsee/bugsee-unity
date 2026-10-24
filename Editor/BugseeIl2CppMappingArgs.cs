@@ -2,6 +2,7 @@
 using System;
 using Bugsee.WrapperPolicy;
 using UnityEditor;
+using UnityEditor.Android;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
@@ -19,12 +20,20 @@ namespace Bugsee.Editor
     /// ProjectSettings.asset and nothing has to be restored on disk. The variable is put back to its earlier value after the
     /// build; the post-build callback is skipped when the pipeline aborts, so an editor update handler does it once no build
     /// is running (success, failure or cancel), and the process environment dies with the editor in any case.
-    /// Unity itself adds --emit-source-mapping on 2022.3 and 6000 when Cloud Diagnostics crash reporting is on; an argument
-    /// the Player Settings or the variable already has is not added again. Switching the arguments on or off changes the
+    /// Unity itself adds --emit-source-mapping on 2022.3 and 6000 when Cloud Diagnostics crash reporting is on (the package does not
+    /// look at that: the flag is then passed twice); an argument the Player Settings or the variable already has
+    /// is not added again. Switching the arguments on or off changes the
     /// generated C++ (source_info comments), so IL2CPP recompiles it once.
+    /// Unity splits Additional IL2CPP Arguments into separate arguments but takes the environment variable's value whole. An
+    /// APK/AAB build is not affected, but an Export Project writes <c>commandLineArgs.add("--emit-source-mapping --emit-method-map")</c>
+    /// into the exported <c>unityLibrary/build.gradle</c> as one argument and <c>:unityLibrary:buildIl2Cpp</c> fails with
+    /// "unknown arguments". Reproduced and fixed on Unity 6000.0.84f1 (macOS, Windows) and 2021.3.45f1 (Windows);
+    /// Unity 2022.3.62f3's Gradle writer has the same <c>commandLineArgs.add</c> code but was not run.
+    /// <see cref="OnPostGenerateGradleAndroidProject"/> puts each option on its own line (see
+    /// <see cref="Il2CppMappingArgs.SplitGradleFile"/>; a line it cannot split safely is reported in a warning).
     /// </summary>
     [InitializeOnLoad]
-    sealed class BugseeIl2CppMappingArgs : IPreprocessBuildWithReport, IPostprocessBuildWithReport
+    sealed class BugseeIl2CppMappingArgs : IPreprocessBuildWithReport, IPostprocessBuildWithReport, IPostGenerateGradleAndroidProject
     {
         public int callbackOrder => 20;
 
@@ -135,6 +144,38 @@ namespace Bugsee.Editor
         public void OnPostprocessBuild(BuildReport report)
         {
             Restore();
+        }
+
+        // Unity calls this once, with the path of the unityLibrary module (the one whose build file holds the il2cpp command line).
+        // build.gradle.kts is looked up too, like the sibling steps do; the arguments are written the same way in both DSLs.
+        public void OnPostGenerateGradleAndroidProject(string path)
+        {
+            try
+            {
+                string gradle = BugseeAndroidMavenDependencies.FindGradleFile(path, "build");
+                if (gradle == null)
+                {
+                    return;
+                }
+
+                bool rewritten = Il2CppMappingArgs.SplitGradleFile(gradle, out int[] unsplit);
+                if (rewritten)
+                {
+                    Debug.Log("[Bugsee] " + gradle + ": split the IL2CPP arguments into one commandLineArgs.add line each (Unity wrote them as a single argument).");
+                }
+
+                if (unsplit.Length > 0)
+                {
+                    Debug.LogWarning("[Bugsee] " + gradle + " (line " + string.Join(", ", Array.ConvertAll(unsplit, n => n.ToString())) +
+                                     "): an IL2CPP argument holds several words and was not split because its text is not plain options. " +
+                                     "If :unityLibrary:buildIl2Cpp fails with 'unknown arguments', put each option in its own commandLineArgs.add(\"--option\") line.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[Bugsee] Could not split the IL2CPP arguments in the exported build file: " + ex.Message +
+                                 ". If :unityLibrary:buildIl2Cpp fails with 'unknown arguments', put each commandLineArgs.add(\"--option\") on its own line.");
+            }
         }
     }
 }
