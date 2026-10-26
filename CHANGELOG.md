@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Android Mono null references (#233): documentation only. A managed `NullReferenceException` on a Mono Release build (Unity 6000.0.84f1, ARMv7, HONOR WOD-LX1, Android SDK 7.4.2, NDK handler on) arrives on the dashboard as a managed handled error and not as a native crash; see the Null references section of the documentation. The sample's `E2EBuild` gained `BUGSEE_E2E_ARCH` (`armv7`, `arm64`, `both`).
+- Android Mono null references (#233): documentation only. On one device (HONOR WOD-LX1, Android SDK 7.4.2, NDK handler on) a managed `NullReferenceException` in Mono builds (2022.3 Development, 6000.0.84f1 Release) was not reported as a native crash: it arrived as a managed handled error. Whether Mono raised it through a signal handler or explicit checks is not established, other devices and Unity versions were not checked, and the NDK default is unchanged; see the Null references section of the documentation. The sample's `E2EBuild` gained `BUGSEE_E2E_ARCH` (`armv7`, `arm64`, `both`; the last two are IL2CPP only and rejected for Mono). Addresses #233 (the signal selector is still open).
 
 ### Fixed
 
