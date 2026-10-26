@@ -141,6 +141,24 @@ namespace Bugsee.Editor
             return true;
         }
 
+        /// <summary>
+        /// Whether IL2CPP stack trace information carries file and line ("Method Name, File Name, and Line Number"), by
+        /// reflection (PlayerSettings.GetIl2CppStacktraceInformation exists from Unity 2022.1); null when it cannot be read.
+        /// </summary>
+        static bool? Il2CppHasLineInfo()
+        {
+            try
+            {
+                MethodInfo get = typeof(PlayerSettings).GetMethod("GetIl2CppStacktraceInformation", new[] { typeof(NamedBuildTarget) });
+                object value = get?.Invoke(null, new object[] { NamedBuildTarget.Android });
+                return value == null ? null : AndroidSymbolPolicy.HasLineInfo(Enum.GetName(value.GetType(), value));
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         public void OnPreprocessBuild(BuildReport report)
         {
             if (report.summary.platform != BuildTarget.Android || !Available)
@@ -154,7 +172,10 @@ namespace Bugsee.Editor
             string level = ReadLevel();
             int format = ReadFormat();
             bool zip = NewFormat == null || (format & ZipFlag()) != 0;
-            NativeSymbolDecision decision = AndroidSymbolPolicy.Decide(UseFullSymbols, UploadConfigured, ToLevel(level), zip);
+            bool development = (report.summary.options & BuildOptions.Development) != 0;
+            bool managedNeedsLines = AndroidSymbolPolicy.NeedsNativeLinesForManagedFrames(
+                Enum.GetName(typeof(ScriptingImplementation), PlayerSettings.GetScriptingBackend(NamedBuildTarget.Android)), development, Il2CppHasLineInfo());
+            NativeSymbolDecision decision = AndroidSymbolPolicy.Decide(UseFullSymbols, UploadConfigured, ToLevel(level), zip, managedNeedsLines);
             if (decision.Warning != null)
             {
                 Debug.LogWarning(decision.Warning);
