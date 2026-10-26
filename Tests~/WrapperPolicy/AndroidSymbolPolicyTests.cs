@@ -76,7 +76,8 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(AndroidSymbolPolicy.Restore(true, false, true), Is.EqualTo(SymbolRestoreAction.Restore));
             Assert.That(AndroidSymbolPolicy.Restore(true, false, false), Is.EqualTo(SymbolRestoreAction.Discard));
         }
-            const string Marker = "<0000...>:0";
+
+        const string Marker = "<0000...>:0";
 
         [TestCase(NativeSymbolLevel.Disabled)]
         [TestCase(NativeSymbolLevel.Public)]
@@ -103,6 +104,15 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             Assert.That(AndroidSymbolPolicy.Decide(false, true, NativeSymbolLevel.Debugging, true, true).Warning, Is.Null);
             Assert.That(AndroidSymbolPolicy.Decide(true, true, NativeSymbolLevel.Public, true, true).Warning, Is.Null);
+        }
+
+        [TestCase("MethodOnly", false)]
+        [TestCase("MethodFileLineNumber", true)]
+        [TestCase("0", false)]   // a number is never a name: the Editor passes Enum.GetName
+        public void Line_info_is_read_from_the_enum_name(string name, bool expected)
+        {
+            Assert.That(AndroidSymbolPolicy.HasLineInfo(name), Is.EqualTo(expected));
+            Assert.That(AndroidSymbolPolicy.HasLineInfo(null), Is.Null);
         }
 
         [TestCase("IL2CPP", false, false, true)]

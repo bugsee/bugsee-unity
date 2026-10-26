@@ -45,7 +45,6 @@ namespace Bugsee.WrapperPolicy
     /// </summary>
     public static class AndroidSymbolPolicy
     {
-        /// <param name="zipEnabled">The symbols zip is produced (Unity 6: the format includes Zip). Unity 2021.3 has no format option.</param>
         /// <summary>
         /// True for an IL2CPP Release build (not Development, which gets no native IPs, see the docs) whose IL2CPP stack
         /// trace information is known to be method names only: the one build where handled managed exceptions can only be
@@ -59,8 +58,20 @@ namespace Bugsee.WrapperPolicy
                 && il2cppHasLineInfo == false;
         }
 
+        /// <summary>
+        /// Whether the NAME of Unity's <c>Il2CppStacktraceInformation</c> value (MethodOnly, MethodFileLineNumber) means file and
+        /// line are in the stack text; null for a missing name. Takes the enum name (Enum.GetName), never its number.
+        /// </summary>
+        public static bool? HasLineInfo(string il2cppStacktraceInformationName)
+        {
+            return il2cppStacktraceInformationName == null
+                ? (bool?)null
+                : il2cppStacktraceInformationName.IndexOf("Line", System.StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
         const string ManagedClause = " and IL2CPP managed exceptions of the exception pipeline (uncaught or logged, reported as handled) keep unresolved frames (<0000...>:0)";
 
+        /// <param name="zipEnabled">The symbols zip is produced (Unity 6: the format includes Zip). Unity 2021.3 has no format option.</param>
         /// <param name="managedNeedsNativeLines">See <see cref="NeedsNativeLinesForManagedFrames"/>: appends the managed-exception consequence to the warnings.</param>
         public static NativeSymbolDecision Decide(bool useFullSymbols, bool uploadConfigured, NativeSymbolLevel current, bool zipEnabled = true, bool managedNeedsNativeLines = false)
         {

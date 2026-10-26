@@ -151,7 +151,7 @@ namespace Bugsee.Editor
             {
                 MethodInfo get = typeof(PlayerSettings).GetMethod("GetIl2CppStacktraceInformation", new[] { typeof(NamedBuildTarget) });
                 object value = get?.Invoke(null, new object[] { NamedBuildTarget.Android });
-                return value == null ? (bool?)null : InvariantText.Of(value).IndexOf("Line", StringComparison.OrdinalIgnoreCase) >= 0;
+                return value == null ? null : AndroidSymbolPolicy.HasLineInfo(Enum.GetName(value.GetType(), value));
             }
             catch (Exception)
             {
@@ -174,7 +174,7 @@ namespace Bugsee.Editor
             bool zip = NewFormat == null || (format & ZipFlag()) != 0;
             bool development = (report.summary.options & BuildOptions.Development) != 0;
             bool managedNeedsLines = AndroidSymbolPolicy.NeedsNativeLinesForManagedFrames(
-                InvariantText.Of(PlayerSettings.GetScriptingBackend(NamedBuildTarget.Android)), development, Il2CppHasLineInfo());
+                Enum.GetName(typeof(ScriptingImplementation), PlayerSettings.GetScriptingBackend(NamedBuildTarget.Android)), development, Il2CppHasLineInfo());
             NativeSymbolDecision decision = AndroidSymbolPolicy.Decide(UseFullSymbols, UploadConfigured, ToLevel(level), zip, managedNeedsLines);
             if (decision.Warning != null)
             {
