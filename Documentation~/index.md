@@ -195,7 +195,7 @@ Managed exceptions use the **UnityManagedException** JSON-in-reason contract (`n
 |---|---|---|---|
 | **A. Rich managed stacks** | Mono **Development Build** (a portable `.pdb` ships next to each assembly), or IL2CPP **Method Name, File Name, and Line Number** (or Script Debugging) | Parse `frames[].trace` | **Yes** (from string) |
 | **A0. Mono Release** | Mono without Development Build: no `.pdb` in the player, the text is `at Ns.C.M (System.String a) [0x0000b] in <module-guid>:0` | Parse `frames[].trace` | **No**: method names only. The IL offset is not resolved anywhere (the CLI's `PortablePdb` type is a scaffold; the worker reads no Portable PDB). A Development Build has file:line for assemblies Unity compiles (not for store builds; a managed plug-in without a `.pdb` stays IL-offset only); IL2CPP has it only where Unity offers IL2CPP line information. A Release Mono Android build logs a build-time warning. |
-| **B. Release Method-only + LNM** | IL2CPP; thrown exception; SDK emits native IPs via `il2cpp_native_stack_trace` | PC → dSYM/ELF → LineNumberMappings | **In progress** (needs symbols + `il2cpp-linemap`; addresses are module-relative) |
+| **B. Release Method-only + LNM** | IL2CPP **Release** (not Development); thrown exception; SDK emits native IPs via `il2cpp_native_stack_trace` | PC → dSYM/ELF **with DWARF line info** → LineNumberMappings | **Yes, with full symbols** (needs `il2cpp-linemap` and symbols with line info: Android Create symbols.zip = Debugging, not Public; addresses are module-relative). Verified on a device, see *IL2CPP handled exceptions: what resolves* below |
 | **C. MethodMap only** | IL2CPP mangled names; map uploaded | MethodMap.tsv demangle | **Names only** (no invented `.cs:line`) |
 
 Mode **B** follows the same capture idea as Sentry (`il2cpp_native_stack_trace` on a thrown exception). Prefer:
@@ -423,6 +423,18 @@ bugsee-cli debug-files upload <Symbols>/LineNumberMappings.json \
 ```
 
 `MethodMap.tsv` and `il2cppFileRoot.txt` next to the JSON are sent with it. The UUIDs are those of the IL2CPP module: for Android the GNU build-id of each `libil2cpp.so` (one per ABI, comma separated; `llvm-readelf -n` from the NDK on the APK's `lib/<abi>/libil2cpp.so`, or the copy in `symbols.zip`), for iOS the Mach-O UUID of `UnityFramework` from the Xcode build (`dwarfdump --uuid` on the built `UnityFramework.framework/UnityFramework` or its dSYM; the export itself has no binary). Version and build must match the build's. Upload the matching native symbols (`elf` / `dsym`) as well. On iOS, the injected Run Script does all of this on its own when `BUGSEE_APP_TOKEN` is in the Xcode environment, so a manual upload is only for builds without it.
+
+### IL2CPP handled exceptions: what resolves (Android, issue #263)
+
+Frames that stay `... () (<00000000000000000000000000000000>:0)` on the dashboard are not a lost mapping upload. Measured on an HONOR WOD-LX1 (Android 14), Unity 6000.0.84f1, sample scenario `nullref` (an uncaught `NullReferenceException` on a coroutine, reported through the exception pipeline), SDK 7.4.2, staging app AU, the il2cpp-linemap and `libil2cpp.so` of each exact build uploaded (the linemap uuid equals the build-id of that build's `libil2cpp.so` and the `moduleUUID` the player sent):
+
+| IL2CPP build | What the wrapper sends | Dashboard frame |
+|---|---|---|
+| **Development** (Create symbols.zip Debugging) | no `address` on any frame: Unity fills `il2cpp_native_stack_trace` with zeros in a Development build (its trace comes from stack-frame tracking, not a native walk), the text says `[0x00000] in <0000...>:0` | unresolved (`<0000...>:0`); nothing to resolve from |
+| **Release**, Create symbols.zip **Public** (SymbolTable on Unity 6, what the sample's release build used) | `address` + `moduleUUID` on every frame (checked: the throw-site address lies inside `MoveNext` of the same build's `libil2cpp.so`) | unresolved: symbols hold function names only, no line table |
+| **Release**, Create symbols.zip **Debugging** (menu *Bugsee > Android > Use Full Native Symbols*, or `BUGSEE_ANDROID_FULL_SYMBOLS=1`) | same | resolved: `NullRefE2E.cs:96` (and `Coroutines.cs:17` for the engine frame) |
+
+So for a handled or logged IL2CPP exception, C# file:line needs a Release build with Debugging symbols plus the il2cpp-linemap; a Development IL2CPP build gives method names only (use Mono, or accept names). The build warning for Public and Disabled symbols now names managed exceptions too. The dashboard issue page shows the frames of the issue's first event, so a group that began with an unresolved event keeps showing `<0000...>:0` while later events of the same group are resolved (the per-event `crash.json` shows `trace-sym`); the group key appears to come from the unresolved frame text (a resolved and an unresolved event landed in one group), which is a worker matter.
 
 ### Script Debugging vs dSYM
 

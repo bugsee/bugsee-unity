@@ -78,8 +78,8 @@ namespace Bugsee.WrapperPolicy
             return new NativeSymbolDecision(
                 false,
                 current == NativeSymbolLevel.Disabled
-                    ? "[Bugsee] Create symbols.zip is Disabled, so there is no native symbols file to upload and native/IL2CPP crash frames get no function names or file:line symbolication." + tradeOff
-                    : "[Bugsee] Create symbols.zip is Public: it holds symbol tables only, so native/IL2CPP crash frames get function names but no file:line symbolication." + tradeOff);
+                    ? "[Bugsee] Create symbols.zip is Disabled, so there is no native symbols file to upload and native/IL2CPP crash frames get no function names or file:line symbolication, and IL2CPP managed exceptions (Bugsee.LogException, Debug.LogException) keep unresolved frames (<0000...>:0)." + tradeOff
+                    : "[Bugsee] Create symbols.zip is Public: it holds symbol tables only, so native/IL2CPP crash frames get function names but no file:line symbolication, and IL2CPP managed exceptions (Bugsee.LogException, Debug.LogException) keep unresolved frames (<0000...>:0)." + tradeOff);
         }
 
         /// <summary>

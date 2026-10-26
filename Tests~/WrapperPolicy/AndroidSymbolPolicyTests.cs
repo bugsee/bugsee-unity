@@ -13,6 +13,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(d.Change, Is.False);
             Assert.That(d.Warning, Does.Contain("Create symbols.zip is " + named));
             Assert.That(d.Warning, Does.Contain("file:line"));
+            Assert.That(d.Warning, Does.Contain("IL2CPP managed exceptions"), "handled managed exceptions need the same line info (#263)");
             Assert.That(d.Warning, Does.Contain("ten times larger"));
             Assert.That(d.Warning, Does.Contain("BUGSEE_ANDROID_FULL_SYMBOLS=1"));
         }
