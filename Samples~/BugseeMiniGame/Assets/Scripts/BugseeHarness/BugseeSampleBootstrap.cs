@@ -426,6 +426,15 @@ namespace Bugsee.Sample
                         StartCoroutine(VhE2E.Run(this));
                     }
                     break;
+                case "vhsecure":
+                    // A manual report taken while a secure rectangle covers the top half of the screen, so the stored managed
+                    // view tree can be inspected for the redaction (issue #229).
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        StartCoroutine(VhE2E.RunSecureReport("e2e-vhsecure-" + _e2eRunId));
+                    }
+                    break;
                 case "screenshots":
                     // Report-handler screenshot API: list, read, replace, refuse, remove, changed flag (issue #224).
                     if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
