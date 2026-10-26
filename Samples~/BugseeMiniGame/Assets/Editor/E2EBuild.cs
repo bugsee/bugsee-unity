@@ -22,6 +22,9 @@ namespace Bugsee.Sample.Editor
     ///                       (and is cleared in this process), the build gets a dummy launch token, and no upload runs
     ///   BUGSEE_E2E_BACKEND  il2cpp (default) | mono
     ///   BUGSEE_E2E_DEV      1 (default, Development build) | 0 (Release)
+    ///   BUGSEE_E2E_ARCH     armv7 | arm64 | both: Android CPU architectures (default: arm64 for IL2CPP, armv7 for Mono). Mono on
+    ///                       Android is ARMv7 only (Unity ships no ARM64 Mono runtime), so arm64 and both are for IL2CPP only and fail a
+    ///                       Mono build. A value that is set adds the architecture to the default output name
     ///   BUGSEE_E2E_MINIFY   0 (default) | 1: R8 minification on Android (produces mapping.txt)
     ///   BUGSEE_E2E_FORMAT   apk (default) | aab (Build App Bundle) | export (Export Project, a Gradle project folder): Android only
     ///   BUGSEE_E2E_IOS_SIM  1: build the iOS Simulator SDK (default: the device SDK)
@@ -81,7 +84,16 @@ namespace Bugsee.Sample.Editor
 
             var minify = Environment.GetEnvironmentVariable("BUGSEE_E2E_MINIFY") == "1";
             var format = (Environment.GetEnvironmentVariable("BUGSEE_E2E_FORMAT") ?? "apk").ToLowerInvariant();
+            var arch = ios ? "" : (Environment.GetEnvironmentVariable("BUGSEE_E2E_ARCH") ?? "").Trim().ToLowerInvariant();
+            if (arch != "" && arch != "armv7" && arch != "arm64" && arch != "both")
+            {
+                Debug.LogWarning("[E2EBuild] Ignoring BUGSEE_E2E_ARCH='" + arch + "' (use armv7, arm64 or both); building the default architecture.");
+                arch = "";
+            }
+            if (!il2cpp && (arch == "arm64" || arch == "both"))
+                throw new InvalidOperationException("[E2EBuild] BUGSEE_E2E_ARCH=" + arch + " needs IL2CPP: Mono on Android is ARMv7 only (Unity ships no ARM64 Mono runtime).");
             var label = (ios ? "ios" : "android") + "-" + (il2cpp ? "il2cpp" : "mono") + "-" + (development ? "dev" : "release")
+                + (arch != "" ? "-" + arch : "")
                 + (minify && !ios ? "-min" : "") + (!ios && format != "apk" ? "-" + format : "");
             var output = Environment.GetEnvironmentVariable("BUGSEE_E2E_OUT");
             if (string.IsNullOrEmpty(output))
@@ -117,6 +129,13 @@ namespace Bugsee.Sample.Editor
                 PlayerSettings.Android.targetArchitectures = il2cpp
                     ? AndroidArchitecture.ARM64
                     : AndroidArchitecture.ARMv7;
+                // BUGSEE_E2E_ARCH overrides that (validated above; ARMv7 with IL2CPP works too).
+                switch (arch)
+                {
+                    case "armv7": PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARMv7; break;
+                    case "arm64": PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64; break;
+                    case "both": PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARMv7 | AndroidArchitecture.ARM64; break;
+                }
 #if UNITY_2021_2_OR_NEWER
                 // Native debug symbols (symbols.zip) for ELF upload; Debugging keeps full DWARF.
                 EditorUserBuildSettings.androidCreateSymbols =
