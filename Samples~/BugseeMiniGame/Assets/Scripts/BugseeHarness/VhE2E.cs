@@ -108,7 +108,7 @@ namespace Bugsee.Sample
                 yield return null;
                 if (!Bugsee.IsLaunched) Debug.LogWarning("[Sample] vhsecure: the SDK is not launched, so no report will exist");
                 Bugsee.Upload(title, "managed view hierarchy under a secure rectangle (top half)");
-                Debug.Log("[Sample] vhsecure uploaded " + title + " launched=" + Bugsee.IsLaunched + " at " + System.DateTime.UtcNow.ToString("o"));
+                Debug.Log("[Sample] vhsecure upload requested " + title + " launched=" + Bugsee.IsLaunched + " at " + System.DateTime.UtcNow.ToString("o"));
                 yield return new WaitForSecondsRealtime(3f);
             }
             finally
