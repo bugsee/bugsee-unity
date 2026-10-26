@@ -92,22 +92,28 @@ namespace Bugsee.Sample
         /// <summary>
         /// Scenario <c>vhsecure</c>: registers a secure rectangle over the top half of the screen, uploads a manual report titled
         /// <paramref name="title"/> (the native SDK asks the wrapper for the managed view hierarchy while it takes the snapshot), then
-        /// removes the rectangle. The report's <c>viewtree</c> on the dashboard is where the redaction is checked: nodes inside the
-        /// top half have no <c>name</c> or component list, nodes below it keep them.
+        /// removes the rectangle. The report's <c>viewtree</c> on the dashboard is where the redaction is checked: nodes that overlap the
+        /// rectangle, or have no bounds, lose their <c>name</c> and component list.
         /// </summary>
         public static IEnumerator RunSecureReport(string title)
         {
             var rect = new Rect(0, Screen.height / 2f, Screen.width, Screen.height / 2f); // Unity screen space: origin bottom-left
             _rect = rect;
-            Bugsee.AddSecureScreenRectangle(rect);
-            Debug.Log("[Sample] vhsecure rectangle " + rect + " screen=" + Screen.width + "x" + Screen.height);
-            yield return null;
-            yield return null;
-            Bugsee.Upload(title, "managed view hierarchy under a secure rectangle (top half)");
-            Debug.Log("[Sample] vhsecure uploaded " + title + " at " + System.DateTime.UtcNow.ToString("o"));
-            yield return new WaitForSecondsRealtime(3f);
-            RemoveRect();
-            Debug.Log("[Sample] vhsecure done");
+            try
+            {
+                Bugsee.AddSecureScreenRectangle(rect);
+                Debug.Log("[Sample] vhsecure rectangle " + rect + " screen=" + Screen.width + "x" + Screen.height);
+                yield return null;
+                yield return null;
+                Bugsee.Upload(title, "managed view hierarchy under a secure rectangle (top half)");
+                Debug.Log("[Sample] vhsecure uploaded " + title + " launched=" + Bugsee.IsLaunched + " at " + System.DateTime.UtcNow.ToString("o"));
+                yield return new WaitForSecondsRealtime(3f);
+            }
+            finally
+            {
+                RemoveRect();
+                Debug.Log("[Sample] vhsecure done");
+            }
         }
 
         static Rect? _rect;
