@@ -13,7 +13,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(d.Change, Is.False);
             Assert.That(d.Warning, Does.Contain("Create symbols.zip is " + named));
             Assert.That(d.Warning, Does.Contain("file:line"));
-            Assert.That(d.Warning, Does.Contain("IL2CPP managed exceptions"), "handled managed exceptions need the same line info (#263)");
+            Assert.That(d.Warning, Does.Not.Contain("<0000"), "no managed-frame clause unless the caller says IL2CPP Release without line info");
             Assert.That(d.Warning, Does.Contain("ten times larger"));
             Assert.That(d.Warning, Does.Contain("BUGSEE_ANDROID_FULL_SYMBOLS=1"));
         }
@@ -75,6 +75,46 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             Assert.That(AndroidSymbolPolicy.Restore(true, false, true), Is.EqualTo(SymbolRestoreAction.Restore));
             Assert.That(AndroidSymbolPolicy.Restore(true, false, false), Is.EqualTo(SymbolRestoreAction.Discard));
+        }
+            const string Marker = "<0000...>:0";
+
+        [TestCase(NativeSymbolLevel.Disabled)]
+        [TestCase(NativeSymbolLevel.Public)]
+        public void Managed_clause_is_added_only_when_the_caller_says_so(NativeSymbolLevel level)
+        {
+            var on = AndroidSymbolPolicy.Decide(false, true, level, true, managedNeedsNativeLines: true);
+            var off = AndroidSymbolPolicy.Decide(false, true, level, true, managedNeedsNativeLines: false);
+
+            Assert.That(on.Warning, Does.Contain(Marker));
+            Assert.That(on.Warning, Does.Contain("exception pipeline"));
+            Assert.That(off.Warning, Does.Not.Contain(Marker));
+            Assert.That(off.Warning, Does.Not.Contain("managed exceptions"));
+        }
+
+        [Test]
+        public void Debugging_without_a_zip_names_the_managed_consequence_only_when_asked()
+        {
+            Assert.That(AndroidSymbolPolicy.Decide(false, true, NativeSymbolLevel.Debugging, false, true).Warning, Does.Contain(Marker));
+            Assert.That(AndroidSymbolPolicy.Decide(false, true, NativeSymbolLevel.Debugging, false, false).Warning, Does.Not.Contain(Marker));
+        }
+
+        [Test]
+        public void Debugging_with_a_zip_never_warns_whatever_the_managed_flag()
+        {
+            Assert.That(AndroidSymbolPolicy.Decide(false, true, NativeSymbolLevel.Debugging, true, true).Warning, Is.Null);
+            Assert.That(AndroidSymbolPolicy.Decide(true, true, NativeSymbolLevel.Public, true, true).Warning, Is.Null);
+        }
+
+        [TestCase("IL2CPP", false, false, true)]
+        [TestCase("IL2CPP", true, false, false)]   // Development: Unity gives no native IPs, Debugging cannot help
+        [TestCase("IL2CPP", false, true, false)]   // file:line already in the text (Mode A)
+        [TestCase("IL2CPP", false, null, false)]   // unknown setting: not assumed
+        [TestCase("Mono2x", false, false, false)]  // Mono has its own warning
+        [TestCase("Mono2x", true, false, false)]
+        [TestCase(null, false, false, false)]
+        public void Managed_frames_need_native_lines_only_for_il2cpp_release_without_line_info(string backend, bool development, bool? lineInfo, bool expected)
+        {
+            Assert.That(AndroidSymbolPolicy.NeedsNativeLinesForManagedFrames(backend, development, lineInfo), Is.EqualTo(expected));
         }
     }
 }
