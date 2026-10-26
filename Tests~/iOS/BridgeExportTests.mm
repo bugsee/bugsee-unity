@@ -1,10 +1,11 @@
 // Second bridge test binary (run by run-tests.sh after BridgeTests.mm): drives the exports BridgeTests.mm does not,
 // through the same C ABI the C# DllImports use, against the real SDK slice with no launch. Where the SDK has an
 // observable state the test checks it (a fake wrapper channel, the filter blocks the bridge hands the SDK, the secure
-// rect buffer the wrapper answers the SDK with, the managed upload's end, the hand-offs to the SDK's filter setters and report creation); the rest are smoke calls, named in place:
+// rect buffer the wrapper answers the SDK with, the managed upload's end, the hand-offs to the SDK's filter setters and
+// report creation); the rest are smoke calls, named in place:
 // they must link, take the argument shapes C# passes (NULL strings, short buffers, unknown request ids) and return
-// without crashing, and assert nothing else. The prototypes below are checked against the real exports by NativeBindingTests; IosExportCoverageTests fails when a
-// DllImported export is not called from one of the Tests~/iOS/*.mm files.
+// without crashing, and assert nothing else. The prototypes below are checked against the real exports by
+// NativeBindingTests; IosExportCoverageTests fails when a DllImported export is not called from one of the Tests~/iOS/*.mm files.
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <Bugsee/Bugsee.h>
@@ -171,16 +172,42 @@ static NSString *finishUpload(const char *json, int withReport, uint64_t id, uin
 }
 
 // SDK hand-offs. The bridge's calls into the SDK that need a launched SDK to do anything observable are checked by
-// swapping the SDK's class method for a recorder for the length of a check (the real method is put back afterwards).
+// swapping the SDK's method for a recorder for the length of a check (the real method is put back afterwards, also when
+// the check throws).
 // The swap fails the test, rather than silently skipping it, when the SDK no longer has the method.
+static void withMethodReplaced(Method method, id block, void (^body)(void))
+{
+    expect(method != NULL, "the SDK method the bridge calls exists");
+    if (!method) return;
+    IMP original = method_getImplementation(method);
+    IMP recorder = imp_implementationWithBlock(block);
+    method_setImplementation(method, recorder);
+    @try {
+        body();
+    } @finally {
+        method_setImplementation(method, original);
+        imp_removeBlock(recorder);
+    }
+}
+
 static void withClassMethodReplaced(Class cls, SEL selector, id block, void (^body)(void))
 {
-    Method method = class_getClassMethod(cls, selector);
-    expect(method != NULL, "the SDK class method the bridge calls exists");
-    IMP original = method_getImplementation(method);
-    method_setImplementation(method, imp_implementationWithBlock(block));
-    body();
-    method_setImplementation(method, original);
+    withMethodReplaced(class_getClassMethod(cls, selector), block, body);
+}
+
+static void withInstanceMethodReplaced(Class cls, SEL selector, id block, void (^body)(void))
+{
+    withMethodReplaced(class_getInstanceMethod(cls, selector), block, body);
+}
+
+// An upload callback that invalidates the uploads, as an app stopping the SDK from inside the callback would.
+static int gInvalidatingCalls = 0;
+static int gInvalidatingSucceeded = -1;
+static void OnUploadCreatedThenInvalidate(int succeeded, uint64_t token)
+{
+    gInvalidatingCalls++;
+    gInvalidatingSucceeded = succeeded;
+    _bugsee_invalidate_managed_report_uploads();
 }
 
 int main(void)
@@ -262,9 +289,9 @@ int main(void)
     expect(_bugsee_test_managed_upload_fence() == fence + 1, "invalidating moves the fence");
     expect([finishUpload("{}", 1, 5, fence) isEqualToString:@"cb0:5|-"], "an upload started before the invalidation fails and uploads nothing");
     expect([finishUpload("{}", 1, 5, fence + 1) isEqualToString:@"cb1:5,up|-|-"], "an upload started after the invalidation goes through");
-    // Not asserted: the two later fence re-checks (after the report fields are applied, and just before the upload) only
-    // matter when an invalidation lands in between, a race this single-threaded test cannot stage. The hand-off to the SDK
-    // (createReportWithCompletion:, uploadReport:) is checked near the end with the SDK's methods swapped for recorders.
+    // The two later fence re-checks (after the report fields are applied, and just before the upload) are driven near the
+    // end by making an invalidation land in between. The hand-off to the SDK (createReportWithCompletion:,
+    // uploadReport:completion:) is checked there too, with the SDK's methods swapped for recorders.
 
     // Logging and telemetry with no running SDK, including the NULL and non-object payloads C# can send (smoke only: the
     // calls have no observable effect before a launch). The Feedback add-on is not linked into this test, so the feedback
@@ -371,7 +398,7 @@ int main(void)
     // Filters. The bridge hands the SDK a block per kind; the test runs that same block with a recording decision block
     // (the SDK cannot raise the event without a launch). C# gets the event as JSON and answers with
     // _bugsee_complete_filter; the answer is what the decision block receives.
-    // Not asserted: that [Bugsee setNetworkEventFilter:] and its two siblings were called with the block (one line each).
+    // That [Bugsee setNetworkEventFilter:] and its two siblings are given the block of their own kind is checked near the end.
     _bugsee_register_unity_callbacks(OnFilter, NULL, NULL);
     _bugsee_set_network_filter_enabled(1);
     int pendingBefore = _bugsee_test_pending_request_count();
@@ -505,18 +532,39 @@ int main(void)
         SEL selectors[3] = { @selector(setNetworkEventFilter:), @selector(setLogEventFilter:), @selector(setBreadcrumbFilter:) };
         void (*enable[3])(int) = { _bugsee_set_network_filter_enabled, _bugsee_set_log_filter_enabled, _bugsee_set_breadcrumb_filter_enabled };
         const char *names[3] = { "network", "log", "breadcrumb" };
+        _bugsee_register_unity_callbacks(OnFilter, NULL, NULL);
         for (int i = 0; i < 3; i++) {
             void (*toggle)(int) = enable[i];
+            int kind = i + 1;
             setterCalls = 0;
             handed = nil;
             withClassMethodReplaced([Bugsee class], selectors[i], recorder, ^{
                 toggle(1);
                 expect(setterCalls == 1 && handed != nil, "enabling a filter hands the SDK a filter block");
+                // The block is the one for this kind: run it on a sample event and see what C# is asked about.
+                gFilterCalls = 0;
+                gFilterKind = 0;
+                if (kind == 1) {
+                    BugseeNetworkEvent *event = [BugseeNetworkEvent new];
+                    ((BugseeNetworkEventFilterBlock)handed)(event, ^(BugseeNetworkEvent *out) {});
+                } else if (kind == 2) {
+                    BugseeLogEvent *event = [BugseeLogEvent new];
+                    event.text = @"sample";
+                    ((BugseeLogEventFilterBlock)handed)(event, ^(BugseeLogEvent *out) {});
+                } else {
+                    id factory = [Bugsee getExchangeFactory];
+                    id<BGSBreadcrumb> crumb = [factory createBreadcrumbWithTimestamp:1.0 category:@"c" level:(BugseeLogLevel)3
+                                                                             message:@"sample" type:@"manual" data:nil];
+                    ((BugseeBreadcrumbFilterBlock)handed)(crumb, ^(id<BGSBreadcrumb> out) {});
+                }
+                expect(gFilterCalls == 1 && gFilterKind == kind, "the block handed to the SDK asks C# about its own kind of event");
+                _bugsee_complete_filter(gFilterId, 0, NULL);
                 toggle(0);
                 expect(setterCalls == 1, "disabling a filter does not call the SDK again");
             });
             printf("note: %s filter hand-off checked\n", names[i]);
         }
+        _bugsee_register_unity_callbacks(NULL, NULL, NULL);
     }
 
     // _bugsee_upload_managed_report: the bridge asks the SDK for a report, applies the JSON's fields to it, reports success
@@ -549,10 +597,32 @@ int main(void)
                        "the SDK making no report fails the upload and uploads nothing");
                 makeReport = YES;
 
+                // A stale fence: the uploads were invalidated after this one started.
                 gUploadCalls = 0;
-                _bugsee_upload_managed_report("{}", 79, uploadFence + 1, OnUploadCreated);
-                expect(uploadCalls == 1 && gUploadCalls == 1 && gUploadSucceeded == 0 && gUploadToken == 79,
-                       "an upload from another generation fails and uploads nothing");
+                _bugsee_invalidate_managed_report_uploads();
+                _bugsee_upload_managed_report("{}", 79, uploadFence, OnUploadCreated);
+                expect(createCalls == 3 && uploadCalls == 1 && gUploadCalls == 1 && gUploadSucceeded == 0 && gUploadToken == 79,
+                       "an upload started before an invalidation fails and uploads nothing");
+
+                // An invalidation landing after the callback was told of success, before the upload: success was reported,
+                // nothing is uploaded (the last fence re-check).
+                uploadFence = _bugsee_test_managed_upload_fence();
+                gInvalidatingCalls = 0;
+                _bugsee_upload_managed_report("{}", 80, uploadFence, OnUploadCreatedThenInvalidate);
+                expect(gInvalidatingCalls == 1 && gInvalidatingSucceeded == 1 && uploadCalls == 1,
+                       "an invalidation from the success callback stops the upload that follows it");
+
+                // An invalidation landing while the report's fields are applied: the callback is told of failure, nothing
+                // is uploaded (the middle fence re-check).
+                uploadFence = _bugsee_test_managed_upload_fence();
+                gUploadCalls = 0;
+                withInstanceMethodReplaced([BugseeExtendedReport class], @selector(setSummary:), ^(id report, NSString *value) {
+                    _bugsee_invalidate_managed_report_uploads();
+                }, ^{
+                    _bugsee_upload_managed_report("{\"summary\":\"S\"}", 81, uploadFence, OnUploadCreated);
+                });
+                expect(gUploadCalls == 1 && gUploadSucceeded == 0 && gUploadToken == 81 && uploadCalls == 1,
+                       "an invalidation while the fields are applied fails the upload and uploads nothing");
             });
         });
     }
