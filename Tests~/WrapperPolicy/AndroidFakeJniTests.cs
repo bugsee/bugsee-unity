@@ -533,6 +533,15 @@ namespace Probe
             Assert.That(javaLevel.Value, Is.EqualTo("Warning"));
             Assert.That(ev.Level, Is.EqualTo(Bugsee.Contracts.Options.LogLevel.Warning));
 
+            // The SDK's own code for each level, not the wrapper's enum value.
+            foreach (var (level, name) in new[] { (Bugsee.Contracts.Options.LogLevel.Error, "Error"), (Bugsee.Contracts.Options.LogLevel.Info, "Info"),
+                         (Bugsee.Contracts.Options.LogLevel.Debug, "Debug"), (Bugsee.Contracts.Options.LogLevel.Verbose, "Verbose") })
+            {
+                ev.Level = level;
+                Assert.That(((FakeJava.J)native.F["level"]).Value, Is.EqualTo(name));
+                Assert.That(ev.Level, Is.EqualTo(level));
+            }
+
             // No level on the native event reads as Info.
             Assert.That(Call<Bugsee.Contracts.Exchange.ILogEvent>("Log", Event()).Level, Is.EqualTo(Bugsee.Contracts.Options.LogLevel.Info));
         }
@@ -664,12 +673,19 @@ namespace Probe
                     case "getValue" when m.Class == "java.util.Map$Entry": return m.F["v"];
                     case "getValue" when m.F.ContainsKey("raw"): return m.F["raw"];
                     case "getValue" when m.Class != null && m.Class.EndsWith(".LogLevel"):
-                        return (sbyte)(int)Enum.Parse(typeof(Bugsee.Contracts.Options.LogLevel), (string)m.Value);
+                        return (sbyte)SdkEnums["LogLevel"].Single(kv => kv.Value == (string)m.Value).Key;
                 }
 
                 if (method.StartsWith("set", StringComparison.Ordinal))
                 {
-                    m.F[Field(method.Substring(3))] = args[0];
+                    // Java binds the setter by its parameter type: a long where the SDK takes an int is no such method.
+                    if (!SetterParameter.TryGetValue(method, out var want))
+                        throw new InvalidOperationException("fake Java: no setter " + method + " (add it to SetterParameter)");
+                    var arg = args.Length == 1 ? args[0] : throw new InvalidOperationException("JNI: " + method + " takes one argument");
+                    var ok = want == typeof(object) ? arg == null || arg is J : arg != null && arg.GetType() == want;
+                    if (!ok)
+                        throw new InvalidOperationException("JNI: " + method + "(" + (arg?.GetType().Name ?? "null") + ") does not match " + want.Name);
+                    m.F[Field(method.Substring(3))] = arg;
                     return null;
                 }
 
@@ -680,25 +696,41 @@ namespace Probe
                 throw new InvalidOperationException("fake Java: no method " + m.Class + "." + method);
             }
 
+            // Parameter type of each bean setter the wrapper calls (object: a Java reference or null).
+            static readonly Dictionary<string, Type> SetterParameter = new Dictionary<string, Type>
+            {
+                { "setUrl", typeof(string) }, { "setBody", typeof(string) }, { "setSize", typeof(long) },
+                { "setResponseCode", typeof(int) }, { "setStatusText", typeof(string) }, { "setErrorShortMessage", typeof(string) },
+                { "setErrorDescription", typeof(string) }, { "setHeaders", typeof(object) }, { "setOverride", typeof(bool) },
+                { "setMessage", typeof(string) }, { "setLevel", typeof(object) }, { "setTimestamp", typeof(long) },
+                { "setCategory", typeof(string) }, { "setType", typeof(string) }, { "setData", typeof(object) },
+            };
+
+            // The SDK's integer codes, written out here and not read from the wrapper's enums, so a renumbered wrapper enum
+            // is a failure. Copied from the SDK's contracts as the wrapper's enums document them; not re-read from the SDK source.
+            static readonly Dictionary<string, Dictionary<int, string>> SdkEnums = new Dictionary<string, Dictionary<int, string>>
+            {
+                { "VideoMode", new Dictionary<int, string> { { 0, "None" }, { 1, "V1" }, { 2, "V2" }, { 20, "Fullscreen" }, { 21, "DirectBuffers" } } },
+                { "VideoQuality", new Dictionary<int, string> { { 0, "Default" }, { 1, "Medium" }, { 2, "High" } } },
+                { "FrameRate", new Dictionary<int, string> { { 1, "Low" }, { 2, "Medium" }, { 3, "High" }, { 4, "Raw" } } },
+                { "IssueSeverity", new Dictionary<int, string> { { 1, "VeryLow" }, { 2, "Medium" }, { 3, "High" }, { 4, "Critical" }, { 5, "Blocker" } } },
+                { "LogLevel", new Dictionary<int, string> { { 1, "Error" }, { 2, "Warning" }, { 3, "Info" }, { 4, "Debug" }, { 5, "Verbose" } } },
+            };
+
             static string Field(string n) => char.ToLowerInvariant(n[0]) + n.Substring(1);
 
             public static object InvokeStatic(string cls, string method, object[] args, Type ret)
             {
-                var enumType = cls.EndsWith(".VideoMode") ? typeof(Bugsee.Contracts.Options.VideoMode)
-                    : cls.EndsWith(".VideoQuality") ? typeof(Bugsee.Contracts.Options.VideoQuality)
-                    : cls.EndsWith(".FrameRate") ? typeof(Bugsee.Contracts.Options.FrameRate)
-                    : cls.EndsWith(".IssueSeverity") ? typeof(Bugsee.Contracts.Options.IssueSeverity)
-                    : cls.EndsWith(".LogLevel") ? typeof(Bugsee.Contracts.Options.LogLevel)
-                    : null;
-                if (enumType != null && (method == "fromIntValue" || method == "fromRawValue"))
+                var enumName = SdkEnums.Keys.FirstOrDefault(k => cls.EndsWith("." + k));
+                if (enumName != null && (method == "fromIntValue" || method == "fromRawValue"))
                 {
                     var wantArg = method == "fromRawValue" ? typeof(sbyte) : typeof(int);
                     if (args.Length < 1 || args.Length > 2 || args[0]?.GetType() != wantArg)
                         throw new InvalidOperationException("JNI: " + cls + "." + method + " takes (" + wantArg.Name + "[, default])");
                     var raw = Convert.ToInt32(args[0]);
-                    if (Enum.IsDefined(enumType, raw))
+                    if (SdkEnums[enumName].TryGetValue(raw, out var name))
                     {
-                        var j = new J { Class = cls, Value = Enum.GetName(enumType, raw) };
+                        var j = new J { Class = cls, Value = name };
                         if (method == "fromRawValue") j.F["raw"] = (sbyte)raw;
                         return j;
                     }
