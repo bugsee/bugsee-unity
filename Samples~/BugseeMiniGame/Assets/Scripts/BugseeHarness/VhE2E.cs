@@ -13,6 +13,7 @@ namespace Bugsee.Sample
     /// rectangle over the screen and checks the wrapper's "secured N" count covers most nodes, then is 0 once it is removed. It does not prove the reply reached a report, and the SDK keeps it
     /// byte for byte, so what the viewer shows is not observable here. Needs a development build (the reply is logged only
     /// there) and a launch with CaptureViewHierarchy on (the presets minimal and privacy turn it off: the scenario then stops).
+    /// The <c>vhsecure</c> scenario (<see cref="RunSecureReport"/>) is separate and also works in release builds.
     /// </summary>
     static class VhE2E
     {
@@ -105,6 +106,7 @@ namespace Bugsee.Sample
                 Debug.Log("[Sample] vhsecure rectangle " + rect + " screen=" + Screen.width + "x" + Screen.height);
                 yield return null;
                 yield return null;
+                if (!Bugsee.IsLaunched) Debug.LogWarning("[Sample] vhsecure: the SDK is not launched, so no report will exist");
                 Bugsee.Upload(title, "managed view hierarchy under a secure rectangle (top half)");
                 Debug.Log("[Sample] vhsecure uploaded " + title + " launched=" + Bugsee.IsLaunched + " at " + System.DateTime.UtcNow.ToString("o"));
                 yield return new WaitForSecondsRealtime(3f);
