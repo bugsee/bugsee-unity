@@ -13,6 +13,7 @@ namespace Bugsee.Sample
     /// rectangle over the screen and checks the wrapper's "secured N" count covers most nodes, then is 0 once it is removed. It does not prove the reply reached a report, and the SDK keeps it
     /// byte for byte, so what the viewer shows is not observable here. Needs a development build (the reply is logged only
     /// there) and a launch with CaptureViewHierarchy on (the presets minimal and privacy turn it off: the scenario then stops).
+    /// The <c>vhsecure</c> scenario (<see cref="RunSecureReport"/>) is separate and also works in release builds.
     /// </summary>
     static class VhE2E
     {
@@ -86,6 +87,34 @@ namespace Bugsee.Sample
                 RemoveRect();
                 Application.logMessageReceived -= OnLog;
                 Debug.Log("[Sample] vh e2e done failures=" + _failures);
+            }
+        }
+
+        /// <summary>
+        /// Scenario <c>vhsecure</c>: registers a secure rectangle over the top half of the screen, uploads a manual report titled
+        /// <paramref name="title"/> (the native SDK asks the wrapper for the managed view hierarchy while it takes the snapshot), then
+        /// removes the rectangle. The report's <c>viewtree</c> on the dashboard is where the redaction is checked: nodes that overlap the
+        /// rectangle, or have no bounds, lose their <c>name</c> and component list.
+        /// </summary>
+        public static IEnumerator RunSecureReport(string title)
+        {
+            var rect = new Rect(0, Screen.height / 2f, Screen.width, Screen.height / 2f); // Unity screen space: origin bottom-left
+            _rect = rect;
+            try
+            {
+                Bugsee.AddSecureScreenRectangle(rect);
+                Debug.Log("[Sample] vhsecure rectangle " + rect + " screen=" + Screen.width + "x" + Screen.height);
+                yield return null;
+                yield return null;
+                if (!Bugsee.IsLaunched) Debug.LogWarning("[Sample] vhsecure: the SDK is not launched, so no report will exist");
+                Bugsee.Upload(title, "managed view hierarchy under a secure rectangle (top half)");
+                Debug.Log("[Sample] vhsecure upload requested " + title + " launched=" + Bugsee.IsLaunched + " at " + System.DateTime.UtcNow.ToString("o"));
+                yield return new WaitForSecondsRealtime(3f);
+            }
+            finally
+            {
+                RemoveRect();
+                Debug.Log("[Sample] vhsecure done");
             }
         }
 
