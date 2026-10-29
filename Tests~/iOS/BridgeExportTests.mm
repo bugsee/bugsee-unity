@@ -9,6 +9,11 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <Bugsee/Bugsee.h>
+// 7.0 GA moves the wrapper contract to the Bugsee.SPI submodule (BugseeSPI.h);
+// the 7.0 betas declare it in Bugsee.h.
+#if __has_include(<Bugsee/BugseeSPI.h>)
+#import <Bugsee/BugseeSPI.h>
+#endif
 #import <Security/Security.h>
 #include <dlfcn.h>
 #import <objc/runtime.h>
