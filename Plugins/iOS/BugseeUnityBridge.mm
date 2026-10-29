@@ -8,11 +8,19 @@
 
 #if __has_include(<Bugsee/Bugsee.h>)
 #import <Bugsee/Bugsee.h>
-#import <Bugsee/BGSContracts.h>
+#if __has_include(<Bugsee/BugseeSPI.h>)
+#import <Bugsee/BugseeSPI.h>  // 7.0 GA: the wrapper contract (Bugsee.SPI)
+#else
+#import <Bugsee/BGSContracts.h>  // 7.0 betas
+#endif
 #define BUGSEE_IOS_SDK 1
 #elif __has_include("Bugsee/Bugsee.h")
 #import "Bugsee/Bugsee.h"
+#if __has_include("Bugsee/BugseeSPI.h")
+#import "Bugsee/BugseeSPI.h"
+#else
 #import "Bugsee/BGSContracts.h"
+#endif
 #define BUGSEE_IOS_SDK 1
 #else
 #define BUGSEE_IOS_SDK 0

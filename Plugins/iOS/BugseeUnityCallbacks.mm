@@ -9,14 +9,22 @@
 #import <Bugsee/BugseeConstants.h>
 #import <Bugsee/BugseeNetworkEvent.h>
 #import <Bugsee/BugseeLogEvent.h>
-#import <Bugsee/BGSContracts.h>
+#if __has_include(<Bugsee/BugseeSPI.h>)
+#import <Bugsee/BugseeSPI.h>  // 7.0 GA: the wrapper contract (Bugsee.SPI)
+#else
+#import <Bugsee/BGSContracts.h>  // 7.0 betas
+#endif
 #define BUGSEE_IOS_CALLBACKS 1
 #elif __has_include("Bugsee/Bugsee.h")
 #import "Bugsee/Bugsee.h"
 #import "Bugsee/BugseeConstants.h"
 #import "Bugsee/BugseeNetworkEvent.h"
 #import "Bugsee/BugseeLogEvent.h"
+#if __has_include("Bugsee/BugseeSPI.h")
+#import "Bugsee/BugseeSPI.h"
+#else
 #import "Bugsee/BGSContracts.h"
+#endif
 #define BUGSEE_IOS_CALLBACKS 1
 #else
 #define BUGSEE_IOS_CALLBACKS 0
