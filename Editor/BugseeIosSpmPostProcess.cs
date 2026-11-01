@@ -120,11 +120,11 @@ namespace Bugsee.Editor
             if (localPackageSource != null)
             {
                 // A package that cannot be used fails the build instead of exporting a project with no SDK (the offline stub
-                // Native~/ios/Bugsee has no xcframework: none is committed, and it must be 7.0.0-beta7 or later).
+                // Native~/ios/Bugsee has no xcframework: none is committed, and it must be 7.0.0 or later).
                 string problem = LocalPackageCopy.Problem(localPackageSource);
                 if (problem != null)
                 {
-                    string how = overridePackage != null ? $" ({LocalPackageEnvVar})" : $" Set {LocalPackageEnvVar} to a 7.0.0-beta7 package (Tools~/scripts/assemble-local-ios-sdk.sh makes one; a non-development build also needs {LocalPackageAllowReleaseEnvVar}=1), or leave UseRemoteSpm on.";
+                    string how = overridePackage != null ? $" ({LocalPackageEnvVar})" : $" Set {LocalPackageEnvVar} to a 7.0.0 package (Tools~/scripts/assemble-local-ios-sdk.sh makes one; a non-development build also needs {LocalPackageAllowReleaseEnvVar}=1), or leave UseRemoteSpm on.";
                     throw new BuildFailedException($"[Bugsee] Local iOS SDK package {localPackageSource}: {problem}{how}");
                 }
 

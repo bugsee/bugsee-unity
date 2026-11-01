@@ -117,6 +117,8 @@ namespace Bugsee.Sample
             o.WifiOnlyUpload = false;
             o.ReportHandlerCallbackTimeout = 10;
             o.MaxDataSize = 40;
+            o.MaxPendingReports = 5;
+            o.MaxPendingReportAge = 7;
             o.NotifyFlushDelay = 100;
             o.CaptureVideo = false;
             o.CaptureLogsLevel = LogLevel.Error;
@@ -130,8 +132,6 @@ namespace Bugsee.Sample
             if (o is AndroidLaunchOptions android)
             {
                 android.CaptureVideoMode = VideoMode.V1;
-                android.MaxPendingReports = 5;
-                android.MaxPendingReportAge = 7;
             }
             if (o is IOSLaunchOptions ios)
             {
@@ -153,6 +153,8 @@ namespace Bugsee.Sample
             o.WifiOnlyUpload = false;
             o.ReportHandlerCallbackTimeout = 60;
             o.MaxDataSize = 200;
+            o.MaxPendingReports = 50;
+            o.MaxPendingReportAge = 14;
             o.NotifyFlushDelay = 500;
             o.DetectAndReportHangFairLevel = 2000;
             o.DetectAndReportHangMediumLevel = 4000;
@@ -162,8 +164,6 @@ namespace Bugsee.Sample
             if (o is AndroidLaunchOptions android)
             {
                 android.WebViewDomainAllowlist = "example.com";
-                android.MaxPendingReports = 50;
-                android.MaxPendingReportAge = 14;
             }
             if (o is IOSLaunchOptions ios)
             {

@@ -10,26 +10,6 @@ namespace Bugsee.Contracts.Options
 
         // --- Config (Android) ---
 
-        /// <summary>
-        /// Maximum number of reports waiting to be sent. Default when omitted: 30; the SDK raises a value below 1 to 1.
-        /// Over the limit, whole pending reports are deleted (errors first, then bug reports, then crashes, oldest first;
-        /// the newest crash and a report being exported or uploaded are kept). Lower values lose reports sooner.
-        /// </summary>
-        public int MaxPendingReports
-        {
-            set => Set(Options.MaxPendingReports, value);
-        }
-
-        /// <summary>
-        /// Maximum age in days of a report waiting to be sent; older ones are deleted whatever their type.
-        /// Default when omitted: 30. 0 or a negative value disables aging (reports then wait until sent or evicted by
-        /// <see cref="BugseeLaunchOptions.MaxDataSize"/> or <see cref="MaxPendingReports"/>).
-        /// </summary>
-        public int MaxPendingReportAge
-        {
-            set => Set(Options.MaxPendingReportAge, value);
-        }
-
         public bool ReportProcessingInProcess
         {
             set => Set(Options.ReportProcessingInProcess, value);

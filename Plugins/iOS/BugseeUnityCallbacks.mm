@@ -9,14 +9,14 @@
 #import <Bugsee/BugseeConstants.h>
 #import <Bugsee/BugseeNetworkEvent.h>
 #import <Bugsee/BugseeLogEvent.h>
-#import <Bugsee/BGSContracts.h>
+#import <Bugsee/BugseeSPI.h>
 #define BUGSEE_IOS_CALLBACKS 1
 #elif __has_include("Bugsee/Bugsee.h")
 #import "Bugsee/Bugsee.h"
 #import "Bugsee/BugseeConstants.h"
 #import "Bugsee/BugseeNetworkEvent.h"
 #import "Bugsee/BugseeLogEvent.h"
-#import "Bugsee/BGSContracts.h"
+#import "Bugsee/BugseeSPI.h"
 #define BUGSEE_IOS_CALLBACKS 1
 #else
 #define BUGSEE_IOS_CALLBACKS 0

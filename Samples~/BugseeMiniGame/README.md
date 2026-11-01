@@ -94,7 +94,7 @@ the HUD counters and the filter check below, not through anything a player sees.
 |----------|-------------|
 | **Editor** | Game + HUD work; Bugsee uses no-op bridge (`IsLaunched` stays false). |
 | **Android** | Launch with the default capture (`VideoMode.V2`), reports, blackout, the filter counters and the `filters` check, and every bubble. `DirectBuffers` (the experimental Unity-side frame pusher) is opt-in: pass the intent extra `bugsee_frame_pusher` = `1` (the shipped scene adds `BugseeSampleBootstrap` at runtime, so its `experimentalFramePusher` field can only be changed in the code); the wrapper falls back to `V2` with a warning where this Unity cannot run it (see "Experimental: Unity frame pusher" in `Documentation~/index.md`). The `minimal` preset sets its own video mode (`V1`, video off) and so overrides the frame pusher; `detect` and `privacy` leave it alone. |
-| **iOS** | Launch + managed/native crash path via `BugseeUnityBridge` + remote SPM (`github.com/bugsee/spm` `7.0.0-beta7`). Requires **iOS 15+** (sample Player Settings and the export post-process both set `IPHONEOS_DEPLOYMENT_TARGET` to 15.0). |
+| **iOS** | Launch + managed/native crash path via `BugseeUnityBridge` + remote SPM (`github.com/bugsee/spm` `7.0.0`). Requires **iOS 15+** (sample Player Settings and the export post-process both set `IPHONEOS_DEPLOYMENT_TARGET` to 15.0). |
 
 ### iOS Simulator
 
@@ -234,7 +234,7 @@ set the booleans to opposite values and the `privacy` preset sets some through `
 if they are sent (the `options` scenario sends every one and checks that Android reports none). `detect` turns on
 `CaptureBluetoothStatus`, which only reports a status when the app itself got Bluetooth permission (the sample never asks, so it reads unknown).
 
-The presets also set the Android 7.4.2 options with typed properties (#96): `MaxDataSize` and `NotifyFlushDelay` on both platforms, and on Android `MaxPendingReports`, `MaxPendingReportAge`, the hang and ANR sampling switches, `DetectAndReportExitLowMemoryBackgroundAsError`, `DetectAndReportCrashNdk` and `CrashNdkIncludeTombstoneLogs`. The two NDK keys are compared like the rest: they must come back as sent, on Unity 6 with the Gradle plugin too (the wrapper registers the NDK extension, #226). The `options` scenario sends each at a non-default value and logs `[OPTIONS] key sent=... native=...`.
+The presets also set the Android 7.4.2 options with typed properties (#96): `MaxDataSize`, `MaxPendingReports` (iOS from SDK 7.0.0), `MaxPendingReportAge` (iOS from SDK 7.0.0) and `NotifyFlushDelay` on both platforms, and on Android the hang and ANR sampling switches, `DetectAndReportExitLowMemoryBackgroundAsError`, `DetectAndReportCrashNdk` and `CrashNdkIncludeTombstoneLogs`. The two NDK keys are compared like the rest: they must come back as sent, on Unity 6 with the Gradle plugin too (the wrapper registers the NDK extension, #226). The `options` scenario sends each at a non-default value and logs `[OPTIONS] key sent=... native=...`.
 
 ### Lifecycle check (`lifecycle` e2e scenario, Android)
 
@@ -277,8 +277,8 @@ E/Space, and logs `[Sample] actions PASS|FAIL ...` lines ending in `actions e2e 
 
 Notes: `Pause()`/`Resume()` are obsolete aliases of `StartBlackout()`/`EndBlackout()`, so the Pause/Resume bubble follows
 `IsBlackout` (a blackout started by the Blackout bubble makes the next tap a Resume). The `count` option of the Exception bubble is
-only a marker in the message and options: it does not change report grouping (the signature uses type and stack), and the iOS beta7
-bridge honours only `skipFrames`.
+only a marker in the message and options: it does not change report grouping (the signature uses type and stack), and the iOS bridge (SDK 7.0.0)
+honours only `skipFrames`.
 
 ## Character
 

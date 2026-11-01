@@ -9,6 +9,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <Bugsee/Bugsee.h>
+#import <Bugsee/BugseeSPI.h>
 #import <Security/Security.h>
 #include <dlfcn.h>
 #import <objc/runtime.h>

@@ -6,15 +6,13 @@ namespace Bugsee.WrapperPolicy.Tests
 {
     /// <summary>
     /// The typed launch options of the Android 7.4.2 keys that had no constant (#96): each property writes its key with
-    /// the wire type the Android SDK reads, the Android-only ones are kept off an iOS launch, and the two keys both
-    /// SDKs know (<c>MaxDataSize</c>, <c>NotifyFlushDelay</c>) reach both.
+    /// the wire type the Android SDK reads, the Android-only ones are kept off an iOS launch, and the keys both
+    /// SDKs know (<c>MaxDataSize</c>, <c>MaxPendingReports</c>, <c>MaxPendingReportAge</c> since iOS 7.0.0, <c>NotifyFlushDelay</c>) reach both.
     /// </summary>
     public class AndroidLaunchOptionsTests
     {
         static Dictionary<string, object> AndroidOnly() => new AndroidLaunchOptions
         {
-            MaxPendingReports = 7,
-            MaxPendingReportAge = 3,
             DetectAndReportExitLowMemoryBackgroundAsError = true,
             DetectAndReportHangSampling = false,
             DetectAndReportAnrSampling = false,
@@ -26,14 +24,12 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Every_android_only_property_writes_its_key_with_the_wire_type()
         {
             var d = AndroidOnly();
-            Assert.That(d[Options.MaxPendingReports], Is.EqualTo(7).And.TypeOf<int>());
-            Assert.That(d[Options.MaxPendingReportAge], Is.EqualTo(3).And.TypeOf<int>());
             Assert.That(d[Options.DetectAndReportExitLowMemoryBackgroundAsError], Is.EqualTo(true));
             Assert.That(d[Options.DetectAndReportHangSampling], Is.EqualTo(false));
             Assert.That(d[Options.DetectAndReportAnrSampling], Is.EqualTo(false));
             Assert.That(d[Options.DetectAndReportCrashNdk], Is.EqualTo(false));
             Assert.That(d[Options.CrashNdkIncludeTombstoneLogs], Is.EqualTo(true));
-            Assert.That(d, Has.Count.EqualTo(7));
+            Assert.That(d, Has.Count.EqualTo(5));
         }
 
         [Test]
@@ -60,19 +56,21 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void The_shared_data_limit_and_flush_delay_reach_both_platforms()
+        public void The_shared_data_limits_and_flush_delay_reach_both_platforms()
         {
             foreach (BugseeLaunchOptions o in new BugseeLaunchOptions[]
             {
-                new AndroidLaunchOptions { MaxDataSize = 64, NotifyFlushDelay = 250 },
-                new IOSLaunchOptions { MaxDataSize = 64, NotifyFlushDelay = 250 },
+                new AndroidLaunchOptions { MaxDataSize = 64, MaxPendingReports = 7, MaxPendingReportAge = 3, NotifyFlushDelay = 250 },
+                new IOSLaunchOptions { MaxDataSize = 64, MaxPendingReports = 7, MaxPendingReportAge = 3, NotifyFlushDelay = 250 },
             })
             {
                 var d = o.ToDictionary();
                 Assert.That(d[Options.MaxDataSize], Is.EqualTo(64).And.TypeOf<int>());
                 Assert.That(d[Options.NotifyFlushDelay], Is.EqualTo(250).And.TypeOf<int>());
-                Assert.That(OptionPlatformGate.ForIos(d), Has.Count.EqualTo(2));
-                Assert.That(OptionPlatformGate.ForAndroid(d), Has.Count.EqualTo(2));
+                Assert.That(d[Options.MaxPendingReports], Is.EqualTo(7).And.TypeOf<int>());
+                Assert.That(d[Options.MaxPendingReportAge], Is.EqualTo(3).And.TypeOf<int>());
+                Assert.That(OptionPlatformGate.ForIos(d), Has.Count.EqualTo(4));
+                Assert.That(OptionPlatformGate.ForAndroid(d), Has.Count.EqualTo(4));
             }
         }
 

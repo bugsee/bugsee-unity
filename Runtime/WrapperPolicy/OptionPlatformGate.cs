@@ -5,7 +5,7 @@ namespace Bugsee.WrapperPolicy
 {
     /// <summary>
     /// Options one native SDK has no counterpart for. Android-only: absent from the iOS headers and binary as of
-    /// 7.0.0-beta7 (iOS keeps an unknown key and getLaunchOptions then shows it). iOS-only: the Android SDK 7.4.2
+    /// 7.0.0 (iOS keeps an unknown key and getLaunchOptions then shows it). iOS-only: the Android SDK 7.4.2
     /// drops keys it does not know (the typed ones are the <c>IOSLaunchOptions</c> properties; the gate drops them
     /// from an Android launch so the result does not depend on that SDK's behaviour).
     /// </summary>
@@ -71,8 +71,6 @@ namespace Bugsee.WrapperPolicy
                 Options.PerformanceUploadMode,
                 Options.ReportProcessingInProcess,
                 Options.WebViewDomainAllowlist,
-                Options.MaxPendingReports,
-                Options.MaxPendingReportAge,
                 Options.DetectAndReportExitLowMemoryBackgroundAsError,
                 Options.DetectAndReportCrashNdk,
                 Options.CrashNdkIncludeTombstoneLogs,

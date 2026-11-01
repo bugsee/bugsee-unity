@@ -708,7 +708,7 @@ namespace Bugsee.Platform.IOS
 
         static bool _warnedDroppedOptions;
 
-        // The native bridge drops these keys on iOS SDK 7.0.0-beta7 and later; say so once, in the Unity console too.
+        // The native bridge drops these keys on iOS SDK 7.0.0-beta7 and later (re-checked against 7.0.0: unchanged); say so once, in the Unity console too.
         static void WarnOnceAboutDroppedOptions(IDictionary<string, object> options)
         {
             if (_warnedDroppedOptions || _bugsee_exception_options_dropped() == 0) return;
@@ -834,11 +834,12 @@ namespace Bugsee.Platform.IOS
 
         static readonly UnsupportedApiNotice _resetPermissionNotice = new UnsupportedApiNotice(Debug.LogWarning);
 
-        // iOS 7.0.0-beta7 has no video capture permission to reset: say so once instead of doing nothing silently.
+        // iOS 7.0.0 has no video capture permission to reset (no such API in the public or SPI headers): say so once instead of doing nothing silently.
         public void ResetVideoCapturePermission() =>
             _resetPermissionNotice.Once(UnsupportedApiNotice.ResetVideoCapturePermissionMessage);
 
-        // The SDK has no public default network sanitizer on iOS.
+        // iOS 7.0.0 has +[Bugsee defaultNetworkSanitizer] (BugseeNetworkSanitizer), but the wrapper does not call it yet:
+        // its filters get a wrapper-owned event, not a native BugseeNetworkEvent.
         public bool ApplyDefaultNetworkSanitizer(INetworkEvent networkEvent) => false;
 
         public bool AddSecureWebView(object nativeWebView) =>

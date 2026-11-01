@@ -4,7 +4,7 @@ namespace Bugsee.WrapperPolicy
 {
     /// <summary>
     /// Keys of <c>Bugsee.LogException(exception, options)</c> that the native iOS SDK no longer has an equivalent for
-    /// (7.0.0-beta7 removed them with BugseeExceptionLoggingOptions). The wrapper says so once instead of dropping them silently.
+    /// (7.0.0-beta7 removed them, and 7.0.0 does not restore them with BugseeExceptionLoggingOptions). The wrapper says so once instead of dropping them silently.
     /// </summary>
     public static class ExceptionOptionDrops
     {

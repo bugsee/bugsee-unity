@@ -47,7 +47,7 @@ namespace Bugsee.WrapperPolicy.Tests
         // Keys both SDKs know: never gated.
         static readonly string[] SharedConstants =
         {
-            nameof(Options.Duration), nameof(Options.WifiOnlyUpload), nameof(Options.MaxDataSize), nameof(Options.NotifyFlushDelay), nameof(Options.DetectAndReportExit),
+            nameof(Options.Duration), nameof(Options.WifiOnlyUpload), nameof(Options.MaxDataSize), nameof(Options.MaxPendingReports), nameof(Options.MaxPendingReportAge), nameof(Options.NotifyFlushDelay), nameof(Options.DetectAndReportExit),
             nameof(Options.DetectAndReportHang), nameof(Options.DetectAndReportHangFairLevel),
             nameof(Options.DetectAndReportHangMediumLevel), nameof(Options.DetectAndReportHangSevereLevel),
             nameof(Options.DetectAndReportCrash), nameof(Options.DetectAndReportMainThreadMisuse),
@@ -105,8 +105,6 @@ namespace Bugsee.WrapperPolicy.Tests
             expected.Add(Options.PerformanceUploadMode);
             expected.Add(Options.ReportProcessingInProcess);
             expected.Add(Options.WebViewDomainAllowlist);
-            expected.Add(Options.MaxPendingReports);
-            expected.Add(Options.MaxPendingReportAge);
             expected.Add(Options.DetectAndReportCrashNdk);
             expected.Add(Options.CrashNdkIncludeTombstoneLogs);
             expected.Add(Options.DetectAndReportHangSampling);
