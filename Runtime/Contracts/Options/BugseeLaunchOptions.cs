@@ -63,7 +63,7 @@ namespace Bugsee.Contracts.Options
         /// Megabytes of disk the reports waiting to be sent may occupy.
         /// Default when omitted: 150 on both platforms (iOS 7.0.0 and later; iOS 7.0.0-beta7 defaulted to 50 and did not
         /// enforce it). A value below 10 is raised to 10, and when exceeded pending reports are deleted (errors first, then
-        /// bug reports, then crashes, oldest first, never the newest crash or a report being sent).
+        /// bug reports, then crashes, oldest first, never the newest crash; Android also keeps a report being sent).
         /// </summary>
         public int MaxDataSize
         {
@@ -73,7 +73,7 @@ namespace Bugsee.Contracts.Options
         /// <summary>
         /// Maximum number of reports waiting to be sent. Default when omitted: 30 on both platforms; the SDK raises a value below 1 to 1.
         /// Over the limit, whole pending reports are deleted (errors first, then bug reports, then crashes, oldest first;
-        /// the newest crash and a report being exported or uploaded are kept). iOS enforces it from SDK 7.0.0. Lower values lose reports sooner.
+        /// the newest crash is kept, and on Android also a report being exported or uploaded). iOS enforces it from SDK 7.0.0. Lower values lose reports sooner.
         /// </summary>
         public int MaxPendingReports
         {

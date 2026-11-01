@@ -36,7 +36,7 @@ namespace Bugsee.Editor
         /// then replaces the old copy: the source is read before anything is deleted, a copy that fails half way never lands,
         /// and the staging folder is removed whatever happens (read-only files included).
         /// </summary>
-        /// <param name="selective">Copy only Package.swift, Bugsee.xcframework and Sources/BugseeSwiftUI (an assembled package);
+        /// <param name="selective">Copy only Package.swift, Bugsee.xcframework and Sources (every target path the manifest names: BugseeSwiftUI, and BugseeCrashExtension since 7.0.0; an assembled package);
         /// otherwise the whole folder (the in-package stub).</param>
         public static void CopyAndSwapIn(string source, string destination, bool selective)
         {
@@ -123,7 +123,7 @@ namespace Bugsee.Editor
         static void CopySelected(string sourceDir, string destDir)
         {
             Directory.CreateDirectory(destDir);
-            foreach (string item in new[] { "Package.swift", "Bugsee.xcframework", Path.Combine("Sources", "BugseeSwiftUI") })
+            foreach (string item in new[] { "Package.swift", "Bugsee.xcframework", "Sources" })
             {
                 string source = Path.Combine(sourceDir, item);
                 if (!File.Exists(source) && !Directory.Exists(source))

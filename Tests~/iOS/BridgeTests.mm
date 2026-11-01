@@ -723,7 +723,9 @@ int main(void)
     free((void *)value);
 
     // IsBlackout reads the SDK, not a managed flag. A blackout the wrapper did not start is seen, and one the
-    // wrapper ended is gone, and the answer survives the stop and launches above (the SDK keeps the flag).
+    // wrapper ended is gone. The stop below ends nothing here: this SDK is not launched (a simulator, with a placeholder
+    // token), and 7.0.0 ends a blackout on stop only while launched or waiting to launch ("a stop while Bugsee is stopped
+    // ends nothing", Bugsee.h). On a launched SDK the flag is false after a stop (measured on an iPhone XS).
     [Bugsee startBlackout];
     expect(_bugsee_is_blackout() == 1, "the blackout export sees a blackout the wrapper did not start");
     _bugsee_end_blackout();
@@ -732,7 +734,7 @@ int main(void)
     expect(_bugsee_is_blackout() == 1, "the blackout export reports a blackout the wrapper started");
     _bugsee_stop(8, OnStopped);
     expect(waitFor(^{ return gStoppedToken == 8 ? 1 : 0; }, 5) && _bugsee_is_blackout() == 1,
-           "the blackout export still reports the blackout after a stop");
+           "the blackout export still reports a blackout a stop did not end (the SDK was not launched)");
     [Bugsee endBlackout];
     expect(_bugsee_is_blackout() == 0, "the blackout export sees a blackout the SDK ended");
 

@@ -4,7 +4,7 @@
 #
 # Replicates only the assembly half of bugsee-cocoa's beta release (.github/workflows/deploy-beta.yml):
 #   scripts/build_new.sh (xcframework build) + the package layout scripts/deploy_spm_beta.sh pushes to bugsee/spm
-#   (Package.swift, README.md, Tools/, Sources/BugseeSwiftUI). Not run: build.sh's legacy/static targets, the
+#   (Package.swift, README.md, Tools/, Sources/BugseeSwiftUI and Sources/BugseeCrashExtension). Not run: build.sh's legacy/static targets, the
 #   feedback add-on, the options manifest, every deploy*.sh. No signing identity is used.
 #
 # Usage:
@@ -69,7 +69,7 @@ if ! printf '%s' "${VERSION}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-beta[0-9]+)?$
 fi
 if [[ "${VERSION}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-beta[0-9]+)?$ ]]; then
   # The bridge imports <Bugsee/BugseeSPI.h> (the wrapper SPI moved there in 7.0.0 and Bugsee.h no longer imports the
-  # contract headers) and calls API that 7.0.0-betaN does not have; an older package would not compile.
+  # contract headers); a 7.0.0-betaN package has no such header, which is the only reason it would not compile.
   if (( 10#${BASH_REMATCH[1]} < 7 )) || \
      { (( 10#${BASH_REMATCH[1]} == 7 && 10#${BASH_REMATCH[2]} == 0 && 10#${BASH_REMATCH[3]} == 0 )) && [[ -n "${BASH_REMATCH[4]}" ]]; }; then
     echo "The iOS SDK must be 7.0.0 or later (not a 7.0.0 beta), got '${VERSION}'" >&2
@@ -141,6 +141,11 @@ cp -a "${COCOA}/BugseeDev/BugseeLib/BugseeResources/tools.bundle/BugseeAgent" "$
 cp -a "${COCOA}/BugseeDev/BugseeLib/BugseeResources/tools.bundle/BugseeClean" "${OUT}/Tools/BugseeClean"
 mkdir -p "${OUT}/Sources"
 cp -a "${COCOA}/BugseeDev/BugseeLib/BugseeSwiftUI/Sources" "${OUT}/Sources/BugseeSwiftUI"
+# The 7.0.0 manifest also declares a BugseeCrashExtension target whose path must exist (lib_spm_core_tree.sh copies it from
+# BugseeCrashExtension/Library); a checkout without it has a manifest without the target, which the check below confirms.
+if [[ -d "${COCOA}/BugseeCrashExtension/Library" ]]; then
+  cp -a "${COCOA}/BugseeCrashExtension/Library" "${OUT}/Sources/BugseeCrashExtension"
+fi
 
 # Package.swift.template with the URL binaryTarget turned into the local path one.
 # Run from the temp dir: swiftpm leaves a .build directory in the working directory.
@@ -152,6 +157,16 @@ new, n = re.subn(r'url: "[^"]*",\s*checksum: "[^"]*"\)', 'path: "Bugsee.xcframew
 if n != 1:
     sys.exit("Package.swift.template has no url/checksum binaryTarget to localise")
 open(sys.argv[2], "w", encoding="utf-8").write(new)
+PY
+
+# Every target path the manifest names must exist in the package, or Xcode refuses it ("invalid custom path ... for target").
+python3 -I - "${OUT}" <<'PY'
+import os, re, sys
+out = sys.argv[1]
+manifest = open(os.path.join(out, "Package.swift"), encoding="utf-8").read()
+missing = [p for p in re.findall(r'path:\s*"([^"]+)"', manifest) if not os.path.isdir(os.path.join(out, p)) and not os.path.exists(os.path.join(out, p))]
+if missing:
+    sys.exit("Package.swift names target paths the assembled package lacks: " + ", ".join(missing))
 PY
 
 {

@@ -591,8 +591,13 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Shared_limit_docs_state_the_default_of_both_platforms(string property, string key)
         {
             var text = File.ReadAllText(RepoFile("Runtime/Contracts/Options/BugseeLaunchOptions.cs"));
-            var head = text.Substring(0, text.IndexOf("public int " + property + "\n", StringComparison.Ordinal) is var at && at >= 0 ? at : 0);
-            var m = Regex.Match(head.Substring(head.LastIndexOf("<summary>", StringComparison.Ordinal)), @"Default when omitted:\s*(\d+) on both platforms");
+            // Line-ending agnostic (a CRLF checkout): find the declaration with a regex, and say so when it is missing.
+            var decl = Regex.Match(text, @"public int " + property + @"\s*[\r\n]");
+            Assert.That(decl.Success, Is.True, "BugseeLaunchOptions has no `public int " + property + "` declaration");
+            var head = text.Substring(0, decl.Index);
+            var summary = head.LastIndexOf("<summary>", StringComparison.Ordinal);
+            Assert.That(summary, Is.GreaterThanOrEqualTo(0), property + " has no <summary> doc");
+            var m = Regex.Match(head.Substring(summary), @"Default when omitted:\s*(\d+) on both platforms");
             Assert.That(m.Success, Is.True, property + " must document `Default when omitted: N on both platforms`");
             var full = "com.bugsee.option.config." + key;
             Assert.That(Android.Options[full].DefaultText, Is.EqualTo(m.Groups[1].Value), "Android default");

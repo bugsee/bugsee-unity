@@ -31,6 +31,8 @@ namespace Bugsee.WrapperPolicy.Tests
             File.CreateSymbolicLink(Path.Combine(dir, "Bugsee.xcframework", "ios-arm64", "Bugsee.framework", "Versions", "Current"), "A");
             Directory.CreateDirectory(Path.Combine(dir, "Sources", "BugseeSwiftUI"));
             File.WriteAllText(Path.Combine(dir, "Sources", "BugseeSwiftUI", "A.swift"), "// swift");
+            Directory.CreateDirectory(Path.Combine(dir, "Sources", "BugseeCrashExtension"));
+            File.WriteAllText(Path.Combine(dir, "Sources", "BugseeCrashExtension", "B.swift"), "// swift");
             File.WriteAllText(Path.Combine(dir, "BUILD-INFO.txt"), "not copied");
             if (readOnly) Chmod("a-w", dir);
             return dir;
@@ -62,6 +64,8 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(File.Exists(Path.Combine(dest, LocalPackageCopy.Marker)));
             Assert.That(LocalPackageCopy.Problem(dest), Is.Null);
             Assert.That(File.Exists(Path.Combine(dest, "Sources", "BugseeSwiftUI", "A.swift")));
+            // 7.0.0's manifest has a BugseeCrashExtension target; Xcode refuses the package when its path is missing.
+            Assert.That(File.Exists(Path.Combine(dest, "Sources", "BugseeCrashExtension", "B.swift")));
             Assert.That(File.Exists(Path.Combine(dest, "BUILD-INFO.txt")), Is.False);
             var link = new FileInfo(Path.Combine(dest, "Bugsee.xcframework", "ios-arm64", "Bugsee.framework", "Versions", "Current"));
             Assert.That(link.LinkTarget, Is.EqualTo("A"));
