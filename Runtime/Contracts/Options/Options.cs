@@ -7,13 +7,13 @@ namespace Bugsee.Contracts.Options
     {
         public const string Duration = "com.bugsee.option.config.duration";
         public const string WifiOnlyUpload = "com.bugsee.option.config.wifi-only-upload";
-        /// <summary>Both platforms: int megabytes of disk the pending reports may use. Android default 150 (a value below 10 is raised to 10), iOS default 50; iOS 7.0.0-beta7 accepts the key but does not enforce it.</summary>
+        /// <summary>Both platforms: int megabytes of disk the pending reports may use. Default 150 on both platforms (iOS 7.0.0 and later enforces it; 7.0.0-beta7 defaulted to 50 and did not); a value below 10 is raised to 10.</summary>
         public const string MaxDataSize = "com.bugsee.option.config.max-data-size";
         /// <summary>Both platforms: int milliseconds the notification relay waits before draining its queue, default 0.</summary>
         public const string NotifyFlushDelay = "com.bugsee.option.config.notify-flush-delay";
-        /// <summary>Android only: int, maximum number of reports waiting to be sent, default 30; the SDK raises a value below 1 to 1.</summary>
+        /// <summary>Both platforms (iOS 7.0.0 and later): int, maximum number of reports waiting to be sent, default 30; the SDK raises a value below 1 to 1.</summary>
         public const string MaxPendingReports = "com.bugsee.option.config.max-pending-reports";
-        /// <summary>Android only: int days a report may wait to be sent, default 30; 0 or negative disables aging.</summary>
+        /// <summary>Both platforms (iOS 7.0.0 and later): int days a report may wait to be sent, default 30; 0 or negative disables aging.</summary>
         public const string MaxPendingReportAge = "com.bugsee.option.config.max-pending-report-age";
         /// <summary>Android only: bool, default false.</summary>
         public const string DetectAndReportExitLowMemoryBackgroundAsError = "com.bugsee.option.detect.exit.bg_low_memory_as_error";

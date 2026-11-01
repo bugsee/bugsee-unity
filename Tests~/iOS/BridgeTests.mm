@@ -5,6 +5,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <Bugsee/Bugsee.h>
+#import <Bugsee/BugseeSPI.h>
 
 extern "C" {
 void _bugsee_set_wrapper_context(const char *json);
@@ -518,7 +519,7 @@ int main(void)
         ? [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:hostOptions length:strlen(hostOptions)] options:0 error:nil]
         : nil;
     expect([parsedHost isKindOfClass:[NSDictionary class]] && [parsedHost count] < [parsedOptions count]
-           && !parsedHost[BugseeMaxRecordingTimeKey], // 60 is the SDK default, which beta7 drops from the host options
+           && !parsedHost[BugseeMaxRecordingTimeKey], // 60 is the SDK default, which 7.0.0 drops from the host options
            "host launch options come back as a JSON object without the defaults");
     free(hostOptions);
     // An omitted report severity is the SDK default, High until the host configures ReportingDefaultBugPriority.
@@ -718,7 +719,7 @@ int main(void)
     printf("extended attachments: %s\n", value ? value : "(null)");
     expect(value != NULL && strncmp(value, "4|empty:0:", 10) == 0,
            "the extended report keeps an empty attachment and skips one without data");
-    // The beta7 BugseeAttachment has no MIME type property, so the extended report cannot show one either way.
+    // The 7.0.0 BugseeAttachment has no MIME type property, so the extended report cannot show one either way.
     free((void *)value);
 
     // IsBlackout reads the SDK, not a managed flag. A blackout the wrapper did not start is seen, and one the

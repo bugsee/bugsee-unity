@@ -582,15 +582,21 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(problems, Is.Empty, string.Join("\n", problems));
         }
 
-        // MaxDataSize is shared and its default differs per platform; the doc names both ("150 on Android, 50 on iOS").
-        [Test]
-        public void Shared_max_data_size_docs_state_the_ios_default()
+        // MaxDataSize, MaxPendingReports and MaxPendingReportAge are shared since iOS 7.0.0 (beta7 defaulted MaxDataSize to 50 and
+        // ignored it, and had no pending-report keys); each doc states one default for both platforms, which both manifests must
+        // carry. A platform default that differs again must be documented per platform here.
+        [TestCase("MaxDataSize", "max-data-size")]
+        [TestCase("MaxPendingReports", "max-pending-reports")]
+        [TestCase("MaxPendingReportAge", "max-pending-report-age")]
+        public void Shared_limit_docs_state_the_default_of_both_platforms(string property, string key)
         {
             var text = File.ReadAllText(RepoFile("Runtime/Contracts/Options/BugseeLaunchOptions.cs"));
-            var m = Regex.Match(text, @"Default when omitted:\s*(\d+) on Android,\s*(\d+) on iOS");
-            Assert.That(m.Success, Is.True, "MaxDataSize must document `Default when omitted: N on Android, M on iOS`");
-            Assert.That(Android.Options["com.bugsee.option.config.max-data-size"].DefaultText, Is.EqualTo(m.Groups[1].Value));
-            Assert.That(Ios.Options["com.bugsee.option.config.max-data-size"].DefaultText, Is.EqualTo(m.Groups[2].Value));
+            var head = text.Substring(0, text.IndexOf("public int " + property + "\n", StringComparison.Ordinal) is var at && at >= 0 ? at : 0);
+            var m = Regex.Match(head.Substring(head.LastIndexOf("<summary>", StringComparison.Ordinal)), @"Default when omitted:\s*(\d+) on both platforms");
+            Assert.That(m.Success, Is.True, property + " must document `Default when omitted: N on both platforms`");
+            var full = "com.bugsee.option.config." + key;
+            Assert.That(Android.Options[full].DefaultText, Is.EqualTo(m.Groups[1].Value), "Android default");
+            Assert.That(Ios.Options[full].DefaultText, Is.EqualTo(m.Groups[1].Value), "iOS default");
         }
 
         [Test]

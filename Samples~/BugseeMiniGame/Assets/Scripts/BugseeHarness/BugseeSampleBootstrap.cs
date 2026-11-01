@@ -662,16 +662,16 @@ namespace Bugsee.Sample
             Probe(options, Options.DetectAndReportExitOther, true);
             Probe(options, Options.ReportHandlerCallbackTimeout, 7000);
             // Android 7.4.2 keys with typed properties (#96), non-default and type-correct: each must come back as sent.
-            Probe(options, Options.MaxPendingReports, 9);
-            Probe(options, Options.MaxPendingReportAge, 11);
             Probe(options, Options.DetectAndReportExitLowMemoryBackgroundAsError, true);
             Probe(options, Options.DetectAndReportHangSampling, false);
             Probe(options, Options.DetectAndReportAnrSampling, false);
             Probe(options, Options.DetectAndReportCrashNdk, false);
             Probe(options, Options.CrashNdkIncludeTombstoneLogs, true);
 #endif
-            // Keys both SDKs know (#96): they must reach each native SDK as sent (the defaults differ: Android 150, iOS 50).
+            // Keys both SDKs know (#96): they must reach each native SDK as sent (iOS 7.0.0 and Android agree on the defaults).
             Probe(options, Options.MaxDataSize, 77);
+            Probe(options, Options.MaxPendingReports, 9);
+            Probe(options, Options.MaxPendingReportAge, 11);
             Probe(options, Options.NotifyFlushDelay, 321);
             // Every iOS-only key, type-correct and non-default: iOS must report each as sent, Android must drop each (#97).
             Probe(options, Options.CaptureCrashHandlerType, 3);
@@ -718,9 +718,9 @@ namespace Bugsee.Sample
                 if (!ok) mismatches++;
                 Debug.Log("[OPTIONS] " + key + " sent=" + sent + " native=" + got + (ok ? " ok" : " MISMATCH"));
             }
-            // Shared keys: not gated, so each must be reported with the value sent, on both platforms. On iOS 7.0.0-beta7 this only proves
-            // the key is echoed back: the iOS SDK registers max-data-size but does not enforce it.
-            foreach (var key in new[] { Options.MaxDataSize, Options.NotifyFlushDelay })
+            // Shared keys: not gated, so each must be reported with the value sent, on both platforms. The iOS SDK
+            // enforces max-data-size and the pending-report limits since 7.0.0 (beta7 only echoed max-data-size back).
+            foreach (var key in new[] { Options.MaxDataSize, Options.MaxPendingReports, Options.MaxPendingReportAge, Options.NotifyFlushDelay })
             {
                 var has = launched != null && launched.ContainsKey(key);
                 var sent = ProbeSent.TryGetValue(key, out var sv) ? sv.ToString() : "-";
@@ -864,7 +864,7 @@ namespace Bugsee.Sample
         static extern int raise(int signal);
 #endif
 
-        // Device validation scenarios for the iOS 7.0.0-beta7 SDK: labels, Unity LogError, a raised signal, delete.
+        // Device validation scenarios for the iOS 7.0.0 SDK: labels, Unity LogError, a raised signal, delete.
         void FireExtra(string marker)
         {
             SetStatus("E2E extra " + marker);

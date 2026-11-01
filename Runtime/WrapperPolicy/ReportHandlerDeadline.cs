@@ -10,7 +10,7 @@ namespace Bugsee.WrapperPolicy
     /// <summary>
     /// How long the native SDK waits for a report handler before it carries on without it: the
     /// <c>ReportHandlerCallbackTimeout</c> option (30 s by default). <c>0</c> or less disables the per-handler timer,
-    /// but the SDK still ends the chain at 60 s. iOS (7.0.0-beta7) has the same 30 s but does not read the option.
+    /// but the SDK still ends the chain at 60 s. iOS (7.0.0) has the same 30 s per callback (documented on <c>BugseeReportHandler</c>) but does not read the option.
     /// </summary>
     public static class ReportHandlerDeadline
     {

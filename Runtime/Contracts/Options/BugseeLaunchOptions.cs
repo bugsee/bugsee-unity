@@ -61,13 +61,33 @@ namespace Bugsee.Contracts.Options
 
         /// <summary>
         /// Megabytes of disk the reports waiting to be sent may occupy.
-        /// Default when omitted: 150 on Android, 50 on iOS. Android: a value below 10 is raised to 10, and when exceeded pending
-        /// reports are deleted (errors first, then bug reports, then crashes, oldest first, never the newest crash or a report
-        /// being sent). iOS 7.0.0-beta7: the key is accepted and reported by <c>GetLaunchOptions</c> but not enforced (no effect).
+        /// Default when omitted: 150 on both platforms (iOS 7.0.0 and later; iOS 7.0.0-beta7 defaulted to 50 and did not
+        /// enforce it). A value below 10 is raised to 10, and when exceeded pending reports are deleted (errors first, then
+        /// bug reports, then crashes, oldest first, never the newest crash or a report being sent).
         /// </summary>
         public int MaxDataSize
         {
             set => Set(Options.MaxDataSize, value);
+        }
+
+        /// <summary>
+        /// Maximum number of reports waiting to be sent. Default when omitted: 30 on both platforms; the SDK raises a value below 1 to 1.
+        /// Over the limit, whole pending reports are deleted (errors first, then bug reports, then crashes, oldest first;
+        /// the newest crash and a report being exported or uploaded are kept). iOS enforces it from SDK 7.0.0. Lower values lose reports sooner.
+        /// </summary>
+        public int MaxPendingReports
+        {
+            set => Set(Options.MaxPendingReports, value);
+        }
+
+        /// <summary>
+        /// Maximum age in days of a report waiting to be sent; older ones are deleted whatever their type.
+        /// Default when omitted: 30 on both platforms. 0 or a negative value disables aging (reports then wait until sent or evicted by
+        /// <see cref="MaxDataSize"/> or <see cref="MaxPendingReports"/>).
+        /// </summary>
+        public int MaxPendingReportAge
+        {
+            set => Set(Options.MaxPendingReportAge, value);
         }
 
         /// <summary>

@@ -63,15 +63,16 @@ if [[ -d "${OUT}" && -n "$(ls -A "${OUT}")" && ! -f "${OUT}/BUILD-INFO.txt" ]]; 
   exit 1
 fi
 
-if ! printf '%s' "${VERSION}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-beta[0-9]+$'; then
-  echo "Expected an N.N.N-betaN version, got '${VERSION}'" >&2
+if ! printf '%s' "${VERSION}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-beta[0-9]+)?$'; then
+  echo "Expected an N.N.N or N.N.N-betaN version, got '${VERSION}'" >&2
   exit 1
 fi
-if [[ "${VERSION}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)-beta([0-9]+)$ ]]; then
-  # The bridge uses the beta7 logException API; an older package would not compile.
+if [[ "${VERSION}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-beta[0-9]+)?$ ]]; then
+  # The bridge imports <Bugsee/BugseeSPI.h> (the wrapper SPI moved there in 7.0.0 and Bugsee.h no longer imports the
+  # contract headers) and calls API that 7.0.0-betaN does not have; an older package would not compile.
   if (( 10#${BASH_REMATCH[1]} < 7 )) || \
-     (( 10#${BASH_REMATCH[1]} == 7 && 10#${BASH_REMATCH[2]} == 0 && 10#${BASH_REMATCH[3]} == 0 && 10#${BASH_REMATCH[4]} < 7 )); then
-    echo "The iOS SDK must be 7.0.0-beta7 or later, got '${VERSION}'" >&2
+     { (( 10#${BASH_REMATCH[1]} == 7 && 10#${BASH_REMATCH[2]} == 0 && 10#${BASH_REMATCH[3]} == 0 )) && [[ -n "${BASH_REMATCH[4]}" ]]; }; then
+    echo "The iOS SDK must be 7.0.0 or later (not a 7.0.0 beta), got '${VERSION}'" >&2
     exit 1
   fi
 fi

@@ -166,9 +166,9 @@ namespace Bugsee.WrapperPolicy.Tests
             "\t\t\tpackageReferences = (\n\t\t\t\t69C04F549EE201CC179B0684 /* XCRemoteSwiftPackageReference \"spm\" */,\n\t\t\t\tEEEEEEEEEEEEEEEEEEEEEEEE /* XCRemoteSwiftPackageReference \"feedback-spm\" */,\n\t\t\t);\n" +
             "/* Begin XCRemoteSwiftPackageReference section */\n" +
             "\t\t69C04F549EE201CC179B0684 /* XCRemoteSwiftPackageReference \"spm\" */ = {\n\t\t\tisa = XCRemoteSwiftPackageReference;\n" +
-            "\t\t\trepositoryURL = \"https://github.com/bugsee/spm.git\";\n\t\t\trequirement = {\n\t\t\t\tkind = exactVersion;\n\t\t\t\tversion = \"7.0.0-beta7\";\n\t\t\t};\n\t\t};\n" +
+            "\t\t\trepositoryURL = \"https://github.com/bugsee/spm.git\";\n\t\t\trequirement = {\n\t\t\t\tkind = exactVersion;\n\t\t\t\tversion = \"7.0.0\";\n\t\t\t};\n\t\t};\n" +
             "\t\tEEEEEEEEEEEEEEEEEEEEEEEE /* XCRemoteSwiftPackageReference \"feedback-spm\" */ = {\n\t\t\tisa = XCRemoteSwiftPackageReference;\n" +
-            "\t\t\trepositoryURL = \"https://github.com/bugsee/feedback-spm.git\";\n\t\t\trequirement = {\n\t\t\t\tkind = exactVersion;\n\t\t\t\tversion = \"7.0.0-beta7\";\n\t\t\t};\n\t\t};\n" +
+            "\t\t\trepositoryURL = \"https://github.com/bugsee/feedback-spm.git\";\n\t\t\trequirement = {\n\t\t\t\tkind = exactVersion;\n\t\t\t\tversion = \"7.0.0\";\n\t\t\t};\n\t\t};\n" +
             "/* End XCRemoteSwiftPackageReference section */\n" +
             "/* Begin XCSwiftPackageProductDependency section */\n" +
             "\t\t72A742839A820990A8F88B84 /* Bugsee */ = {\n\t\t\tisa = XCSwiftPackageProductDependency;\n\t\t\tpackage = 69C04F549EE201CC179B0684 /* XCRemoteSwiftPackageReference \"spm\" */;\n\t\t\tproductName = Bugsee;\n\t\t};\n" +

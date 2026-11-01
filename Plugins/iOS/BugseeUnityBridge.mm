@@ -8,11 +8,11 @@
 
 #if __has_include(<Bugsee/Bugsee.h>)
 #import <Bugsee/Bugsee.h>
-#import <Bugsee/BGSContracts.h>
+#import <Bugsee/BugseeSPI.h>
 #define BUGSEE_IOS_SDK 1
 #elif __has_include("Bugsee/Bugsee.h")
 #import "Bugsee/Bugsee.h"
-#import "Bugsee/BGSContracts.h"
+#import "Bugsee/BugseeSPI.h"
 #define BUGSEE_IOS_SDK 1
 #else
 #define BUGSEE_IOS_SDK 0
