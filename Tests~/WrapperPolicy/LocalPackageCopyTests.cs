@@ -26,7 +26,9 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             string dir = Path.Combine(_root, name);
             Directory.CreateDirectory(Path.Combine(dir, "Bugsee.xcframework", "ios-arm64", "Bugsee.framework", "Versions", "A"));
-            File.WriteAllText(Path.Combine(dir, "Package.swift"), "// package");
+            File.WriteAllText(Path.Combine(dir, "Package.swift"), "// path: \"Sources/Commented\"\n.target(name: \"A\", path: \"Sources/BugseeSwiftUI\"), .target(name: \"B\", path: \"Sources/BugseeCrashExtension\")");
+            Directory.CreateDirectory(Path.Combine(dir, "Bugsee.xcframework", "ios-arm64", "Bugsee.framework", "Headers"));
+            File.WriteAllText(Path.Combine(dir, "Bugsee.xcframework", "ios-arm64", "Bugsee.framework", "Headers", "BugseeSPI.h"), "// spi");
             File.WriteAllText(Path.Combine(dir, "Bugsee.xcframework", "ios-arm64", "Bugsee.framework", "Versions", "A", "Bugsee"), "binary");
             File.CreateSymbolicLink(Path.Combine(dir, "Bugsee.xcframework", "ios-arm64", "Bugsee.framework", "Versions", "Current"), "A");
             Directory.CreateDirectory(Path.Combine(dir, "Sources", "BugseeSwiftUI"));
@@ -72,6 +74,38 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(Directory.GetDirectories(Path.GetDirectoryName(dest), "*.staging-*"), Is.Empty);
             File.WriteAllText(Path.Combine(dest, "writable.txt"), "x");
             Chmod("u+w", source);
+        }
+
+        [Test]
+        public void A_package_without_the_spi_header_or_a_manifest_path_is_refused()
+        {
+            string good = MakePackage("good");
+            Assert.That(LocalPackageCopy.Problem(good), Is.Null, "a commented-out path in the manifest is not a target path");
+
+            string old = MakePackage("old");
+            File.Delete(Path.Combine(old, "Bugsee.xcframework", "ios-arm64", "Bugsee.framework", "Headers", "BugseeSPI.h"));
+            Assert.That(LocalPackageCopy.Problem(old), Does.Contain("BugseeSPI.h"));
+
+            string noExtension = MakePackage("noext");
+            Directory.Delete(Path.Combine(noExtension, "Sources", "BugseeCrashExtension"), true);
+            Assert.That(LocalPackageCopy.Problem(noExtension), Does.Contain("Sources/BugseeCrashExtension"));
+        }
+
+        [Test]
+        public void A_sources_folder_that_is_a_symlink_is_copied_as_a_folder()
+        {
+            Assume.That(Environment.OSVersion.Platform, Is.EqualTo(PlatformID.Unix));
+            string source = MakePackage("linked");
+            Directory.Move(Path.Combine(source, "Sources"), Path.Combine(source, "realSources"));
+            Directory.CreateSymbolicLink(Path.Combine(source, "Sources"), "realSources");
+            string dest = Path.Combine(_root, "export2", "Bugsee");
+            Directory.CreateDirectory(Path.GetDirectoryName(dest));
+
+            LocalPackageCopy.CopyAndSwapIn(source, dest, selective: true);
+
+            Assert.That(new FileInfo(Path.Combine(dest, "Sources")).LinkTarget, Is.Null, "not a dangling link");
+            Assert.That(File.Exists(Path.Combine(dest, "Sources", "BugseeCrashExtension", "B.swift")));
+            Assert.That(LocalPackageCopy.Problem(dest), Is.Null);
         }
 
         [Test]

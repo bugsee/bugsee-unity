@@ -23,12 +23,44 @@ namespace Bugsee.Editor
                 return "no Package.swift there.";
             }
 
-            if (!Directory.Exists(Path.Combine(packageDir, "Bugsee.xcframework")))
+            string framework = Path.Combine(packageDir, "Bugsee.xcframework");
+            if (!Directory.Exists(framework))
             {
                 return "no Bugsee.xcframework there.";
             }
 
+            // The bridge imports <Bugsee/BugseeSPI.h>, which iOS SDK 7.0.0 introduced: an older package (7.0.0-betaN) would
+            // fail in Xcode with a missing header instead of here.
+            if (Directory.GetFiles(framework, "BugseeSPI.h", SearchOption.AllDirectories).Length == 0)
+            {
+                return "Bugsee.xcframework has no BugseeSPI.h: it is older than iOS SDK 7.0.0, which the bridge needs.";
+            }
+
+            // Every target path the manifest names must exist, or Xcode refuses the package ("invalid custom path").
+            string manifest = StripLineComments(File.ReadAllText(Path.Combine(packageDir, "Package.swift")));
+            foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(manifest, "path:\\s*\"([^\"]+)\""))
+            {
+                string relative = match.Groups[1].Value;
+                string full = Path.Combine(packageDir, relative);
+                if (!Directory.Exists(full) && !File.Exists(full))
+                {
+                    return $"Package.swift names the target path '{relative}', which the package does not have.";
+                }
+            }
+
             return null;
+        }
+
+        static string StripLineComments(string text)
+        {
+            var builder = new System.Text.StringBuilder();
+            foreach (string line in text.Split('\n'))
+            {
+                int comment = line.IndexOf("//", StringComparison.Ordinal);
+                builder.Append(comment >= 0 ? line.Substring(0, comment) : line).Append('\n');
+            }
+
+            return builder.ToString();
         }
 
         /// <summary>
@@ -133,7 +165,18 @@ namespace Bugsee.Editor
 
                 string dest = Path.Combine(destDir, item);
                 Directory.CreateDirectory(Path.GetDirectoryName(dest));
-                RunTool("/bin/cp", new[] { "-RP", source, dest });
+                // A Sources that is itself a symlink to a folder in the package would copy as a dangling link: copy what it
+                // points at (the trailing /. follows only that top-level link; links inside the tree stay links).
+                bool linkedFolder = item == "Sources" && (File.GetAttributes(source) & FileAttributes.ReparsePoint) != 0;
+                if (linkedFolder)
+                {
+                    Directory.CreateDirectory(dest);
+                    RunTool("/bin/cp", new[] { "-RP", source + "/.", dest });
+                }
+                else
+                {
+                    RunTool("/bin/cp", new[] { "-RP", source, dest });
+                }
             }
 
             RunTool("/bin/chmod", new[] { "-R", "u+w", destDir });

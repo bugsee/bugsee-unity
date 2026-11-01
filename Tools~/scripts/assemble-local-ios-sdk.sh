@@ -159,6 +159,12 @@ if n != 1:
 open(sys.argv[2], "w", encoding="utf-8").write(new)
 PY
 
+# The version is only a stamp (it can be passed by hand): the bridge needs the 7.0.0 header layout in what was actually built.
+if ! find "${OUT}/Bugsee.xcframework" -name BugseeSPI.h | grep -q .; then
+  echo "The built Bugsee.xcframework has no BugseeSPI.h: the checkout is older than iOS SDK 7.0.0, whatever version was given." >&2
+  exit 1
+fi
+
 # Every target path the manifest names must exist in the package, or Xcode refuses it ("invalid custom path ... for target").
 python3 -I - "${OUT}" <<'PY'
 import os, re, sys

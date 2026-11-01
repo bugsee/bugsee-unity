@@ -81,11 +81,11 @@ Three keys have no property: `capture.logs.oslog` (the iOS SDK accepts and ignor
 
 ### Data limits, pending reports, sampling and NDK launch options
 
-These Android 7.4.2 options (#96) have typed properties and `Options` constants. `MaxDataSize` and `NotifyFlushDelay` are on every launch options type and reach both SDKs; the rest are on `AndroidLaunchOptions` and are Android only (the wrapper drops them before an iOS launch, `OptionPlatformGate`).
+These Android 7.4.2 options (#96) have typed properties and `Options` constants. `MaxDataSize`, `MaxPendingReports` and `MaxPendingReportAge` (iOS from SDK 7.0.0) and `NotifyFlushDelay` are on every launch options type and reach both SDKs; the rest are on `AndroidLaunchOptions` and are Android only (the wrapper drops them before an iOS launch, `OptionPlatformGate`).
 
 | Property | Key suffix | Type, default |
 |---|---|---|
-| `MaxDataSize` (both) | `config.max-data-size` | int MB, 150 on both platforms (iOS before 7.0.0 defaulted to 50 and did not enforce it). A value below 10 is raised to 10; over the limit whole pending reports are deleted (errors first, then bug reports, then crashes, oldest first, never the newest crash; Android also keeps a report being sent), so a low value loses reports sooner. The iOS enforcement is from the 7.0.0 header, not measured on a device |
+| `MaxDataSize` (both) | `config.max-data-size` | int MB, 150 on both platforms (iOS before 7.0.0 defaulted to 50 and did not enforce it). A value below 10 is raised to 10 (on iOS per the 7.0.0 header, not measured); over the limit whole pending reports are deleted (errors first, then bug reports, then crashes, oldest first, never the newest crash; Android also keeps a report being sent), so a low value loses reports sooner. The iOS enforcement is from the 7.0.0 header, not measured on a device |
 | `NotifyFlushDelay` (both) | `config.notify-flush-delay` | int ms, 0. Coalescing window before the queue of `Bugsee.Notify` calls drains; 0 posts as soon as the item is on disk |
 | `MaxPendingReports` (both, iOS from 7.0.0) | `config.max-pending-reports` | int, 30; below 1 is raised to 1. Evicts in the same order as `MaxDataSize` |
 | `MaxPendingReportAge` (both, iOS from 7.0.0) | `config.max-pending-report-age` | int days, 30. Older pending reports are deleted whatever their type; 0 or negative disables aging |
