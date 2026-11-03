@@ -191,7 +191,7 @@ Managed exceptions use the **UnityManagedException** JSON-in-reason contract (`n
 
 ### Managed exceptions the SDK cannot see (ThreadPool on Mono, tasks)
 
-Managed capture (`CaptureManagedExceptions`) registers these hooks, after the native launch and again when it succeeds (`Runtime/Internal/ExceptionPipeline.cs`):
+Managed capture (`CaptureManagedExceptions`) registers these hooks, during launch (`Runtime/Internal/ExceptionPipeline.cs`):
 
 - a wrapper around `Debug.unityLogger.logHandler` (its `LogException`);
 - `Application.logMessageReceivedThreaded`, as a fallback for exceptions Unity logs without going through the handler (an echo of an exception already reported is dropped);
@@ -206,13 +206,13 @@ There is nothing else (no `FirstChanceException`). An exception that reaches non
 ThreadPool.QueueUserWorkItem(_ =>
 {
     try { DoWork(); }
-    catch (Exception e) { Bugsee.LogException(e); /* or Bugsee.LogUnhandledException(e) */ }
+    catch (Exception e) { Bugsee.LogException(e); }
 });
 ```
 
-**`Task.Run` and an `async Task` whose result is dropped** store the exception in the `Task`; nothing is logged. The SDK reports it only when the runtime finalizes the faulted task and raises `TaskScheduler.UnobservedTaskException` (as a handled error with the stack of the throw). That depends on garbage collection, so the report can arrive late, or not at all if the app exits first or no collection finalizes the task. Await your tasks, or handle faults (`ContinueWith(..., TaskContinuationOptions.OnlyOnFaulted)`), and report them with `Bugsee.LogException`. `async void` methods and coroutines are logged by Unity and reported normally.
+**`Task.Run` and an `async Task` whose result is dropped** store the exception in the `Task`; nothing is logged. The SDK reports it only when the runtime finalizes the faulted task and raises `TaskScheduler.UnobservedTaskException` (as a handled error with the stack of the throw). That depends on garbage collection, so the report can arrive late, or not at all if the app exits first or no collection finalizes the task. Await your tasks, or handle faults (`ContinueWith(..., TaskContinuationOptions.OnlyOnFaulted)`), and report them with `Bugsee.LogException`. `async void` methods that run on the Unity main thread and coroutines are logged by Unity and reported normally (measured). An `async void` method started from a `ThreadPool` work item on Mono was not measured; expect it to be lost like a synchronous throw there, so catch and report inside it.
 
-What was measured: Unity 2021.3.45f1, a physical Honor WOD-LX1 (Android 15; Mono ARMv7 and IL2CPP ARM64, Release builds, and Development for Mono) and an iPhone XS (iOS 18.7.9, IL2CPP Release), each with and without the SDK where noted above. The same probe also threw from a bare `new Thread`, an `async void` method that awaits a faulting task and a coroutine: Unity logged each on every backend tested, and with the SDK each was reported (on the iPhone and the Honor Mono Release build). The pool loss was seen on both Mono Release and Development without the SDK, and in a Release build with it. With a forced `GC.Collect()` plus `GC.WaitForPendingFinalizers()` (twice), 4 of 18 task cases still did not raise `UnobservedTaskException` (Mono Release `Task.Run`; IL2CPP Android `Task.Run` and an awaited-then-dropped `async Task`; iOS an awaited-then-dropped `async Task`, without the SDK). Not measured: Windows or desktop players, other Unity versions, other devices.
+What was measured: Unity 2021.3.45f1, a physical Honor WOD-LX1 (Android 15; Mono ARMv7 and IL2CPP ARM64, Release builds, and Development for Mono) and an iPhone XS (iOS 18.7.9, IL2CPP Release), each with and without the SDK where noted above. The same probe also threw from a bare `new Thread`, an `async void` method that awaits a faulting task and a coroutine: Unity logged each on every backend tested, and with the SDK each was reported (on the iPhone and the Honor Mono Release build). The pool loss was seen on both Mono Release and Development without the SDK, and in a Release build with it. With a forced `GC.Collect()` plus `GC.WaitForPendingFinalizers()` (at 8 s and again at 11 s after the throw, observed until 16 s; no longer wait, and the event is known to be able to arrive tens of seconds after a collection), 4 of 18 task cases did not raise `UnobservedTaskException` in that window (Mono Release `Task.Run`; IL2CPP Android `Task.Run` and an awaited-then-dropped `async Task`; iOS an awaited-then-dropped `async Task`, without the SDK). Not measured: Windows or desktop players, other Unity versions, other devices.
 
 Why the pool case is silent on Mono is taken from knowledge of the Mono runtime source, not verified on symbols of this build: the managed pool dispatch loop has no catch-all, the native pool worker invokes the work item with a call that catches the exception, and Unity sets Mono's legacy unhandled-exception policy, under which that path does not raise `AppDomain.UnhandledException`. A `new Thread` has no catching frame, so the event is raised before the policy is consulted.
 
