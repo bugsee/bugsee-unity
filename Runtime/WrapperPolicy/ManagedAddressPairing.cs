@@ -1,5 +1,4 @@
 using System;
-using System.Text.RegularExpressions;
 
 namespace Bugsee.WrapperPolicy
 {
@@ -33,12 +32,6 @@ namespace Bugsee.WrapperPolicy
     /// </summary>
     public static class ManagedAddressPairing
     {
-        // "... in /path/File.cs:123" (a usym entry), or "in <32 hex>:123" (usym entry without a file name).
-        // Release IL2CPP without a usym file prints "in <32 hex>:0".
-        static readonly Regex SourceLocation = new Regex(
-            @"\sin\s+(?<file>.+):(?<line>\d+)\s*$",
-            RegexOptions.Compiled);
-
         /// <summary>A line of the stack text that separates segments instead of being a frame.</summary>
         public static bool IsSeparator(string line)
         {
@@ -49,10 +42,12 @@ namespace Bugsee.WrapperPolicy
         public static bool HasSourceLocation(string line)
         {
             if (string.IsNullOrEmpty(line)) return false;
-            var m = SourceLocation.Match(line);
-            if (!m.Success) return false;
+            // "... in /path/File.cs:123" (a usym entry), or "in <32 hex>:123" (usym entry without a file name).
+            // Release IL2CPP without a usym file prints "in <32 hex>:0".
+            string file, digits;
+            if (!ManagedFrameLocation.TryInLocation(line, out file, out digits)) return false;
             int number;
-            return int.TryParse(m.Groups["line"].Value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out number) && number > 0;
+            return int.TryParse(digits, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out number) && number > 0;
         }
 
         public static string FormatAddress(ulong moduleRelative)
