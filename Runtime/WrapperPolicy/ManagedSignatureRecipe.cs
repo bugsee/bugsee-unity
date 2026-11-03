@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace Bugsee.WrapperPolicy
 {
@@ -35,11 +34,6 @@ namespace Bugsee.WrapperPolicy
         // Wrapper namespaces are engine; the sample app's own code lives in Bugsee.Sample and counts as user code.
         const string SampleNamespace = "Bugsee.Sample.";
 
-        // libunity.so, libil2cpp.so, libmono-2.0.so, optionally followed by "(+0x...)": the ".so" must end the name.
-        static readonly Regex SharedLibrary = new Regex(@"^lib[^\s/()]*\.so(?![A-Za-z0-9_])", RegexOptions.Compiled);
-        static readonly Regex AtLocation = new Regex(@"\(at\s+(?<file>.+):(?<line>\d+)\)\s*$", RegexOptions.Compiled);
-        static readonly Regex InLocation = new Regex(@"\sin\s+(?<file>.+):(?<line>\d+)\s*$", RegexOptions.Compiled);
-
         /// <summary><c>Type.Method</c> of a frame line ("at " prefix, arguments, offsets and location dropped); "" when none.</summary>
         public static string MethodToken(string frame)
         {
@@ -63,7 +57,7 @@ namespace Bugsee.WrapperPolicy
             if (token.Length == 0 || token[0] == '(') return true; // "(wrapper managed-to-native)" and the like
             if (token[0] == '#' || token.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return true; // native lines of a Unity log: "#00 pc ...", "0x... in UnityFramework"
             // A line that starts with a shared library name ("libunity.so(+0x1a2b)"); never a substring of a managed frame's class or path.
-            if (SharedLibrary.IsMatch(token)) return true;
+            if (ManagedFrameLocation.IsSharedLibrary(token)) return true; // libunity.so, libil2cpp.so, libmono-2.0.so, optionally followed by "(+0x...)": the ".so" must end the name
             if (token.StartsWith(SampleNamespace, StringComparison.Ordinal)) return false;
             foreach (var p in EnginePrefixes)
             {
@@ -81,15 +75,14 @@ namespace Bugsee.WrapperPolicy
             file = null;
             line = 0;
             if (string.IsNullOrEmpty(frame)) return false;
-            var m = AtLocation.Match(frame);
-            if (!m.Success) m = InLocation.Match(frame);
-            if (!m.Success) return false;
-            if (!int.TryParse(m.Groups["line"].Value, System.Globalization.NumberStyles.Integer,
+            string path, digits;
+            if (!ManagedFrameLocation.TryAtLocation(frame, out path, out digits) && !ManagedFrameLocation.TryInLocation(frame, out path, out digits)) return false;
+            if (!int.TryParse(digits, System.Globalization.NumberStyles.Integer,
                     System.Globalization.CultureInfo.InvariantCulture, out line) || line <= 0)
             {
                 return false;
             }
-            var path = m.Groups["file"].Value.Trim();
+            path = path.Trim();
             var cut = Math.Max(path.LastIndexOf('/'), path.LastIndexOf('\\'));
             var name = cut >= 0 ? path.Substring(cut + 1) : path;
             if (name.Length == 0 || name[0] == '<') return false;

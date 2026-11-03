@@ -1,0 +1,377 @@
+10-29 17:54:22.429 E/Unity   (28149):   at Bugsee.Sample.Fixture126.FixtureFrames126.AsyncThrow (System.String marker, System.Int32 delayMs) [0x00067] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:54:22.429 E/Unity   (28149):   at Bugsee.Sample.Fixture126.FixtureFrames126.AsyncVoid (System.String marker) [0x00062] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:54:22.429 E/Unity   (28149):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00004] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:54:22.429 E/Unity   (28149):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00019] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:54:22.429 E/Unity   (28149):   at System.Runtime.CompilerServices.AsyncMethodBuilderCore+<>c.<ThrowAsync>b__7_0 (System.Object state) [0x00000] in <e1ffdc4680f74920a053e29d93b0b619>:0 
+10-29 17:54:22.429 E/Unity   (28149):   at UnityEngine.UnitySynchronizationContext+WorkRequest.Invoke () [0x00002] in <b297c6cdf33c4d89bba6429f040aed16>:0 
+10-29 17:54:22.429 E/Unity   (28149):   at UnityEngine.UnitySynchronizationContext.Exec () [0x00056] in <b297c6cdf33c4d89bba6429f040aed16>:0 
+10-29 17:54:22.429 E/Unity   (28149): InvalidOperationException: fx sync fx126-125419
+10-29 17:54:59.335 I/Unity   (28383): [FX126-RAW] scenario=fx-lambda type=System.InvalidOperationException msg=fx lambda fx126-125458 3
+10-29 17:54:59.438 I/Unity   (28383): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+<>c__DisplayClass5_0.<Lambda>b__0 (System.Int32 n) [0x00020] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:54:59.438 I/Unity   (28383): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+<>c__DisplayClass5_0.<Lambda>b__1 (System.Int32 v) [0x00000] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:54:59.439 I/Unity   (28383): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Lambda (System.String marker) [0x0002b] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:54:59.439 I/Unity   (28383): [FX126-RAW]   at System.Collections.Generic.List`1[T].ForEach (System.Action`1[T] action) [0x0001e] in <e1ffdc4680f74920a053e29d93b0b619>:0 
+10-29 17:54:59.443 I/Unity   (28383): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x0004a] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:54:59.444 I/Unity   (28383): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00083] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:55:39.590 E/Unity   (28640):   at Bugsee.Sample.BugseeSampleBootstrap.Update () [0x000cf] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:55:39.590 E/Unity   (28640):   at Bugsee.Sample.Fixture126.FixtureFrames126+<>c__DisplayClass5_0.<Lambda>b__0 (System.Int32 n) [0x00020] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:55:39.590 E/Unity   (28640):   at Bugsee.Sample.Fixture126.FixtureFrames126+<>c__DisplayClass5_0.<Lambda>b__1 (System.Int32 v) [0x00000] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:55:39.590 E/Unity   (28640):   at Bugsee.Sample.Fixture126.FixtureFrames126.Lambda (System.String marker) [0x0002b] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:55:39.590 E/Unity   (28640):   at Bugsee.Sample.Fixture126.FixtureFrames126.RunUnhandled (System.String kind, System.String marker) [0x00014] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:55:39.590 E/Unity   (28640):   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x0004a] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:55:39.590 E/Unity   (28640):   at System.Collections.Generic.List`1[T].ForEach (System.Action`1[T] action) [0x0001e] in <e1ffdc4680f74920a053e29d93b0b619>:0 
+10-29 17:55:39.590 E/Unity   (28640): InvalidOperationException: fx lambda fx126-125538 3
+10-29 17:56:17.937 I/Unity   (28913): [FX126-RAW] scenario=fx-generic type=System.InvalidOperationException msg=fx generic fx126-125617 Int32
+10-29 17:56:18.042 I/Unity   (28913): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Generic[T] (T value, System.String marker) [0x0003e] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:56:18.043 I/Unity   (28913): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00051] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:56:18.047 I/Unity   (28913): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00083] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:56:57.955 E/Unity   (29154):   at Bugsee.Sample.BugseeSampleBootstrap.Update () [0x000cf] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:56:57.955 E/Unity   (29154):   at Bugsee.Sample.Fixture126.FixtureFrames126.Generic[T] (T value, System.String marker) [0x0003e] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:56:57.955 E/Unity   (29154):   at Bugsee.Sample.Fixture126.FixtureFrames126.RunUnhandled (System.String kind, System.String marker) [0x00014] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:56:57.955 E/Unity   (29154):   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00051] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:56:57.955 E/Unity   (29154): InvalidOperationException: fx generic fx126-125656 Int32
+10-29 17:57:36.394 I/Unity   (29391): [FX126-RAW] scenario=fx-nested type=System.InvalidOperationException msg=fx nested fx126-125735
+10-29 17:57:36.498 I/Unity   (29391): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.Compute (System.Int32 depth, System.String label) [0x0000f] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:57:36.498 I/Unity   (29391): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.Compute (System.Int32 depth, System.String label) [0x00015] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:57:36.499 I/Unity   (29391): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.Compute (System.Int32 depth, System.String label) [0x00015] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:57:36.499 I/Unity   (29391): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.StaticCompute (Bugsee.Sample.Fixture126.FixtureFrames126+Point p, System.String tag) [0x00005] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:57:36.499 I/Unity   (29391): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Nested (System.String marker) [0x00018] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:57:36.500 I/Unity   (29391): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00083] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:57:36.500 I/Unity   (29391): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x0005a] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:58:16.538 E/Unity   (29624):   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.Compute (System.Int32 depth, System.String label) [0x0000f] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:58:16.538 E/Unity   (29624):   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.Compute (System.Int32 depth, System.String label) [0x00015] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:58:16.538 E/Unity   (29624):   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.StaticCompute (Bugsee.Sample.Fixture126.FixtureFrames126+Point p, System.String tag) [0x00005] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:58:16.538 E/Unity   (29624):   at Bugsee.Sample.Fixture126.FixtureFrames126.Nested (System.String marker) [0x00018] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:58:16.538 E/Unity   (29624):   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x0005a] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:58:16.538 E/Unity   (29624): InvalidOperationException: fx nested fx126-125815
+10-29 17:58:54.315 I/Unity   (29860): [FX126-RAW] scenario=fx-ctor type=System.ArgumentException msg=fx ctor fx126-125853
+10-29 17:58:54.418 I/Unity   (29860): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Boom..ctor (System.String why) [0x00011] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:58:54.418 I/Unity   (29860): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Ctor (System.String marker) [0x00000] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:58:54.419 I/Unity   (29860): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00083] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:58:54.419 I/Unity   (29860): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00061] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:59:34.637 E/Unity   (30085):   at Bugsee.Sample.BugseeSampleBootstrap.Update () [0x000cf] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:59:34.637 E/Unity   (30085):   at Bugsee.Sample.Fixture126.FixtureFrames126+Boom..ctor (System.String why) [0x00011] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:59:34.637 E/Unity   (30085):   at Bugsee.Sample.Fixture126.FixtureFrames126.Ctor (System.String marker) [0x00000] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:59:34.637 E/Unity   (30085):   at Bugsee.Sample.Fixture126.FixtureFrames126.RunUnhandled (System.String kind, System.String marker) [0x00014] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:59:34.637 E/Unity   (30085):   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00061] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 17:59:34.637 E/Unity   (30085): ArgumentException: fx ctor fx126-125933
+10-29 18:00:25.561 I/Unity   (31536): [FX126-RAW] scenario=fx-sync type=System.InvalidOperationException msg=fx sync fx126-130024
+10-29 18:00:25.733 I/Unity   (31536): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00016] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:43 
+10-29 18:00:25.737 I/Unity   (31536): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x0000a] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:42 
+10-29 18:00:25.740 I/Unity   (31536): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00048] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:114 
+10-29 18:00:25.743 I/Unity   (31536): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00095] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:88 
+10-29 18:01:01.826 E/Unity   (  522):   at Bugsee.Sample.Fixture126.FixtureFrames126.RunUnhandled (System.String kind, System.String marker) [0x0001a] in /work/work/p-dev-disabled/Assets/Scripts/Bug
+10-29 18:01:01.826 E/Unity   (  522):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x0000a] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:42 
+10-29 18:01:01.826 E/Unity   (  522):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00016] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:43 
+10-29 18:01:01.826 E/Unity   (  522):   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00048] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:114 
+10-29 18:01:01.826 E/Unity   (  522): InvalidOperationException: fx sync fx126-130059
+10-29 18:01:39.908 I/Unity   ( 1025): [FX126-RAW] scenario=fx-async type=System.InvalidOperationException msg=fx sync fx126-130139
+10-29 18:01:40.026 I/Unity   ( 1025): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00016] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:43 
+10-29 18:01:40.032 I/Unity   ( 1025): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x0000a] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:42 
+10-29 18:01:40.048 I/Unity   ( 1025): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.AsyncThrow (System.String marker, System.Int32 delayMs) [0x00071] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:49 
+10-29 18:01:40.052 I/Unity   ( 1025): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x0003f] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:87 
+10-29 18:02:21.641 E/Unity   ( 1909):   at Bugsee.Sample.Fixture126.FixtureFrames126.AsyncThrow (System.String marker, System.Int32 delayMs) [0x00071] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:49 
+10-29 18:02:21.641 E/Unity   ( 1909):   at Bugsee.Sample.Fixture126.FixtureFrames126.AsyncVoid (System.String marker) [0x00022] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFra
+10-29 18:02:21.641 E/Unity   ( 1909):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x0000a] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:42 
+10-29 18:02:21.641 E/Unity   ( 1909):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00016] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:43 
+10-29 18:02:21.641 E/Unity   ( 1909): InvalidOperationException: fx sync fx126-130218
+10-29 18:02:57.629 I/Unity   ( 2537): [FX126-RAW] scenario=fx-lambda type=System.InvalidOperationException msg=fx lambda fx126-130257 3
+10-29 18:02:57.832 I/Unity   ( 2537): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+<>c__DisplayClass5_0.<Lambda>b__0 (System.Int32 n) [0x00009] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:56 
+10-29 18:02:57.836 I/Unity   ( 2537): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+<>c__DisplayClass5_0.<Lambda>b__1 (System.Int32 v) [0x00000] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:60 
+10-29 18:02:57.839 I/Unity   ( 2537): [FX126-RAW]   at System.Collections.Generic.List`1[T].ForEach (System.Action`1[T] action) [0x0001e] in <e1ffdc4680f74920a053e29d93b0b619>:0 
+10-29 18:02:57.844 I/Unity   ( 2537): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Lambda (System.String marker) [0x0002e] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:60 
+10-29 18:02:57.865 I/Unity   ( 2537): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00052] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:115 
+10-29 18:02:57.883 I/Unity   ( 2537): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00095] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:88 
+10-29 18:03:37.877 E/Unity   ( 2952):   at Bugsee.Sample.Fixture126.FixtureFrames126+<>c__DisplayClass5_0.<Lambda>b__0 (System.Int32 n) [0x00009] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:56 
+10-29 18:03:37.877 E/Unity   ( 2952):   at Bugsee.Sample.Fixture126.FixtureFrames126+<>c__DisplayClass5_0.<Lambda>b__1 (System.Int32 v) [0x00000] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:60 
+10-29 18:03:37.877 E/Unity   ( 2952):   at Bugsee.Sample.Fixture126.FixtureFrames126.Lambda (System.String marker) [0x0002e] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:60 
+10-29 18:03:37.877 E/Unity   ( 2952):   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x0005
+10-29 18:03:37.877 E/Unity   ( 2952):   at System.Collections.Generic.List`1[T].ForEach (System.Action`1[T] action) [0x0001e] in <e1ffdc4680f74920a053e29d93b0b619>:0 
+10-29 18:03:37.877 E/Unity   ( 2952): InvalidOperationException: fx lambda fx126-130336 3
+10-29 18:04:15.989 I/Unity   ( 3365): [FX126-RAW] scenario=fx-generic type=System.InvalidOperationException msg=fx generic fx126-130415 Int32
+10-29 18:04:16.138 I/Unity   ( 3365): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Generic[T] (T value, System.String marker) [0x00024] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:66 
+10-29 18:04:16.141 I/Unity   ( 3365): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x0005b] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:116 
+10-29 18:04:16.144 I/Unity   ( 3365): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00095] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:88 
+10-29 18:04:56.522 E/Unity   ( 3769):   at Bugsee.Sample.BugseeSampleBootstrap.Update () [0x000f3] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/BugseeSampleBootstrap.cs:307
+10-29 18:04:56.522 E/Unity   ( 3769):   at Bugsee.Sample.Fixture126.FixtureFrames126.Generic[T] (T value, System.String marker) [0x00024] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:66 
+10-29 18:04:56.522 E/Unity   ( 3769):   at Bugsee.Sample.Fixture126.FixtureFrames126.RunUnhandled (System.String kind, System.String marker) [0x0001a] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:102 
+10-29 18:04:56.522 E/Unity   ( 3769):   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x0005b] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:116 
+10-29 18:04:56.522 E/Unity   ( 3769): InvalidOperationException: fx generic fx126-130454 Int32
+10-29 18:05:33.690 I/Unity   ( 4116): [FX126-RAW] scenario=fx-nested type=System.InvalidOperationException msg=fx nested fx126-130533
+10-29 18:05:33.855 I/Unity   ( 4116): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.Compute (System.Int32 depth, System.String label) [0x0000c] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:24 
+10-29 18:05:33.858 I/Unity   ( 4116): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.Compute (System.Int32 depth, System.String label) [0x0001d] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:25 
+10-29 18:05:33.862 I/Unity   ( 4116): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.Compute (System.Int32 depth, System.String label) [0x0001d] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:25 
+10-29 18:05:33.865 I/Unity   ( 4116): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.StaticCompute (Bugsee.Sample.Fixture126.FixtureFrames126+Point p, System.String tag) [0x00001] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:30 
+10-29 18:05:33.888 I/Unity   ( 4116): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Nested (System.String marker) [0x00001] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:71 
+10-29 18:05:33.916 I/Unity   ( 4116): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00065] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:117 
+10-29 18:05:33.947 I/Unity   ( 4116): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00095] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:88 
+10-29 18:06:14.311 E/Unity   ( 4456):   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.Compute (System.Int32 depth, System.String label) [0x0000c] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:24 
+10-29 18:06:14.311 E/Unity   ( 4456):   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.Compute (System.Int32 depth, System.String label) [0x0001d] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:25 
+10-29 18:06:14.311 E/Unity   ( 4456):   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.StaticCompute (Bugsee.Sample.Fixture126.FixtureFrames126+Point p, System.String tag) [0x00001] in /Volumes/External2TB/Projec
+10-29 18:06:14.311 E/Unity   ( 4456): InvalidOperationException: fx nested fx126-130612
+10-29 18:06:51.947 I/Unity   ( 4771): [FX126-RAW] scenario=fx-ctor type=System.ArgumentException msg=fx ctor fx126-130651
+10-29 18:06:52.118 I/Unity   ( 4771): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Boom..ctor (System.String why) [0x00008] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:37 
+10-29 18:06:52.123 I/Unity   ( 4771): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Ctor (System.String marker) [0x00001] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:76 
+10-29 18:06:52.147 I/Unity   ( 4771): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x0006e] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:118 
+10-29 18:06:52.155 I/Unity   ( 4771): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00095] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:88 
+10-29 18:07:32.666 E/Unity   ( 5053):   at Bugsee.Sample.Fixture126.FixtureFrames126+Boom..ctor (System.String why) [0x00008] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:37 
+10-29 18:07:32.666 E/Unity   ( 5053):   at Bugsee.Sample.Fixture126.FixtureFrames126.Ctor (System.String marker) [0x00001] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:76 
+10-29 18:07:32.666 E/Unity   ( 5053):   at Bugsee.Sample.Fixture126.FixtureFrames126.RunUnhandled (System.String kind, System.String marker) [0x0001a] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:102 
+10-29 18:07:32.666 E/Unity   ( 5053):   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x0006e] in /work/work/p-dev-disabled/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:118 
+10-29 18:07:32.666 E/Unity   ( 5053): ArgumentException: fx ctor fx126-130730
+10-29 18:35:17.965 I/Unity   ( 8989): [FX126-RAW] scenario=fx-sync type=System.InvalidOperationException msg=fx sync fx126-133517
+10-29 18:35:18.090 I/Unity   ( 8989): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00019] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 18:35:18.091 I/Unity   ( 8989): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00004] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 18:35:18.091 I/Unity   ( 8989): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00042] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 18:35:18.092 I/Unity   ( 8989): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00083] in <35bfffb23b81439da9f3a1f0fc9a9a07>:0 
+10-29 21:17:14.842 I/Unity   (14905): [FX126-RAW] scenario=fx-sync type=System.InvalidOperationException msg=fx sync fx126-161714
+10-29 21:17:15.018 I/Unity   (14905): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00021] in <3bb9283a4b6c43f0a8267eeabba1c9ed>:0 
+10-29 21:17:15.020 I/Unity   (14905): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x0000a] in <3bb9283a4b6c43f0a8267eeabba1c9ed>:0 
+10-29 21:17:15.022 I/Unity   (14905): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00048] in <3bb9283a4b6c43f0a8267eeabba1c9ed>:0 
+10-29 21:17:15.031 I/Unity   (14905): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00095] in <3bb9283a4b6c43f0a8267eeabba1c9ed>:0 
+10-29 21:17:44.637 E/Unity   (15161):   at Bugsee.Sample.Fixture126.FixtureFrames126.AsyncThrow (System.String marker, System.Int32 delayMs) [0x00071] in <3bb9283a4b6c43f0a8267eeabba1c9ed>:0 
+10-29 21:17:44.637 E/Unity   (15161):   at Bugsee.Sample.Fixture126.FixtureFrames126.AsyncVoid (System.String marker) [0x0006b] in <3bb9283a4b6c43f0a8267eeabba1c9ed>:0 
+10-29 21:17:44.637 E/Unity   (15161):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x0000a] in <3bb9283a4b6c43f0a8267eeabba1c9ed>:0 
+10-29 21:17:44.637 E/Unity   (15161):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00021] in <3bb9283a4b6c43f0a8267eeabba1c9ed>:0 
+10-29 21:17:44.637 E/Unity   (15161):   at System.Runtime.CompilerServices.AsyncMethodBuilderCore+<>c.<ThrowAsync>b__7_0 (System.Object state) [0x00000] in <e1ffdc4680f74920a053e29d93b0b619>:0 
+10-29 21:17:44.637 E/Unity   (15161):   at UnityEngine.UnitySynchronizationContext+WorkRequest.Invoke () [0x00002] in <b297c6cdf33c4d89bba6429f040aed16>:0 
+10-29 21:17:44.637 E/Unity   (15161):   at UnityEngine.UnitySynchronizationContext.Exec () [0x00056] in <b297c6cdf33c4d89bba6429f040aed16>:0 
+10-29 21:17:44.637 E/Unity   (15161): InvalidOperationException: fx sync fx126-161741
+10-29 21:18:08.600 I/Unity   (15400): [FX126-RAW] scenario=fx-lambda type=System.InvalidOperationException msg=fx lambda fx126-161808 3
+10-29 21:18:08.820 I/Unity   (15400): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+<>c__DisplayClass5_0.<Lambda>b__0 (System.Int32 n) [0x00025] in <3bb9283a4b6c43f0a8267eeabba1c9ed>:0 
+10-29 21:18:08.822 I/Unity   (15400): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+<>c__DisplayClass5_0.<Lambda>b__1 (System.Int32 v) [0x00000] in <3bb9283a4b6c43f0a8267eeabba1c9ed>:0 
+10-29 21:18:08.830 I/Unity   (15400): [FX126-RAW]   at System.Collections.Generic.List`1[T].ForEach (System.Action`1[T] action) [0x0001e] in <e1ffdc4680f74920a053e29d93b0b619>:0 
+10-29 21:18:08.832 I/Unity   (15400): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Lambda (System.String marker) [0x0002e] in <3bb9283a4b6c43f0a8267eeabba1c9ed>:0 
+10-29 21:18:08.834 I/Unity   (15400): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00052] in <3bb9283a4b6c43f0a8267eeabba1c9ed>:0 
+10-29 21:18:08.836 I/Unity   (15400): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00095] in <3bb9283a4b6c43f0a8267eeabba1c9ed>:0 
+10-29 21:18:36.627 E/Unity   (15634):   at Bugsee.Sample.BugseeSampleBootstrap.Update () [0x00105] in <3bb9283a4b6c43f0a8267eeabba1c9ed>:0 
+10-29 21:18:36.627 E/Unity   (15634):   at Bugsee.Sample.Fixture126.FixtureFrames126.RunUnhandled (System.String kind, System.String marker) [0x0001a] in <3bb9283a4b6c43f0a8267eeabba1c9ed>:0 
+10-29 21:18:36.627 E/Unity   (15634):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x0000a] in <3bb9283a4b6c43f0a8267eeabba1c9ed>:0 
+10-29 21:18:36.627 E/Unity   (15634):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00021] in <3bb9283a4b6c43f0a8267eeabba1c9ed>:0 
+10-29 21:18:36.627 E/Unity   (15634):   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00048] in <3bb9283a4b6c43f0a8267eeabba1c9ed>:0 
+10-29 21:18:36.627 E/Unity   (15634): InvalidOperationException: fx sync fx126-161835
+10-29 21:20:16.513 I/Unity   (17479): [FX126-RAW] scenario=fx-sync type=System.InvalidOperationException msg=fx sync fx126-162016
+10-29 21:20:16.653 I/Unity   (17479): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00016] in /work/work/p-dev-low/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:43 
+10-29 21:20:16.659 I/Unity   (17479): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x0000a] in /work/work/p-dev-low/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:42 
+10-29 21:20:16.661 I/Unity   (17479): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00048] in /work/work/p-dev-low/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:114 
+10-29 21:20:16.664 I/Unity   (17479): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00095] in /work/work/p-dev-low/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:88 
+10-29 21:20:45.563 E/Unity   (17731):   at Bugsee.Sample.Fixture126.FixtureFrames126.AsyncThrow (System.String marker, System.Int32 delayMs) [0x00071] in /work/work/p-dev-low/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:49 
+10-29 21:20:45.563 E/Unity   (17731):   at Bugsee.Sample.Fixture126.FixtureFrames126.AsyncVoid (System.String marker) [0x00022] in /work/work/p-dev-low/Assets/Scripts/BugseeHarness/FixtureFrames126.c
+10-29 21:20:45.563 E/Unity   (17731):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x0000a] in /work/work/p-dev-low/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:42 
+10-29 21:20:45.563 E/Unity   (17731):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00016] in /work/work/p-dev-low/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:43 
+10-29 21:20:45.563 E/Unity   (17731): InvalidOperationException: fx sync fx126-162042
+10-29 21:21:09.606 I/Unity   (17965): [FX126-RAW] scenario=fx-lambda type=System.InvalidOperationException msg=fx lambda fx126-162109 3
+10-29 21:21:09.805 I/Unity   (17965): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+<>c__DisplayClass5_0.<Lambda>b__0 (System.Int32 n) [0x00009] in /work/work/p-dev-low/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:56 
+10-29 21:21:09.807 I/Unity   (17965): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+<>c__DisplayClass5_0.<Lambda>b__1 (System.Int32 v) [0x00000] in /work/work/p-dev-low/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:60 
+10-29 21:21:09.810 I/Unity   (17965): [FX126-RAW]   at System.Collections.Generic.List`1[T].ForEach (System.Action`1[T] action) [0x0001e] in <b114c05986fc42faac831fec92aea788>:0 
+10-29 21:21:09.813 I/Unity   (17965): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Lambda (System.String marker) [0x0002e] in /work/work/p-dev-low/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:60 
+10-29 21:21:09.815 I/Unity   (17965): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00052] in /work/work/p-dev-low/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:115 
+10-29 21:21:09.818 I/Unity   (17965): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00095] in /work/work/p-dev-low/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:88 
+10-29 21:21:37.766 E/Unity   (18199):   at Bugsee.Sample.Fixture126.FixtureFrames126.RunUnhandled (System.String kind, System.String marker) [0x0001a] in /work/work/p-dev-low/Assets/Scripts/BugseeHarne
+10-29 21:21:37.766 E/Unity   (18199):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x0000a] in /work/work/p-dev-low/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:42 
+10-29 21:21:37.766 E/Unity   (18199):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00016] in /work/work/p-dev-low/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:43 
+10-29 21:21:37.766 E/Unity   (18199):   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00048] in /work/work/p-dev-low/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:114 
+10-29 21:21:37.766 E/Unity   (18199): InvalidOperationException: fx sync fx126-162136
+10-29 21:24:17.546 I/Unity   (20099): [FX126-RAW] scenario=fx-sync type=System.InvalidOperationException msg=fx sync fx126-162416
+10-29 21:24:17.666 I/Unity   (20099): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x0000e] in /work/work/p-dev-cscopt/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:43 
+10-29 21:24:17.668 I/Unity   (20099): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00004] in /work/work/p-dev-cscopt/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:42 
+10-29 21:24:17.671 I/Unity   (20099): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00042] in /work/work/p-dev-cscopt/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:114 
+10-29 21:24:17.673 I/Unity   (20099): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00083] in /work/work/p-dev-cscopt/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:88 
+10-29 21:24:47.326 E/Unity   (20353):   at Bugsee.Sample.Fixture126.FixtureFrames126.AsyncThrow (System.String marker, System.Int32 delayMs) [0x00067] in /work/work/p-dev-cscopt/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:49 
+10-29 21:24:47.326 E/Unity   (20353):   at Bugsee.Sample.Fixture126.FixtureFrames126.AsyncVoid (System.String marker) [0x0001d] in /work/work/p-dev-cscopt/Assets/Scripts/BugseeHarness/Fixtur
+10-29 21:24:47.326 E/Unity   (20353):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00004] in /work/work/p-dev-cscopt/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:42 
+10-29 21:24:47.326 E/Unity   (20353):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x0000e] in /work/work/p-dev-cscopt/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:43 
+10-29 21:24:47.326 E/Unity   (20353): InvalidOperationException: fx sync fx126-162444
+10-29 21:25:11.359 I/Unity   (20605): [FX126-RAW] scenario=fx-lambda type=System.InvalidOperationException msg=fx lambda fx126-162510 3
+10-29 21:25:11.506 I/Unity   (20605): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+<>c__DisplayClass5_0.<Lambda>b__0 (System.Int32 n) [0x00004] in /work/work/p-dev-cscopt/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:56 
+10-29 21:25:11.517 I/Unity   (20605): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+<>c__DisplayClass5_0.<Lambda>b__1 (System.Int32 v) [0x00000] in /work/work/p-dev-cscopt/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:60 
+10-29 21:25:11.520 I/Unity   (20605): [FX126-RAW]   at System.Collections.Generic.List`1[T].ForEach (System.Action`1[T] action) [0x0001e] in <e1ffdc4680f74920a053e29d93b0b619>:0 
+10-29 21:25:11.527 I/Unity   (20605): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Lambda (System.String marker) [0x0002b] in /work/work/p-dev-cscopt/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:60 
+10-29 21:25:11.529 I/Unity   (20605): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x0004a] in /work/work/p-dev-cscopt/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:115 
+10-29 21:25:11.532 I/Unity   (20605): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00083] in /work/work/p-dev-cscopt/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:88 
+10-29 21:25:39.689 E/Unity   (20846):   at Bugsee.Sample.Fixture126.FixtureFrames126.RunUnhandled (System.String kind, System.String marker) [0x00014] in /work/work/p-dev-cscopt/Assets/Scripts
+10-29 21:25:39.689 E/Unity   (20846):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00004] in /work/work/p-dev-cscopt/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:42 
+10-29 21:25:39.689 E/Unity   (20846):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x0000e] in /work/work/p-dev-cscopt/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:43 
+10-29 21:25:39.689 E/Unity   (20846):   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00042] in /work/work/p-dev-cscopt/Assets/Scripts/BugseeHarness/FixtureFrames126.cs:114 
+10-29 21:25:39.689 E/Unity   (20846): InvalidOperationException: fx sync fx126-162538
+10-30 18:43:49.563 I/Unity   (26326): [FX126-RAW] scenario=fx-sync type=System.InvalidOperationException msg=fx sync fx126-134349
+10-30 18:43:49.754 I/Unity   (26326): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00021] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:43:49.756 I/Unity   (26326): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x0000a] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:43:49.757 I/Unity   (26326): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00048] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:43:49.759 I/Unity   (26326): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00095] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:44:17.035 E/Unity   (26589):   at Bugsee.Sample.BugseeSampleBootstrap.Update () [0x00105] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:44:17.035 E/Unity   (26589):   at Bugsee.Sample.Fixture126.FixtureFrames126.RunUnhandled (System.String kind, System.String marker) [0x0001a] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:44:17.035 E/Unity   (26589):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x0000a] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:44:17.035 E/Unity   (26589):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00021] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:44:17.035 E/Unity   (26589):   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00048] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:44:17.035 E/Unity   (26589): InvalidOperationException: fx sync fx126-134415
+10-30 18:44:46.281 E/Unity   (26924):   at Bugsee.Sample.Fixture126.FixtureFrames126.AsyncThrow (System.String marker, System.Int32 delayMs) [0x00071] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:44:46.281 E/Unity   (26924):   at Bugsee.Sample.Fixture126.FixtureFrames126.AsyncVoid (System.String marker) [0x0006b] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:44:46.281 E/Unity   (26924):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x0000a] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:44:46.281 E/Unity   (26924):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00021] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:44:46.281 E/Unity   (26924):   at System.Runtime.CompilerServices.AsyncMethodBuilderCore+<>c.<ThrowAsync>b__7_0 (System.Object state) [0x00000] in <b114c05986fc42faac831fec92aea788>:0 
+10-30 18:44:46.281 E/Unity   (26924):   at UnityEngine.UnitySynchronizationContext+WorkRequest.Invoke () [0x00002] in <b67c566d47e44fa4bb283031d01cdb52>:0 
+10-30 18:44:46.281 E/Unity   (26924):   at UnityEngine.UnitySynchronizationContext.Exec () [0x00056] in <b67c566d47e44fa4bb283031d01cdb52>:0 
+10-30 18:44:46.281 E/Unity   (26924): InvalidOperationException: fx sync fx126-134443
+10-30 18:45:10.984 I/Unity   (27166): [FX126-RAW] scenario=fx-lambda type=System.InvalidOperationException msg=fx lambda fx126-134510 3
+10-30 18:45:11.138 I/Unity   (27166): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+<>c__DisplayClass5_0.<Lambda>b__0 (System.Int32 n) [0x00025] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:45:11.143 I/Unity   (27166): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+<>c__DisplayClass5_0.<Lambda>b__1 (System.Int32 v) [0x00000] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:45:11.150 I/Unity   (27166): [FX126-RAW]   at System.Collections.Generic.List`1[T].ForEach (System.Action`1[T] action) [0x0001e] in <b114c05986fc42faac831fec92aea788>:0 
+10-30 18:45:11.152 I/Unity   (27166): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Lambda (System.String marker) [0x0002e] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:45:11.154 I/Unity   (27166): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00052] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:45:11.158 I/Unity   (27166): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00095] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:45:37.263 I/Unity   (27399): [FX126-RAW] scenario=fx-generic type=System.InvalidOperationException msg=fx generic fx126-134536 Int32
+10-30 18:45:37.419 I/Unity   (27399): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Generic[T] (T value, System.String marker) [0x00043] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:45:37.422 I/Unity   (27399): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x0005b] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:45:37.424 I/Unity   (27399): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00095] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:46:04.484 I/Unity   (27635): [FX126-RAW] scenario=fx-nested type=System.InvalidOperationException msg=fx nested fx126-134603
+10-30 18:46:04.634 I/Unity   (27635): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.Compute (System.Int32 depth, System.String label) [0x00017] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:46:04.639 I/Unity   (27635): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.Compute (System.Int32 depth, System.String label) [0x0001d] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:46:04.644 I/Unity   (27635): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.Compute (System.Int32 depth, System.String label) [0x0001d] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:46:04.650 I/Unity   (27635): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.StaticCompute (Bugsee.Sample.Fixture126.FixtureFrames126+Point p, System.String tag) [0x00006] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:46:04.654 I/Unity   (27635): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Nested (System.String marker) [0x00019] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:46:04.657 I/Unity   (27635): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00065] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:46:04.662 I/Unity   (27635): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00095] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:46:31.362 I/Unity   (27864): [FX126-RAW] scenario=fx-ctor type=System.ArgumentException msg=fx ctor fx126-134630
+10-30 18:46:31.555 I/Unity   (27864): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Boom..ctor (System.String why) [0x00013] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:46:31.562 I/Unity   (27864): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Ctor (System.String marker) [0x00001] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:46:31.568 I/Unity   (27864): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x0006e] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:46:31.573 I/Unity   (27864): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00095] in <5e19160c6fc34c9188f0a1d64927a56d>:0 
+10-30 18:47:51.852 I/Unity   (29138): [FX126-RAW] scenario=fx-sync type=System.InvalidOperationException msg=fx sync fx126-134751
+10-30 18:47:51.953 I/Unity   (29138): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00019] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:47:51.954 I/Unity   (29138): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00083] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:47:51.954 I/Unity   (29138): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00004] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:47:51.954 I/Unity   (29138): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00042] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:48:19.576 E/Unity   (29398):   at Bugsee.Sample.BugseeSampleBootstrap.Update () [0x000cf] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:48:19.576 E/Unity   (29398):   at Bugsee.Sample.Fixture126.FixtureFrames126.RunUnhandled (System.String kind, System.String marker) [0x00014] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:48:19.576 E/Unity   (29398):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00004] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:48:19.576 E/Unity   (29398):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00019] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:48:19.576 E/Unity   (29398):   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00042] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:48:19.576 E/Unity   (29398): InvalidOperationException: fx sync fx126-134818
+10-30 18:48:48.612 E/Unity   (29714):   at Bugsee.Sample.Fixture126.FixtureFrames126.AsyncThrow (System.String marker, System.Int32 delayMs) [0x00067] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:48:48.612 E/Unity   (29714):   at Bugsee.Sample.Fixture126.FixtureFrames126.AsyncVoid (System.String marker) [0x00062] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:48:48.612 E/Unity   (29714):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00004] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:48:48.612 E/Unity   (29714):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00019] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:48:48.612 E/Unity   (29714):   at System.Runtime.CompilerServices.AsyncMethodBuilderCore+<>c.<ThrowAsync>b__7_0 (System.Object state) [0x00000] in <4502e43e926b4807ace07059d8743031>:0 
+10-30 18:48:48.612 E/Unity   (29714):   at UnityEngine.UnitySynchronizationContext+WorkRequest.Invoke () [0x00002] in <8cd5bcdb29be4e12ac52e64a7cda3b7c>:0 
+10-30 18:48:48.612 E/Unity   (29714):   at UnityEngine.UnitySynchronizationContext.Exec () [0x00056] in <8cd5bcdb29be4e12ac52e64a7cda3b7c>:0 
+10-30 18:48:48.612 E/Unity   (29714): InvalidOperationException: fx sync fx126-134845
+10-30 18:49:13.034 I/Unity   (29965): [FX126-RAW] scenario=fx-lambda type=System.InvalidOperationException msg=fx lambda fx126-134912 3
+10-30 18:49:13.142 I/Unity   (29965): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+<>c__DisplayClass5_0.<Lambda>b__0 (System.Int32 n) [0x00020] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:49:13.142 I/Unity   (29965): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+<>c__DisplayClass5_0.<Lambda>b__1 (System.Int32 v) [0x00000] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:49:13.143 I/Unity   (29965): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Lambda (System.String marker) [0x0002b] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:49:13.143 I/Unity   (29965): [FX126-RAW]   at System.Collections.Generic.List`1[T].ForEach (System.Action`1[T] action) [0x0001e] in <4502e43e926b4807ace07059d8743031>:0 
+10-30 18:49:13.144 I/Unity   (29965): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00083] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:49:13.144 I/Unity   (29965): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x0004a] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:49:40.673 I/Unity   (30196): [FX126-RAW] scenario=fx-generic type=System.InvalidOperationException msg=fx generic fx126-134940 Int32
+10-30 18:49:40.766 I/Unity   (30196): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Generic[T] (T value, System.String marker) [0x0003e] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:49:40.766 I/Unity   (30196): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00051] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:49:40.767 I/Unity   (30196): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00083] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:50:07.363 I/Unity   (30428): [FX126-RAW] scenario=fx-nested type=System.InvalidOperationException msg=fx nested fx126-135006
+10-30 18:50:07.458 I/Unity   (30428): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.Compute (System.Int32 depth, System.String label) [0x0000f] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:50:07.458 I/Unity   (30428): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.Compute (System.Int32 depth, System.String label) [0x00015] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:50:07.459 I/Unity   (30428): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.StaticCompute (Bugsee.Sample.Fixture126.FixtureFrames126+Point p, System.String tag) [0x00005] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:50:07.459 I/Unity   (30428): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Nested (System.String marker) [0x00018] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:50:07.460 I/Unity   (30428): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00083] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:50:07.460 I/Unity   (30428): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x0005a] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:50:34.804 I/Unity   (30659): [FX126-RAW] scenario=fx-ctor type=System.ArgumentException msg=fx ctor fx126-135034
+10-30 18:50:34.886 I/Unity   (30659): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Boom..ctor (System.String why) [0x00011] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:50:34.887 I/Unity   (30659): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Ctor (System.String marker) [0x00000] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:50:34.887 I/Unity   (30659): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00061] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 18:50:34.888 I/Unity   (30659): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00083] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 20:08:19.143 I/Unity   ( 5253): [FX126-RAW] scenario=fx-sync type=System.InvalidOperationException msg=fx sync fx126-150818
+10-30 20:08:19.251 I/Unity   ( 5253): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00004] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 20:08:19.251 I/Unity   ( 5253): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00019] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 20:08:19.252 I/Unity   ( 5253): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00083] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 20:08:19.252 I/Unity   ( 5253): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00042] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 20:08:46.149 I/Unity   ( 5573): [FX126-RAW] scenario=fx-lambda type=System.InvalidOperationException msg=fx lambda fx126-150845 3
+10-30 20:08:46.248 I/Unity   ( 5573): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+<>c__DisplayClass5_0.<Lambda>b__0 (System.Int32 n) [0x00020] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 20:08:46.249 I/Unity   ( 5573): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+<>c__DisplayClass5_0.<Lambda>b__1 (System.Int32 v) [0x00000] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 20:08:46.250 I/Unity   ( 5573): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Lambda (System.String marker) [0x0002b] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 20:08:46.250 I/Unity   ( 5573): [FX126-RAW]   at System.Collections.Generic.List`1[T].ForEach (System.Action`1[T] action) [0x0001e] in <4502e43e926b4807ace07059d8743031>:0 
+10-30 20:08:46.251 I/Unity   ( 5573): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00083] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 20:08:46.251 I/Unity   ( 5573): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x0004a] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 20:09:15.665 E/Unity   ( 5833):   at Bugsee.Sample.Fixture126.FixtureFrames126.AsyncThrow (System.String marker, System.Int32 delayMs) [0x00067] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 20:09:15.665 E/Unity   ( 5833):   at Bugsee.Sample.Fixture126.FixtureFrames126.AsyncVoid (System.String marker) [0x00062] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 20:09:15.665 E/Unity   ( 5833):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00004] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 20:09:15.665 E/Unity   ( 5833):   at Bugsee.Sample.Fixture126.FixtureFrames126.Sync (System.String marker, System.Int32 level) [0x00019] in <bb636f338b4a479787bfa25dea3c125e>:0 
+10-30 20:09:15.665 E/Unity   ( 5833):   at System.Runtime.CompilerServices.AsyncMethodBuilderCore+<>c.<ThrowAsync>b__7_0 (System.Object state) [0x00000] in <4502e43e926b4807ace07059d8743031>:0 
+10-30 20:09:15.665 E/Unity   ( 5833):   at UnityEngine.UnitySynchronizationContext+WorkRequest.Invoke () [0x00002] in <8cd5bcdb29be4e12ac52e64a7cda3b7c>:0 
+10-30 20:09:15.665 E/Unity   ( 5833):   at UnityEngine.UnitySynchronizationContext.Exec () [0x00056] in <8cd5bcdb29be4e12ac52e64a7cda3b7c>:0 
+10-30 20:09:15.665 E/Unity   ( 5833): InvalidOperationException: fx sync fx126-150913
+11:50:35.377 I/Unity   ( 4531): [FX126-RAW] scenario=fx-generic type=System.InvalidOperationException msg=fx generic fx126-065034 Int32
+11:50:35.552 I/Unity   ( 4531): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Generic[T] (T value, System.String marker) [0x0003e] in <bb636f338b4a479787bfa25dea3c125e>:0 
+11:50:35.554 I/Unity   ( 4531): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x00051] in <bb636f338b4a479787bfa25dea3c125e>:0 
+11:50:35.572 I/Unity   ( 4531): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00083] in <bb636f338b4a479787bfa25dea3c125e>:0 
+11:51:03.462 I/Unity   ( 6133): [FX126-RAW] scenario=fx-nested type=System.InvalidOperationException msg=fx nested fx126-065103
+11:51:03.557 I/Unity   ( 6133): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.Compute (System.Int32 depth, System.String label) [0x0000f] in <bb636f338b4a479787bfa25dea3c125e>:0 
+11:51:03.558 I/Unity   ( 6133): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.Compute (System.Int32 depth, System.String label) [0x00015] in <bb636f338b4a479787bfa25dea3c125e>:0 
+11:51:03.559 I/Unity   ( 6133): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126+Outer+Inner.StaticCompute (Bugsee.Sample.Fixture126.FixtureFrames126+Point p, System.String tag) [0x00005] in <bb636f338b4a479787bfa25dea3c125e>:0 
+11:51:03.559 I/Unity   ( 6133): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.Nested (System.String marker) [0x00018] in <bb636f338b4a479787bfa25dea3c125e>:0 
+11:51:03.560 I/Unity   ( 6133): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.RunHandled (System.String kind, System.String marker) [0x00083] in <bb636f338b4a479787bfa25dea3c125e>:0 
+11:51:03.560 I/Unity   ( 6133): [FX126-RAW]   at Bugsee.Sample.Fixture126.FixtureFrames126.ThrowSync (System.String kind, System.String marker) [0x0005a] in <bb636f338b4a479787bfa25dea3c125e>:0 
+Bugsee.Bugsee:HandleNativeLifecycle (string,object) (at /work/Runtime/Bugsee.cs:853)
+Bugsee.Internal.ExceptionPipeline:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[]) (at /work/Runtime/Internal/ExceptionPipeline.cs:143)
+Bugsee.Internal.MainThreadDispatcher:DrainQueueInline () (at /work/Runtime/Internal/MainThreadDispatcher.cs:43)
+Bugsee.Internal.ManagedViewHierarchy/<>c__DisplayClass7_0:<LogLater>b__0 () (at /work/Runtime/Internal/ManagedViewHierarchy.cs:74)
+Bugsee.Sample.BugseeSampleBootstrap:LaunchSdk () (at Assets/Scripts/BugseeHarness/BugseeSampleBootstrap.cs:261)
+Bugsee.Sample.BugseeSampleBootstrap:LaunchSdk () (at Assets/Scripts/BugseeHarness/BugseeSampleBootstrap.cs:264)
+Bugsee.Sample.BugseeSampleBootstrap:OnLifecycle (string,object) (at Assets/Scripts/BugseeHarness/BugseeSampleBootstrap.cs:1393)
+Bugsee.Sample.BugseeSampleBootstrap:SetStatus (string) (at Assets/Scripts/BugseeHarness/BugseeSampleBootstrap.cs:135)
+Bugsee.Sample.BugseeSampleBootstrap:Start () (at Assets/Scripts/BugseeHarness/BugseeSampleBootstrap.cs:121)
+Bugsee.Sample.FieldWorldBuilder:Build (int,int) (at Assets/Scripts/MiniGame/World/FieldWorldBuilder.cs:96)
+Bugsee.Sample.FieldWorldBuilder:ScatterGrass (int) (at Assets/Scripts/MiniGame/World/FieldWorldBuilder.cs:411)
+Bugsee.Sample.Fixture126.FixtureFrames126/<RunHandled>d__10:MoveNext () (at Assets/Scripts/BugseeHarness/FixtureFrames126.cs:92)
+Bugsee.Sample.Fixture126.FixtureFrames126/<RunHandled>d__10:MoveNext () (at Assets/Scripts/BugseeHarness/FixtureFrames126.cs:93)
+Bugsee.Sample.MiniGameBootstrap:Awake () (at Assets/Scripts/MiniGame/MiniGameBootstrap.cs:29)
+Bugsee.Sample.MiniGameBootstrap:BuildWorld () (at Assets/Scripts/MiniGame/MiniGameBootstrap.cs:106)
+Bugsee.Sample.MiniGameBootstrap:BuildWorld () (at Assets/Scripts/MiniGame/MiniGameBootstrap.cs:64)
+Bugsee.Sample.ProceduralMaterials:CreateLit (UnityEngine.Color,UnityEngine.Texture2D) (at Assets/Scripts/MiniGame/World/ProceduralMaterials.cs:31)
+Bugsee.Sample.ProceduralMaterials:LogOnce (UnityEngine.Shader) (at Assets/Scripts/MiniGame/World/ProceduralMaterials.cs:105)
+Bugsee.Sample.ProceduralMaterials:ResolveLitShader () (at Assets/Scripts/MiniGame/World/ProceduralMaterials.cs:80)
+UnityEngine.StackTraceUtility:ExtractStackTrace () (at /home/bokken/build/output/unity/unity/Runtime/Export/Scripting/StackTrace.cs:37)
+    6ceee000-6d4affff r--         0    5c2000  /data/app/APP/lib/arm/libmonobdwgc-2.0.so
+#00 pc 0000000000093540  /apex/com.android.runtime/lib64/bionic/libc.so (abort+164) 
+#00 pc 004f146c  /data/app/APP/lib/arm/libmonobdwgc-2.0.so (GC_mark_from+1592)
+#01 pc 004e7a6c  /data/app/APP/lib/arm/libmonobdwgc-2.0.so (GC_mark_some+692)
+#02 pc 004e75b4  /data/app/APP/lib/arm/libmonobdwgc-2.0.so (GC_collect_a_little_inner+132)
+#03 pc 004ea974  /data/app/APP/lib/arm/libmonobdwgc-2.0.so (GC_allocobj+204)
+#04 pc 004e0404  /data/app/APP/lib/arm/libmonobdwgc-2.0.so (GC_generic_malloc_inner+540)
+#05 pc 004ec0c4  /data/app/APP/lib/arm/libmonobdwgc-2.0.so (GC_generic_malloc+160)
+#06 pc 004f30b0  /data/app/APP/lib/arm/libmonobdwgc-2.0.so (GC_malloc_kind_global+412)
+#07 pc 004f279c  /data/app/APP/lib/arm/libmonobdwgc-2.0.so (GC_malloc_kind+28)
+#08 pc 004ebc5c  /data/app/APP/lib/arm/libmonobdwgc-2.0.so (GC_malloc+24)
+#09 pc 004804c8  /data/app/APP/lib/arm/libmonobdwgc-2.0.so (mono_gc_alloc_vector+328)
+#12 pc 000000000008b6d4  /apex/com.android.runtime/lib64/bionic/libc.so (__libc_init+104) 
+memory near lr (/apex/com.android.runtime/lib64/bionic/libc.so):
+memory near lr (/data/app/APP/lib/arm/libmonobdwgc-2.0.so):
+libandroid_runtime.so		_JNIEnv::CallStaticVoidMethod(_jclass*, _jmethodID*, ...) [SystemFrame]
+libandroid_runtime.so		android::AndroidRuntime::javaThreadShell(void*) [SystemFrame]
+libandroid_runtime.so		android::AndroidRuntime::start(char const*, android::Vector<android::String8> const&, bool) [SystemFrame]
+libandroid_runtime.so		android::android_os_MessageQueue_nativePollOnce(_JNIEnv*, _jobject*, long long, int) [SystemFrame]
+libart.so		_jobject* art::InvokeMethod<(art::PointerSize)4>(art::ScopedObjectAccessAlreadyRunnable const&, _jobject*, _jobject*, _jobject*, unsigned int) [SystemFrame]
+libart.so		art::ArtMethod::Invoke(art::Thread*, unsigned int*, unsigned int, art::JValue*, char const*) [SystemFrame]
+libart.so		art::ConditionVariable::TimedWait(art::Thread*, long long, int) [SystemFrame]
+libart.so		art::ConditionVariable::WaitHoldingLocks(art::Thread*) [SystemFrame]
+libart.so		art::JNI<true>::CallStaticVoidMethodV(_JNIEnv*, _jclass*, _jmethodID*, std::__va_list) [SystemFrame]
+libart.so		art::JValue art::InvokeWithVarArgs<_jmethodID*>(art::ScopedObjectAccessAlreadyRunnable const&, _jobject*, _jmethodID*, std::__va_list) [SystemFrame]
+libart.so		art::Method_invoke(_JNIEnv*, _jobject*, _jobject*, _jobjectArray*) (.__uniq.165753521025965369065708152063621506277) [SystemFrame]
+libart.so		art::Monitor::Wait(art::Thread*, art::ObjPtr<art::mirror::Object>, long long, int, bool, art::ThreadState) [SystemFrame]
+libart.so		art::Object_waitJI(_JNIEnv*, _jobject*, long long, int) (.__uniq.93429965329032005513714586366871002690) [SystemFrame]
+libart.so		art::ProfileSaver::RunProfileSaverThread(void*) [SystemFrame]
+libart.so		art::SignalCatcher::Run(void*) [SystemFrame]
+libart.so		art::Thread::CreateCallback(void*) [SystemFrame]
+libart.so		art::Thread::CreateCallbackWithUffdGc(void*) [SystemFrame]
+libart.so		art::Thread::Park(bool, long long) [SystemFrame]
+libart.so		art::ThreadPoolWorker::Callback(void*) [SystemFrame]
+libart.so		art::ThreadPoolWorker::Run() [SystemFrame]
+libart.so		art::Unsafe_park(_JNIEnv*, _jobject*, unsigned char, long long) (.__uniq.319429422067363160645159987129209045680) [SystemFrame]
+libart.so		art::gc::TaskProcessor::RunAllTasks(art::Thread*) [SystemFrame]
+libart.so		art_quick_invoke_static_stub [SystemFrame]
+libart.so		art_quick_invoke_stub [SystemFrame]
+libart.so		art_quick_invoke_stub_internal [SystemFrame]
+libart.so		nterp_helper [SystemFrame]
+libaudioclient.so		android::AudioTrack::AudioTrackThread::threadLoop() [SystemFrame]
+libaudioclient.so		android::AudioTrack::obtainBuffer(android::AudioTrack::Buffer*, timespec const*, timespec*, unsigned int*) [SystemFrame]
+libaudioclient.so		android::AudioTrack::processAudioBuffer() [SystemFrame]
+libaudioclient.so		android::ClientProxy::obtainBuffer(android::Proxy::Buffer*, timespec const*, timespec*) [SystemFrame]
