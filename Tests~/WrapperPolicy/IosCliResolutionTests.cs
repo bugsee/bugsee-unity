@@ -81,8 +81,8 @@ namespace Bugsee.WrapperPolicy.Tests
         [TestCase("home/.bugsee/bin/bugsee-cli")]
         [TestCase("home/.local/bin/bugsee-cli")]
         [TestCase("home/.cargo/bin/bugsee-cli")]
-        [TestCase("home/Library/Caches/Bugsee/cli/0.8.1/aarch64-apple-darwin/bugsee-cli")]
-        [TestCase("home/.cache/bugsee/cli/0.8.1/x86_64-unknown-linux-gnu/bugsee-cli")]
+        [TestCase("home/Library/Caches/Bugsee/cli/0.9.0/aarch64-apple-darwin/bugsee-cli")]
+        [TestCase("home/.cache/bugsee/cli/0.9.0/x86_64-unknown-linux-gnu/bugsee-cli")]
         [TestCase("system/bugsee-cli")]
         public void Finds_the_cli_in_an_install_or_cache_directory_under_a_minimal_PATH(string relative)
         {
@@ -245,7 +245,7 @@ namespace Bugsee.WrapperPolicy.Tests
             }
         }
 
-        [TestCase("bugsee-cli 0.8.1\n")]
+        [TestCase("bugsee-cli 0.9.0\n")]
         [TestCase("bugsee-cli 10.0.0\n")]
         [TestCase("bugsee-cli 1.2.0 (protocol 0.3.1)\n")]
         [TestCase("bugsee-cli 0.8.0\n")]
@@ -517,7 +517,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
             string Calls => Path("calls.txt");
 
-            public string Stub(string relative, string version = "0.8.1", int exitCode = 0, string versionOutput = null)
+            public string Stub(string relative, string version = "0.9.0", int exitCode = 0, string versionOutput = null)
             {
                 string file = Path(relative);
                 Directory.CreateDirectory(System.IO.Path.GetDirectoryName(file));

@@ -152,6 +152,13 @@ namespace Bugsee.Editor
 
         // cp -RP keeps the symlinks inside the xcframework's frameworks, which a file-by-file copy would turn into duplicate
         // trees, and works from a read-only source (ditto does not); the copy is made writable afterwards.
+        /// <summary>What a selective copy takes: the 7.0.x manifest declares a path for each of its source targets, so each one that
+        /// the source has must come along (BugseeCrashExtension is only there in a package that ships the Crash Report Extension).</summary>
+        public static readonly string[] SelectedItems =
+        {
+            "Package.swift", "Bugsee.xcframework", Path.Combine("Sources", "BugseeSwiftUI"), Path.Combine("Sources", "BugseeCrashExtension"),
+        };
+
         static void CopySelected(string sourceDir, string destDir)
         {
             Directory.CreateDirectory(destDir);

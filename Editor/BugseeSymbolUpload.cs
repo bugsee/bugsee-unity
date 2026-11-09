@@ -215,7 +215,7 @@ namespace Bugsee.Editor
                 if (exit != 0)
                 {
                     Debug.LogWarning(
-                        $"Bugsee: bugsee-cli elf upload failed (exit {exit}) — build continues. " +
+                        $"Bugsee: bugsee-cli elf {BugseeCliPolicy.DescribeExit(exit)} " +
                         "Verify Unity symbols.zip layout (per-ABI folders with .so) and --uuid.");
                 }
                 return;
@@ -228,7 +228,7 @@ namespace Bugsee.Editor
                 if (exit != 0)
                 {
                     Debug.LogWarning(
-                        $"Bugsee: bugsee-cli elf upload failed for {dir} (exit {exit}) — build continues.");
+                        $"Bugsee: bugsee-cli elf {dir}: {BugseeCliPolicy.DescribeExit(exit)}");
                 }
             }
 
@@ -289,7 +289,7 @@ namespace Bugsee.Editor
             var exit = BugseeCliRunner.Run(args);
             if (exit != 0)
             {
-                Debug.LogWarning($"Bugsee: bugsee-cli {type} upload failed (exit {exit}) — build continues.");
+                Debug.LogWarning($"Bugsee: bugsee-cli {type} {BugseeCliPolicy.DescribeExit(exit)}");
             }
 
             return best;

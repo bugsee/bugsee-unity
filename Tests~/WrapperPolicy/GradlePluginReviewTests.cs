@@ -14,7 +14,7 @@ namespace Bugsee.WrapperPolicy.Tests
     {
         const GradleMavenInjection.GradleDsl Groovy = GradleMavenInjection.GradleDsl.Groovy;
         const GradleMavenInjection.GradleDsl Kotlin = GradleMavenInjection.GradleDsl.Kotlin;
-        const string Version = "4.0.8";
+        const string Version = "4.1.1";
 
         static string Read(string set, string name) =>
             File.ReadAllText(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", set, name));
@@ -70,15 +70,15 @@ namespace Bugsee.WrapperPolicy.Tests
             string name, string root, GradleMavenInjection.GradleDsl rootDsl, string launcher, GradleMavenInjection.GradleDsl launcherDsl)
         {
             var once = GradlePluginInjection.Apply(root, rootDsl, launcher, launcherDsl, Version);
-            var bumped = GradlePluginInjection.Apply(once.Root, rootDsl, once.Launcher, launcherDsl, "4.1.0");
+            var bumped = GradlePluginInjection.Apply(once.Root, rootDsl, once.Launcher, launcherDsl, "4.2.0");
 
             string all = bumped.Root + bumped.Launcher;
-            Assert.That(all, Does.Not.Contain("4.0.8"), name);
+            Assert.That(all, Does.Not.Contain("4.1.1"), name);
             // Every shape that writes a version writes exactly one marked line carrying the new one; the others write none.
-            int withVersion = System.Text.RegularExpressions.Regex.Matches(all, @"com\.bugsee[^\n]*4\.1\.0[^\n]*// bugsee:gradle-plugin").Count;
-            bool carriesVersion = (once.Root + once.Launcher).Contains("4.0.8");
+            int withVersion = System.Text.RegularExpressions.Regex.Matches(all, @"com\.bugsee[^\n]*4\.2\.0[^\n]*// bugsee:gradle-plugin").Count;
+            bool carriesVersion = (once.Root + once.Launcher).Contains("4.1.1");
             Assert.That(withVersion, Is.EqualTo(carriesVersion ? 1 : 0), name);
-            Assert.That(GradlePluginInjection.Apply(bumped.Root, rootDsl, bumped.Launcher, launcherDsl, "4.1.0").Launcher, Is.EqualTo(bumped.Launcher), name);
+            Assert.That(GradlePluginInjection.Apply(bumped.Root, rootDsl, bumped.Launcher, launcherDsl, "4.2.0").Launcher, Is.EqualTo(bumped.Launcher), name);
         }
 
         [Test]
@@ -158,7 +158,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 KotlinRoot, Kotlin, "apply plugin: 'com.android.application'\n", Groovy, Version);
 
             Assert.That(patch.Applied, Is.False);
-            Assert.That(patch.Message, Does.Contain("id(\"com.bugsee.android.gradle\") version \"4.0.8\" apply false in the root plugins"));
+            Assert.That(patch.Message, Does.Contain("id(\"com.bugsee.android.gradle\") version \"4.1.1\" apply false in the root plugins"));
             Assert.That(patch.Message, Does.Contain("apply plugin: 'com.bugsee.android.gradle'"));
         }
 
@@ -442,7 +442,7 @@ namespace Bugsee.WrapperPolicy.Tests
             var patch = GradlePluginInjection.Apply(KotlinRoot, Kotlin, launcher, Kotlin, Version);
 
             Assert.That(patch.Applied, Is.True);
-            Assert.That(patch.Launcher, Does.Contain("    id(\"com.android.application\")\n    id(\"com.bugsee.android.gradle\") version \"4.0.8\" // bugsee:gradle-plugin\n}"));
+            Assert.That(patch.Launcher, Does.Contain("    id(\"com.android.application\")\n    id(\"com.bugsee.android.gradle\") version \"4.1.1\" // bugsee:gradle-plugin\n}"));
         }
 
         [Test]

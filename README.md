@@ -32,17 +32,17 @@ log warns when its version differs from the one this package pins.
 
 | Platform | Integration | Current pin |
 |---|---|---|
-| **Android** | Maven Central, declared in the generated Gradle project by `BugseeAndroidMavenDependencies` | `bugsee-android:7.4.2` + `bugsee-android-ndk:7.4.2` |
-| **iOS** | Swift Package Manager + `Plugins/iOS/BugseeUnityBridge.mm` | [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.0` |
+| **Android** | Maven Central, declared in the generated Gradle project by `BugseeAndroidMavenDependencies` | `bugsee-android:7.5.0` + `bugsee-android-ndk:7.5.0` |
+| **iOS** | Swift Package Manager + `Plugins/iOS/BugseeUnityBridge.mm` | [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.1` |
 
 **Android stack**
 
 | Piece | Status |
 |---|---|
-| `bugsee-android` | **7.4.2**, added to `unityLibrary/build.gradle` at build time (no Maven transitives) |
+| `bugsee-android` | **7.5.0**, added to `unityLibrary/build.gradle` at build time (no Maven transitives) |
 | `bugsee-android-ndk` | Same version, declared alongside (native fatal capture for IL2CPP primary LNM) |
 | `mavenCentral()` | Added to the generated project repositories only if Unity's layout lacks it |
-| Gradle plugin `4.0.8` | Patched into the generated Gradle project by `BugseeAndroidGradleSetup` when it pins AGP 8.6+ (Unity 6; `ndk { enabled = true }`; for an Export Project the block also reads `BUGSEE_APP_TOKEN` from the environment of the later Gradle build, see [Export Project](Documentation~/index.md#export-project-android)), in Groovy or Kotlin DSL files, see [Gradle file layouts](Documentation~/index.md#gradle-file-layouts). On Unity 2021.3 / 2022.3 (AGP 7.4.2) and Unity 6000.0.1-44 (AGP 8.3.0) it cannot run; the build-id asset is added instead and symbols are uploaded by the Editor with `bugsee-cli` found or downloaded automatically, see [Documentation~/index.md](Documentation~/index.md#unity-20213-and-20223-no-bugsee-gradle-plugin) |
+| Gradle plugin `4.1.1` | Patched into the generated Gradle project by `BugseeAndroidGradleSetup` when it pins AGP 8.6+ (Unity 6; `ndk { enabled = true }`; for an Export Project the block also reads `BUGSEE_APP_TOKEN` from the environment of the later Gradle build, see [Export Project](Documentation~/index.md#export-project-android)), in Groovy or Kotlin DSL files, see [Gradle file layouts](Documentation~/index.md#gradle-file-layouts). On Unity 2021.3 / 2022.3 (AGP 7.5.0) and Unity 6000.0.1-44 (AGP 8.3.0) it cannot run; the build-id asset is added instead and symbols are uploaded by the Editor with `bugsee-cli` found or downloaded automatically, see [Documentation~/index.md](Documentation~/index.md#unity-20213-and-20223-no-bugsee-gradle-plugin) |
 
 ### Refreshing native artifacts
 
@@ -63,6 +63,8 @@ See [Documentation~/index.md](Documentation~/index.md) for:
 - Hang / ANR / OOM launch options
 - `BUGSEE_APP_TOKEN` Editor uploads (`il2cpp-linemap`, `elf`, `proguard`); the IL2CPP mapping files are written without it, for a later CI upload
 - iOS archive-time dSYM + linemap Run Script
+- iOS native early launch (opt-in): `BUGSEE_IOS_EARLY_LAUNCH=1` + `BUGSEE_IOS_APP_TOKEN=<token>` (optional `BUGSEE_IOS_EARLY_LAUNCH_OPTIONS=<json>`) start the iOS SDK natively after Unity's `didFinishLaunching`, before the first scene; `Bugsee.Launch` then adopts it. Privacy: the SDK then starts before any C# consent check, even if `Bugsee.Launch` is never called. Launch-watchdog and jetsam kills are then reported through the crash extension (verified on an iPhone 16 Pro, iOS 27.2); options go through Info.plist, where the export escapes `$` as `\u0024` (Xcode would collapse `$$`)
+- iOS Crash Report Extension (out-of-memory kills on iOS 27+; launch-watchdog kills are normally not reported in Unity, because Bugsee starts at `Bugsee.Launch`, after the watchdog window): added by the export on Xcode 27+ in interactive builds with Automatically Sign on (Auto is off in batch mode; `=1` forces it); needs a Unity version that runs on iOS 27 (UIScene); `BUGSEE_IOS_CRASH_EXTENSION=auto|1|0`, `BUGSEE_IOS_APP_GROUP=group.<id>` (default `group.<bundle id>`)
 - Create symbols.zip / FULL native debug symbols vs SYMBOL_TABLE
 
 ## Layout

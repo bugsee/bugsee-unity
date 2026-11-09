@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace Bugsee.WrapperPolicy
@@ -47,7 +49,7 @@ namespace Bugsee.WrapperPolicy
     public sealed class CliProbe
     {
         public Func<string, bool> FileExists;
-        /// <summary>Runs <c>path --version</c>: the version it reports ("0.8.1"), or null when it does not run.</summary>
+        /// <summary>Runs <c>path --version</c>: the version it reports ("0.9.0"), or null when it does not run.</summary>
         public Func<string, string> QueryVersion;
         /// <summary>Downloads, verifies and unpacks the release once into a staging location; returns the binary's path. May throw.</summary>
         public Func<string, string> Fetch;
@@ -77,8 +79,8 @@ namespace Bugsee.WrapperPolicy
     /// </summary>
     public static class BugseeCliPolicy
     {
-        /// <summary>The release downloaded when none is installed. Same default as the Bugsee Gradle plugin 4.0.8.</summary>
-        public const string DefaultVersion = "0.8.1";
+        /// <summary>The release downloaded when none is installed. Same default as the Bugsee Gradle plugin 4.1.1.</summary>
+        public const string DefaultVersion = "0.9.0";
 
         /// <summary>
         /// Oldest installed CLI the Editor uses as is. Only the Android ELF upload needs 0.8.1, but every Editor upload (the
@@ -114,12 +116,12 @@ namespace Bugsee.WrapperPolicy
 
             switch (triple)
             {
-                case "aarch64-apple-darwin": return "0ef257f16ecd5d4666590a355ab20c1d6b44d94f1c17aea4b357a21ed96a7ecf";
-                case "x86_64-apple-darwin": return "35f6630cb1f05e9dd46d2cdc05741d72098f0d828fa8790412301c6d56912617";
-                case "x86_64-unknown-linux-gnu": return "4d9d985945f3ec20ce56b0dca0bdf208c0d240ea9855d17ea44c6993619b220b";
-                case "aarch64-unknown-linux-gnu": return "7617959bbfb14823a7cb86a1fcf876040b24ff1e5e778b3b557a44f7a375f298";
-                case "x86_64-pc-windows-msvc": return "08f97390a73ec3b710eac498bb05ce9dc436482af7f6f053f73f7b70e12988a5";
-                case "aarch64-pc-windows-msvc": return "9bd2fb8daa6b6f59704042a31526ea9c0343381c4bf9333002666f14248c2f1a";
+                case "aarch64-apple-darwin": return "2b3b9726f145b5417436d0673acf4f616eb4feb76e5cbfe3e19a885d323ca6af";
+                case "x86_64-apple-darwin": return "f801eab2e52a0a1f29ae945620ea05de38fe560bff06b9e350294d083345b11f";
+                case "x86_64-unknown-linux-gnu": return "e5bb65a83006799d642556c92a1a08ee85ee54a9cac480aea5338e636f4fb422";
+                case "aarch64-unknown-linux-gnu": return "88d20393c1ed3bdd3eb7751e25805eb5eef6e8693da65aba519e168bc52cc40c";
+                case "x86_64-pc-windows-msvc": return "f9221331df25889ff48f3ffed7ffc3d3c3bb638d21a5fdd5e34482c57010be7c";
+                case "aarch64-pc-windows-msvc": return "22bfd186120b22f8f2337a0cd75ac40d757b8b1987fa405ef8726381bf04100f";
                 default: return null;
             }
         }
@@ -163,6 +165,63 @@ namespace Bugsee.WrapperPolicy
             return new UriBuilder(uri) { UserName = "", Password = "" }.Uri.AbsoluteUri;
         }
 
+        /// <summary>
+        /// Whether a download may be fetched from <paramref name="url"/>: only https (any host, loopback included,
+        /// scheme compared case-insensitively). Applies to the BUGSEE_CLI_BASE_URL override too.
+        /// </summary>
+        public static bool IsAllowedDownloadUrl(string url) =>
+            url != null && url.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Throws <see cref="IOException"/> unless the SHA-256 of the file at <paramref name="path"/> equals
+        /// <paramref name="expectedHex"/> (hex, compared case-insensitively; a null or empty value never matches).
+        /// </summary>
+        public static void VerifyArchiveSha256(string path, string expectedHex)
+        {
+            string actual;
+            using (var sha = SHA256.Create())
+            using (var stream = File.OpenRead(path))
+            {
+                var hex = new StringBuilder();
+                foreach (byte b in sha.ComputeHash(stream))
+                {
+                    hex.Append(b.ToString("x2"));
+                }
+
+                actual = hex.ToString();
+            }
+
+            if (!string.Equals(expectedHex, actual, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException("SHA-256 mismatch for " + Path.GetFileName(path) + ": expected " + expectedHex + ", got " + actual);
+            }
+        }
+
+        /// <summary>
+        /// The warning for a bugsee-cli upload that exited with <paramref name="exitCode"/>, or null for 0. The text is
+        /// the generic "upload failed (exit N) — build continues." line; exit 50 (a panic after the request may have
+        /// been sent) adds that the upload may have been applied server-side. -1 is the runner's "failed to start".
+        /// </summary>
+        public static string DescribeExit(int exitCode)
+        {
+            if (exitCode == 0)
+            {
+                return null;
+            }
+
+            string text = "upload failed (exit " + exitCode + ") \u2014 build continues.";
+            if (exitCode == 50)
+            {
+                text += " " + ExitServerStateNote;
+            }
+
+            return text;
+        }
+
+        /// <summary>The note for exit 50 (InternalAfterSend); the iOS Run Script prints the same message in its own words.</summary>
+        public const string ExitServerStateNote =
+            "The upload may have been applied server-side: check the dashboard and do not re-run blindly.";
+
         public static bool IsWindowsTriple(string triple) => triple != null && triple.Contains("windows");
 
         public static string BinaryName(bool windows) => windows ? CliName + ".exe" : CliName;
@@ -203,7 +262,7 @@ namespace Bugsee.WrapperPolicy
             return first.ToLowerInvariant();
         }
 
-        /// <summary>"0.8.1" from "bugsee-cli 0.8.1" (the last token that starts with a digit), or null.</summary>
+        /// <summary>"0.9.0" from "bugsee-cli 0.9.0" (the last token that starts with a digit), or null.</summary>
         public static string ParseVersionOutput(string output)
         {
             if (string.IsNullOrWhiteSpace(output))

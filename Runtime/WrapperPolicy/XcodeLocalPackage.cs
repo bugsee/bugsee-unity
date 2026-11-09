@@ -86,7 +86,7 @@ namespace Bugsee.WrapperPolicy
                 {
                     // The package's other product has no package key when the package was local; give it the removed
                     // reference's id so RepointProducts can move it to whichever reference the export adds.
-                    if (package.Length == 0 && localReferences.Count > 0 && match.Groups["name"].Value == "BugseeSwiftUI")
+                    if (package.Length == 0 && localReferences.Count > 0 && (match.Groups["name"].Value == "BugseeSwiftUI" || match.Groups["name"].Value == "BugseeCrashExtension"))
                     {
                         string keyed = match.Value.Replace("productName = ", "package = " + First(localReferences) + ";\n\t\t\tproductName = ");
                         return keyed;

@@ -243,7 +243,7 @@ if [ -n ""${HOME}"" ]; then
   try_cli ""${HOME}/.local/bin/bugsee-cli""
   try_cli ""${HOME}/.cargo/bin/bugsee-cli""
   try_cli ""${HOME}/.bugsee/bin/bugsee-cli""
-  # The release the package pins (or BUGSEE_CLI_VERSION) first: a lexical glob would rank 0.10.0 below 0.8.1.
+  # The release the package pins (or BUGSEE_CLI_VERSION) first: a lexical glob would rank 0.10.0 below 0.9.0.
   WANT=""${BUGSEE_CLI_VERSION:-${PINNED_VERSION}}""
   WANT=""${WANT#v}""
   case ""${WANT}"" in

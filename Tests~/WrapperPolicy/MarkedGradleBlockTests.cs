@@ -7,7 +7,7 @@ namespace Bugsee.WrapperPolicy.Tests
     public class MarkedGradleBlockTests
     {
         const string Anchor = "plugins {";
-        const string Marked = "    id 'com.bugsee.android.gradle' version '4.0.8' apply false // bugsee:gradle-plugin";
+        const string Marked = "    id 'com.bugsee.android.gradle' version '4.1.1' apply false // bugsee:gradle-plugin";
         const string LauncherAnchor = "apply plugin: 'com.android.application'";
 
         static string UnityLauncherTemplate(string unity) =>
@@ -38,7 +38,7 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Legacy_bugsee_marker_upgrades_without_duplicating_at_anchor()
         {
             const string legacy =
-                Anchor + "\n    // Bugsee Gradle plugin\n    id 'com.bugsee.android.gradle' version '4.0.8' apply false\n}\n";
+                Anchor + "\n    // Bugsee Gradle plugin\n    id 'com.bugsee.android.gradle' version '4.1.1' apply false\n}\n";
             string once = MarkedGradleBlock.Apply(legacy, Anchor, Marked);
             Assert.That(once, Does.Contain("// bugsee:gradle-plugin"));
             Assert.That(once, Does.Not.Contain("// Bugsee Gradle plugin"));
@@ -55,9 +55,9 @@ namespace Bugsee.WrapperPolicy.Tests
             const string older =
                 Anchor + "\n    id 'com.bugsee.android.gradle' version '4.0.7' apply false // bugsee:gradle-plugin\n}\n";
             const string newer =
-                "    id 'com.bugsee.android.gradle' version '4.0.8' apply false // bugsee:gradle-plugin";
+                "    id 'com.bugsee.android.gradle' version '4.1.1' apply false // bugsee:gradle-plugin";
             string once = MarkedGradleBlock.Apply(older, Anchor, newer);
-            Assert.That(once, Does.Contain("version '4.0.8'"));
+            Assert.That(once, Does.Contain("version '4.1.1'"));
             Assert.That(once, Does.Not.Contain("version '4.0.7'"));
         }
 
@@ -88,7 +88,7 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             const string commented =
                 Anchor + "\n" +
-                "//    id 'com.bugsee.android.gradle' version '4.0.8' apply false // bugsee:gradle-plugin\n}\n";
+                "//    id 'com.bugsee.android.gradle' version '4.1.1' apply false // bugsee:gradle-plugin\n}\n";
             string once = MarkedGradleBlock.Apply(commented, Anchor, Marked);
             Assert.That(once, Does.Contain(Marked));
             Assert.That(once, Does.Not.Contain("//    id 'com.bugsee.android.gradle'"));

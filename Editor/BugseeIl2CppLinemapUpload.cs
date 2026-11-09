@@ -122,7 +122,7 @@ namespace Bugsee.Editor
             if (exit != 0)
             {
                 Debug.LogWarning(
-                    $"Bugsee: bugsee-cli il2cpp-linemap upload failed (exit {exit}) — build continues.");
+                    $"Bugsee: bugsee-cli il2cpp-linemap {BugseeCliPolicy.DescribeExit(exit)}");
             }
         }
 

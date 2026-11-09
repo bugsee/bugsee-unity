@@ -58,9 +58,9 @@ namespace Bugsee.WrapperPolicy.Tests
             var source = Source("Editor/BugseeCliLocator.cs");
             var fetch = Body(source, "static string FetchUnchecked(");
 
-            Assert.That(fetch, Does.Contain("StartsWith(\"https://\""));
+            Assert.That(fetch, Does.Contain("BugseeCliPolicy.IsAllowedDownloadUrl("));
             Assert.That(fetch, Does.Contain("BugseeCliPolicy.KnownSha256("));
-            Assert.That(fetch, Does.Contain("SHA-256 mismatch"));
+            Assert.That(fetch, Does.Contain("BugseeCliPolicy.VerifyArchiveSha256("));
             Assert.That(Body(source, "static string Install("), Does.Contain("File.Move(temp, finalBinary)"));
             Assert.That(source, Does.Contain("Fetch = version => Fetch(settings, version)"));
             Assert.That(source, Does.Contain("public void OnPreprocessBuild(BuildReport report) => BugseeCliLocator.Reset();"));

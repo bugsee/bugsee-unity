@@ -1,0 +1,174 @@
+// Native early launch (opt-in, off unless the Editor build step wrote the configuration into Info.plist).
+//
+// Unity starts the Bugsee iOS SDK from C# (Bugsee.Launch), after the engine's native startup and the iOS launch watchdog window.
+// With the early launch the SDK is started from here, very early, with the token and the JSON launch options fixed at build time
+// (Info.plist dictionary "BugseeEarlyLaunch", written by Editor/BugseeIosEarlyLaunchPostProcess.cs). The first C# Bugsee.Launch then
+// adopts that session (_bugsee_early_launch_adopt) instead of starting a second one. Without the dictionary nothing here runs.
+// See DESIGN.md, "iOS native early launch".
+
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#include <TargetConditionals.h>
+#include <stdlib.h>
+#include <string.h>
+
+#if __has_include(<Bugsee/Bugsee.h>)
+#import <Bugsee/Bugsee.h>
+#import <Bugsee/BugseeSPI.h>
+#define BUGSEE_EARLY_SDK 1
+#elif __has_include("Bugsee/Bugsee.h")
+#import "Bugsee/Bugsee.h"
+#import "Bugsee/BugseeSPI.h"
+#define BUGSEE_EARLY_SDK 1
+#else
+#define BUGSEE_EARLY_SDK 0
+#endif
+
+// The simulator slice of the SDK has no crash reporter and the Crash Report Extension never runs there: nothing to gain, so no early launch.
+#if BUGSEE_EARLY_SDK && !TARGET_OS_SIMULATOR && !TARGET_OS_MACCATALYST
+#define BUGSEE_EARLY_ACTIVE 1
+#else
+#define BUGSEE_EARLY_ACTIVE 0
+#endif
+
+#if BUGSEE_EARLY_ACTIVE
+
+// BugseeUnityCallbacks.mm
+extern "C" void _bugsee_ensure_wrapper(const char *version, const char *build);
+extern "C" void _bugsee_set_wrapper_context(const char *json);
+
+static NSString *const kBugseeEarlyKey = @"BugseeEarlyLaunch";
+
+// Unity builds with Objective-C exceptions disabled, so no @try and no @synchronized: a plain lock.
+static NSLock *EarlyLock(void)
+{
+    static NSLock *lock;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ lock = [NSLock new]; });
+    return lock;
+}
+
+// Guarded by EarlyLock.
+static BOOL gEarlyLaunched = NO;   // the early launch call was made
+static BOOL gEarlyAdopted = NO;    // a C# Launch has asked about it (once)
+static NSString *gEarlyToken = nil;
+static NSString *gEarlyOptionsJson = nil;
+
+static NSString *EarlyString(NSDictionary *config, NSString *key)
+{
+    id value = config[key];
+    return [value isKindOfClass:[NSString class]] ? (NSString *)value : nil;
+}
+
+static void BugseeEarlyLaunchRun(NSString *point)
+{
+    [EarlyLock() lock];
+    BOOL already = gEarlyLaunched;
+    gEarlyLaunched = YES;
+    [EarlyLock() unlock];
+    if (already) {
+        return;
+    }
+    {
+        NSDictionary *config = [[NSBundle mainBundle] objectForInfoDictionaryKey:kBugseeEarlyKey];
+        if (![config isKindOfClass:[NSDictionary class]]) {
+            return;
+        }
+        NSString *token = EarlyString(config, @"Token");
+        if (token.length == 0) {
+            return;
+        }
+        NSString *optionsJson = EarlyString(config, @"Options");
+        NSDictionary *options = nil;
+        if (optionsJson.length > 0) {
+            id parsed = [NSJSONSerialization JSONObjectWithData:[optionsJson dataUsingEncoding:NSUTF8StringEncoding]
+                                                        options:0
+                                                          error:nil];
+            if ([parsed isKindOfClass:[NSDictionary class]]) {
+                options = parsed;
+            }
+        }
+
+        // The wrapper identity the C# Launch reports (Unity wrapper version, build and host context), set before the SDK reads it.
+        NSString *version = EarlyString(config, @"WrapperVersion");
+        NSString *build = EarlyString(config, @"WrapperBuild");
+        _bugsee_ensure_wrapper(version.length ? version.UTF8String : NULL, build.length ? build.UTF8String : NULL);
+        NSDictionary *context = @{
+            @"unity_version": EarlyString(config, @"UnityVersion") ?: @"",
+            @"unity_platform": @"IPhonePlayer",
+            @"product_name": EarlyString(config, @"ProductName") ?: @"",
+        };
+        NSData *contextData = [NSJSONSerialization dataWithJSONObject:context options:0 error:nil];
+        NSString *contextJson = contextData ? [[NSString alloc] initWithData:contextData encoding:NSUTF8StringEncoding] : nil;
+        if (contextJson) {
+            _bugsee_set_wrapper_context(contextJson.UTF8String);
+        }
+
+        [EarlyLock() lock];
+        gEarlyToken = [token copy];
+        gEarlyOptionsJson = [optionsJson copy];
+        [EarlyLock() unlock];
+        NSLog(@"[Bugsee] Native early launch (%@).", point);
+        // Launch with the parsed options, like the C# launch does.
+        [Bugsee launchWithToken:token andOptions:options];
+    }
+}
+
+@interface BugseeEarlyLaunchHook : NSObject
+@end
+
+@implementation BugseeEarlyLaunchHook
+
++ (void)load
+{
+    if (![[NSBundle mainBundle] objectForInfoDictionaryKey:kBugseeEarlyKey]) {
+        return;
+    }
+    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification
+                                                      object:nil
+                                                       queue:nil
+                                                  usingBlock:^(NSNotification *note) {
+        BugseeEarlyLaunchRun(@"didFinishLaunching");
+    }];
+}
+
+@end
+
+extern "C" {
+
+// 0: nothing to adopt (the early launch did not run, or a C# Launch already asked). 1: the early launch ran (launchWithToken was
+// called): adopt it, whatever the SDK status is now, because the SDK defers the real start until the app is active (status stays
+// Stopped meanwhile) and a second launch call must never be made. 2: the same, but the token differs from the early one.
+// Answers once: the first C# Launch adopts, later ones (after a Stop, say) launch normally. Mirrors EarlyLaunchSession in
+// Runtime/WrapperPolicy/IosEarlyLaunchPolicy.cs (unit-tested there); C# also looks at the status (a stop in flight: no adoption).
+int _bugsee_early_launch_adopt(const char *appToken)
+{
+    [EarlyLock() lock];
+    int answer = 0;
+    if (gEarlyLaunched && !gEarlyAdopted && gEarlyToken != nil) {
+        gEarlyAdopted = YES;
+        NSString *given = appToken ? [NSString stringWithUTF8String:appToken] : nil;
+        answer = (given != nil && [given isEqualToString:gEarlyToken]) ? 1 : 2;
+    }
+    [EarlyLock() unlock];
+    return answer;
+}
+
+char *_bugsee_early_launch_options(void)
+{
+    [EarlyLock() lock];
+    char *copy = gEarlyOptionsJson ? strdup(gEarlyOptionsJson.UTF8String) : NULL;
+    [EarlyLock() unlock];
+    return copy;
+}
+
+} // extern "C"
+
+#else // early launch not available (no SDK, simulator, Mac Catalyst)
+
+extern "C" {
+int _bugsee_early_launch_adopt(const char *appToken) { (void)appToken; return 0; }
+char *_bugsee_early_launch_options(void) { return NULL; }
+}
+
+#endif

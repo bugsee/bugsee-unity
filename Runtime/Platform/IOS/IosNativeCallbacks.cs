@@ -308,11 +308,21 @@ namespace Bugsee.Platform.IOS
             // A string arrives as a JSON string literal, a dictionary as a JSON object: the same types as Android.
             object data = LifecyclePayload.Decode(dataJson);
 
-            MainThreadDispatcher.Run(() =>
+            MainThreadDispatcher.Run(() => DeliverLifecycle(eventType, data));
+        }
+
+        /// <summary>Events replayed after an adopted native early launch, and the filter that keeps each of them to one delivery.</summary>
+        internal static readonly EarlyLifecycleReplay EarlyReplay = new EarlyLifecycleReplay();
+
+        /// <summary>Main thread: hands a lifecycle event to the listeners (once, for the events an adopted early launch replays).</summary>
+        internal static void DeliverLifecycle(string eventType, object data)
+        {
+            try
             {
-                try { global::Bugsee.Bugsee.HandleNativeLifecycle(eventType, data); }
-                catch (Exception ex) { Debug.LogException(ex); }
-            });
+                if (!EarlyReplay.Admit(eventType)) return;
+                global::Bugsee.Bugsee.HandleNativeLifecycle(eventType, data);
+            }
+            catch (Exception ex) { Debug.LogException(ex); }
         }
 
         // The native tree is in points. Unity renders at the screen's native scale, which on a Plus, mini or Display Zoom device

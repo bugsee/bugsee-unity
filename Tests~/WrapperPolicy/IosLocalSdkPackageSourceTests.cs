@@ -193,6 +193,17 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void A_package_less_crash_extension_product_of_a_local_package_follows_a_switch_to_remote()
+        {
+            string crash = RoundTripped.Replace("productName = BugseeSwiftUI;", "productName = BugseeCrashExtension;")
+                .Replace("\t\t\tpackage = 493B4ABD96E30E264332E7A8;\n", "");
+            string local = XcodeLocalPackage.RemoveBugseePackage(crash, SpmUrl, "Bugsee", out var removed);
+            Assert.That(local, Does.Contain("productName = BugseeCrashExtension;"));
+            string added = XcodeLocalPackage.RepointProducts(local + UnityRemote, "69C04F549EE201CC179B0684", removed);
+            Assert.That(added, Does.Contain("package = 69C04F549EE201CC179B0684;\n\t\t\tproductName = BugseeCrashExtension;"));
+        }
+
+        [Test]
         public void Remove_then_unity_add_then_convert_yields_one_local_reference()
         {
             // What the export does to a project an earlier export left with a comment-less local reference:

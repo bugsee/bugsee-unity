@@ -30,7 +30,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
         // The anchors and payloads BugseeAndroidGradleSetup passes to MarkedGradleBlock.Apply.
         const string RootAnchor = "plugins {";
-        const string RootLine = "    id 'com.bugsee.android.gradle' version '4.0.8' apply false // bugsee:gradle-plugin";
+        const string RootLine = "    id 'com.bugsee.android.gradle' version '4.1.1' apply false // bugsee:gradle-plugin";
         const string LauncherAnchor = "apply plugin: 'com.android.application'";
         const string LauncherPatch =
             "apply plugin: 'com.bugsee.android.gradle' // bugsee:gradle-plugin\n\n" +
