@@ -40,6 +40,9 @@ namespace Bugsee.Sample
 #endif
             return BugseePackageVersion.AndroidSdkVersion;
         }
+        // Android SDK versions whose lifecycle behaviour the expectations below were checked against. On any other version the
+        // scenarios only log. A policy test (LifecycleE2EJudgedVersionsTests) fails when the pinned SDK is not listed here.
+        static readonly string[] JudgedSdkVersions = { "7.4.2", "7.5.0" };
         static bool _judge;
         static readonly Stopwatch Clock = Stopwatch.StartNew();
 
@@ -47,7 +50,7 @@ namespace Bugsee.Sample
         {
             _failures = 0;
             var sdkVersion = RunningSdkVersion();
-            _judge = sdkVersion == "7.4.2";
+            _judge = System.Array.IndexOf(JudgedSdkVersions, sdkVersion) >= 0;
             Debug.Log("[Sample] lifecycle e2e start sdk=" + sdkVersion + " (package pin " + BugseePackageVersion.AndroidSdkVersion + ") judged=" + _judge
                 + " launched=" + Bugsee.IsLaunched + " status=" + Bugsee.Status);
 #if UNITY_ANDROID && !UNITY_EDITOR
