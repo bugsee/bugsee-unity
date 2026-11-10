@@ -390,7 +390,7 @@ namespace Bugsee.WrapperPolicy.Tests
             changed.AppBundleId = "com.example.renamed";
             changed.Version = "2.0.0";
             changed.Build = "99";
-            string text = Apply(once, changed);
+            string text = Apply(once.Replace("PRODUCT_BUNDLE_IDENTIFIER = com.example.game;", "PRODUCT_BUNDLE_IDENTIFIER = com.example.renamed;"), changed);
             Assert.That(Regex.Matches(text, "PRODUCT_BUNDLE_IDENTIFIER = com.example.renamed.BugseeCrashReport;").Count, Is.EqualTo(2));
             Assert.That(text, Does.Not.Contain("com.example.game.BugseeCrashReport"));
             Assert.That(Regex.Matches(text, "MARKETING_VERSION = 2.0.0;").Count, Is.EqualTo(2));
@@ -399,6 +399,51 @@ namespace Bugsee.WrapperPolicy.Tests
             // Nothing else was duplicated.
             Assert.That(Regex.Matches(text, "isa = PBXNativeTarget;").Count, Is.EqualTo(Regex.Matches(once, "isa = PBXNativeTarget;").Count));
             Assert.That(text.Length, Is.LessThan(once.Length + 40));
+        }
+
+        const string DevId = "PRODUCT_BUNDLE_IDENTIFIER = com.example.game;";
+
+        // Debug keeps com.example.game; Release gets its own id.
+        static string SplitIds(string id = "com.example.game.prod")
+        {
+            int release = Unity.IndexOf("name = Release;", StringComparison.Ordinal);
+            int at = Unity.LastIndexOf(DevId, release, StringComparison.Ordinal);
+            return Unity.Substring(0, at) + "PRODUCT_BUNDLE_IDENTIFIER = " + id + ";" + Unity.Substring(at + DevId.Length);
+        }
+
+        static string ExtensionConfig(string text, string cfgName)
+        {
+            string list = Block(text, Regex.Match(ExtensionTarget(text), @"buildConfigurationList = ([0-9A-F]{24})").Groups[1].Value);
+            foreach (Match m in Regex.Matches(list, "[0-9A-F]{24}"))
+            {
+                string block = Block(text, m.Value);
+                if (block.Contains("name = " + cfgName + ";")) return block;
+            }
+            Assert.Fail(cfgName);
+            return null;
+        }
+
+        [Test]
+        public void Each_extension_configuration_takes_the_id_of_the_app_configuration_with_its_name()
+        {
+            string text = Apply(SplitIds());
+            Assert.That(ExtensionConfig(text, "Debug"), Does.Contain("PRODUCT_BUNDLE_IDENTIFIER = com.example.game.BugseeCrashReport;"));
+            Assert.That(ExtensionConfig(text, "Release"), Does.Contain("PRODUCT_BUNDLE_IDENTIFIER = com.example.game.prod.BugseeCrashReport;"));
+            Assert.That(Apply(text), Is.EqualTo(text), "a refresh keeps them");
+
+            // A refresh follows a later change of one configuration only.
+            string back = Apply(text.Replace("PRODUCT_BUNDLE_IDENTIFIER = com.example.game.prod;", "PRODUCT_BUNDLE_IDENTIFIER = com.example.live;"));
+            Assert.That(ExtensionConfig(back, "Release"), Does.Contain("PRODUCT_BUNDLE_IDENTIFIER = com.example.live.BugseeCrashReport;"));
+            Assert.That(ExtensionConfig(back, "Debug"), Does.Contain("PRODUCT_BUNDLE_IDENTIFIER = com.example.game.BugseeCrashReport;"));
+        }
+
+        [Test]
+        public void A_configuration_with_a_build_variable_or_no_id_falls_back_to_the_spec_id()
+        {
+            string text = Apply(SplitIds("$(APP_ID)"));
+            Assert.That(ExtensionConfig(text, "Release"), Does.Contain("PRODUCT_BUNDLE_IDENTIFIER = com.example.game.BugseeCrashReport;"));
+            string none = Unity.Replace("\t\t\t\t" + DevId + "\n", "");
+            Assert.That(Apply(none), Does.Contain("PRODUCT_BUNDLE_IDENTIFIER = com.example.game.BugseeCrashReport;"));
         }
 
         [Test]

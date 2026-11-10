@@ -161,7 +161,7 @@ namespace Bugsee.WrapperPolicy
                 Set("IPHONEOS_DEPLOYMENT_TARGET", IosCrashExtensionPolicy.DeploymentTarget);
                 Set("LD_RUNPATH_SEARCH_PATHS", "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks");
                 Set("MARKETING_VERSION", ver);
-                Set("PRODUCT_BUNDLE_IDENTIFIER", IosCrashExtensionPolicy.ExtensionBundleId(spec.AppBundleId));
+                Set("PRODUCT_BUNDLE_IDENTIFIER", ExtensionIdFor(appCfgBlock, spec));
                 Set("PRODUCT_NAME", "$(TARGET_NAME)");
                 string sdkroot = Setting(appCfgBlock, "SDKROOT");
                 Set("SDKROOT", string.IsNullOrEmpty(sdkroot) ? "iphoneos" : sdkroot);
@@ -257,6 +257,20 @@ namespace Bugsee.WrapperPolicy
             return text;
         }
 
+        /// <summary>
+        /// The extension's bundle id for one build configuration: the app's id in the configuration of the same name plus the extension
+        /// suffix, so a Release archive of an app with its own Release id gets an extension under that id (App Store validation requires
+        /// the extension id to be prefixed by the app's). A configuration that sets no id, or one with a build variable, falls back to
+        /// <see cref="XcodeCrashExtensionSpec.AppBundleId"/>. The App Group stays derived from that one id: a group is not tied to a
+        /// bundle id, so the same group serves every configuration.
+        /// </summary>
+        static string ExtensionIdFor(string appConfigBlock, XcodeCrashExtensionSpec spec)
+        {
+            string id = Setting(appConfigBlock, "PRODUCT_BUNDLE_IDENTIFIER");
+            if (string.IsNullOrWhiteSpace(id) || id.Contains("$")) id = spec.AppBundleId;
+            return IosCrashExtensionPolicy.ExtensionBundleId(id);
+        }
+
         /// <summary>The app's signing style: its CODE_SIGN_STYLE, else Unity's ProvisioningStyle attribute for the target, else Automatic.</summary>
         static string AppSigningStyle(string text, string appTarget, List<string> appConfigs)
         {
@@ -295,7 +309,7 @@ namespace Bugsee.WrapperPolicy
                 string appCfg = appByName.TryGetValue(cfgName, out string byName) ? byName : appConfigs[0];
                 string appBlock = Object(text, appCfg);
                 bool debug = cfgName.IndexOf("Debug", StringComparison.OrdinalIgnoreCase) >= 0;
-                text = SetSetting(text, cfg, "PRODUCT_BUNDLE_IDENTIFIER", IosCrashExtensionPolicy.ExtensionBundleId(spec.AppBundleId));
+                text = SetSetting(text, cfg, "PRODUCT_BUNDLE_IDENTIFIER", ExtensionIdFor(appBlock, spec));
                 text = SetSetting(text, cfg, "MARKETING_VERSION", spec.Version);
                 text = SetSetting(text, cfg, "CURRENT_PROJECT_VERSION", spec.Build);
                 text = SetSetting(text, cfg, "DEVELOPMENT_TEAM", Setting(appBlock, "DEVELOPMENT_TEAM"));
