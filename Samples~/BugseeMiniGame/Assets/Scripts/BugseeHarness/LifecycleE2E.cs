@@ -16,9 +16,9 @@ namespace Bugsee.Sample
     /// Part 1, "RAW": calls the native SDK's <c>Bugsee.relaunch / stop / launch</c> directly (bypassing the wrapper's lifecycle
     /// machine) and logs what the SDK itself answers, so the same scenario run against a build with SDK 7.4.1 and one with 7.4.2
     /// shows what changed: <c>[Sample] lifecycle RAW name :: ...</c> lines. They are information; PASS/FAIL is judged only when the
-    /// build pins SDK 7.4.2 (the version the wrapper models).
+    /// running SDK is in <c>JudgedSdkVersions</c> (7.4.2, the version the wrapper models, and 7.5.0, carried over and not yet device-checked).
     ///
-    /// Part 2: the same sequences through the public facade (the lifecycle machine), judged on a 7.4.2 build:
+    /// Part 2: the same sequences through the public facade (the lifecycle machine), judged when the SDK is in <c>JudgedSdkVersions</c>:
     /// <c>[Sample] lifecycle PASS|FAIL name :: detail</c>, ending with <c>lifecycle e2e done failures=N</c>.
     /// </summary>
     static class LifecycleE2E
@@ -40,6 +40,9 @@ namespace Bugsee.Sample
 #endif
             return BugseePackageVersion.AndroidSdkVersion;
         }
+        // Android SDK versions whose lifecycle behaviour the expectations below were checked against. On any other version the
+        // scenarios only log. A policy test (LifecycleE2EJudgedVersionsTests) fails when the pinned SDK is not listed here.
+        static readonly string[] JudgedSdkVersions = { "7.4.2", "7.5.0" };
         static bool _judge;
         static readonly Stopwatch Clock = Stopwatch.StartNew();
 
@@ -47,7 +50,7 @@ namespace Bugsee.Sample
         {
             _failures = 0;
             var sdkVersion = RunningSdkVersion();
-            _judge = sdkVersion == "7.4.2";
+            _judge = System.Array.IndexOf(JudgedSdkVersions, sdkVersion) >= 0;
             Debug.Log("[Sample] lifecycle e2e start sdk=" + sdkVersion + " (package pin " + BugseePackageVersion.AndroidSdkVersion + ") judged=" + _judge
                 + " launched=" + Bugsee.IsLaunched + " status=" + Bugsee.Status);
 #if UNITY_ANDROID && !UNITY_EDITOR
@@ -303,7 +306,7 @@ namespace Bugsee.Sample
 
         static void Raw(string name, Answers a, string expectation, bool matches)
         {
-            Debug.Log("[Sample] lifecycle RAW " + name + " :: answers=[" + a.Joined() + "] expect(7.4.2)=\"" + expectation + "\" matches=" + matches);
+            Debug.Log("[Sample] lifecycle RAW " + name + " :: answers=[" + a.Joined() + "] expect(7.4.2 baseline)=\"" + expectation + "\" matches=" + matches);
             if (_judge) Check("raw SDK: " + name, matches, "answers=[" + a.Joined() + "] expected: " + expectation);
         }
 
