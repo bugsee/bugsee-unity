@@ -196,7 +196,7 @@ namespace Bugsee.WrapperPolicy.Tests
         public void A_cached_windows_download_is_used_before_downloading_again()
         {
             var files = new Files();
-            files.Present["C:\\Users\\dev\\AppData\\Local\\Bugsee\\cache\\cli\\0.8.1\\x86_64-pc-windows-msvc\\bugsee-cli.exe"] = "0.8.1";
+            files.Present["C:\\Users\\dev\\AppData\\Local\\Bugsee\\cache\\cli\\0.9.0\\x86_64-pc-windows-msvc\\bugsee-cli.exe"] = "0.8.1";
             var s = Windows();
             s.DownloadAllowed = true;
             s.CacheDirectories.Add("C:\\Users\\dev\\AppData\\Local\\Bugsee\\cache\\cli");
@@ -231,7 +231,7 @@ namespace Bugsee.WrapperPolicy.Tests
             var r = BugseeCliPolicy.Resolve(s, probe);
 
             Assert.That(r.Source, Is.EqualTo(CliSource.Downloaded));
-            Assert.That(r.Path, Is.EqualTo("D:\\proj\\Library\\Bugsee\\cli\\0.8.1\\x86_64-pc-windows-msvc\\bugsee-cli.exe"));
+            Assert.That(r.Path, Is.EqualTo("D:\\proj\\Library\\Bugsee\\cli\\0.9.0\\x86_64-pc-windows-msvc\\bugsee-cli.exe"));
             Assert.That(r.Notes.Single(), Does.Contain("C:\\locked\\cli").And.Contain("denied"));
         }
 
@@ -241,7 +241,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(BugseeCliPolicy.ArchiveName("x86_64-pc-windows-msvc"), Is.EqualTo("bugsee-cli-x86_64-pc-windows-msvc.zip"));
             Assert.That(BugseeCliPolicy.ArchiveName("aarch64-pc-windows-msvc"), Is.EqualTo("bugsee-cli-aarch64-pc-windows-msvc.zip"));
             Assert.That(BugseeCliPolicy.BinaryName(BugseeCliPolicy.IsWindowsTriple("aarch64-pc-windows-msvc")), Is.EqualTo("bugsee-cli.exe"));
-            Assert.That(BugseeCliPolicy.KnownSha256("0.8.1", "x86_64-pc-windows-msvc"), Is.Not.EqualTo(BugseeCliPolicy.KnownSha256("0.8.1", "aarch64-pc-windows-msvc")));
+            Assert.That(BugseeCliPolicy.KnownSha256("0.9.0", "x86_64-pc-windows-msvc"), Is.Not.EqualTo(BugseeCliPolicy.KnownSha256("0.9.0", "aarch64-pc-windows-msvc")));
         }
 
         [TestCase("bugsee-cli.exe 0.8.1\r\n", "0.8.1")]

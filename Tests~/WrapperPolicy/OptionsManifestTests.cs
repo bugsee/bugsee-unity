@@ -474,9 +474,20 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(Android.Options.ContainsKey(Bugsee.Contracts.Options.Options.CaptureCrashHandlerType), Is.False,
                 "Android now has capture.crash-handler-type: it is no longer iOS-only, so the platform gate must stop dropping it");
             var iosOnly = new HashSet<string>(OptionPlatformGate.IosOnly);
+            // Keys the Android SDK has grown but the wrapper still sends to iOS only, on purpose: the key is in the Android manifest
+            // (bugsee-android-ndk module, Android 7.5.0), but nothing says its int bit set means the iOS BugseeCrashSignals values,
+            // and the wrapper's CrashSignals enum documents the iOS ones. Exposing it on Android needs that checked first.
+            var androidHasButNotSent = new HashSet<string> { Bugsee.Contracts.Options.Options.CaptureCrashSignals };
             foreach (var key in iosOnly)
             {
                 Assert.That(Ios.Options.ContainsKey(key), Is.True, key + " is gated as iOS-only but is not a key of the iOS manifest");
+                if (androidHasButNotSent.Contains(key))
+                {
+                    Assert.That(Android.Options.ContainsKey(key), Is.True,
+                        key + " is listed as a key Android has but the wrapper does not send, yet Android's manifest no longer has it: remove it from androidHasButNotSent");
+                    continue;
+                }
+
                 Assert.That(Android.Options.ContainsKey(key), Is.False,
                     "Android now has " + key + ": it is no longer iOS-only, so the platform gate must stop dropping it");
             }

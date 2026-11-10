@@ -1,4 +1,4 @@
 # Vendored by Tools~/scripts/update-options-manifest.sh: <sdk>|<version>|<source>|<sha256 of the file>.
 # Verbatim copies of the SDK-published manifests; checked by Tests~/WrapperPolicy/OptionsManifestTests.cs.
-android|7.4.2|https://download.bugsee.com/sdk/options/android/7.4.2.json|b7d842293d9a488c1bae3599a5431b9b9c127b1b81875888c22ac9a165d85c33
-ios|7.0.0|https://download.bugsee.com/sdk/options/ios/7.0.0.json|0e30ebf9fdb564e52d4ed7fe016c2daab80234f2797625dcf31767b16e67b2b2
+android|7.5.0|https://download.bugsee.com/sdk/options/android/7.5.0.json|f5c7b1dcf1b9553208ebacb5eefb762dc3858955e8dc66b7de7a3a4fe9b5cc26
+ios|7.0.1|https://download.bugsee.com/sdk/options/ios/7.0.1.json|b660369f029ffd3d0450750d166cabd4bd8463fa86aa248b1819581ec0bd3b54

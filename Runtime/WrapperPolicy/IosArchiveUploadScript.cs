@@ -316,6 +316,7 @@ cli_failure() {
     21) WHY=""the server rejected the app token: check BUGSEE_APP_TOKEN"" ;;
     30) WHY=""the Bugsee server returned an error"" ;;
     31) WHY=""the Bugsee server could not be reached (network)"" ;;
+    50) WHY=""bugsee-cli failed after it sent the request, so the upload may have been applied server-side: check the dashboard and do not re-run blindly"" ;;
     126|127) WHY=""bugsee-cli could not be run"" ;;
     *) WHY=""bugsee-cli failed"" ;;
   esac

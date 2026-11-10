@@ -262,7 +262,7 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             typedefs = new Dictionary<string, List<string[]>>();
             var exports = new List<Sig>();
-            foreach (var f in new[] { "BugseeUnityBridge.mm", "BugseeUnityCallbacks.mm" })
+            foreach (var f in new[] { "BugseeUnityBridge.mm", "BugseeUnityCallbacks.mm", "BugseeEarlyLaunch.mm" })
             {
                 var mm = StripComments(File.ReadAllText(RepoFile("Plugins/iOS/" + f)));
                 AddCTypedefs(mm, typedefs);
@@ -289,7 +289,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
             // Nothing may be skipped silently: parsed counts equal the raw occurrence counts.
             Assert.That(imports.Count, Is.EqualTo(IosCsFiles().Sum(f => CountDllImports(IosCs(f)))));
-            var exportLines = new[] { "BugseeUnityBridge.mm", "BugseeUnityCallbacks.mm" }
+            var exportLines = new[] { "BugseeUnityBridge.mm", "BugseeUnityCallbacks.mm", "BugseeEarlyLaunch.mm" }
                 .Sum(f => CountExportLines(StripComments(File.ReadAllText(RepoFile("Plugins/iOS/" + f)))));
             Assert.That(exports.Count, Is.EqualTo(exportLines));
             Assert.That(imports.Count, Is.GreaterThanOrEqualTo(55));

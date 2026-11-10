@@ -179,7 +179,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(fifty.ExitCode, Is.EqualTo(0));
 
             var one = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, cliExitCode: 1);
-            Assert.That(one.Output, Does.Contain("upload command failed"));
+            Assert.That(one.Output, Does.Contain("symbol upload failed (exit 1)"));
             Assert.That(one.Output, Does.Not.Contain("server-side"));
             Assert.That(one.ExitCode, Is.EqualTo(0));
         }
@@ -188,7 +188,7 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Archive_script_source_carries_the_exit_50_note_and_ends_with_exit_0()
         {
             string script = IosArchiveUploadScript.Build();
-            Assert.That(script, Does.Contain("-eq 50"));
+            Assert.That(script, Does.Contain("50) WHY="));
             Assert.That(script, Does.Contain("may have been applied server-side"));
             Assert.That(script.TrimEnd(), Does.EndWith("exit 0"));
         }

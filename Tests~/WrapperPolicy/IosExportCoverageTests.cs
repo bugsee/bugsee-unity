@@ -19,6 +19,8 @@ namespace Bugsee.WrapperPolicy.Tests
         static readonly Dictionary<string, string> NotExercised = new Dictionary<string, string>
         {
             { "_bugsee_test_crash", "terminates the process on purpose; covered by the TestCrash device scenarios" },
+            { "_bugsee_early_launch_adopt", "BugseeEarlyLaunch.mm is compiled to stubs for the simulator these tests run on (the early launch needs a device); the logic is unit-tested in IosEarlyLaunchTests and was run on devices" },
+            { "_bugsee_early_launch_options", "same as _bugsee_early_launch_adopt" },
         };
 
         static string RepoFile(string relative)

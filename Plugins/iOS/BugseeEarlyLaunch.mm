@@ -34,8 +34,10 @@
 #if BUGSEE_EARLY_ACTIVE
 
 // BugseeUnityCallbacks.mm
-extern "C" void _bugsee_ensure_wrapper(const char *version, const char *build);
-extern "C" void _bugsee_set_wrapper_context(const char *json);
+extern "C" {
+    void _bugsee_ensure_wrapper(const char *version, const char *build);
+    void _bugsee_set_wrapper_context(const char *json);
+}
 
 static NSString *const kBugseeEarlyKey = @"BugseeEarlyLaunch";
 

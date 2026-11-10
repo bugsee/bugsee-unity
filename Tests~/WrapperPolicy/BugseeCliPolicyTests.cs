@@ -187,8 +187,8 @@ namespace Bugsee.WrapperPolicy.Tests
 
             Assert.That(r.Notes[0], Does.Contain("0.8.0").And.Contain("older than 0.8.1"));
             Assert.That(r.Source, Is.EqualTo(CliSource.Downloaded));
-            Assert.That(r.Path, Is.EqualTo("/Users/dev/Library/Caches/Bugsee/cli/0.8.1/aarch64-apple-darwin/bugsee-cli"));
-            Assert.That(host.Downloads, Is.EqualTo(new[] { "0.8.1" }));
+            Assert.That(r.Path, Is.EqualTo("/Users/dev/Library/Caches/Bugsee/cli/0.9.0/aarch64-apple-darwin/bugsee-cli"));
+            Assert.That(host.Downloads, Is.EqualTo(new[] { "0.9.0" }));
         }
 
         [Test]
