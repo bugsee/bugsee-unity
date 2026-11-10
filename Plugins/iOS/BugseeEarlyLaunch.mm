@@ -51,7 +51,8 @@ static NSLock *EarlyLock(void)
 }
 
 // Guarded by EarlyLock.
-static BOOL gEarlyLaunched = NO;   // the early launch call was made
+static BOOL gEarlyAttempted = NO;  // the early run started (once); says nothing about whether it got as far as the launch call
+static BOOL gEarlyLaunched = NO;   // launchWithToken is being called (set only right before it): the only state that can be adopted
 static BOOL gEarlyAdopted = NO;    // a C# Launch has asked about it (once)
 static NSString *gEarlyToken = nil;
 static NSString *gEarlyOptionsJson = nil;
@@ -65,8 +66,10 @@ static NSString *EarlyString(NSDictionary *config, NSString *key)
 static void BugseeEarlyLaunchRun(NSString *point)
 {
     [EarlyLock() lock];
-    BOOL already = gEarlyLaunched;
-    gEarlyLaunched = YES;
+    // One owner for the slot: a C# Launch or a Stop that came first has claimed it (gEarlyAdopted), so the early launch must not start
+    // the SDK as well.
+    BOOL already = gEarlyAttempted || gEarlyAdopted;
+    gEarlyAttempted = YES;
     [EarlyLock() unlock];
     if (already) {
         return;
@@ -107,8 +110,10 @@ static void BugseeEarlyLaunchRun(NSString *point)
         }
 
         [EarlyLock() lock];
+        // Every early return above (no or invalid configuration) leaves these unset: nothing to adopt, the C# Launch starts normally.
         gEarlyToken = [token copy];
         gEarlyOptionsJson = [optionsJson copy];
+        gEarlyLaunched = YES;
         [EarlyLock() unlock];
         NSLog(@"[Bugsee] Native early launch (%@).", point);
         // Launch with the parsed options, like the C# launch does.
@@ -138,7 +143,7 @@ static void BugseeEarlyLaunchRun(NSString *point)
 
 extern "C" {
 
-// 0: nothing to adopt (the early launch did not run, or a C# Launch already asked). 1: the early launch ran (launchWithToken was
+// 0: nothing to adopt (the early launch did not run, in which case it is now claimed and will not run; or a C# Launch already asked). 1: the early launch ran (launchWithToken was
 // called): adopt it, whatever the SDK status is now, because the SDK defers the real start until the app is active (status stays
 // Stopped meanwhile) and a second launch call must never be made. 2: the same, but the token differs from the early one.
 // Answers once: the first C# Launch adopts, later ones (after a Stop, say) launch normally. Mirrors EarlyLaunchSession in
@@ -147,10 +152,14 @@ int _bugsee_early_launch_adopt(const char *appToken)
 {
     [EarlyLock() lock];
     int answer = 0;
-    if (gEarlyLaunched && !gEarlyAdopted && gEarlyToken != nil) {
+    if (!gEarlyAdopted) {
+        // The first question claims the slot even when the early launch has not run yet: it then never runs (BugseeEarlyLaunchRun
+        // checks the claim), so the SDK is started once, by this C# Launch.
         gEarlyAdopted = YES;
-        NSString *given = appToken ? [NSString stringWithUTF8String:appToken] : nil;
-        answer = (given != nil && [given isEqualToString:gEarlyToken]) ? 1 : 2;
+        if (gEarlyLaunched && gEarlyToken != nil) {
+            NSString *given = appToken ? [NSString stringWithUTF8String:appToken] : nil;
+            answer = (given != nil && [given isEqualToString:gEarlyToken]) ? 1 : 2;
+        }
     }
     [EarlyLock() unlock];
     return answer;

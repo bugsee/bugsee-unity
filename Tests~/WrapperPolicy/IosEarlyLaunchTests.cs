@@ -356,10 +356,14 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(IosEarlyLaunchPolicy.SetInfoPlistEntry(with, entries), Is.EqualTo(with));
             Assert.That(IosEarlyLaunchPolicy.RemoveInfoPlistEntry(with), Is.EqualTo(nested));
             // Our entry placed before a nested dict is removed without eating the neighbour.
-            string before = nested.Replace("<dict>\n\t<key>NSApp", "<dict>\n\t<key>NSApp");
-            string ours = IosEarlyLaunchPolicy.SetInfoPlistEntry(before, entries);
-            string reordered = ours.Replace("\t<key>NSAppTransportSecurity</key>", "\t<key>ZZ</key>\n\t<string>z</string>\n\t<key>NSAppTransportSecurity</key>");
-            Assert.That(IosEarlyLaunchPolicy.RemoveInfoPlistEntry(reordered), Does.Contain("<key>NSAllowsArbitraryLoads</key>"));
+            int tail = nested.LastIndexOf("</dict>\n</plist>", System.StringComparison.Ordinal);
+            string block = with.Substring(tail, with.Length - nested.Length);
+            Assert.That(block, Does.StartWith("\t<key>BugseeEarlyLaunch</key>"));
+            string before = nested.Insert(nested.IndexOf("<dict>\n", System.StringComparison.Ordinal) + "<dict>\n".Length, block);
+            Assert.That(before.IndexOf("<key>BugseeEarlyLaunch</key>", System.StringComparison.Ordinal),
+                Is.LessThan(before.IndexOf("<key>NSAppTransportSecurity</key>", System.StringComparison.Ordinal)), "our entry comes first");
+            Assert.That(IosEarlyLaunchPolicy.SetInfoPlistEntry(before, entries), Is.EqualTo(with), "replaced, then appended at the end");
+            Assert.That(IosEarlyLaunchPolicy.RemoveInfoPlistEntry(before), Is.EqualTo(nested), "the nested neighbour is not eaten");
         }
 
         // ---------------------------------------------------------------- adoption state machine
@@ -434,6 +438,49 @@ namespace Bugsee.WrapperPolicy.Tests
             s.Cancel();
             s.Ran(Token);
             Assert.That(s.Adopt(Token), Is.EqualTo(0));
+        }
+
+        [Test]
+        public void C_sharp_asking_first_claims_the_slot_so_the_early_launch_that_fires_later_does_not_launch()
+        {
+            var s = new EarlyLaunchSession();
+            Assert.That(s.Adopt(Token), Is.EqualTo(0), "nothing to adopt yet: this Launch starts the SDK");
+            Assert.That(s.Ran(Token), Is.False, "the early launch must not start it a second time");
+            Assert.That(s.Adopt(Token), Is.EqualTo(0));
+        }
+
+        [TestCase(null)]
+        [TestCase("")]
+        public void An_early_run_without_a_usable_configuration_leaves_nothing_to_adopt_so_the_launch_starts_normally(string token)
+        {
+            var s = new EarlyLaunchSession();
+            Assert.That(s.Ran(token), Is.False, "no launch call was made");
+            Assert.That(IosEarlyLaunchPolicy.ResolveAdoption(s.Adopt(Token), 0), Is.EqualTo(IosEarlyAdoption.None));
+        }
+
+        [Test]
+        public void A_deferred_early_start_stays_adoptable_while_the_status_is_still_stopped()
+        {
+            var s = new EarlyLaunchSession();
+            Assert.That(s.Ran(Token), Is.True);
+            Assert.That(IosEarlyLaunchPolicy.ResolveAdoption(s.Adopt(Token), 0), Is.EqualTo(IosEarlyAdoption.Adopt));
+        }
+
+        [Test]
+        public void A_stop_before_the_early_launch_ran_prevents_it_from_launching()
+        {
+            var s = new EarlyLaunchSession();
+            s.Cancel();
+            Assert.That(s.Ran(Token), Is.False);
+        }
+
+        [Test]
+        public void The_early_launch_launches_when_nobody_claimed_the_slot_and_only_once()
+        {
+            var s = new EarlyLaunchSession();
+            Assert.That(s.Ran(Token), Is.True);
+            Assert.That(s.Ran(Token), Is.False);
+            Assert.That(s.Adopt(Token), Is.EqualTo(1));
         }
 
         static int CountOf(string text, string needle)
@@ -641,6 +688,34 @@ namespace Bugsee.WrapperPolicy.Tests
             string mm = Read("Plugins/iOS/BugseeEarlyLaunch.mm");
             int body = mm.IndexOf("void _bugsee_early_launch_cancel(void)\n{", System.StringComparison.Ordinal);
             Assert.That(mm.Substring(body, 160), Does.Contain("gEarlyAdopted = YES"));
+        }
+
+        [Test]
+        public void Only_the_state_set_right_before_the_launch_call_can_be_adopted_in_the_native_file()
+        {
+            string mm = Read("Plugins/iOS/BugseeEarlyLaunch.mm");
+            int run = mm.IndexOf("static void BugseeEarlyLaunchRun(", System.StringComparison.Ordinal);
+            int launch = mm.IndexOf("[Bugsee launchWithToken:", run, System.StringComparison.Ordinal);
+            int set = mm.IndexOf("gEarlyLaunched = YES;", run, System.StringComparison.Ordinal);
+            Assert.That(set, Is.GreaterThan(run).And.LessThan(launch));
+            // Every early return of the run (missing or invalid configuration) comes before that assignment.
+            int lastReturn = mm.LastIndexOf("return;", set, System.StringComparison.Ordinal);
+            Assert.That(lastReturn, Is.GreaterThan(run).And.LessThan(set));
+            Assert.That(CountOf(mm, "gEarlyLaunched = YES;"), Is.EqualTo(1), "set in one place only");
+        }
+
+        [Test]
+        public void The_native_early_launch_run_consults_the_claim_and_the_adopt_claims_even_before_it_ran()
+        {
+            string mm = Read("Plugins/iOS/BugseeEarlyLaunch.mm");
+            int run = mm.IndexOf("static void BugseeEarlyLaunchRun(", System.StringComparison.Ordinal);
+            int launch = mm.IndexOf("[Bugsee launchWithToken:", run, System.StringComparison.Ordinal);
+            int check = mm.IndexOf("gEarlyAdopted", run, System.StringComparison.Ordinal);
+            Assert.That(check, Is.GreaterThan(run).And.LessThan(launch), "the claim is checked before the launch call");
+            int adopt = mm.IndexOf("int _bugsee_early_launch_adopt(const char *appToken)\n{", System.StringComparison.Ordinal);
+            string body = mm.Substring(adopt, mm.IndexOf("void _bugsee_early_launch_cancel", adopt, System.StringComparison.Ordinal) - adopt);
+            Assert.That(body.IndexOf("gEarlyAdopted = YES", System.StringComparison.Ordinal),
+                Is.GreaterThan(0).And.LessThan(body.IndexOf("gEarlyLaunched", System.StringComparison.Ordinal)), "claimed before looking at whether it ran");
         }
 
         static int CountOf(string text, string needle)
