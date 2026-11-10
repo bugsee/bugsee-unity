@@ -21,6 +21,7 @@ namespace Bugsee.WrapperPolicy.Tests
             public long Addr;
             public byte[] Data;      // the bytes (PROGBITS) or the declared size only (NOBITS)
             public int DeclaredSize; // NOBITS
+            public long Align = 8;
         }
 
         static Sec P(string name, long addr, byte[] data, int type = Progbits) => new Sec { Name = name, Type = type, Addr = addr, Data = data, DeclaredSize = data.Length };
@@ -89,7 +90,7 @@ namespace Bugsee.WrapperPolicy.Tests
             var table = new byte[shnum * shentsize];
             for (int i = 0; i < sections.Count; i++)
             {
-                Header(table, i + 1, nameOffsets[i], sections[i].Type, sections[i].Addr, offsets[i], sections[i].Type == Nobits ? sections[i].DeclaredSize : sections[i].Data.Length, is64);
+                Header(table, i + 1, nameOffsets[i], sections[i].Type, sections[i].Addr, offsets[i], sections[i].Type == Nobits ? sections[i].DeclaredSize : sections[i].Data.Length, is64, sections[i].Align);
             }
 
             Header(table, shnum - 1, nameOffsets[nameOffsets.Count - 1], 3, 0, namesOffset, nb.Length, is64);
@@ -101,7 +102,7 @@ namespace Bugsee.WrapperPolicy.Tests
             return file.ToArray();
         }
 
-        static void Header(byte[] t, int index, int nameOff, int type, long addr, long offset, long size, bool is64)
+        static void Header(byte[] t, int index, int nameOff, int type, long addr, long offset, long size, bool is64, long align = 8)
         {
             int shentsize = is64 ? 64 : 40;
             int o = index * shentsize;
@@ -110,7 +111,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Put(t, o + (is64 ? 16 : 12), addr, is64 ? 8 : 4);
             Put(t, o + (is64 ? 24 : 16), offset, is64 ? 8 : 4);
             Put(t, o + (is64 ? 32 : 20), size, is64 ? 8 : 4);
-            Put(t, o + (is64 ? 48 : 32), 8, is64 ? 8 : 4); // sh_addralign
+            Put(t, o + (is64 ? 48 : 32), align, is64 ? 8 : 4); // sh_addralign
         }
 
         static void Put(byte[] b, int offset, long value, int width)
@@ -249,6 +250,54 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             Assert.That(ElfUnwindGraft.NeedsUnwindData(new MemoryStream(Elf(true, Id, Stripped()))), Is.True);
             Assert.That(ElfUnwindGraft.NeedsUnwindData(new MemoryStream(Elf(true, Id, P(".text", 0x1000, new byte[16])))), Is.False);
+        }
+
+        static Sec[] WithAlign(Sec[] sections, long align)
+        {
+            foreach (var s in sections) s.Align = align;
+            return sections;
+        }
+
+        [TestCase(true, 1L << 40)]
+        [TestCase(false, 1L << 31)]
+        [TestCase(true, 1L << 20)]
+        [TestCase(true, 12L)]
+        [TestCase(false, 3L)]
+        [TestCase(true, -1L)]
+        public void An_unusable_alignment_is_refused_before_anything_is_written(bool is64, long align)
+        {
+            var hdr = Bytes(40, 1);
+            var frame = Bytes(1000, 7);
+            var symbols = Elf(is64, Id, Stripped());
+            var runtime = Elf(is64, Id, WithAlign(Runtime(hdr, frame), align));
+
+            var result = Graft(symbols, runtime, out var ok, out var note);
+            Graft(Elf(is64, Id, WithAlign(Stripped(), align)), Elf(is64, Id, Runtime(hdr, frame)), out var ok2, out _);
+
+            Assert.That(ok, Is.False);
+            Assert.That(note, Does.Contain("alignment"));
+            Assert.That(ok2, Is.False);
+            Assert.That(result, Is.Empty); // nothing was written to the output
+        }
+
+        [TestCase(true, 0L)]
+        [TestCase(false, 0L)]
+        [TestCase(true, 4L)]
+        [TestCase(false, 8L)]
+        [TestCase(true, 16L)]
+        [TestCase(true, 4096L)]
+        public void A_normal_alignment_still_grafts(bool is64, long align)
+        {
+            var hdr = Bytes(40, 1);
+            var frame = Bytes(1000, 7);
+            var symbols = Elf(is64, Id, Stripped());
+            var runtime = Elf(is64, Id, WithAlign(Runtime(hdr, frame), align));
+
+            var result = Graft(symbols, runtime, out var ok, out var note);
+
+            Assert.That(ok, Is.True, note);
+            Assert.That(Read(result, ".eh_frame"), Is.EqualTo((Progbits, frame)));
+            Assert.That(Read(result, ".eh_frame_hdr"), Is.EqualTo((Progbits, hdr)));
         }
 
         [Test]
