@@ -685,6 +685,12 @@ namespace Bugsee.WrapperPolicy.Tests
             int cancel = cs.IndexOf("_bugsee_early_launch_cancel();", at, System.StringComparison.Ordinal);
             int stop = cs.IndexOf("_bugsee_stop(", at, System.StringComparison.Ordinal);
             Assert.That(cancel, Is.GreaterThan(at).And.LessThan(stop));
+            // The order above only holds for StopNativeThen: pin every place the native stop or delete is called (the declaration plus
+            // the calls inside StopNativeThen, and the delete that BeginNativeDelete reaches only through it), so a new direct call
+            // fails here until it claims the early session too.
+            Assert.That(CountOf(cs, "_bugsee_stop("), Is.EqualTo(3), "DllImport plus the two calls in StopNativeThen");
+            Assert.That(CountOf(cs, "_bugsee_delete_collected_data("), Is.EqualTo(2), "DllImport plus the call in BeginNativeDelete");
+            Assert.That(CountOf(cs, "_bugsee_early_launch_cancel("), Is.EqualTo(2), "DllImport plus the call in StopNativeThen");
             string mm = Read("Plugins/iOS/BugseeEarlyLaunch.mm");
             int body = mm.IndexOf("void _bugsee_early_launch_cancel(void)\n{", System.StringComparison.Ordinal);
             Assert.That(mm.Substring(body, 160), Does.Contain("gEarlyAdopted = YES"));
