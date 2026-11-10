@@ -28,6 +28,7 @@ namespace Bugsee.WrapperPolicy
         const int MaxNamesBytes = 1024 * 1024;
         // A sanity bound on one unwind section; the largest seen is a few MB.
         const long MaxSectionBytes = 256L * 1024 * 1024;
+        const long MaxAlign = 64 * 1024;
 
         sealed class Section
         {
@@ -121,6 +122,7 @@ namespace Bugsee.WrapperPolicy
             }
 
             var work = new List<Section[]>();
+            var aligns = new List<long>();
             foreach (var name in UnwindSections)
             {
                 var want = Find(target, name);
@@ -138,7 +140,17 @@ namespace Bugsee.WrapperPolicy
                     return false;
                 }
 
+                // sh_addralign is 0, 1 or a power of two; a damaged header must not turn into an enormous run of padding.
+                long align = Math.Max(1, Math.Max(want.Align, have.Align));
+                if (want.Align < 0 || have.Align < 0 || align > MaxAlign || (align & (align - 1)) != 0
+                    || (want.Align > 1 && (want.Align & (want.Align - 1)) != 0) || (have.Align > 1 && (have.Align & (have.Align - 1)) != 0))
+                {
+                    note = name + " has an unusable alignment";
+                    return false;
+                }
+
                 work.Add(new[] { want, have });
+                aligns.Add(align);
             }
 
             if (work.Count == 0)
@@ -150,17 +162,20 @@ namespace Bugsee.WrapperPolicy
             symbols.Seek(0, SeekOrigin.Begin);
             CopyAll(symbols, output);
 
-            foreach (var pair in work)
+            var zeros = new byte[4096];
+            for (int w = 0; w < work.Count; w++)
             {
-                var want = pair[0];
-                var have = pair[1];
-                long align = Math.Max(1, Math.Max(want.Align, have.Align));
+                var want = work[w][0];
+                var have = work[w][1];
+                long align = aligns[w];
                 long position = output.Length;
                 long padded = (position + align - 1) / align * align;
                 output.Seek(position, SeekOrigin.Begin);
-                for (long i = position; i < padded; i++)
+                for (long left = padded - position; left > 0;)
                 {
-                    output.WriteByte(0);
+                    int n = (int)Math.Min(left, zeros.Length);
+                    output.Write(zeros, 0, n);
+                    left -= n;
                 }
 
                 runtime.Seek(have.Offset, SeekOrigin.Begin);
