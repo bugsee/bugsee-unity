@@ -211,7 +211,8 @@ namespace Bugsee.Editor
                 // keyed by its own GNU build-id.
                 // Unity strips the unwind tables from the libraries of this zip; the app's own copies have them (BugseeAndroidUnwindGraft).
                 var zipToUpload = BugseeAndroidUnwindGraft.Prepare(report, bestZip);
-                Debug.Log($"Bugsee: uploading Android symbols zip via {BugseeCliRunner.CliPath}: {bestZip}");
+                Debug.Log($"Bugsee: uploading Android symbols zip via {BugseeCliRunner.CliPath}: {zipToUpload}" +
+                          (zipToUpload != bestZip ? $" (a copy of {bestZip} with unwind data added)" : ""));
                 var args = AndroidUploadIdentity.ElfArguments(zipToUpload, version, build, buildUuid);
                 int exit;
                 try
