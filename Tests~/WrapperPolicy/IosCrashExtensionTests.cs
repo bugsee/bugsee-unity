@@ -383,6 +383,21 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void No_app_bundle_id_anywhere_is_reported_as_an_error_not_thrown()
+        {
+            // No configuration sets an id and the spec has none (an app group configured by hand skips the policy's own check).
+            string noId = Regex.Replace(Unity, @"\t+PRODUCT_BUNDLE_IDENTIFIER = [^;]*;\n", "");
+            Assert.That(noId, Does.Not.Contain("PRODUCT_BUNDLE_IDENTIFIER"));
+            var spec = Spec();
+            spec.AppBundleId = null;
+            string result = null;
+            string error = null;
+            Assert.DoesNotThrow(() => result = XcodeCrashExtensionProject.Apply(noId, spec, out error));
+            Assert.That(result, Is.Null);
+            Assert.That(error, Does.Contain("no app bundle id"));
+        }
+
+        [Test]
         public void An_append_export_refreshes_the_bundle_id_version_and_build_on_every_configuration()
         {
             string once = Apply();

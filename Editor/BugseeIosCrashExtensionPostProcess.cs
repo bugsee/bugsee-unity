@@ -169,6 +169,9 @@ namespace Bugsee.Editor
             var priorEntitlements = new System.Collections.Generic.Dictionary<string, string>();
             foreach (var pair in entitlements) priorEntitlements[pair.Key] = File.Exists(pair.Key) ? File.ReadAllText(pair.Key) : null;
             bool folderExisted = Directory.Exists(folder);
+            // The extension's Info.plist records the App Group and the files that group was added to: an earlier export's copy goes back too.
+            string infoFile = Path.Combine(folder, XcodeCrashExtensionProject.InfoPlistFileName);
+            string priorInfo = has && File.Exists(infoFile) ? File.ReadAllText(infoFile) : null;
             try
             {
                 Directory.CreateDirectory(folder);
@@ -201,6 +204,10 @@ namespace Bugsee.Editor
                         try { File.Delete(Path.Combine(folder, file)); } catch (IOException) { } catch (UnauthorizedAccessException) { }
                     }
                     try { if (!folderExisted && Directory.Exists(folder) && Directory.GetFileSystemEntries(folder).Length == 0) Directory.Delete(folder); } catch (IOException) { }
+                }
+                else if (priorInfo != null)
+                {
+                    try { File.WriteAllText(infoFile, priorInfo); } catch (IOException) { } catch (UnauthorizedAccessException) { }
                 }
                 throw;
             }

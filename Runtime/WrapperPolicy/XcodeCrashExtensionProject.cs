@@ -268,6 +268,7 @@ namespace Bugsee.WrapperPolicy
         {
             string id = Setting(appConfigBlock, "PRODUCT_BUNDLE_IDENTIFIER");
             if (string.IsNullOrWhiteSpace(id) || id.Contains("$")) id = spec.AppBundleId;
+            if (string.IsNullOrWhiteSpace(id)) throw new InvalidOperationException("no app bundle id");
             return IosCrashExtensionPolicy.ExtensionBundleId(id);
         }
 
