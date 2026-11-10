@@ -16,7 +16,7 @@ namespace Bugsee.Sample
     /// Part 1, "RAW": calls the native SDK's <c>Bugsee.relaunch / stop / launch</c> directly (bypassing the wrapper's lifecycle
     /// machine) and logs what the SDK itself answers, so the same scenario run against a build with SDK 7.4.1 and one with 7.4.2
     /// shows what changed: <c>[Sample] lifecycle RAW name :: ...</c> lines. They are information; PASS/FAIL is judged only when the
-    /// running SDK is in <c>JudgedSdkVersions</c> (7.4.2, the version the wrapper models, and 7.5.0, carried over and not yet device-checked).
+    /// running SDK is in <c>JudgedSdkVersions</c> (7.4.2, the version the wrapper models, and 7.5.0, whose lifecycle scenarios were run on an HONOR WOD-LX1 (Android 14) and a Samsung SM-T725 (Android 11) with the 7.4.2 expectations unchanged: 0 failures).
     ///
     /// Part 2: the same sequences through the public facade (the lifecycle machine), judged when the SDK is in <c>JudgedSdkVersions</c>:
     /// <c>[Sample] lifecycle PASS|FAIL name :: detail</c>, ending with <c>lifecycle e2e done failures=N</c>.
