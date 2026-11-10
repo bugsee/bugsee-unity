@@ -19,7 +19,8 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(dir, Is.Not.Null.And.Not.Empty, "repo root");
 
             var pinLine = File.ReadAllLines(Path.Combine(dir, "Tools~", "versions.env"))
-                .First(l => l.StartsWith("ANDROID_SDK_VERSION=", StringComparison.Ordinal));
+                .FirstOrDefault(l => l.StartsWith("ANDROID_SDK_VERSION=", StringComparison.Ordinal));
+            Assert.That(pinLine, Is.Not.Null, "ANDROID_SDK_VERSION not found in Tools~/versions.env");
             var pinned = pinLine.Substring(pinLine.IndexOf('=') + 1).Trim('"');
 
             var source = File.ReadAllText(Path.Combine(dir, "Samples~", "BugseeMiniGame", "Assets", "Scripts", "BugseeHarness", "LifecycleE2E.cs"));
