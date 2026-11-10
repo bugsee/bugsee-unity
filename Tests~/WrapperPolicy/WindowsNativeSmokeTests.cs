@@ -193,8 +193,8 @@ namespace Bugsee.WrapperPolicy.Tests
             var s = RealSettings("");
             s.DownloadAllowed = true;
             s.CacheDirectories.Add(cache);
-            string target = BugseeCliPolicy.CachedBinaryPath(s, cache, "0.8.1", "x86_64-pc-windows-msvc");
-            Assert.That(target, Is.EqualTo(Path.Combine(cache, "0.8.1", "x86_64-pc-windows-msvc", "bugsee-cli.exe")));
+            string target = BugseeCliPolicy.CachedBinaryPath(s, cache, BugseeCliPolicy.DefaultVersion, "x86_64-pc-windows-msvc");
+            Assert.That(target, Is.EqualTo(Path.Combine(cache, BugseeCliPolicy.DefaultVersion, "x86_64-pc-windows-msvc", "bugsee-cli.exe")));
             Install(Path.GetDirectoryName(target));
 
             var probe = RealProbe();

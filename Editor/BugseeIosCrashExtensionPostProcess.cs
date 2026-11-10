@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.RegularExpressions;
 using UnityEditor;
-using UnityEditor.iOS.Xcode;
 using Bugsee.WrapperPolicy;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
@@ -72,9 +71,9 @@ namespace Bugsee.Editor
 
         static void Apply(string exportPath)
         {
-            string projectPath = PBXProject.GetPBXProjectPath(exportPath);
+            string projectPath = XcodeProject.GetPBXProjectPath(exportPath);
             string original = File.ReadAllText(projectPath);
-            var project = new PBXProject();
+            var project = new XcodeProject();
             project.ReadFromFile(projectPath);
             string appGuid = project.GetUnityMainTargetGuid();
 
