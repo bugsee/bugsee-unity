@@ -317,20 +317,34 @@ namespace Bugsee.WrapperPolicy
     /// <summary>The native early-launch bookkeeping of BugseeEarlyLaunch.mm as a pure model, so its rules are unit-tested.</summary>
     public sealed class EarlyLaunchSession
     {
-        bool _ran, _asked;
+        bool _attempted, _ran, _asked;
         string _token;
 
-        /// <summary>The early launch called launchWithToken.</summary>
-        public void Ran(string token) { _ran = true; _token = token; }
+        /// <summary>
+        /// The early launch is about to call launchWithToken. True: go ahead. False: the slot was already claimed (a C# Launch asked first,
+        /// or a Stop) or it already ran, so it must not launch.
+        /// </summary>
+        public bool Ran(string token)
+        {
+            bool skip = _attempted || _asked;
+            _attempted = true;
+            if (skip) return false;
+            // No usable configuration (null or empty token: the native run returns before the launch call): nothing to adopt later.
+            if (string.IsNullOrEmpty(token)) return false;
+            _ran = true;
+            _token = token;
+            return true;
+        }
 
         /// <summary>A Stop or delete: the session is no longer for the first Launch to adopt (also when it has not run yet).</summary>
         public void Cancel() { _asked = true; }
 
-        /// <summary>The first C# Launch's question: 1 same token, 2 other token, 0 nothing (not run, or already asked).</summary>
+        /// <summary>The first C# Launch's question: 1 same token, 2 other token, 0 nothing (not run, or already asked). The first question claims the slot even when the early launch has not run: it then never will.</summary>
         public int Adopt(string givenToken)
         {
-            if (!_ran || _asked || _token == null) return 0;
+            if (_asked) return 0;
             _asked = true;
+            if (!_ran || _token == null) return 0;
             return givenToken != null && givenToken == _token ? 1 : 2;
         }
     }
