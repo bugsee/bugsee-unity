@@ -293,6 +293,8 @@ namespace Bugsee.Platform.IOS
         // when it has already run.
         bool StopNativeThen(Action then, Action dropped = null, bool first = false)
         {
+            // A Stop or Delete ends the native early launch's claim on the first Launch: the Launch that follows starts the SDK.
+            _bugsee_early_launch_cancel();
             var generation = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
             var joined = StopWaiters.TryJoin(then, generation, out var cancelledLaunch, dropped, first);
             cancelledLaunch?.Invoke(false);
@@ -1010,6 +1012,7 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern int _bugsee_get_status();
         // BugseeEarlyLaunch.mm: 0 when no early session is waiting to be adopted (also when the early launch is not configured).
         [DllImport("__Internal")] static extern int _bugsee_early_launch_adopt(string appToken);
+        [DllImport("__Internal")] static extern void _bugsee_early_launch_cancel();
         [DllImport("__Internal")] static extern IntPtr _bugsee_early_launch_options();
         [DllImport("__Internal")] static extern int _bugsee_exceptions_filed();
         [DllImport("__Internal")] static extern void _bugsee_start_blackout();

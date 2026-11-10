@@ -156,6 +156,16 @@ int _bugsee_early_launch_adopt(const char *appToken)
     return answer;
 }
 
+// A Stop or a delete claims the early session: after the app stopped the SDK (consent withheld, say), a later Launch must start it
+// normally. Without this the Launch would adopt a stopped SDK, report success and start nothing. Also true when the early launch has
+// not run yet: it then cannot be adopted afterwards.
+void _bugsee_early_launch_cancel(void)
+{
+    [EarlyLock() lock];
+    gEarlyAdopted = YES;
+    [EarlyLock() unlock];
+}
+
 char *_bugsee_early_launch_options(void)
 {
     [EarlyLock() lock];
@@ -170,6 +180,7 @@ char *_bugsee_early_launch_options(void)
 
 extern "C" {
 int _bugsee_early_launch_adopt(const char *appToken) { (void)appToken; return 0; }
+void _bugsee_early_launch_cancel(void) {}
 char *_bugsee_early_launch_options(void) { return NULL; }
 }
 

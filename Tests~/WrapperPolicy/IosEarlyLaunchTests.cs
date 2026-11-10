@@ -417,6 +417,25 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(s.Adopt(Token), Is.EqualTo(0));
         }
 
+        [Test]
+        public void A_stop_before_the_first_launch_claims_the_session_so_that_launch_starts_the_sdk()
+        {
+            // The native cancel sets the same flag the first question sets; the policy mirror is Cancel().
+            var s = new EarlyLaunchSession();
+            s.Ran(Token);
+            s.Cancel();
+            Assert.That(IosEarlyLaunchPolicy.ResolveAdoption(s.Adopt(Token), 0), Is.EqualTo(IosEarlyAdoption.None));
+        }
+
+        [Test]
+        public void A_stop_before_the_early_launch_ran_leaves_nothing_to_adopt_later()
+        {
+            var s = new EarlyLaunchSession();
+            s.Cancel();
+            s.Ran(Token);
+            Assert.That(s.Adopt(Token), Is.EqualTo(0));
+        }
+
         static int CountOf(string text, string needle)
         {
             int count = 0, at = 0;
@@ -561,7 +580,7 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             string mm = Read("Plugins/iOS/BugseeEarlyLaunch.mm");
             string cs = Read("Runtime/Platform/IOS/IOSBridge.cs");
-            foreach (string symbol in new[] { "_bugsee_early_launch_adopt", "_bugsee_early_launch_options" })
+            foreach (string symbol in new[] { "_bugsee_early_launch_adopt", "_bugsee_early_launch_cancel", "_bugsee_early_launch_options" })
             {
                 Assert.That(cs, Does.Contain("static extern").And.Contain(symbol));
                 Assert.That(CountOf(mm, symbol + "("), Is.EqualTo(2), symbol + " must be defined with and without the SDK");
@@ -609,6 +628,19 @@ namespace Bugsee.WrapperPolicy.Tests
         public void The_policy_stays_free_of_Unity_types()
         {
             Assert.That(Read("Runtime/WrapperPolicy/IosEarlyLaunchPolicy.cs"), Does.Not.Contain("UnityEngine"));
+        }
+
+        [Test]
+        public void Every_native_stop_and_delete_claims_the_early_session_first()
+        {
+            string cs = Read("Runtime/Platform/IOS/IOSBridge.cs");
+            int at = cs.IndexOf("bool StopNativeThen(", System.StringComparison.Ordinal);
+            int cancel = cs.IndexOf("_bugsee_early_launch_cancel();", at, System.StringComparison.Ordinal);
+            int stop = cs.IndexOf("_bugsee_stop(", at, System.StringComparison.Ordinal);
+            Assert.That(cancel, Is.GreaterThan(at).And.LessThan(stop));
+            string mm = Read("Plugins/iOS/BugseeEarlyLaunch.mm");
+            int body = mm.IndexOf("void _bugsee_early_launch_cancel(void)\n{", System.StringComparison.Ordinal);
+            Assert.That(mm.Substring(body, 160), Does.Contain("gEarlyAdopted = YES"));
         }
 
         static int CountOf(string text, string needle)

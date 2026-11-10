@@ -164,18 +164,46 @@ namespace Bugsee.Editor
                 return;
             }
 
-            // Everything that could fail has run; now write the files, the project last.
-            Directory.CreateDirectory(folder);
-            File.WriteAllText(Path.Combine(folder, XcodeCrashExtensionProject.SwiftFileName), IosCrashExtensionPolicy.SwiftSource());
-            string displayName = Regex.Match(appInfo ?? "", "<key>CFBundleDisplayName</key>\\s*<string>([^<$]+)</string>") is Match m && m.Success ? m.Groups[1].Value : Application.productName;
-            File.WriteAllText(Path.Combine(folder, XcodeCrashExtensionProject.InfoPlistFileName), IosCrashExtensionPolicy.InfoPlist(decision.AppGroup, displayName, owned));
-            File.WriteAllText(Path.Combine(folder, XcodeCrashExtensionProject.EntitlementsFileName), IosCrashExtensionPolicy.Entitlements(decision.AppGroup));
-            foreach (var pair in entitlements)
+            // Everything that could fail has run; now write the files, the project last. A write that fails part way must not leave the
+            // App Group in the entitlements with no target to own it (a retry would take it for the developer's): put the files back.
+            var priorEntitlements = new System.Collections.Generic.Dictionary<string, string>();
+            foreach (var pair in entitlements) priorEntitlements[pair.Key] = File.Exists(pair.Key) ? File.ReadAllText(pair.Key) : null;
+            bool folderExisted = Directory.Exists(folder);
+            try
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(pair.Key));
-                File.WriteAllText(pair.Key, pair.Value);
+                Directory.CreateDirectory(folder);
+                File.WriteAllText(Path.Combine(folder, XcodeCrashExtensionProject.SwiftFileName), IosCrashExtensionPolicy.SwiftSource());
+                string displayName = Regex.Match(appInfo ?? "", "<key>CFBundleDisplayName</key>\\s*<string>([^<$]+)</string>") is Match m && m.Success ? m.Groups[1].Value : Application.productName;
+                File.WriteAllText(Path.Combine(folder, XcodeCrashExtensionProject.InfoPlistFileName), IosCrashExtensionPolicy.InfoPlist(decision.AppGroup, displayName, owned));
+                File.WriteAllText(Path.Combine(folder, XcodeCrashExtensionProject.EntitlementsFileName), IosCrashExtensionPolicy.Entitlements(decision.AppGroup));
+                foreach (var pair in entitlements)
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(pair.Key));
+                    File.WriteAllText(pair.Key, pair.Value);
+                }
+                if (edited != original) File.WriteAllText(projectPath, edited);
             }
-            if (edited != original) File.WriteAllText(projectPath, edited);
+            catch (Exception)
+            {
+                foreach (var pair in priorEntitlements)
+                {
+                    try
+                    {
+                        if (pair.Value != null) File.WriteAllText(pair.Key, pair.Value); else if (File.Exists(pair.Key)) File.Delete(pair.Key);
+                    }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
+                if (!has)
+                {
+                    foreach (string file in new[] { XcodeCrashExtensionProject.SwiftFileName, XcodeCrashExtensionProject.InfoPlistFileName, XcodeCrashExtensionProject.EntitlementsFileName })
+                    {
+                        try { File.Delete(Path.Combine(folder, file)); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                    }
+                    try { if (!folderExisted && Directory.Exists(folder) && Directory.GetFileSystemEntries(folder).Length == 0) Directory.Delete(folder); } catch (IOException) { }
+                }
+                throw;
+            }
 
             Debug.Log("[Bugsee] " + decision.Reason +
                 $" Register the App Group on the app's and the extension's ({IosCrashExtensionPolicy.ExtensionBundleId(bundleId)}) App IDs unless Xcode signs automatically (from Xcode itself or with -allowProvisioningUpdates).");
@@ -206,7 +234,8 @@ namespace Bugsee.Editor
             string folder = Path.Combine(exportPath, XcodeCrashExtensionProject.FolderName);
             var previous = PreviousState(folder);
 
-            File.WriteAllText(projectPath, stripped);
+            // The App Group goes first and the project last: if a write fails the target is still there, so the next export retries
+            // (the extension's Info.plist, which records the group, is deleted only at the end).
             if (previous != null)
             {
                 foreach (string value in XcodeCrashExtensionProject.AppEntitlementsPaths(stripped, appGuid))
@@ -220,6 +249,8 @@ namespace Bugsee.Editor
                     if (without != text) File.WriteAllText(full, without);
                 }
             }
+
+            File.WriteAllText(projectPath, stripped);
 
             foreach (string file in new[] { XcodeCrashExtensionProject.SwiftFileName, XcodeCrashExtensionProject.InfoPlistFileName, XcodeCrashExtensionProject.EntitlementsFileName })
             {

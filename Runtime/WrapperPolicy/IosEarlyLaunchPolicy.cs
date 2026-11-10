@@ -323,6 +323,9 @@ namespace Bugsee.WrapperPolicy
         /// <summary>The early launch called launchWithToken.</summary>
         public void Ran(string token) { _ran = true; _token = token; }
 
+        /// <summary>A Stop or delete: the session is no longer for the first Launch to adopt (also when it has not run yet).</summary>
+        public void Cancel() { _asked = true; }
+
         /// <summary>The first C# Launch's question: 1 same token, 2 other token, 0 nothing (not run, or already asked).</summary>
         public int Adopt(string givenToken)
         {
