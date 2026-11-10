@@ -215,7 +215,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
         // FilterReplyWindow.LogFilterSdkTimeoutMs (10 s) is the Android SDK's own log-filter timeout, read from these releases.
         // A newer SDK may change or drop it; re-read FILTER_CALLBACK_TIMEOUT_MS in its log provider, then add the version here.
-        static readonly string[] VerifiedAndroidSdkVersions = { "7.4.1", "7.4.2" };
+        static readonly string[] VerifiedAndroidSdkVersions = { "7.4.1", "7.4.2", "7.5.0" };
 
         [Test]
         public void The_log_filter_window_is_rechecked_when_the_pinned_android_sdk_changes()
