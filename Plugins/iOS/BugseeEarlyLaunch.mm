@@ -111,10 +111,17 @@ static void BugseeEarlyLaunchRun(NSString *point)
 
         [EarlyLock() lock];
         // Every early return above (no or invalid configuration) leaves these unset: nothing to adopt, the C# Launch starts normally.
-        gEarlyToken = [token copy];
-        gEarlyOptionsJson = [optionsJson copy];
-        gEarlyLaunched = YES;
+        // The claim is checked again here, in the same step that records the launch: a C# Launch or Stop that came in meanwhile owns the slot.
+        BOOL claimed = gEarlyAdopted;
+        if (!claimed) {
+            gEarlyToken = [token copy];
+            gEarlyOptionsJson = [optionsJson copy];
+            gEarlyLaunched = YES;
+        }
         [EarlyLock() unlock];
+        if (claimed) {
+            return;
+        }
         NSLog(@"[Bugsee] Native early launch (%@).", point);
         // Launch with the parsed options, like the C# launch does.
         [Bugsee launchWithToken:token andOptions:options];

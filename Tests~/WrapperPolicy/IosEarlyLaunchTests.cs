@@ -710,8 +710,14 @@ namespace Bugsee.WrapperPolicy.Tests
             string mm = Read("Plugins/iOS/BugseeEarlyLaunch.mm");
             int run = mm.IndexOf("static void BugseeEarlyLaunchRun(", System.StringComparison.Ordinal);
             int launch = mm.IndexOf("[Bugsee launchWithToken:", run, System.StringComparison.Ordinal);
-            int check = mm.IndexOf("gEarlyAdopted", run, System.StringComparison.Ordinal);
+            // Anchored on code, not comments.
+            int check = mm.IndexOf("BOOL already = gEarlyAttempted || gEarlyAdopted;", run, System.StringComparison.Ordinal);
             Assert.That(check, Is.GreaterThan(run).And.LessThan(launch), "the claim is checked before the launch call");
+            int recheck = mm.IndexOf("BOOL claimed = gEarlyAdopted;", check, System.StringComparison.Ordinal);
+            int record = mm.IndexOf("gEarlyLaunched = YES;", check, System.StringComparison.Ordinal);
+            Assert.That(recheck, Is.GreaterThan(check).And.LessThan(record), "the claim is re-checked in the step that records the launch");
+            Assert.That(mm.IndexOf("if (!claimed) {", recheck, System.StringComparison.Ordinal), Is.GreaterThan(recheck).And.LessThan(record));
+            Assert.That(record, Is.LessThan(launch));
             int adopt = mm.IndexOf("int _bugsee_early_launch_adopt(const char *appToken)\n{", System.StringComparison.Ordinal);
             string body = mm.Substring(adopt, mm.IndexOf("void _bugsee_early_launch_cancel", adopt, System.StringComparison.Ordinal) - adopt);
             Assert.That(body.IndexOf("gEarlyAdopted = YES", System.StringComparison.Ordinal),
