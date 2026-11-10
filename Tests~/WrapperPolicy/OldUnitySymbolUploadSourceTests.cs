@@ -74,10 +74,12 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(body, Does.Contain("BugseeBuildIdentity.ResolveAndroidUploadIdentity(report)"));
             Assert.That(body, Does.Contain("AndroidUploadIdentity.MappingArguments(identity.Uuid, icon)"));
             Assert.That(body, Does.Contain("identity.ElfUuid ?? Guid.NewGuid()"));
-            Assert.That(body, Does.Contain("UploadSymbolsZipOrElf(roots, version, build, elfUuid, symbolsZip)"));
+            Assert.That(body, Does.Contain("UploadSymbolsZipOrElf(roots, version, build, elfUuid, symbolsZip, report)"));
 
             var elf = Body(Source("Editor/BugseeSymbolUpload.cs"), "static void UploadSymbolsZipOrElf(");
-            Assert.That(elf, Does.Contain("AndroidUploadIdentity.ElfArguments(bestZip, version, build, buildUuid)"));
+            Assert.That(elf, Does.Contain("AndroidUploadIdentity.ElfArguments(zipToUpload, version, build, buildUuid)"));
+            Assert.That(elf, Does.Contain("BugseeAndroidUnwindGraft.Prepare(report, bestZip)"));
+            Assert.That(elf, Does.Contain("BugseeAndroidUnwindGraft.Cleanup()"));
             Assert.That(elf, Does.Contain("AndroidUploadIdentity.ElfArguments(dir, version, build, buildUuid)"));
         }
 

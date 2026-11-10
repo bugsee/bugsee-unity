@@ -147,7 +147,7 @@ namespace Bugsee.Editor
             // logs (each library is keyed by its own build-id), so one is used for both.
             var elfUuid = identity.ElfUuid ?? Guid.NewGuid().ToString("D");
             var symbolsZip = FindSymbolsZip(report);
-            UploadSymbolsZipOrElf(roots, version, build, elfUuid, symbolsZip);
+            UploadSymbolsZipOrElf(roots, version, build, elfUuid, symbolsZip, report);
             // The libraries Unity's zip does not hold: the developer's plugin libraries and AAR libraries that ship with symbols.
             BugseeAndroidNativeLibUpload.Upload(report, version, build, elfUuid, symbolsZip);
         }
@@ -172,7 +172,7 @@ namespace Bugsee.Editor
             }
         }
 
-        static void UploadSymbolsZipOrElf(List<string> roots, string version, string build, string buildUuid, string bestZip)
+        static void UploadSymbolsZipOrElf(List<string> roots, string version, string build, string buildUuid, string bestZip, BuildReport report)
         {
             var elfDirs = new List<string>();
 
@@ -209,9 +209,19 @@ namespace Bugsee.Editor
                 // bugsee-cli --type elf accepts a zip of ELF objects (Unity symbols.zip layout).
                 // --uuid is the BUILD_UUID correlation key (required by CLI); each .so is still
                 // keyed by its own GNU build-id.
+                // Unity strips the unwind tables from the libraries of this zip; the app's own copies have them (BugseeAndroidUnwindGraft).
+                var zipToUpload = BugseeAndroidUnwindGraft.Prepare(report, bestZip);
                 Debug.Log($"Bugsee: uploading Android symbols zip via {BugseeCliRunner.CliPath}: {bestZip}");
-                var args = AndroidUploadIdentity.ElfArguments(bestZip, version, build, buildUuid);
-                var exit = BugseeCliRunner.Run(args);
+                var args = AndroidUploadIdentity.ElfArguments(zipToUpload, version, build, buildUuid);
+                int exit;
+                try
+                {
+                    exit = BugseeCliRunner.Run(args);
+                }
+                finally
+                {
+                    BugseeAndroidUnwindGraft.Cleanup();
+                }
                 if (exit != 0)
                 {
                     Debug.LogWarning(
