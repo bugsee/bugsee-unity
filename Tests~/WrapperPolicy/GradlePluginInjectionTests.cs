@@ -17,7 +17,7 @@ namespace Bugsee.WrapperPolicy.Tests
     {
         const GradleMavenInjection.GradleDsl Groovy = GradleMavenInjection.GradleDsl.Groovy;
         const GradleMavenInjection.GradleDsl Kotlin = GradleMavenInjection.GradleDsl.Kotlin;
-        const string Version = "4.0.8";
+        const string Version = "4.1.1";
 
         static readonly string[] UnitySets =
         {
@@ -95,7 +95,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(patch.Root, Is.EqualTo(MarkedGradleBlock.Apply(root, "plugins {", GradlePluginInjection.RootPluginLine(Version))));
             Assert.That(patch.Launcher, Is.EqualTo(MarkedGradleBlock.Apply(
                 launcher, "apply plugin: 'com.android.application'", GradlePluginInjection.LauncherGroovyPatch())));
-            Assert.That(patch.Root, Does.Contain("id 'com.bugsee.android.gradle' version '4.0.8' apply false // bugsee:gradle-plugin"));
+            Assert.That(patch.Root, Does.Contain("id 'com.bugsee.android.gradle' version '4.1.1' apply false // bugsee:gradle-plugin"));
             Assert.That(patch.Launcher, Does.Contain("apply plugin: 'com.bugsee.android.gradle' // bugsee:gradle-plugin"));
             Assert.That(patch.Launcher, Does.Not.Contain("plugins {"));
         }
@@ -133,7 +133,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(patch.Applied, Is.True);
             Assert.That(patch.NeedsPluginRepository, Is.False, "a classpath entry resolves from the buildscript repositories");
             Assert.That(patch.Root, Does.Contain(
-                "    dependencies {\n        classpath 'com.bugsee:bugsee-android-gradle-plugin:4.0.8' // bugsee:gradle-plugin\n        classpath 'com.android.tools.build:gradle:8.7.2'\n"));
+                "    dependencies {\n        classpath 'com.bugsee:bugsee-android-gradle-plugin:4.1.1' // bugsee:gradle-plugin\n        classpath 'com.android.tools.build:gradle:8.7.2'\n"));
             Assert.That(patch.Launcher, Is.EqualTo(MarkedGradleBlock.Apply(
                 launcher, "apply plugin: 'com.android.application'", GradlePluginInjection.LauncherGroovyPatch())));
             Assert.That(patch.Launcher, Does.Not.Contain("plugins {"));
@@ -151,11 +151,11 @@ namespace Bugsee.WrapperPolicy.Tests
             string launcher = Read("Unity6000.0.84f1-default", "launcher.build.gradle");
 
             var once = GradlePluginInjection.Apply(root, Groovy, launcher, Groovy, Version);
-            var bumped = GradlePluginInjection.Apply(once.Root, Groovy, once.Launcher, Groovy, "4.1.0");
+            var bumped = GradlePluginInjection.Apply(once.Root, Groovy, once.Launcher, Groovy, "4.2.0");
 
             Assert.That(once.Root, Does.Contain("        google()\n        mavenCentral() // bugsee:maven-repository\n    }"));
-            Assert.That(bumped.Root, Does.Contain("bugsee-android-gradle-plugin:4.1.0'"));
-            Assert.That(bumped.Root, Does.Not.Contain("4.0.8"));
+            Assert.That(bumped.Root, Does.Contain("bugsee-android-gradle-plugin:4.2.0'"));
+            Assert.That(bumped.Root, Does.Not.Contain("4.1.1"));
             Assert.That(bumped.Launcher, Does.Contain("apply plugin: 'com.bugsee.android.gradle' // bugsee:gradle-plugin"));
         }
 
@@ -177,7 +177,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
             var patch = GradlePluginInjection.Apply(root, Kotlin, KotlinLauncherPluginsBlock, Kotlin, Version);
 
-            Assert.That(patch.Root, Does.Contain("        classpath(\"com.bugsee:bugsee-android-gradle-plugin:4.0.8\") // bugsee:gradle-plugin\n"));
+            Assert.That(patch.Root, Does.Contain("        classpath(\"com.bugsee:bugsee-android-gradle-plugin:4.1.1\") // bugsee:gradle-plugin\n"));
             Assert.That(patch.Launcher, Does.Contain("    id(\"com.bugsee.android.gradle\") // bugsee:gradle-plugin\n"));
             Assert.That(patch.Launcher, Does.Not.Contain("version"));
         }
@@ -203,9 +203,9 @@ namespace Bugsee.WrapperPolicy.Tests
             var patch = GradlePluginInjection.Apply(root, Groovy, launcher, Groovy, Version);
 
             Assert.That(patch.Applied, Is.True);
-            Assert.That(patch.Root, Does.Contain("id 'com.bugsee.android.gradle' version '4.0.8' apply false // bugsee:gradle-plugin"));
+            Assert.That(patch.Root, Does.Contain("id 'com.bugsee.android.gradle' version '4.1.1' apply false // bugsee:gradle-plugin"));
             Assert.That(patch.Launcher, Does.Contain("    id 'com.bugsee.android.gradle' // bugsee:gradle-plugin\n"));
-            Assert.That(patch.Launcher, Does.Not.Contain("version '4.0.8'"), "the root already declared the version");
+            Assert.That(patch.Launcher, Does.Not.Contain("version '4.1.1'"), "the root already declared the version");
             Assert.That(patch.NeedsPluginRepository, Is.True);
         }
 
@@ -236,7 +236,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(kotlin.Root, Is.EqualTo(KotlinRoot));
             Assert.That(kotlin.IsWarning, Is.True);
             Assert.That(kotlin.Message, Does.Contain("apply(plugin = \"com.bugsee.android.gradle\")"));
-            Assert.That(kotlin.Message, Does.Contain("id(\"com.bugsee.android.gradle\") version \"4.0.8\" apply false in the root plugins { } block"),
+            Assert.That(kotlin.Message, Does.Contain("id(\"com.bugsee.android.gradle\") version \"4.1.1\" apply false in the root plugins { } block"),
                 "the root of this shape has a plugins { } block, not a buildscript block");
             Assert.That(kotlin.Message, Does.Not.Contain("classpath("));
             Assert.That(groovy.Applied, Is.False);
@@ -255,7 +255,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(patch.Launcher, Does.StartWith(
                 "plugins {\n" +
                 "    id(\"com.android.application\")\n" +
-                "    id(\"com.bugsee.android.gradle\") version \"4.0.8\" // bugsee:gradle-plugin\n" +
+                "    id(\"com.bugsee.android.gradle\") version \"4.1.1\" // bugsee:gradle-plugin\n" +
                 "}\n" +
                 "\n" +
                 "bugsee {\n" +
@@ -274,11 +274,11 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             var once = GradlePluginInjection.Apply(KotlinRoot, Kotlin, KotlinLauncherPluginsBlock, Kotlin, Version);
             var twice = GradlePluginInjection.Apply(KotlinRoot, Kotlin, once.Launcher, Kotlin, Version);
-            var bumped = GradlePluginInjection.Apply(KotlinRoot, Kotlin, once.Launcher, Kotlin, "4.1.0");
+            var bumped = GradlePluginInjection.Apply(KotlinRoot, Kotlin, once.Launcher, Kotlin, "4.2.0");
 
             Assert.That(twice.Launcher, Is.EqualTo(once.Launcher));
-            Assert.That(bumped.Launcher, Does.Contain("version \"4.1.0\" // bugsee:gradle-plugin"));
-            Assert.That(bumped.Launcher, Does.Not.Contain("4.0.8"));
+            Assert.That(bumped.Launcher, Does.Contain("version \"4.2.0\" // bugsee:gradle-plugin"));
+            Assert.That(bumped.Launcher, Does.Not.Contain("4.1.1"));
             Assert.That(Count(bumped.Launcher, "bugsee:gradle-plugin"), Is.EqualTo(1));
             Assert.That(Count(bumped.Launcher, "bugsee:gradle-ndk"), Is.EqualTo(1));
         }
@@ -291,7 +291,7 @@ namespace Bugsee.WrapperPolicy.Tests
             var patch = GradlePluginInjection.Apply(KotlinRoot, Kotlin, launcher, Kotlin, Version);
 
             Assert.That(patch.Launcher, Does.StartWith(
-                "plugins {\n    alias(libs.plugins.android.application)\n    id(\"com.bugsee.android.gradle\") version \"4.0.8\" // bugsee:gradle-plugin\n}\n"));
+                "plugins {\n    alias(libs.plugins.android.application)\n    id(\"com.bugsee.android.gradle\") version \"4.1.1\" // bugsee:gradle-plugin\n}\n"));
         }
 
         [Test]
@@ -304,7 +304,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
             Assert.That(patch.Root, Is.EqualTo(root), "the project's own declaration is never rewritten");
             Assert.That(patch.Launcher, Does.Contain("    id(\"com.bugsee.android.gradle\") // bugsee:gradle-plugin\n"));
-            Assert.That(patch.Launcher, Does.Not.Contain("version \"4.0.8\""));
+            Assert.That(patch.Launcher, Does.Not.Contain("version \"4.1.1\""));
         }
 
         [Test]
@@ -341,7 +341,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(patch.Applied, Is.False);
             Assert.That(patch.Launcher, Is.EqualTo(launcher));
             Assert.That(patch.IsWarning, Is.True);
-            Assert.That(patch.Message, Does.Contain("id(\"com.bugsee.android.gradle\") version \"4.0.8\""));
+            Assert.That(patch.Message, Does.Contain("id(\"com.bugsee.android.gradle\") version \"4.1.1\""));
             Assert.That(patch.Message, Does.Contain("launcher/build.gradle.kts"));
             Assert.That(patch.Message, Does.Contain("enabled.set(true)"));
         }
@@ -354,7 +354,7 @@ namespace Bugsee.WrapperPolicy.Tests
             var patch = GradlePluginInjection.Apply(root, Groovy, KotlinLauncherPluginsBlock, Kotlin, Version);
 
             Assert.That(patch.Applied, Is.True);
-            Assert.That(patch.Root, Does.Contain("id 'com.bugsee.android.gradle' version '4.0.8' apply false // bugsee:gradle-plugin"));
+            Assert.That(patch.Root, Does.Contain("id 'com.bugsee.android.gradle' version '4.1.1' apply false // bugsee:gradle-plugin"));
             Assert.That(patch.Launcher, Does.Contain("    id(\"com.bugsee.android.gradle\") // bugsee:gradle-plugin\n"));
             Assert.That(patch.Launcher, Does.Not.Contain("version"));
         }
@@ -377,7 +377,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
             Assert.That(patch.Applied, Is.True);
             Assert.That(patch.Root, Is.EqualTo(root));
-            Assert.That(patch.Launcher, Does.Contain("    id(\"com.bugsee.android.gradle\") version \"4.0.8\" // bugsee:gradle-plugin\n}\n\nbugsee {"));
+            Assert.That(patch.Launcher, Does.Contain("    id(\"com.bugsee.android.gradle\") version \"4.1.1\" // bugsee:gradle-plugin\n}\n\nbugsee {"));
             Assert.That(GradlePluginInjection.Apply(patch.Root, Kotlin, patch.Launcher, Kotlin, Version).Launcher, Is.EqualTo(patch.Launcher));
             Assert.That(GradleTemplateDefaults.EnsureReleaseDebugSymbols(launcher, Kotlin), Is.EqualTo(launcher), "debugSymbolLevel is already set");
 
@@ -408,7 +408,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
             var patch = GradlePluginInjection.Apply(legacyRoot, Groovy, Read("Unity6000.0.84f1-default", "launcher.build.gradle"), Groovy, Version);
 
-            Assert.That(patch.Root, Does.Contain("version '4.0.8' apply false // bugsee:gradle-plugin"));
+            Assert.That(patch.Root, Does.Contain("version '4.1.1' apply false // bugsee:gradle-plugin"));
             Assert.That(patch.Root, Does.Not.Contain("4.0.2"));
             Assert.That(Count(patch.Root, "com.bugsee.android.gradle"), Is.EqualTo(1));
         }
@@ -417,7 +417,7 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Comments_that_mention_the_plugin_do_not_count_as_a_declaration()
         {
             Assert.That(GradlePluginInjection.HasUnmarkedDeclaration("// id 'com.bugsee.android.gradle' version '4'\nplugins {\n}\n"), Is.False);
-            Assert.That(GradlePluginInjection.HasUnmarkedDeclaration("classpath 'com.bugsee:bugsee-android-gradle-plugin:4.0.8'"), Is.True);
+            Assert.That(GradlePluginInjection.HasUnmarkedDeclaration("classpath 'com.bugsee:bugsee-android-gradle-plugin:4.1.1'"), Is.True);
             Assert.That(GradlePluginInjection.HasUnmarkedDeclaration("apply plugin: 'com.bugsee.android.gradle'"), Is.True);
             Assert.That(GradlePluginInjection.HasUnmarkedDeclaration(null), Is.False);
         }
@@ -437,11 +437,11 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Manual_instructions_are_in_the_dsl_of_the_launcher_file()
         {
             Assert.That(GradlePluginInjection.ManualInstructions(Groovy, Version),
-                Does.Contain("id 'com.bugsee.android.gradle' version '4.0.8'").And.Contain("launcher/build.gradle ").And.Contain("enabled = true"));
+                Does.Contain("id 'com.bugsee.android.gradle' version '4.1.1'").And.Contain("launcher/build.gradle ").And.Contain("enabled = true"));
             Assert.That(GradlePluginInjection.ManualInstructions(Kotlin, Version),
-                Does.Contain("id(\"com.bugsee.android.gradle\") version \"4.0.8\"").And.Contain("launcher/build.gradle.kts").And.Contain("enabled.set(true)"));
+                Does.Contain("id(\"com.bugsee.android.gradle\") version \"4.1.1\"").And.Contain("launcher/build.gradle.kts").And.Contain("enabled.set(true)"));
             Assert.That(GradlePluginInjection.ManualInstructions(Kotlin, Version, GradlePluginInjection.RootShape.Buildscript),
-                Does.Contain("classpath(\"com.bugsee:bugsee-android-gradle-plugin:4.0.8\")"));
+                Does.Contain("classpath(\"com.bugsee:bugsee-android-gradle-plugin:4.1.1\")"));
             Assert.That(GradlePluginInjection.ManualInstructions(Kotlin, Version, GradlePluginInjection.RootShape.PluginsBlock),
                 Does.Not.Contain("classpath("));
         }

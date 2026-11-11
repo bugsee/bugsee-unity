@@ -137,6 +137,14 @@ namespace Bugsee.Platform.IOS
             _breadcrumbLaunchBuffer.BeginNewLaunchCycle();
             _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
             _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
+            // Native early launch (opt-in at build time): the SDK may already run; the first Launch then completes that session.
+            var adoption = IosEarlyLaunchPolicy.ResolveAdoption(_bugsee_early_launch_adopt(appToken), _bugsee_get_status());
+            if (adoption != IosEarlyAdoption.None)
+            {
+                AdoptEarlyLaunch(adoption, options, started);
+                return;
+            }
+            IosNativeCallbacks.EarlyReplay.Disarm();
             var startedToken = RegisterLaunchResult(started);
             _bugsee_launch(appToken, ToJsonObject(WithWrapperInfo(OptionPlatformGate.ForIos(options))),
                 startedToken, startedToken == 0 ? null : (LaunchStartedNativeCallback)OnNativeStarted);
@@ -144,9 +152,29 @@ namespace Bugsee.Platform.IOS
             HostLogForwarder.InstallOnce(this);
         }
 
+        // The session the native early launch started is the one this Launch asks for: no second SDK launch is made. The managed
+        // side of a launch (exception pipeline, log forwarding, launch buffers, lifecycle events the callback missed) is set up
+        // here as for any Launch; launch-only options and a different token are reported, not applied.
+        void AdoptEarlyLaunch(IosEarlyAdoption adoption, IDictionary<string, object> options, Action<bool> started)
+        {
+            var differing = IosEarlyLaunchPolicy.DifferingKeys(
+                OptionPlatformGate.ForIos(options), ConsumeNativeString(_bugsee_early_launch_options()));
+            var warning = IosEarlyLaunchPolicy.AdoptionWarning(adoption, differing);
+            if (warning != null) Debug.LogWarning(warning);
+            ExceptionPipeline.Install(this, options);
+            HostLogForwarder.InstallOnce(this);
+            var status = GetStatus();
+            Debug.Log("[Bugsee] Launch adopted the session the native early launch started (SDK status " + status + (status == BugseeStatus.Stopped ? ", its start is deferred until the app is active" : "") + "); no second launch was made.");
+            foreach (var eventType in IosNativeCallbacks.EarlyReplay.Arm((int)status))
+                IosNativeCallbacks.DeliverLifecycle(eventType, null);
+            // Stopped is normal here: the SDK defers the real start until the app is active, and the events follow through the replay filter.
+            RunResult(started, true);
+        }
+
         void RelaunchNow(IDictionary<string, object> options, Action<bool> started)
         {
             EnsureWrapperRegistered();
+            IosNativeCallbacks.EarlyReplay.Disarm();
             WarnOnceIfExceptionsNotFiled();
             DeleteCollectedDataLaunchGeneration.BumpForLaunch();
             _networkLaunchBuffer.BeginNewLaunchCycle();
@@ -265,6 +293,8 @@ namespace Bugsee.Platform.IOS
         // when it has already run.
         bool StopNativeThen(Action then, Action dropped = null, bool first = false)
         {
+            // A Stop or Delete ends the native early launch's claim on the first Launch: the Launch that follows starts the SDK.
+            _bugsee_early_launch_cancel();
             var generation = DeleteCollectedDataLaunchGeneration.CaptureForPendingDelete();
             var joined = StopWaiters.TryJoin(then, generation, out var cancelledLaunch, dropped, first);
             cancelledLaunch?.Invoke(false);
@@ -980,6 +1010,10 @@ namespace Bugsee.Platform.IOS
             string optionsJson, int startedToken, LaunchStartedNativeCallback started);
         [DllImport("__Internal")] static extern void _bugsee_stop(int token, StopNativeCallback completion);
         [DllImport("__Internal")] static extern int _bugsee_get_status();
+        // BugseeEarlyLaunch.mm: 0 when no early session is waiting to be adopted (also when the early launch is not configured).
+        [DllImport("__Internal")] static extern int _bugsee_early_launch_adopt(string appToken);
+        [DllImport("__Internal")] static extern void _bugsee_early_launch_cancel();
+        [DllImport("__Internal")] static extern IntPtr _bugsee_early_launch_options();
         [DllImport("__Internal")] static extern int _bugsee_exceptions_filed();
         [DllImport("__Internal")] static extern void _bugsee_start_blackout();
         [DllImport("__Internal")] static extern void _bugsee_end_blackout();

@@ -172,6 +172,28 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void Archive_script_notes_server_state_only_for_exit_50_and_still_exits_zero()
+        {
+            var fifty = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, cliExitCode: 50);
+            Assert.That(fifty.Output, Does.Contain("may have been applied server-side"), fifty.Output);
+            Assert.That(fifty.ExitCode, Is.EqualTo(0));
+
+            var one = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, cliExitCode: 1);
+            Assert.That(one.Output, Does.Contain("symbol upload failed (exit 1)"));
+            Assert.That(one.Output, Does.Not.Contain("server-side"));
+            Assert.That(one.ExitCode, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void Archive_script_source_carries_the_exit_50_note_and_ends_with_exit_0()
+        {
+            string script = IosArchiveUploadScript.Build();
+            Assert.That(script, Does.Contain("50) WHY="));
+            Assert.That(script, Does.Contain("may have been applied server-side"));
+            Assert.That(script.TrimEnd(), Does.EndWith("exit 0"));
+        }
+
+        [Test]
         public void Archive_script_uploads_nothing_without_a_token()
         {
             var run = RunScript(new[] { "BugseeMiniGame.app.dSYM" }, token: "");

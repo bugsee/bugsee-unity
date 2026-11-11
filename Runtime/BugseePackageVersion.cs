@@ -7,12 +7,12 @@ namespace Bugsee
     {
         public const string Version = "0.1.0";
         public const string Build = "dev";
-        public const string AndroidSdkVersion = "7.4.2";
+        public const string AndroidSdkVersion = "7.5.0";
         public const string AndroidMavenGroup = "com.bugsee";
         public const string AndroidMavenArtifact = "bugsee-android";
         public const string AndroidNdkArtifact = "bugsee-android-ndk";
         public const string IosSdkSource = "https://github.com/bugsee/spm.git";
-        public const string IosSdkVersion = "7.0.0";
-        public const string IosSdkCommit = "bbfdda2a9f1d7aadf73be6e94793b83d7a907aba";
+        public const string IosSdkVersion = "7.0.1";
+        public const string IosSdkCommit = "15553bdd9c7980715515e54ff6160b8cae25e158";
     }
 }

@@ -27,6 +27,9 @@ namespace UnityEditor
     public static class PlayerSettings
     {
         public static string bundleVersion;
+        public static string productName;
+        public static bool GetUseDefaultGraphicsAPIs(BuildTarget platform) => true;
+        public static UnityEngine.Rendering.GraphicsDeviceType[] GetGraphicsAPIs(BuildTarget platform) => null;
         public static ScriptingImplementation GetScriptingBackend(UnityEditor.Build.NamedBuildTarget buildTarget) => default;
         public static string GetScriptingDefineSymbols(UnityEditor.Build.NamedBuildTarget buildTarget) => null;
         public static string GetAdditionalIl2CppArgs() => null;
@@ -43,6 +46,8 @@ namespace UnityEditor
         public static class iOS
         {
             public static string buildNumber;
+            public static bool appleEnableAutomaticSigning;
+            public static string appleDeveloperTeamID;
         }
     }
 }

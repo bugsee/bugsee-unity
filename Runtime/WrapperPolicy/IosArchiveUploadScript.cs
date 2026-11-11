@@ -243,7 +243,7 @@ if [ -n ""${HOME}"" ]; then
   try_cli ""${HOME}/.local/bin/bugsee-cli""
   try_cli ""${HOME}/.cargo/bin/bugsee-cli""
   try_cli ""${HOME}/.bugsee/bin/bugsee-cli""
-  # The release the package pins (or BUGSEE_CLI_VERSION) first: a lexical glob would rank 0.10.0 below 0.8.1.
+  # The release the package pins (or BUGSEE_CLI_VERSION) first: a lexical glob would rank 0.10.0 below 0.9.0.
   WANT=""${BUGSEE_CLI_VERSION:-${PINNED_VERSION}}""
   WANT=""${WANT#v}""
   case ""${WANT}"" in
@@ -316,6 +316,7 @@ cli_failure() {
     21) WHY=""the server rejected the app token: check BUGSEE_APP_TOKEN"" ;;
     30) WHY=""the Bugsee server returned an error"" ;;
     31) WHY=""the Bugsee server could not be reached (network)"" ;;
+    50) WHY=""bugsee-cli failed after it sent the request, so the upload may have been applied server-side: check the dashboard and do not re-run blindly"" ;;
     126|127) WHY=""bugsee-cli could not be run"" ;;
     *) WHY=""bugsee-cli failed"" ;;
   esac

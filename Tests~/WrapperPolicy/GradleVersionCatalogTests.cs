@@ -96,9 +96,9 @@ namespace Bugsee.WrapperPolicy.Tests
 
             Assert.That(GradleTemplateDefaults.AgpMeetsBugseePlugin(root, Catalog), Is.True);
             var patch = GradlePluginInjection.Apply(
-                root, GradleMavenInjection.GradleDsl.Kotlin, launcher, GradleMavenInjection.GradleDsl.Kotlin, "4.0.8");
+                root, GradleMavenInjection.GradleDsl.Kotlin, launcher, GradleMavenInjection.GradleDsl.Kotlin, "4.1.1");
 
-            Assert.That(patch.Launcher, Does.Contain("    id(\"com.bugsee.android.gradle\") version \"4.0.8\" // bugsee:gradle-plugin\n"));
+            Assert.That(patch.Launcher, Does.Contain("    id(\"com.bugsee.android.gradle\") version \"4.1.1\" // bugsee:gradle-plugin\n"));
         }
     }
 }

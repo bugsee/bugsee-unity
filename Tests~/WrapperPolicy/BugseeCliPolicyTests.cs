@@ -61,10 +61,10 @@ namespace Bugsee.WrapperPolicy.Tests
         [Test]
         public void Archives_are_zip_on_windows_and_tar_xz_elsewhere()
         {
-            Assert.That(BugseeCliPolicy.ArchiveUrl(null, "0.8.1", "aarch64-apple-darwin"),
-                Is.EqualTo("https://download.bugsee.com/cli/v0.8.1/bugsee-cli-aarch64-apple-darwin.tar.xz"));
-            Assert.That(BugseeCliPolicy.ArchiveUrl("https://mirror.example/cli/", "0.8.1", "x86_64-pc-windows-msvc"),
-                Is.EqualTo("https://mirror.example/cli/v0.8.1/bugsee-cli-x86_64-pc-windows-msvc.zip"));
+            Assert.That(BugseeCliPolicy.ArchiveUrl(null, "0.9.0", "aarch64-apple-darwin"),
+                Is.EqualTo("https://download.bugsee.com/cli/v0.9.0/bugsee-cli-aarch64-apple-darwin.tar.xz"));
+            Assert.That(BugseeCliPolicy.ArchiveUrl("https://mirror.example/cli/", "0.9.0", "x86_64-pc-windows-msvc"),
+                Is.EqualTo("https://mirror.example/cli/v0.9.0/bugsee-cli-x86_64-pc-windows-msvc.zip"));
             Assert.That(BugseeCliPolicy.ChecksumUrl("https://x/y.tar.xz"), Is.EqualTo("https://x/y.tar.xz.sha256"));
         }
 
@@ -80,7 +80,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(BugseeCliPolicy.ParseSha256Sidecar(new string('g', 64)), Is.Null);
         }
 
-        [TestCase("bugsee-cli 0.8.1\n", "0.8.1")]
+        [TestCase("bugsee-cli 0.9.0\n", "0.9.0")]
         [TestCase("bugsee-cli 0.9.0-rc.1", "0.9.0-rc.1")]
         [TestCase("", null)]
         [TestCase("error: nope", null)]
@@ -89,7 +89,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(BugseeCliPolicy.ParseVersionOutput(output), Is.EqualTo(expected));
         }
 
-        [TestCase("0.8.1", "0.8.0", true)]
+        [TestCase("0.9.0", "0.8.0", true)]
         [TestCase("0.8.0", "0.8.0", true)]
         [TestCase("0.7.13", "0.8.0", false)]
         [TestCase("0.8.0", "0.8.1", false)]
@@ -152,7 +152,7 @@ namespace Bugsee.WrapperPolicy.Tests
             // The reported failure: the Hub-started editor's PATH has no /opt/homebrew/bin, so a bare "bugsee-cli"
             // could not be started.
             var host = new Host();
-            host.Files["/opt/homebrew/bin/bugsee-cli"] = "0.8.1";
+            host.Files["/opt/homebrew/bin/bugsee-cli"] = "0.9.0";
 
             var r = BugseeCliPolicy.Resolve(Mac(), host.Probe());
 
@@ -187,8 +187,8 @@ namespace Bugsee.WrapperPolicy.Tests
 
             Assert.That(r.Notes[0], Does.Contain("0.8.0").And.Contain("older than 0.8.1"));
             Assert.That(r.Source, Is.EqualTo(CliSource.Downloaded));
-            Assert.That(r.Path, Is.EqualTo("/Users/dev/Library/Caches/Bugsee/cli/0.8.1/aarch64-apple-darwin/bugsee-cli"));
-            Assert.That(host.Downloads, Is.EqualTo(new[] { "0.8.1" }));
+            Assert.That(r.Path, Is.EqualTo("/Users/dev/Library/Caches/Bugsee/cli/0.9.0/aarch64-apple-darwin/bugsee-cli"));
+            Assert.That(host.Downloads, Is.EqualTo(new[] { "0.9.0" }));
         }
 
         [Test]
@@ -210,7 +210,7 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Explicit_path_wins_over_everything_and_skips_the_version_gate()
         {
             var host = new Host();
-            host.Files["/opt/homebrew/bin/bugsee-cli"] = "0.8.1";
+            host.Files["/opt/homebrew/bin/bugsee-cli"] = "0.9.0";
             host.Files["/custom/bugsee-cli"] = "0.7.0";
             var s = Mac();
             s.ExplicitPath = "/custom/bugsee-cli";
@@ -226,7 +226,7 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Explicit_path_that_does_not_exist_is_reported_and_discovery_continues()
         {
             var host = new Host();
-            host.Files["/usr/local/bin/bugsee-cli"] = "0.8.1";
+            host.Files["/usr/local/bin/bugsee-cli"] = "0.9.0";
             var s = Mac();
             s.ExplicitPath = "/nope/bugsee-cli";
 
@@ -240,7 +240,7 @@ namespace Bugsee.WrapperPolicy.Tests
         public void On_windows_a_bare_command_also_tries_the_exe_name()
         {
             var host = new Host();
-            host.Files["C:\\tools\\bugsee-cli.exe"] = "0.8.1";
+            host.Files["C:\\tools\\bugsee-cli.exe"] = "0.9.0";
             var s = new CliSettings { IsWindows = true, PathEnv = "C:\\tools", ExplicitPath = "bugsee-cli" };
 
             var r = BugseeCliPolicy.Resolve(s, host.Probe());
@@ -265,7 +265,7 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Explicit_bare_command_is_looked_up_in_every_search_directory()
         {
             var host = new Host();
-            host.Files["/Users/dev/.local/bin/bugsee-cli"] = "0.8.1";
+            host.Files["/Users/dev/.local/bin/bugsee-cli"] = "0.9.0";
             var s = Mac();
             s.ExplicitPath = "bugsee-cli";
 
@@ -281,7 +281,7 @@ namespace Bugsee.WrapperPolicy.Tests
             var host = new Host();
             host.Files["/opt/homebrew/bin/bugsee-cli"] = "0.7.13";
             host.Files["/usr/local/bin/bugsee-cli"] = "";
-            host.Files["/Users/dev/.bugsee/bin/bugsee-cli"] = "0.8.1";
+            host.Files["/Users/dev/.bugsee/bin/bugsee-cli"] = "0.9.0";
 
             var r = BugseeCliPolicy.Resolve(Mac(), host.Probe());
 
@@ -295,7 +295,7 @@ namespace Bugsee.WrapperPolicy.Tests
         public void A_cached_download_is_used_without_downloading_again()
         {
             var host = new Host();
-            host.Files["/Users/dev/Library/Caches/Bugsee/cli/0.8.1/aarch64-apple-darwin/bugsee-cli"] = "0.8.1";
+            host.Files["/Users/dev/Library/Caches/Bugsee/cli/0.9.0/aarch64-apple-darwin/bugsee-cli"] = "0.9.0";
 
             var r = BugseeCliPolicy.Resolve(Mac(), host.Probe());
 
@@ -318,8 +318,8 @@ namespace Bugsee.WrapperPolicy.Tests
             var r = BugseeCliPolicy.Resolve(Mac(), host.Probe());
 
             Assert.That(r.Source, Is.EqualTo(CliSource.Downloaded));
-            Assert.That(r.Path, Is.EqualTo("/Users/dev/Library/Caches/Bugsee/cli/0.8.1/aarch64-apple-darwin/bugsee-cli"));
-            Assert.That(host.Downloads, Is.EqualTo(new[] { "0.8.1" }));
+            Assert.That(r.Path, Is.EqualTo("/Users/dev/Library/Caches/Bugsee/cli/0.9.0/aarch64-apple-darwin/bugsee-cli"));
+            Assert.That(host.Downloads, Is.EqualTo(new[] { "0.9.0" }));
             Assert.That(host.Installs, Is.EqualTo(new[] { "/Users/dev/Library/Caches/Bugsee/cli" }));
             Assert.That(host.Discards, Is.EqualTo(new[] { "/tmp/stage/bugsee-cli" }), "the staged copy is always removed");
         }
@@ -404,13 +404,13 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(BugseeCliPolicy.DownloadAllowed(token, optedOut), Is.EqualTo(expected));
         }
 
-        [TestCase("0.8.1", true)]
+        [TestCase("0.9.0", true)]
         [TestCase("1.2", true)]
         [TestCase("0.9.0-rc.1", true)]
         [TestCase("../..", false)]
-        [TestCase("0.8.1/../../x", false)]
+        [TestCase("0.9.0/../../x", false)]
         [TestCase("", false)]
-        [TestCase("v0.8.1", false)]
+        [TestCase("v0.9.0", false)]
         [TestCase(null, false)]
         public void Only_release_versions_may_reach_a_path_or_url(string version, bool expected)
         {
@@ -418,7 +418,7 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [TestCase("https://user:secret@mirror.example/cli", "https://mirror.example/cli")]
-        [TestCase("https://mirror.example/cli/v0.8.1/x.tar.xz", "https://mirror.example/cli/v0.8.1/x.tar.xz")]
+        [TestCase("https://mirror.example/cli/v0.9.0/x.tar.xz", "https://mirror.example/cli/v0.9.0/x.tar.xz")]
         [TestCase("not a url", "not a url")]
         [TestCase(null, null)]
         public void Credentials_are_removed_from_urls_before_they_are_logged(string url, string expected)
@@ -433,8 +433,8 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Cache_layout_is_version_then_triple()
         {
             Assert.That(
-                BugseeCliPolicy.CachedBinaryPath(new CliSettings(), "/c", "0.8.1", "x86_64-pc-windows-msvc"),
-                Is.EqualTo("/c/0.8.1/x86_64-pc-windows-msvc/bugsee-cli.exe"));
+                BugseeCliPolicy.CachedBinaryPath(new CliSettings(), "/c", "0.9.0", "x86_64-pc-windows-msvc"),
+                Is.EqualTo("/c/0.9.0/x86_64-pc-windows-msvc/bugsee-cli.exe"));
         }
     }
 }

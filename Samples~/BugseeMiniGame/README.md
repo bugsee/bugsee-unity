@@ -94,7 +94,7 @@ the HUD counters and the filter check below, not through anything a player sees.
 |----------|-------------|
 | **Editor** | Game + HUD work; Bugsee uses no-op bridge (`IsLaunched` stays false). |
 | **Android** | Launch with the default capture (`VideoMode.V2`), reports, blackout, the filter counters and the `filters` check, and every bubble. `DirectBuffers` (the experimental Unity-side frame pusher) is opt-in: pass the intent extra `bugsee_frame_pusher` = `1` (the shipped scene adds `BugseeSampleBootstrap` at runtime, so its `experimentalFramePusher` field can only be changed in the code); the wrapper falls back to `V2` with a warning where this Unity cannot run it (see "Experimental: Unity frame pusher" in `Documentation~/index.md`). The `minimal` preset sets its own video mode (`V1`, video off) and so overrides the frame pusher; `detect` and `privacy` leave it alone. |
-| **iOS** | Launch + managed/native crash path via `BugseeUnityBridge` + remote SPM (`github.com/bugsee/spm` `7.0.0`). Requires **iOS 15+** (sample Player Settings and the export post-process both set `IPHONEOS_DEPLOYMENT_TARGET` to 15.0). |
+| **iOS** | Launch + managed/native crash path via `BugseeUnityBridge` + remote SPM (`github.com/bugsee/spm` `7.0.1`). Requires **iOS 15+** (sample Player Settings and the export post-process both set `IPHONEOS_DEPLOYMENT_TARGET` to 15.0). |
 
 ### iOS Simulator
 
@@ -116,9 +116,9 @@ The sample sets the SDK-internal `$$ENDPOINT` launch option (from `BUGSEE_ENDPOI
 2. Set a real Bugsee app token on `MiniGameBootstrap`.
 3. Build & Run on device.
 
-Each build declares `bugsee-android:7.4.2` + `bugsee-android-ndk:7.4.2` in the generated
+Each build declares `bugsee-android:7.5.0` + `bugsee-android-ndk:7.5.0` in the generated
 `unityLibrary/build.gradle` (core publishes no transitives; NDK is explicit); no custom Gradle templates are needed (the sample ships none; the package copies Unity's own default templates, so it builds on Unity 2021.3 and Unity 6).
-Gradle plugin `4.0.8` is applied on Unity 6+ launcher templates (`ndk { enabled = true }`).
+Gradle plugin `4.1.1` is applied on Unity 6+ launcher templates (`ndk { enabled = true }`).
 
 ## E2E scenarios and launch switches
 

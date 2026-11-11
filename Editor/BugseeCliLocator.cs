@@ -5,8 +5,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
-using System.Text;
 using System.Threading;
 using Bugsee.WrapperPolicy;
 using UnityEditor.Build;
@@ -156,7 +154,7 @@ namespace Bugsee.Editor
             version = string.IsNullOrWhiteSpace(version) ? null : version.Trim().TrimStart('v');
             if (version != null && !BugseeCliPolicy.IsValidVersion(version))
             {
-                if (!quiet) Debug.LogWarning("[Bugsee] Ignoring BUGSEE_CLI_VERSION=" + version + ": not a release version like 0.8.1. Using " + BugseeCliPolicy.DefaultVersion + ".");
+                if (!quiet) Debug.LogWarning("[Bugsee] Ignoring BUGSEE_CLI_VERSION=" + version + ": not a release version like 0.9.0. Using " + BugseeCliPolicy.DefaultVersion + ".");
                 version = null;
             }
             else if (version != null && !BugseeCliPolicy.VersionAtLeast(version, BugseeCliPolicy.MinVersion))
@@ -290,7 +288,7 @@ namespace Bugsee.Editor
             string binaryName = BugseeCliPolicy.BinaryName(BugseeCliPolicy.IsWindowsTriple(triple));
             string baseUrl = Environment.GetEnvironmentVariable("BUGSEE_CLI_BASE_URL");
             string url = BugseeCliPolicy.ArchiveUrl(baseUrl, version, triple);
-            if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            if (!BugseeCliPolicy.IsAllowedDownloadUrl(url))
             {
                 throw new IOException("refusing a non-https download URL " + BugseeCliPolicy.RedactUrl(url));
             }
@@ -314,11 +312,7 @@ namespace Bugsee.Editor
                 }
             }
 
-            string actual = Sha256Hex(archive);
-            if (!string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new IOException("SHA-256 mismatch for " + Path.GetFileName(archive) + ": expected " + expected + ", got " + actual);
-            }
+            BugseeCliPolicy.VerifyArchiveSha256(archive, expected);
 
             string extracted = Path.Combine(_stagingDir, "x");
             Directory.CreateDirectory(extracted);
@@ -485,21 +479,6 @@ namespace Bugsee.Editor
             }
 
             throw new HttpStatusException("too many redirects from " + BugseeCliPolicy.RedactUrl(url));
-        }
-
-        static string Sha256Hex(string path)
-        {
-            using (var sha = SHA256.Create())
-            using (var stream = File.OpenRead(path))
-            {
-                var hex = new StringBuilder();
-                foreach (byte b in sha.ComputeHash(stream))
-                {
-                    hex.Append(b.ToString("x2"));
-                }
-
-                return hex.ToString();
-            }
         }
 
         static void Extract(string archive, string destination, bool zip)

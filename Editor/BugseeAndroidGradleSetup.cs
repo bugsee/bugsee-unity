@@ -30,7 +30,7 @@ namespace Bugsee.Editor
     {
         public int callbackOrder => 10;
 
-        public const string GradlePluginVersion = "4.0.8";
+        public const string GradlePluginVersion = "4.1.1";
         public const string SdkVersion = BugseePackageVersion.AndroidSdkVersion;
 
         const string PrefForcePlugin = "Bugsee.Android.ForceGradlePlugin";
