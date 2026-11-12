@@ -13,9 +13,10 @@ namespace Bugsee.Editor
 {
     /// <summary>
     /// A Release build on the Android Mono scripting backend ships no .pdb, so its managed frames are IL offsets
-    /// (<c>[0x0000b] in &lt;module-guid&gt;:0</c>). This uploads the Portable PDBs Unity compiled, paired with the assemblies the
-    /// app ships, with <c>bugsee-cli debug-files upload --type portable-pdb</c> (CLI 0.9.0+), so the backend resolves the frame
-    /// to C# file:line. What is uploaded and when is <see cref="MonoPortablePdb"/>. Nothing here fails the build: a missing
+    /// (<c>[0x0000b] in &lt;module-guid&gt;:0</c>). <c>bugsee-cli debug-files upload --type portable-pdb</c> (CLI 0.9.0+) converts each
+    /// assembly Unity compiled, with the portable .pdb beside it, into Bugsee's BMF mapping (one <c>&lt;module id&gt;.bmf</c> per assembly,
+    /// registered under the module id of the assembly the app ships) and uploads the BMFs, so the backend resolves the frame to C#
+    /// file:line. The .pdb files themselves are never uploaded. What runs and when is <see cref="MonoPortablePdb"/>. Nothing here fails the build: a missing
     /// folder, an old CLI or a non-zero exit is a warning. Development builds ship their .pdb files and IL2CPP has its own
     /// line map, so neither is touched.
     /// </summary>
@@ -58,7 +59,7 @@ namespace Bugsee.Editor
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"Bugsee: uploading the Portable PDBs of the Mono build failed: {ex.Message} — build continues.");
+                Debug.LogWarning($"Bugsee: the BMF mapping upload of the Mono build failed: {ex.Message} — build continues.");
             }
         }
 
@@ -125,28 +126,36 @@ namespace Bugsee.Editor
             var compiled = MonoPortablePdb.PickCompilerOutput(candidates, shippedNewest);
             if (compiled == null)
             {
-                Debug.LogWarning("Bugsee: no Release player compiler output (Library/Bee/artifacts/<prefix>P.dag compiled for Android) found, so the Portable PDBs of " +
-                                 "this Mono build are not uploaded and its managed frames stay IL offsets.");
+                Debug.LogWarning("Bugsee: no Release player compiler output (Library/Bee/artifacts/<prefix>P.dag compiled for Android) found, so the BMF mapping of " +
+                                 "this Mono build is not uploaded and its managed frames stay IL offsets.");
                 return;
             }
 
             string shippedDir = null;
             if (shippedNewest == null)
             {
-                Debug.LogWarning($"Bugsee: {shipped} not found: the Portable PDBs are uploaded under the compiler's module ids. That matches the app only " +
+                Debug.LogWarning($"Bugsee: {shipped} not found: the BMF mapping is uploaded under the compiler's module ids. That matches the app only " +
                                  "when managed stripping is Disabled; with Low or higher the frames of this build stay IL offsets.");
             }
             else if (!MonoPortablePdb.ShippedMatchesCompile(shippedNewest, compiled.AssemblyWriteUtc))
             {
                 Debug.LogWarning($"Bugsee: {shipped} is older than the compiler output {compiled.Name}, so it is left over from an earlier build and its module ids are not used: " +
-                                 "the Portable PDBs are uploaded under the compiler's module ids, which matches the app only when managed stripping is Disabled.");
+                                 "the BMF mapping is uploaded under the compiler's module ids, which matches the app only when managed stripping is Disabled.");
             }
             else
             {
                 shippedDir = shipped;
             }
 
-            Debug.Log($"Bugsee: Portable PDB source {compiled.Name} ({candidates.FindAll(c => c.TargetsAndroid && c.Name != null && c.Name.EndsWith("P.dag", StringComparison.Ordinal)).Count} Android release folder(s) in Library/Bee/artifacts), shipped assemblies {(shippedDir ?? "not used")}.");
+            var folders = MonoPortablePdb.AndroidReleaseFolders(candidates);
+            if (folders.Count > 1)
+            {
+                Debug.LogWarning($"Bugsee: {folders.Count} Android release compiler folders exist in Library/Bee/artifacts ({string.Join(", ", folders)}); " +
+                                 $"{compiled.Name} is used (the newest), but Unity may have built this player from another one. If the lines in the " +
+                                 "dashboard look wrong, delete the folders you no longer build with and rebuild.");
+            }
+
+            Debug.Log($"Bugsee: BMF mapping source {compiled.Name}, shipped assemblies {(shippedDir ?? "not used")}.");
 
             var tooOld = MonoPortablePdb.CliTooOld(BugseeCliLocator.Resolve().Version);
             if (tooOld != null)
@@ -155,11 +164,11 @@ namespace Bugsee.Editor
                 return;
             }
 
-            Debug.Log($"Bugsee: uploading the Portable PDBs of the Mono build ({compiled.Name}) via {BugseeCliRunner.CliPath} …");
+            Debug.Log($"Bugsee: converting the Mono build's assemblies and portable .pdb files ({compiled.Name}) to BMF and uploading them via {BugseeCliRunner.CliPath} …");
             var exit = BugseeCliRunner.Run(MonoPortablePdb.Arguments(compiled.Path, shippedDir, version, build));
             if (exit != 0)
             {
-                Debug.LogWarning($"Bugsee: bugsee-cli portable-pdb upload {BugseeCliPolicy.DescribeExit(exit)} — managed frames of this Mono build stay IL offsets.");
+                Debug.LogWarning($"Bugsee: bugsee-cli portable-pdb (BMF) upload {BugseeCliPolicy.DescribeExit(exit)} — managed frames of this Mono build stay IL offsets.");
             }
         }
     }

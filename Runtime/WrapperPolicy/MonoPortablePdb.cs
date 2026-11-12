@@ -17,10 +17,13 @@ namespace Bugsee.WrapperPolicy
 
     /// <summary>
     /// Release builds on the Mono scripting backend ship no .pdb, so the runtime prints a managed frame as
-    /// <c>at Ns.C.M (System.String a) [0x0000b] in &lt;module-guid&gt;:0</c>. <c>bugsee-cli</c> 0.9.0 can pair the compiler's
-    /// assemblies and portable .pdb files with the assemblies the app ships (<c>--shipped-dir</c>) and upload a mapping keyed
-    /// by the shipped module id (<c>debug-files upload --type portable-pdb</c>); the worker turns the frame into file:line from it.
-    /// This is the decision and the arguments of that upload; the Editor class only finds the folders and runs the CLI.
+    /// <c>at Ns.C.M (System.String a) [0x0000b] in &lt;module-guid&gt;:0</c>. <c>bugsee-cli</c> 0.9.0
+    /// (<c>debug-files upload --type portable-pdb</c>) takes the compiler's assemblies, each with its portable .pdb beside it,
+    /// converts every one to Bugsee's BMF mapping (<c>&lt;module id&gt;.bmf</c>, the output of <c>debug-files convert --to bmf</c>) and
+    /// uploads the BMFs. <c>--shipped-dir</c> names the assemblies the app ships: the BMF is registered under their module id (the one
+    /// the runtime prints) and methods the linker removed or rewrote are left out. The worker resolves the frame to file:line from the
+    /// BMF; the .pdb files themselves are never uploaded. This is the decision and the arguments of that call; the Editor class only
+    /// finds the folders and runs the CLI.
     /// </summary>
     public static class MonoPortablePdb
     {
@@ -67,13 +70,13 @@ namespace Bugsee.WrapperPolicy
             }
 
             return "Bugsee: this Android build uses the Mono scripting backend without Development Build, so the player ships no .pdb " +
-                   "and managed exception frames carry only IL offsets (\"[0x0000b] in <module-guid>:0\"). The Portable PDBs that let the " +
-                   "backend show C# file:line are not uploaded because " + reason + ". Upload them from CI with bugsee-cli " + MinCliVersion +
-                   " or newer: debug-files upload <Library/Bee/artifacts/...P.dag> --type portable-pdb --shipped-dir " +
+                   "and managed exception frames carry only IL offsets (\"[0x0000b] in <module-guid>:0\"). The BMF mapping (made from the " +
+                   "portable .pdb files) that lets the backend show C# file:line is not uploaded because " + reason + ". Upload it from CI with bugsee-cli " + MinCliVersion +
+                   " or newer (convert --to bmf makes the same files locally, to look at): debug-files upload <Library/Bee/artifacts/...P.dag> --type portable-pdb --shipped-dir " +
                    "<Library/Bee/artifacts/Android/ManagedStripped> --version <version> --build <build>. The build continues.";
         }
 
-        /// <summary>Why the installed CLI cannot do the upload, or null when it can (or its version is unknown: then it is tried).</summary>
+        /// <summary>Why the installed CLI cannot do the conversion and upload, or null when it can (or its version is unknown: then it is tried).</summary>
         public static string CliTooOld(string cliVersion)
         {
             if (string.IsNullOrEmpty(cliVersion) || BugseeCliPolicy.VersionAtLeast(cliVersion, MinCliVersion))
@@ -81,7 +84,7 @@ namespace Bugsee.WrapperPolicy
                 return null;
             }
 
-            return "bugsee-cli " + cliVersion + " cannot upload Portable PDBs (--type portable-pdb needs " + MinCliVersion +
+            return "bugsee-cli " + cliVersion + " cannot convert and upload the Mono mapping (--type portable-pdb needs " + MinCliVersion +
                    " or newer): managed frames of this Release Mono build stay IL offsets. Remove it from the search path (or point " +
                    "BUGSEE_CLI_PATH at " + MinCliVersion + "+); without one on the path the package downloads its pinned release (not BUGSEE_CLI_VERSION below " + MinCliVersion + ").";
         }
@@ -119,6 +122,29 @@ namespace Bugsee.WrapperPolicy
             var picked = PickNewest(candidates, shippedNewestUtc);
             // Nothing consistent with the shipped folder: the newest one, as the shipped folder may be the stale side.
             return picked ?? (shippedNewestUtc == null ? null : PickNewest(candidates, null));
+        }
+
+        /// <summary>
+        /// The names of the Android Release folders that could be the build's compile (all of them: the times cannot tell which one Bee
+        /// reused). More than one means the choice is a guess, which the Editor says in a warning.
+        /// </summary>
+        public static List<string> AndroidReleaseFolders(IEnumerable<CompilerOutputDirectory> candidates)
+        {
+            var names = new List<string>();
+            if (candidates != null)
+            {
+                foreach (var candidate in candidates)
+                {
+                    if (candidate != null && candidate.Name != null && candidate.TargetsAndroid && candidate.AssemblyWriteUtc != null
+                        && PlayerDag.IsMatch(candidate.Name))
+                    {
+                        names.Add(candidate.Name);
+                    }
+                }
+            }
+
+            names.Sort(StringComparer.Ordinal);
+            return names;
         }
 
         static CompilerOutputDirectory PickNewest(IEnumerable<CompilerOutputDirectory> candidates, DateTime? shippedNewestUtc)

@@ -32,7 +32,7 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             var optOut = MonoPortablePdb.NotUploadedNotice(MonoPortablePdb.Outcome.OptedOut);
             var token = MonoPortablePdb.NotUploadedNotice(MonoPortablePdb.Outcome.NoToken);
-            Assert.That(optOut, Does.Contain("BUGSEE_NO_SYMBOL_UPLOAD").And.Contain("--type portable-pdb").And.Contain("0.9.0").And.Contain("--shipped-dir"));
+            Assert.That(optOut, Does.Contain("BMF").And.Contain("convert --to bmf").And.Contain("BUGSEE_NO_SYMBOL_UPLOAD").And.Contain("--type portable-pdb").And.Contain("0.9.0").And.Contain("--shipped-dir"));
             Assert.That(token, Does.Contain("BUGSEE_APP_TOKEN"));
             Assert.That(MonoPortablePdb.NotUploadedNotice(MonoPortablePdb.Outcome.Upload), Is.Null);
             Assert.That(MonoPortablePdb.NotUploadedNotice(MonoPortablePdb.Outcome.NotApplicable), Is.Null);
@@ -126,6 +126,17 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void More_than_one_android_release_folder_is_reported_as_ambiguous()
+        {
+            var folders = MonoPortablePdb.AndroidReleaseFolders(new[]
+            {
+                Dir("1400b0aP.dag", 1), Dir("1300b0aP.dag", 10), Dir("900b0aP.dag", 0, android: false), Dir("1300b0aPDevDbg.dag", 0), Dir("1500b0aP.dag", null),
+            });
+            Assert.That(folders, Is.EqualTo(new[] { "1300b0aP.dag", "1400b0aP.dag" }));
+            Assert.That(MonoPortablePdb.AndroidReleaseFolders(null), Is.Empty);
+        }
+
+        [Test]
         public void Equal_times_choose_the_same_folder_whatever_the_order()
         {
             var a = Dir("900b0aP.dag", 1);
@@ -172,13 +183,14 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(text, Does.Contain("BugseeCliRunner.HasAppToken"));
             Assert.That(text, Does.Contain("MonoPortablePdb.PickCompilerOutput("));
             Assert.That(text, Does.Contain("MonoPortablePdb.ShippedMatchesCompile("));
+            Assert.That(text, Does.Contain("MonoPortablePdb.AndroidReleaseFolders("));
             Assert.That(text, Does.Contain("MonoPortablePdb.CliTooOld("));
             Assert.That(text, Does.Contain("MonoPortablePdb.Arguments("));
             Assert.That(text, Does.Contain("BuildOptions.Development"));
             Assert.That(text, Does.Contain("BugseeBuildIdentity.AndroidNameSettings(report).Backend"));
             Assert.That(text, Does.Not.Contain("\"Assembly-CSharp.dll\""), "an asmdef-only project has no Assembly-CSharp.dll");
             Assert.That(text, Does.Contain("ManagedStripped"));
-            Assert.That(text, Does.Contain("not found: the Portable PDBs are uploaded under the compiler's module ids"));
+            Assert.That(text, Does.Contain("not found: the BMF mapping is uploaded under the compiler's module ids"));
             Assert.That(text, Does.Contain("catch (Exception"));
             Assert.That(text, Does.Not.Contain("throw"));
         }
