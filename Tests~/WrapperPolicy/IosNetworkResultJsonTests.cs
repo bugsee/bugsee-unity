@@ -183,5 +183,51 @@ namespace Bugsee.WrapperPolicy.Tests
             }
             finally { Thread.CurrentThread.CurrentCulture = saved; }
         }
+
+        // #267: only what the sanitizer changed goes back onto the managed event (a setter marks the field as the filter's
+        // result, and a body native could not read as text arrives as "").
+        [Test]
+        public void ChangedFields_reports_only_redacted_fields_and_treats_null_and_empty_alike()
+        {
+            var before = new IosNetworkFields
+            {
+                Url = "https://a.test/x?token=abc", Body = "", ErrorShortMessage = null,
+                Headers = new Dictionary<string, string> { { "Authorization", "Bearer abc" }, { "Accept", "*/*" } },
+            };
+            var after = new IosNetworkFields
+            {
+                Url = "https://a.test/x?token=***", Body = null, ErrorShortMessage = "",
+                Headers = new Dictionary<string, string> { { "Authorization", "***" }, { "Accept", "*/*" } },
+            };
+            Assert.That(IosNetworkResultJson.ChangedFields(before, after), Is.EqualTo(IosNetworkField.Url | IosNetworkField.Headers));
+            Assert.That(IosNetworkResultJson.ChangedFields(before, before.Copy()), Is.EqualTo(IosNetworkField.None));
+            Assert.That(IosNetworkResultJson.ChangedFields(new IosNetworkFields { Headers = null },
+                new IosNetworkFields { Headers = new Dictionary<string, string>() }), Is.EqualTo(IosNetworkField.None));
+            Assert.That(IosNetworkResultJson.ChangedFields(new IosNetworkFields { Body = "a" }, new IosNetworkFields { Body = "" }),
+                Is.EqualTo(IosNetworkField.Body));
+        }
+
+        [Test]
+        public void Ios_bridge_runs_the_native_sanitizer_and_both_native_files_export_it()
+        {
+            var dir = TestContext.CurrentContext.TestDirectory;
+            while (!System.IO.File.Exists(System.IO.Path.Combine(dir, "package.json"))) dir = System.IO.Directory.GetParent(dir).FullName;
+            string Read(string rel) => System.IO.File.ReadAllText(System.IO.Path.Combine(dir, rel));
+            var bridge = Read("Runtime/Platform/IOS/IOSBridge.cs");
+            Assert.That(bridge, Does.Contain("_bugsee_sanitize_network("));
+            Assert.That(bridge, Does.Not.Contain("ApplyDefaultNetworkSanitizer(INetworkEvent networkEvent) => false"));
+            var mm = Read("Plugins/iOS/BugseeUnityCallbacks.mm");
+            Assert.That(System.Text.RegularExpressions.Regex.Matches(mm, @"char \*_bugsee_sanitize_network\(const char \*eventJson\)").Count,
+                Is.EqualTo(2), "real section and no-SDK stub");
+            Assert.That(mm, Does.Contain("[Bugsee defaultNetworkSanitizer]"));
+        }
+
+        [Test]
+        public void WithSanitizedMark_adds_the_flag_to_any_result()
+        {
+            Assert.That(IosNetworkResultJson.WithSanitizedMark("{}"), Is.EqualTo("{\"sanitized\":true}"));
+            Assert.That(IosNetworkResultJson.WithSanitizedMark("{\"url\":\"a}\"}"), Is.EqualTo("{\"url\":\"a}\",\"sanitized\":true}"));
+            Assert.That(IosNetworkResultJson.WithSanitizedMark(null), Is.EqualTo("{\"sanitized\":true}"));
+        }
     }
 }

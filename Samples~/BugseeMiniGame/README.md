@@ -262,8 +262,8 @@ dropped / seen, for the network, log and breadcrumb filter); the network and bre
 
 `BUGSEE_E2E_SCENARIO=extras` (iOS env var, Android intent extra `bugsee_e2e`) waits for the SDK to launch, then checks
 `Bugsee.ApplyDefaultNetworkSanitizer` on a hand-built event with a `token=` query value, `user:password@` credentials, an
-`Authorization` header and a `password` body field (redacted on Android, left as is with a `false` result on iOS), and inside a
-network filter (on Android a filter without it records the raw values, one that calls it does not). It then creates a real
+`Authorization` header and a `password` body field (redacted on Android and iOS, except that iOS leaves the `user:password@` credentials; left as is with a `false` result in the Editor), and inside a
+network filter (a filter without it records the raw values, one that calls it does not). It then creates a real
 `android.webkit.WebView` (or, on iOS, a `WKWebView` from `Assets/Plugins/iOS/BugseeSampleNativeViews.mm`) and passes it to
 `Bugsee.AddSecureWebView` and `RemoveSecureWebView`, and checks that a plain native view and null are refused. On iOS it also reads `UIView.bugseeProtectedView` to check that the SDK holds the view in its hidden-view set after the add and not after the remove (Android has no read-back). It
 logs `[Sample] extras PASS|FAIL ...` lines ending in `extras e2e done failures=N`. Whether the secure view redacts the video is not
