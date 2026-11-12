@@ -869,6 +869,21 @@ void _bugsee_set_network_filter_enabled(int enabled)
     [Bugsee setNetworkEventFilter:BugseeUnityNetworkFilter()];
 }
 
+// The wrapper's event carries no redirectedFromURL, so a sanitizer run on its copy cannot redact it: the filter's result
+// says so ("sanitized":true) and the sanitizer runs here, on the pending event's redirect URL.
+static void BugseeUnitySanitizeRedirectURL(BugseeNetworkEvent *event)
+{
+    if (event.redirectedFromURL.length == 0) return;
+    @try {
+        BugseeNetworkEvent *copy = [BugseeNetworkEvent new];
+        copy.url = event.redirectedFromURL;
+        [[Bugsee defaultNetworkSanitizer] sanitize:copy];
+        if (copy.url) event.redirectedFromURL = copy.url;
+    } @catch (NSException *exception) {
+        NSLog(@"[Bugsee] default network sanitizer failed on the redirect URL: %@", exception.reason);
+    }
+}
+
 // Runs +[Bugsee defaultNetworkSanitizer] on a native event built from eventJson (the wire dictionary, as the channel
 // submit reads it) and returns the redacted event as the JSON a filter would be handed (headers as an object), or NULL
 // when the SDK has no sanitizer or it threw. The sanitizer is stateless and needs no launch. Caller frees with _bugsee_free.
@@ -934,6 +949,8 @@ void _bugsee_complete_filter(int64_t requestId, int keep, const char *resultJson
 
     if ([kind isEqualToString:@"network"]) {
         BugseeUnityApplyNetworkDict(event, result);
+        if ([result[@"sanitized"] respondsToSelector:@selector(boolValue)] && [result[@"sanitized"] boolValue])
+            BugseeUnitySanitizeRedirectURL(event);
         ((BugseeNetworkFilterDecisionBlock)decision)(event);
     } else if ([kind isEqualToString:@"log"]) {
         BugseeUnityApplyLogDict(event, result);
@@ -1169,6 +1186,15 @@ const char *_bugsee_test_apply_network_result(const char *startJson, const char 
     NSData *json = [NSJSONSerialization dataWithJSONObject:d options:NSJSONWritingSortedKeys error:nil];
     NSString *text = json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] : nil;
     return strdup((text ?: @"unserializable").UTF8String);
+}
+
+// Runs the redirect-URL step of a filter result with "sanitized":true on an event whose redirectedFromURL is `url`.
+const char *_bugsee_test_sanitize_redirect(const char *url, int sanitized)
+{
+    BugseeNetworkEvent *event = [BugseeNetworkEvent new];
+    event.redirectedFromURL = [NSString stringWithUTF8String:url];
+    if (sanitized) BugseeUnitySanitizeRedirectURL(event);
+    return strdup((event.redirectedFromURL ?: @"").UTF8String);
 }
 
 // Stands in for the SDK's callback of a requestData: counts the answers and keeps the last one.

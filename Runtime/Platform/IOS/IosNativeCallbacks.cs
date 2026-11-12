@@ -177,7 +177,8 @@ namespace Bugsee.Platform.IOS
             if (ReferenceEquals(ios, managed))
             {
                 // Stage is read-only, so the SDK's own type string goes back unchanged.
-                _bugsee_complete_filter(requestId, 1, ToNativeMapJson(ios.ToResultJson(), "headers"));
+                var own = ToNativeMapJson(ios.ToResultJson(), "headers");
+                _bugsee_complete_filter(requestId, 1, managed.DefaultSanitized ? IosNetworkResultJson.WithSanitizedMark(own) : own);
                 return;
             }
 
@@ -190,7 +191,8 @@ namespace Bugsee.Platform.IOS
                 return;
             }
 
-            _bugsee_complete_filter(requestId, 1, ToNativeMapJson(ios.ToReplacementJson(nativeStage), "headers"));
+            var replacement = ToNativeMapJson(ios.ToReplacementJson(nativeStage), "headers");
+            _bugsee_complete_filter(requestId, 1, managed.DefaultSanitized ? IosNetworkResultJson.WithSanitizedMark(replacement) : replacement);
         }
 
         static void CompleteLog(long requestId, string json, EventFilter<ILogEvent> filter)

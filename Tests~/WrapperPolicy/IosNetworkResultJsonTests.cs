@@ -221,5 +221,13 @@ namespace Bugsee.WrapperPolicy.Tests
                 Is.EqualTo(2), "real section and no-SDK stub");
             Assert.That(mm, Does.Contain("[Bugsee defaultNetworkSanitizer]"));
         }
+
+        [Test]
+        public void WithSanitizedMark_adds_the_flag_to_any_result()
+        {
+            Assert.That(IosNetworkResultJson.WithSanitizedMark("{}"), Is.EqualTo("{\"sanitized\":true}"));
+            Assert.That(IosNetworkResultJson.WithSanitizedMark("{\"url\":\"a}\"}"), Is.EqualTo("{\"url\":\"a}\",\"sanitized\":true}"));
+            Assert.That(IosNetworkResultJson.WithSanitizedMark(null), Is.EqualTo("{\"sanitized\":true}"));
+        }
     }
 }

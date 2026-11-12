@@ -769,7 +769,7 @@ namespace Bugsee
         /// <summary>
         /// Android and iOS (SDK 7.0.0+). Runs the SDK's built-in network sanitizer on the event, in place: sensitive URL query
         /// values, sensitive header values (<c>Authorization</c>, <c>Cookie</c>, ...), sensitive body fields (<c>password</c>, ...),
-        /// the error texts and, on Android, <c>user:password@</c> URL credentials (the iOS sanitizer leaves those). Returns true when it ran; false
+        /// and, on Android only, the error texts and <c>user:password@</c> URL credentials. Returns true when it ran; false
         /// in the Editor, for a null event, and when the sanitizer could not run (see below).
         /// <para>
         /// Why it exists: on Android and iOS a filter set with <see cref="SetNetworkEventFilter"/> (on Android also a manifest one) turns the built-in

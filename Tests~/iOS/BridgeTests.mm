@@ -19,6 +19,7 @@ const char *_bugsee_test_apply_log_result(const char *startText, int startLevel,
 const char *_bugsee_test_copy_context_value(const char *key);
 const char *_bugsee_test_apply_network_result(const char *startJson, const char *resultJson);
 char *_bugsee_sanitize_network(const char *eventJson);
+const char *_bugsee_test_sanitize_redirect(const char *url, int sanitized);
 typedef void (*BugseeDataRequestFn)(int64_t requestId, const char *dataType);
 void _bugsee_register_data_request_callback(BugseeDataRequestFn callback);
 void _bugsee_complete_data_request(int64_t requestId, const char *json);
@@ -237,6 +238,13 @@ int main(void)
     }
     value = _bugsee_sanitize_network("{\"url\":\"https://a.test/ok?page=1\",\"stage\":\"complete\"}");
     expect(value && strstr(value, "https:\\/\\/a.test\\/ok?page=1"), "a clean event comes back as it was");
+    free((void *)value);
+    // The redirect URL is not part of the wrapper's event: a filter that sanitized gets it redacted natively on completion.
+    value = _bugsee_test_sanitize_redirect("https://a.test/r?token=abc123&page=2", 1);
+    expect(!strstr(value, "abc123") && strstr(value, "page=2"), "the redirect URL's token is redacted");
+    free((void *)value);
+    value = _bugsee_test_sanitize_redirect("https://a.test/r?token=abc123&page=2", 0);
+    expect(strstr(value, "abc123") != NULL, "a filter that did not sanitize leaves the redirect URL alone");
     free((void *)value);
     expect(_bugsee_sanitize_network(NULL) == NULL && _bugsee_sanitize_network("not json") == NULL, "no event, no result");
 

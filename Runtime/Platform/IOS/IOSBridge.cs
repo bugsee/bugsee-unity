@@ -906,6 +906,7 @@ namespace Bugsee.Platform.IOS
                 if ((changed & IosNetworkField.ErrorShortMessage) != 0) networkEvent.ErrorShortMessage = after.ErrorShortMessage;
                 if ((changed & IosNetworkField.ErrorDescription) != 0) networkEvent.ErrorDescription = after.ErrorDescription;
                 if ((changed & IosNetworkField.Headers) != 0) networkEvent.Headers = after.Headers;
+                if (networkEvent is IosNetworkEvent own) own.DefaultSanitized = true;
                 return true;
             }
             catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NullReferenceException)

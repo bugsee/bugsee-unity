@@ -142,6 +142,19 @@ namespace Bugsee.WrapperPolicy
             return changed;
         }
 
+        /// <summary>
+        /// Marks a filter result as one whose event went through the default sanitizer, so native also redacts the
+        /// redirect URL, which the wrapper's event does not carry (#267).
+        /// </summary>
+        public static string WithSanitizedMark(string resultJson)
+        {
+            if (string.IsNullOrEmpty(resultJson)) return "{\"sanitized\":true}";
+            var end = resultJson.LastIndexOf('}');
+            if (end < 0) return resultJson;
+            var empty = resultJson.Substring(0, end).Trim() == "{";
+            return resultJson.Substring(0, end) + (empty ? "" : ",") + "\"sanitized\":true}" + resultJson.Substring(end + 1);
+        }
+
         static bool SameText(string a, string b) =>
             string.IsNullOrEmpty(a) ? string.IsNullOrEmpty(b) : string.Equals(a, b, StringComparison.Ordinal);
 
