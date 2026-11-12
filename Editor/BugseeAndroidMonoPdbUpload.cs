@@ -86,14 +86,30 @@ namespace Bugsee.Editor
                         }
                     }
                     catch { /* unreadable: not a candidate */ }
-                    candidates.Add(new CompilerOutputDirectory { Name = Path.GetFileName(dir), Path = dir, AssemblyWriteUtc = written });
+                    var android = false;
+                    try
+                    {
+                        foreach (var rsp in Directory.GetFiles(dir, "*.rsp"))
+                        {
+                            if (rsp.EndsWith(".mvfrm.rsp", StringComparison.OrdinalIgnoreCase))
+                            {
+                                continue;
+                            }
+
+                            android = MonoPortablePdb.DefinesAndroid(File.ReadAllText(rsp));
+                            break;
+                        }
+                    }
+                    catch { /* unreadable: not a candidate */ }
+
+                    candidates.Add(new CompilerOutputDirectory { Name = Path.GetFileName(dir), Path = dir, AssemblyWriteUtc = written, TargetsAndroid = android });
                 }
             }
 
             var compiled = MonoPortablePdb.PickCompilerOutput(candidates);
             if (compiled == null)
             {
-                Debug.LogWarning("Bugsee: no Release player compiler output (Library/Bee/artifacts/<hash>P.dag) found, so the Portable PDBs of " +
+                Debug.LogWarning("Bugsee: no Release player compiler output (Library/Bee/artifacts/<prefix>P.dag compiled for Android) found, so the Portable PDBs of " +
                                  "this Mono build are not uploaded and its managed frames stay IL offsets.");
                 return;
             }

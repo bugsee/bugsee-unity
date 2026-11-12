@@ -11,6 +11,8 @@ namespace Bugsee.WrapperPolicy
         public string Path;
         /// <summary>Newest write time of an assembly in it that has a .pdb beside it, or null when there is none.</summary>
         public DateTime? AssemblyWriteUtc;
+        /// <summary>The folder was compiled for Android: a compiler response file in it defines <c>UNITY_ANDROID</c> (see <see cref="DefinesAndroid"/>).</summary>
+        public bool TargetsAndroid;
     }
 
     /// <summary>
@@ -84,13 +86,33 @@ namespace Bugsee.WrapperPolicy
                    "BUGSEE_CLI_PATH at " + MinCliVersion + "+); without one on the path the package downloads its pinned release (not BUGSEE_CLI_VERSION below " + MinCliVersion + ").";
         }
 
+        /// <summary>Whether the text of a compiler response file (<c>Assembly-CSharp.rsp</c>) defines <c>UNITY_ANDROID</c> and not <c>UNITY_IOS</c>.</summary>
+        public static bool DefinesAndroid(string responseFileText)
+        {
+            if (string.IsNullOrEmpty(responseFileText))
+            {
+                return false;
+            }
+
+            bool android = false;
+            foreach (var raw in responseFileText.Split('\n'))
+            {
+                var line = raw.Trim();
+                if (line == "-define:UNITY_ANDROID") android = true;
+                else if (line == "-define:UNITY_IOS" || line == "-define:UNITY_TVOS") return false;
+            }
+
+            return android;
+        }
+
         static readonly Regex PlayerDag = new Regex("^[0-9a-fA-F]+P\\.dag$", RegexOptions.CultureInvariant);
 
         /// <summary>
-        /// The Release player's compiler output among the Bee folders. Folder names are "&lt;hash&gt;P.dag" for the Release player,
-        /// "&lt;hash&gt;PDevDbg.dag" for a Development player and "&lt;hash&gt;E.dag" for the Editor (it compiles the same assembly
-        /// names with Editor-only code, whose module ids the app never has). More than one Release folder (two Unity versions
-        /// opened the project) takes the one written last. Null when there is none.
+        /// The Android Release player's compiler output among the Bee folders. Folder names are "&lt;prefix&gt;P.dag" for a Release
+        /// player, "&lt;prefix&gt;PDevDbg.dag" for a Development player and "&lt;prefix&gt;E.dag" for the Editor; the Editor's compile has
+        /// Editor-only code whose module ids the app never has. The prefix differs by build target (the same project holds an
+        /// Android and an iOS folder once both were built), so a folder counts only when it was compiled for Android
+        /// (<see cref="CompilerOutputDirectory.TargetsAndroid"/>). Of several, the one written last. Null when there is none.
         /// </summary>
         public static CompilerOutputDirectory PickCompilerOutput(IEnumerable<CompilerOutputDirectory> candidates)
         {
@@ -102,7 +124,7 @@ namespace Bugsee.WrapperPolicy
 
             foreach (var candidate in candidates)
             {
-                if (candidate == null || candidate.Name == null || !PlayerDag.IsMatch(candidate.Name) || candidate.AssemblyWriteUtc == null)
+                if (candidate == null || candidate.Name == null || !PlayerDag.IsMatch(candidate.Name) || !candidate.TargetsAndroid || candidate.AssemblyWriteUtc == null)
                 {
                     continue;
                 }

@@ -56,10 +56,11 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(BugseeCliPolicy.VersionAtLeast(BugseeCliPolicy.DefaultVersion, MonoPortablePdb.MinCliVersion), Is.True);
         }
 
-        static CompilerOutputDirectory Dir(string name, int? hoursAgo) => new CompilerOutputDirectory
+        static CompilerOutputDirectory Dir(string name, int? hoursAgo, bool android = true) => new CompilerOutputDirectory
         {
             Name = name,
             Path = "/p/Library/Bee/artifacts/" + name,
+            TargetsAndroid = android,
             AssemblyWriteUtc = hoursAgo == null ? (DateTime?)null : new DateTime(2026, 11, 12, 12, 0, 0, DateTimeKind.Utc).AddHours(-hoursAgo.Value),
         };
 
@@ -81,6 +82,25 @@ namespace Bugsee.WrapperPolicy.Tests
                 Dir("900b0aP.dag", 48), Dir("1300b0aP.dag", 3), Dir("1400b0aP.dag", null),
             });
             Assert.That(picked.Name, Is.EqualTo("1300b0aP.dag"));
+        }
+
+        [Test]
+        public void A_newer_ios_folder_does_not_win_over_the_android_one()
+        {
+            var picked = MonoPortablePdb.PickCompilerOutput(new[] { Dir("1300b0aP.dag", 24), Dir("900b0aP.dag", 0, android: false) });
+            Assert.That(picked.Name, Is.EqualTo("1300b0aP.dag"));
+            Assert.That(MonoPortablePdb.PickCompilerOutput(new[] { Dir("900b0aP.dag", 0, android: false) }), Is.Null);
+        }
+
+        [TestCase("-define:UNITY_ANDROID\n-define:UNITY_2021_3", true)]
+        [TestCase("-define:UNITY_2021_3\r\n-define:UNITY_ANDROID\r\n", true)]
+        [TestCase("-define:UNITY_IOS\n-define:UNITY_2021_3", false)]
+        [TestCase("-define:UNITY_ANDROID_API", false)]
+        [TestCase("", false)]
+        [TestCase(null, false)]
+        public void The_response_file_says_which_target_a_folder_was_compiled_for(string text, bool android)
+        {
+            Assert.That(MonoPortablePdb.DefinesAndroid(text), Is.EqualTo(android));
         }
 
         [Test]
