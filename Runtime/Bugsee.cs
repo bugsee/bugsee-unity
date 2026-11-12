@@ -768,11 +768,11 @@ namespace Bugsee
 
         /// <summary>
         /// Android and iOS (SDK 7.0.0+). Runs the SDK's built-in network sanitizer on the event, in place: sensitive URL query
-        /// values, sensitive header values (<c>Authorization</c>, <c>Cookie</c>, ...), sensitive body fields (<c>password</c>, ...)
-        /// and, on Android, <c>user:password@</c> URL credentials (the iOS sanitizer leaves those). Returns true when it ran; false
+        /// values, sensitive header values (<c>Authorization</c>, <c>Cookie</c>, ...), sensitive body fields (<c>password</c>, ...),
+        /// the error texts and, on Android, <c>user:password@</c> URL credentials (the iOS sanitizer leaves those). Returns true when it ran; false
         /// in the Editor, for a null event, and when the sanitizer could not run (see below).
         /// <para>
-        /// Why it exists: on Android and iOS a filter set with <see cref="SetNetworkEventFilter"/> (or a manifest one) turns the built-in
+        /// Why it exists: on Android and iOS a filter set with <see cref="SetNetworkEventFilter"/> (on Android also a manifest one) turns the built-in
         /// redaction off, so everything the filter does not redact is recorded as is. Call this first inside the filter to keep
         /// it. On the event the filter was handed (valid only inside the callback) it needs nothing else and works on any thread.
         /// </para>

@@ -876,7 +876,7 @@ char *_bugsee_sanitize_network(const char *eventJson)
 {
     NSDictionary *d = BugseeUnityParseJson(eventJson);
     if (!d) return NULL;
-    @try {
+    @autoreleasepool { @try {
         id<BugseeNetworkSanitizer> sanitizer = [Bugsee defaultNetworkSanitizer];
         if (!sanitizer) return NULL;
         BugseeNetworkEvent *event = [BugseeNetworkEvent new];
@@ -887,7 +887,7 @@ char *_bugsee_sanitize_network(const char *eventJson)
     } @catch (NSException *exception) {
         NSLog(@"[Bugsee] default network sanitizer failed: %@", exception.reason);
         return NULL;
-    }
+    } }
 }
 
 void _bugsee_set_log_filter_enabled(int enabled)

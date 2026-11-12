@@ -533,7 +533,7 @@ Contract:
 
 ### Network filter and the default sanitizer
 
-On Android and iOS a filter set with `Bugsee.SetNetworkEventFilter` (or declared in the manifest) turns the SDK's built-in redaction off: `Authorization` and `Cookie` headers, `token` query values and `password` body fields (and on Android `user:password@` URL credentials) are recorded as is unless the filter redacts them. Call `Bugsee.ApplyDefaultNetworkSanitizer(event)` first in the filter to keep the built-in redaction, then add your own:
+On Android and iOS a filter set with `Bugsee.SetNetworkEventFilter` (on Android also one declared in the manifest) turns the SDK's built-in redaction off: `Authorization` and `Cookie` headers, `token` query values and `password` body fields (and on Android `user:password@` URL credentials) are recorded as is unless the filter redacts them. Call `Bugsee.ApplyDefaultNetworkSanitizer(event)` first in the filter to keep the built-in redaction, then add your own:
 
 ```csharp
 Bugsee.SetNetworkEventFilter(e =>
