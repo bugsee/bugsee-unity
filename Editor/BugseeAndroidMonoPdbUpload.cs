@@ -151,13 +151,13 @@ namespace Bugsee.Editor
             if (folders.Count > 1)
             {
                 Debug.LogWarning($"Bugsee: {folders.Count} Android release compiler folders exist in Library/Bee/artifacts ({string.Join(", ", folders)}); " +
-                                 $"{compiled.Name} is used (the newest), but Unity may have built this player from another one. If the lines in the " +
+                                 $"{compiled.Name} is used (the newest not written after the shipped assemblies), but Unity may have built this player from another one. If the lines in the " +
                                  "dashboard look wrong, delete the folders you no longer build with and rebuild.");
             }
 
             Debug.Log($"Bugsee: BMF mapping source {compiled.Name}, shipped assemblies {(shippedDir ?? "not used")}.");
 
-            var tooOld = MonoPortablePdb.CliTooOld(BugseeCliLocator.Resolve().Version);
+            var tooOld = MonoPortablePdb.CliTooOld(BugseeCliLocator.Resolve().Version, BugseeCliLocator.Resolve().Path);
             if (tooOld != null)
             {
                 Debug.LogWarning("Bugsee: " + tooOld);

@@ -51,6 +51,14 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void The_old_cli_message_names_the_binary_and_does_not_misdescribe_the_upload()
+        {
+            var text = MonoPortablePdb.CliTooOld("0.8.1", "/opt/bin/bugsee-cli");
+            Assert.That(text, Does.Contain("/opt/bin/bugsee-cli").And.Contain("0.8.1").And.Contain("BUGSEE_CLI_PATH"));
+            Assert.That(text, Does.Not.Contain("Portable PDBs"), "the CLI uploads BMF mappings, not the pdb files");
+        }
+
+        [Test]
         public void The_minimum_is_not_above_the_pinned_cli()
         {
             Assert.That(BugseeCliPolicy.VersionAtLeast(BugseeCliPolicy.DefaultVersion, MonoPortablePdb.MinCliVersion), Is.True);

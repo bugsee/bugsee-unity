@@ -72,21 +72,22 @@ namespace Bugsee.WrapperPolicy
             return "Bugsee: this Android build uses the Mono scripting backend without Development Build, so the player ships no .pdb " +
                    "and managed exception frames carry only IL offsets (\"[0x0000b] in <module-guid>:0\"). The BMF mapping (made from the " +
                    "portable .pdb files) that lets the backend show C# file:line is not uploaded because " + reason + ". Upload it from CI with bugsee-cli " + MinCliVersion +
-                   " or newer (convert --to bmf makes the same files locally, to look at): debug-files upload <Library/Bee/artifacts/...P.dag> --type portable-pdb --shipped-dir " +
+                   " or newer (the same command with convert --to bmf --output <dir> instead of upload makes the files locally, to look at): " +
+                   "debug-files upload <Library/Bee/artifacts/...P.dag> --type portable-pdb --shipped-dir " +
                    "<Library/Bee/artifacts/Android/ManagedStripped> --version <version> --build <build>. The build continues.";
         }
 
         /// <summary>Why the installed CLI cannot do the conversion and upload, or null when it can (or its version is unknown: then it is tried).</summary>
-        public static string CliTooOld(string cliVersion)
+        public static string CliTooOld(string cliVersion, string cliPath = null)
         {
             if (string.IsNullOrEmpty(cliVersion) || BugseeCliPolicy.VersionAtLeast(cliVersion, MinCliVersion))
             {
                 return null;
             }
 
-            return "bugsee-cli " + cliVersion + " cannot convert and upload the Mono mapping (--type portable-pdb needs " + MinCliVersion +
-                   " or newer): managed frames of this Release Mono build stay IL offsets. Remove it from the search path (or point " +
-                   "BUGSEE_CLI_PATH at " + MinCliVersion + "+); without one on the path the package downloads its pinned release (not BUGSEE_CLI_VERSION below " + MinCliVersion + ").";
+            return "bugsee-cli " + cliVersion + (string.IsNullOrEmpty(cliPath) ? "" : " (" + cliPath + ")") + " cannot convert and upload the Mono mapping (--type portable-pdb needs " + MinCliVersion +
+                   " or newer): managed frames of this Release Mono build stay IL offsets. Replace it, or point " +
+                   "BUGSEE_CLI_PATH at " + MinCliVersion + "+ (the package downloads its pinned release only when it finds no CLI of " + BugseeCliPolicy.MinVersion + " or newer).";
         }
 
         /// <summary>Whether the text of a compiler response file (<c>Assembly-CSharp.rsp</c>) defines <c>UNITY_ANDROID</c> and not <c>UNITY_IOS</c>.</summary>

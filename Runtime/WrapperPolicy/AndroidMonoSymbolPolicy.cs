@@ -11,8 +11,8 @@ namespace Bugsee.WrapperPolicy
     /// The managed stack text has the same split: a Development build ships a portable .pdb next to each assembly
     /// in assets/bin/Data/Managed and the Mono runtime prints <c>[0x00001] in /path/File.cs:713</c>; a Release build
     /// ships none and prints <c>[0x0000b] in &lt;module-guid&gt;:0</c> (an IL offset, no file or line). The backend turns
-    /// that offset into a line from the Portable PDBs the Editor uploads after the build (<see cref="MonoPortablePdb"/>,
-    /// bugsee-cli 0.9.0+), and warns when it cannot upload them.
+    /// that offset into a line from the BMF mapping that bugsee-cli 0.9.0+ builds from the portable .pdb files and the Editor
+    /// uploads after the build (<see cref="MonoPortablePdb"/>); the Editor warns when it cannot.
     /// </summary>
     public static class AndroidMonoSymbolPolicy
     {
