@@ -103,6 +103,28 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(MonoPortablePdb.DefinesAndroid(text), Is.EqualTo(android));
         }
 
+        static readonly DateTime Noon = new DateTime(2026, 11, 12, 12, 0, 0, DateTimeKind.Utc);
+
+        [Test]
+        public void A_folder_newer_than_the_shipped_assemblies_is_not_what_the_build_linked()
+        {
+            var older = Dir("1300b0aP.dag", 10);
+            var newer = Dir("1400b0aP.dag", 1);
+            Assert.That(MonoPortablePdb.PickCompilerOutput(new[] { older, newer }, Noon.AddHours(-5)).Name, Is.EqualTo("1300b0aP.dag"));
+            Assert.That(MonoPortablePdb.PickCompilerOutput(new[] { older, newer }, Noon).Name, Is.EqualTo("1400b0aP.dag"));
+            // Nothing is consistent with the shipped folder: the newest is used rather than none.
+            Assert.That(MonoPortablePdb.PickCompilerOutput(new[] { newer }, Noon.AddHours(-5)).Name, Is.EqualTo("1400b0aP.dag"));
+        }
+
+        [Test]
+        public void A_shipped_folder_older_than_the_compile_is_stale()
+        {
+            Assert.That(MonoPortablePdb.ShippedMatchesCompile(Noon, Noon.AddHours(-1)), Is.True);
+            Assert.That(MonoPortablePdb.ShippedMatchesCompile(Noon, Noon), Is.True);
+            Assert.That(MonoPortablePdb.ShippedMatchesCompile(Noon.AddHours(-2), Noon.AddHours(-1)), Is.False);
+            Assert.That(MonoPortablePdb.ShippedMatchesCompile(null, Noon), Is.False);
+        }
+
         [Test]
         public void Equal_times_choose_the_same_folder_whatever_the_order()
         {
@@ -149,6 +171,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(text, Does.Contain("BUGSEE_NO_SYMBOL_UPLOAD"));
             Assert.That(text, Does.Contain("BugseeCliRunner.HasAppToken"));
             Assert.That(text, Does.Contain("MonoPortablePdb.PickCompilerOutput("));
+            Assert.That(text, Does.Contain("MonoPortablePdb.ShippedMatchesCompile("));
             Assert.That(text, Does.Contain("MonoPortablePdb.CliTooOld("));
             Assert.That(text, Does.Contain("MonoPortablePdb.Arguments("));
             Assert.That(text, Does.Contain("BuildOptions.Development"));

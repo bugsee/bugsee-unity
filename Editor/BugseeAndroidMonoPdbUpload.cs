@@ -106,7 +106,23 @@ namespace Bugsee.Editor
                 }
             }
 
-            var compiled = MonoPortablePdb.PickCompilerOutput(candidates);
+            // The assemblies the app is made from (the linker's output): their module ids are the ones the runtime prints.
+            var shipped = Path.Combine(artifacts, "Android", "ManagedStripped");
+            DateTime? shippedNewest = null;
+            if (Directory.Exists(shipped))
+            {
+                try
+                {
+                    foreach (var dll in Directory.GetFiles(shipped, "*.dll"))
+                    {
+                        var time = File.GetLastWriteTimeUtc(dll);
+                        if (shippedNewest == null || time > shippedNewest.Value) shippedNewest = time;
+                    }
+                }
+                catch { /* unreadable: treated as missing */ }
+            }
+
+            var compiled = MonoPortablePdb.PickCompilerOutput(candidates, shippedNewest);
             if (compiled == null)
             {
                 Debug.LogWarning("Bugsee: no Release player compiler output (Library/Bee/artifacts/<prefix>P.dag compiled for Android) found, so the Portable PDBs of " +
@@ -114,14 +130,23 @@ namespace Bugsee.Editor
                 return;
             }
 
-            // The assemblies the app is made from (the linker's output): their module ids are the ones the runtime prints.
-            var shipped = Path.Combine(artifacts, "Android", "ManagedStripped");
-            var shippedDir = Directory.Exists(shipped) ? shipped : null;
-            if (shippedDir == null)
+            string shippedDir = null;
+            if (shippedNewest == null)
             {
                 Debug.LogWarning($"Bugsee: {shipped} not found: the Portable PDBs are uploaded under the compiler's module ids. That matches the app only " +
                                  "when managed stripping is Disabled; with Low or higher the frames of this build stay IL offsets.");
             }
+            else if (!MonoPortablePdb.ShippedMatchesCompile(shippedNewest, compiled.AssemblyWriteUtc))
+            {
+                Debug.LogWarning($"Bugsee: {shipped} is older than the compiler output {compiled.Name}, so it is left over from an earlier build and its module ids are not used: " +
+                                 "the Portable PDBs are uploaded under the compiler's module ids, which matches the app only when managed stripping is Disabled.");
+            }
+            else
+            {
+                shippedDir = shipped;
+            }
+
+            Debug.Log($"Bugsee: Portable PDB source {compiled.Name} ({candidates.FindAll(c => c.TargetsAndroid && c.Name != null && c.Name.EndsWith("P.dag", StringComparison.Ordinal)).Count} Android release folder(s) in Library/Bee/artifacts), shipped assemblies {(shippedDir ?? "not used")}.");
 
             var tooOld = MonoPortablePdb.CliTooOld(BugseeCliLocator.Resolve().Version);
             if (tooOld != null)

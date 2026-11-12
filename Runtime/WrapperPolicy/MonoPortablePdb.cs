@@ -112,9 +112,16 @@ namespace Bugsee.WrapperPolicy
         /// player, "&lt;prefix&gt;PDevDbg.dag" for a Development player and "&lt;prefix&gt;E.dag" for the Editor; the Editor's compile has
         /// Editor-only code whose module ids the app never has. The prefix differs by build target (the same project holds an
         /// Android and an iOS folder once both were built), so a folder counts only when it was compiled for Android
-        /// (<see cref="CompilerOutputDirectory.TargetsAndroid"/>). Of several, the one written last. Null when there is none.
+        /// (<see cref="CompilerOutputDirectory.TargetsAndroid"/>). Of several, the one written last, but not one written after the newest shipped assembly (the linker runs after the compile, so a folder newer than the shipped one was not what this build linked; Bee leaves a folder it did not need to recompile untouched, so the newest is not always the current one). Null when there is none.
         /// </summary>
-        public static CompilerOutputDirectory PickCompilerOutput(IEnumerable<CompilerOutputDirectory> candidates)
+        public static CompilerOutputDirectory PickCompilerOutput(IEnumerable<CompilerOutputDirectory> candidates, DateTime? shippedNewestUtc = null)
+        {
+            var picked = PickNewest(candidates, shippedNewestUtc);
+            // Nothing consistent with the shipped folder: the newest one, as the shipped folder may be the stale side.
+            return picked ?? (shippedNewestUtc == null ? null : PickNewest(candidates, null));
+        }
+
+        static CompilerOutputDirectory PickNewest(IEnumerable<CompilerOutputDirectory> candidates, DateTime? shippedNewestUtc)
         {
             CompilerOutputDirectory best = null;
             if (candidates == null)
@@ -124,7 +131,8 @@ namespace Bugsee.WrapperPolicy
 
             foreach (var candidate in candidates)
             {
-                if (candidate == null || candidate.Name == null || !PlayerDag.IsMatch(candidate.Name) || !candidate.TargetsAndroid || candidate.AssemblyWriteUtc == null)
+                if (candidate == null || candidate.Name == null || !PlayerDag.IsMatch(candidate.Name) || !candidate.TargetsAndroid || candidate.AssemblyWriteUtc == null
+                    || (shippedNewestUtc != null && candidate.AssemblyWriteUtc.Value > shippedNewestUtc.Value))
                 {
                     continue;
                 }
@@ -140,6 +148,14 @@ namespace Bugsee.WrapperPolicy
 
             return best;
         }
+
+        /// <summary>
+        /// Whether the shipped folder (newest assembly <paramref name="shippedNewestUtc"/>) can be the output of the linker run that
+        /// followed the compile of <paramref name="compiled"/>: the linker runs after the compile, so a shipped folder older than the
+        /// compiler folder is left over from an earlier build (for instance when the linker did not run).
+        /// </summary>
+        public static bool ShippedMatchesCompile(DateTime? shippedNewestUtc, DateTime? compiledUtc) =>
+            shippedNewestUtc != null && (compiledUtc == null || shippedNewestUtc.Value >= compiledUtc.Value);
 
         /// <summary>
         /// <c>debug-files upload &lt;compiler output&gt; --type portable-pdb</c>. <paramref name="shippedDir"/> (the folder of the
