@@ -198,7 +198,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(text, Does.Contain("BugseeBuildIdentity.AndroidNameSettings(report).Backend"));
             Assert.That(text, Does.Not.Contain("\"Assembly-CSharp.dll\""), "an asmdef-only project has no Assembly-CSharp.dll");
             Assert.That(text, Does.Contain("ManagedStripped"));
-            Assert.That(text, Does.Contain("not found: the BMF mapping is uploaded under the compiler's module ids"));
+            Assert.That(text, Does.Contain("not found or empty: the BMF mapping is uploaded under the compiler's module ids"));
             Assert.That(text, Does.Contain("catch (Exception"));
             Assert.That(text, Does.Not.Contain("throw"));
         }
