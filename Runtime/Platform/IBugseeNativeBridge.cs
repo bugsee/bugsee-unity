@@ -92,7 +92,7 @@ namespace Bugsee.Platform
 
         void SetNetworkEventFilter(EventFilter<INetworkEvent> filter);
 
-        /// <summary>Runs the Android SDK's default network sanitizer on the event, in place. False where the SDK has none (iOS, Editor).</summary>
+        /// <summary>Runs the SDK's default network sanitizer (Android, iOS 7.0.0+) on the event, in place. False where the SDK has none (Editor).</summary>
         bool ApplyDefaultNetworkSanitizer(INetworkEvent networkEvent);
 
         /// <summary>Marks a native WebView secure (Android: android.webkit.WebView as AndroidJavaObject; iOS: WKWebView* as IntPtr). False when it is not one.</summary>

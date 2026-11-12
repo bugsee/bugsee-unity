@@ -869,6 +869,27 @@ void _bugsee_set_network_filter_enabled(int enabled)
     [Bugsee setNetworkEventFilter:BugseeUnityNetworkFilter()];
 }
 
+// Runs +[Bugsee defaultNetworkSanitizer] on a native event built from eventJson (the wire dictionary, as the channel
+// submit reads it) and returns the redacted event as the JSON a filter would be handed (headers as an object), or NULL
+// when the SDK has no sanitizer or it threw. The sanitizer is stateless and needs no launch. Caller frees with _bugsee_free.
+char *_bugsee_sanitize_network(const char *eventJson)
+{
+    NSDictionary *d = BugseeUnityParseJson(eventJson);
+    if (!d) return NULL;
+    @try {
+        id<BugseeNetworkSanitizer> sanitizer = [Bugsee defaultNetworkSanitizer];
+        if (!sanitizer) return NULL;
+        BugseeNetworkEvent *event = [BugseeNetworkEvent new];
+        if ([d[@"id"] isKindOfClass:[NSString class]]) event.ID = d[@"id"];
+        BugseeUnityApplyNetworkDict(event, d);
+        [sanitizer sanitize:event];
+        return BugseeUnityCopyUTF8(BugseeUnityJsonString(BugseeUnityNetworkToDict(event)));
+    } @catch (NSException *exception) {
+        NSLog(@"[Bugsee] default network sanitizer failed: %@", exception.reason);
+        return NULL;
+    }
+}
+
 void _bugsee_set_log_filter_enabled(int enabled)
 {
     if (!enabled) {
@@ -1360,6 +1381,7 @@ void _bugsee_channel_breadcrumb(const char *category, const char *message, int i
 void _bugsee_ensure_wrapper(const char *version, const char *build) { (void)version; (void)build; }
 void _bugsee_set_wrapper_context(const char *json) { (void)json; }
 void _bugsee_set_network_filter_enabled(int enabled) { (void)enabled; }
+char *_bugsee_sanitize_network(const char *eventJson) { (void)eventJson; return NULL; }
 void _bugsee_set_log_filter_enabled(int enabled) { (void)enabled; }
 void _bugsee_set_breadcrumb_filter_enabled(int enabled) { (void)enabled; }
 void _bugsee_complete_filter(int64_t requestId, int keep, const char *resultJson) { (void)requestId; (void)keep; (void)resultJson; }

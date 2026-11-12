@@ -531,22 +531,21 @@ Contract:
 
 `Bugsee.GetAllSecureRectangles()` returns the rectangles added with `AddSecureRectangle(RectInt)` and not yet removed, as `RectInt[]` in the top-left-origin pixels they were registered with (normalised: an inverted rectangle comes back with its corners in order), in no particular order, empty when none. Each distinct rectangle is listed once; one added several times disappears only after as many removals as adds. Rectangles added with `AddSecureScreenRectangle` are not returned. The wrapper answers from its own list: it gives the native SDKs its rectangles through its own provider rather than their `addSecureRectangle`, so the SDKs' own `getAllSecureRectangles` is empty here and is not read.
 
-### Network filter and the default sanitizer (Android)
+### Network filter and the default sanitizer
 
-On Android a filter set with `Bugsee.SetNetworkEventFilter` (or declared in the manifest) turns the SDK's built-in redaction off: `Authorization` and `Cookie` headers, `token` query values, `user:password@` URL credentials and `password` body fields are recorded as is unless the filter redacts them. Call `Bugsee.ApplyDefaultNetworkSanitizer(event)` first in the filter to keep the built-in redaction, then add your own:
+On Android and iOS a filter set with `Bugsee.SetNetworkEventFilter` (or declared in the manifest) turns the SDK's built-in redaction off: `Authorization` and `Cookie` headers, `token` query values and `password` body fields (and on Android `user:password@` URL credentials) are recorded as is unless the filter redacts them. Call `Bugsee.ApplyDefaultNetworkSanitizer(event)` first in the filter to keep the built-in redaction, then add your own:
 
 ```csharp
 Bugsee.SetNetworkEventFilter(e =>
 {
-    // Android: SDK defaults, in place. If it could not run (false), drop the event rather than record it unredacted.
-    // On iOS it always returns false: there the filter's own redaction is all there is.
-    if (!Bugsee.ApplyDefaultNetworkSanitizer(e) && Application.platform == RuntimePlatform.Android) return null;
+    // SDK defaults, in place. If it could not run (false), drop the event rather than record it unredacted.
+    if (!Bugsee.ApplyDefaultNetworkSanitizer(e)) return null;
     e.Url = e.Url.Replace("/internal/", "/x/");
     return e;
 });
 ```
 
-It returns true when it ran and false on iOS and in the Editor: the wrapper does not call the iOS SDK's sanitizer: iOS SDK 7.0.0 added `+[Bugsee defaultNetworkSanitizer]`, but the filter receives a wrapper-owned event rather than a native `BugseeNetworkEvent`, so on iOS the filter's own redaction is all there is (with a network filter installed the SDK turns its built-in redaction off). Inside the filter it needs nothing else. On an event you built yourself (`Bugsee.GetExchangeFactory()`, or your own `INetworkEvent`) the SDK hands out a native copy only while it is launched with network capture on, so outside that the call redacts nothing and returns false: check the result. A copy that worked has its redacted fields copied back. A failure inside the SDK is logged and also returns false.
+It returns true when it ran and false in the Editor (no SDK there). Inside the filter it needs nothing else. On Android, an event you built yourself (`Bugsee.GetExchangeFactory()`, or your own `INetworkEvent`) is sanitized through a native copy that the SDK hands out only while it is launched with network capture on, so outside that the call redacts nothing and returns false: check the result. On iOS the wrapper copies the event into a native `BugseeNetworkEvent`, runs `+[Bugsee defaultNetworkSanitizer]` on it (stateless, needs no launch) and writes back only the fields it changed. The redaction rules are each SDK's own: measured on iOS SDK 7.0.1, the sanitizer redacts `token` query values (to `<redacted>`), `Authorization` and similar headers and JSON `password` fields, but it leaves `user:password@` URL credentials, which the Android one removes; do not rely on it for those. A failure inside the SDK is logged and also returns false.
 
 ### WebView secure views
 
@@ -559,7 +558,7 @@ Limits: it marks a native view, so it does nothing for a page drawn into a Unity
 
 ### Native APIs that are not exposed
 
-Decided in #103 against the Android 7.4.2 and iOS 7.0.0-beta7 public APIs (re-checked against the iOS 7.0.0 headers: these are unchanged; `+[Bugsee defaultNetworkSanitizer]` and the wrapper channel's timestamped `log` are new and not wired, see the CHANGELOG):
+Decided in #103 against the Android 7.4.2 and iOS 7.0.0-beta7 public APIs (re-checked against the iOS 7.0.0 headers: these are unchanged; the wrapper channel's timestamped `log` is new and not wired, see the CHANGELOG):
 
 - `+[Bugsee logError:]` (iOS `NSError`): an `NSError` can only come from native code, which already calls the SDK directly; Unity code has `Bugsee.LogException`. Android has no counterpart.
 - `+[Bugsee showVideoCapturePreview]` / `hideVideoCapturePreview` (iOS): a developer diagnostic of the SDK's own capture, with no Android counterpart; it shows nothing about the Unity pipeline, which pushes its own frames.

@@ -8,7 +8,7 @@ namespace Bugsee.Sample
 {
     /// <summary>
     /// Device check for the native extras (BUGSEE_E2E_SCENARIO=extras, issue #103): the default network sanitizer
-    /// (<see cref="Bugsee.ApplyDefaultNetworkSanitizer"/>, Android only) on a hand-built event and inside a network filter, and the
+    /// (<see cref="Bugsee.ApplyDefaultNetworkSanitizer"/>, Android and iOS) on a hand-built event and inside a network filter, and the
     /// WebView secure views (<see cref="Bugsee.AddSecureWebView"/> / <see cref="Bugsee.RemoveSecureWebView"/>) on a real native
     /// WebView made by <see cref="NativeExtrasWebView"/>. Logs <c>[Sample] extras PASS|FAIL name :: detail</c> and a final
     /// <c>done failures=N</c>. Whether the secure view redacts the video is not observable from here; the checks cover the call
@@ -55,17 +55,20 @@ namespace Bugsee.Sample
         static IEnumerator Body()
         {
             bool android = Application.platform == RuntimePlatform.Android;
+            // Both SDKs ship a default sanitizer (iOS 7.0.0 added it, #267); the Editor has none.
+            bool sanitizes = android || Application.platform == RuntimePlatform.IPhonePlayer;
 
             // 1. The sanitizer on an event the app built itself.
             var factory = Bugsee.GetExchangeFactory();
             Check("exchange factory available", factory != null, "");
             var ev = NewSensitive(factory, "extras-direct");
             bool ran = Bugsee.ApplyDefaultNetworkSanitizer(ev);
-            Check("sanitizer returns " + android + " on this platform", ran == android, "ran=" + ran);
-            if (android)
+            Check("sanitizer returns " + sanitizes + " on this platform", ran == sanitizes, "ran=" + ran);
+            if (sanitizes)
             {
                 Check("URL token value redacted, other query kept", !ev.Url.Contains(Secret) && ev.Url.Contains("x=1"), ev.Url);
-                Check("URL userinfo password redacted", !ev.Url.Contains("pw12345"), ev.Url);
+                // The Android SDK also redacts user:password@; the iOS 7.0.0/7.0.1 sanitizer leaves it (measured), so only Android is held to it.
+                if (android) Check("URL userinfo password redacted", !ev.Url.Contains("pw12345"), ev.Url);
                 string auth; ev.Headers.TryGetValue("Authorization", out auth);
                 Check("Authorization header redacted", auth != null && !auth.Contains("SECRETBEARER456"), "Authorization=" + auth);
                 string ctype; ev.Headers.TryGetValue("Content-Type", out ctype);
@@ -74,24 +77,23 @@ namespace Bugsee.Sample
             }
             else
             {
-                Check("iOS leaves the event as it was", ev.Url.Contains(Secret) && ev.Body.Contains(Password), ev.Url + " " + ev.Body);
+                Check("the Editor leaves the event as it was", ev.Url.Contains(Secret) && ev.Body.Contains(Password), ev.Url + " " + ev.Body);
             }
             Check("null event is refused", !Bugsee.ApplyDefaultNetworkSanitizer(null), "");
 
-            // 2. Inside a network filter. A filter turns the built-in redaction off on Android (documented on the native API), so the plain
-            // filter must see the raw values and the one that calls the sanitizer must not. On iOS the SDK's own redaction is not
-            // observable the same way, so only what the filter saw is logged.
+            // 2. Inside a network filter. A filter turns the built-in redaction off on Android and iOS 7.0.0 (documented on the native APIs), so
+            // the plain filter must see the raw values and the one that calls the sanitizer must not.
             Bugsee.SetNetworkEventFilter(PlainFilter);
             yield return Send("extras-plain");
             yield return WaitFor(() => { lock (Gate) return _plainUrl != null; }, WaitSeconds);
             string plainUrl, plainAuth, plainBody;
             lock (Gate) { plainUrl = _plainUrl; plainAuth = _plainAuth; plainBody = _plainBody; }
             Check("filter received the event", plainUrl != null, "filterError=" + _filterError);
-            if (android)
+            if (sanitizes)
                 Check("with a filter and no sanitizer the raw values are recorded (why the API exists)",
                     plainUrl != null && plainUrl.Contains(Secret) && (plainBody ?? "").Contains(Password), plainUrl + " " + plainBody);
             else
-                Debug.Log("[Sample] extras INFO iOS filter saw url=" + plainUrl + " auth=" + plainAuth);
+                Debug.Log("[Sample] extras INFO filter saw url=" + plainUrl + " auth=" + plainAuth);
 
             Bugsee.SetNetworkEventFilter(SanitizingFilter);
             yield return Send("extras-sanitized");
@@ -99,9 +101,9 @@ namespace Bugsee.Sample
             string sUrl, sAuth, sBody;
             lock (Gate) { sUrl = _sanitizedUrl; sAuth = _sanitizedAuth; sBody = _sanitizedBody; }
             Check("sanitizing filter received the event", sUrl != null, "filterError=" + _filterError);
-            Check("sanitizer inside the filter returned " + android, _sanitizerRan && _sanitizerReturned == android,
+            Check("sanitizer inside the filter returned " + sanitizes, _sanitizerRan && _sanitizerReturned == sanitizes,
                 "ran=" + _sanitizerRan + " returned=" + _sanitizerReturned);
-            if (android)
+            if (sanitizes)
             {
                 Check("sanitizing filter: URL redacted", sUrl != null && !sUrl.Contains(Secret), sUrl);
                 Check("sanitizing filter: Authorization redacted", sAuth != null && !sAuth.Contains("SECRETBEARER456"), "Authorization=" + sAuth);

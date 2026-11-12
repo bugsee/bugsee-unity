@@ -767,19 +767,20 @@ namespace Bugsee
             Bridge.SetNetworkEventFilter(filter);
 
         /// <summary>
-        /// Android only. Runs the SDK's built-in network sanitizer on the event, in place: sensitive URL query values and
-        /// <c>user:password@</c> credentials, sensitive header values (<c>Authorization</c>, <c>Cookie</c>, ...), sensitive body
-        /// fields (<c>password</c>, ...) and the error texts. Returns true when it ran; false on iOS and in the Editor, where the
-        /// SDK has no public sanitizer, for a null event, and when the sanitizer could not run (see below).
+        /// Android and iOS (SDK 7.0.0+). Runs the SDK's built-in network sanitizer on the event, in place: sensitive URL query
+        /// values, sensitive header values (<c>Authorization</c>, <c>Cookie</c>, ...), sensitive body fields (<c>password</c>, ...)
+        /// and, on Android, <c>user:password@</c> URL credentials (the iOS sanitizer leaves those). Returns true when it ran; false
+        /// in the Editor, for a null event, and when the sanitizer could not run (see below).
         /// <para>
-        /// Why it exists: on Android a filter set with <see cref="SetNetworkEventFilter"/> (or a manifest one) turns the built-in
+        /// Why it exists: on Android and iOS a filter set with <see cref="SetNetworkEventFilter"/> (or a manifest one) turns the built-in
         /// redaction off, so everything the filter does not redact is recorded as is. Call this first inside the filter to keep
         /// it. On the event the filter was handed (valid only inside the callback) it needs nothing else and works on any thread.
         /// </para>
         /// <para>
         /// An event the app built itself (<see cref="GetExchangeFactory"/>, or its own <see cref="INetworkEvent"/>) is sanitized
-        /// through a native copy, whose redacted fields are copied back. The SDK hands out such a copy only while it is launched
-        /// with network capture on: otherwise nothing is redacted and the result is false, so check it.
+        /// through a native copy, whose redacted fields are copied back. On Android the SDK hands out such a copy only while it
+        /// is launched with network capture on: otherwise nothing is redacted and the result is false, so check it. The iOS
+        /// sanitizer needs no launch.
         /// </para>
         /// </summary>
         public static bool ApplyDefaultNetworkSanitizer(INetworkEvent networkEvent) =>

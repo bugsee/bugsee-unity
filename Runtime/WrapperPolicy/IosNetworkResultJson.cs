@@ -124,6 +124,27 @@ namespace Bugsee.WrapperPolicy
             return w.End();
         }
 
+        /// <summary>
+        /// The fields of <paramref name="before"/> that <paramref name="after"/> changes, limited to the ones native
+        /// redacts (url, body, error texts, headers). Null and "" are the same (native keeps no empty string), so a
+        /// field the sanitizer left alone is not reported and is not written back.
+        /// </summary>
+        public static IosNetworkField ChangedFields(IosNetworkFields before, IosNetworkFields after)
+        {
+            before = before ?? new IosNetworkFields();
+            after = after ?? new IosNetworkFields();
+            var changed = IosNetworkField.None;
+            if (!SameText(before.Url, after.Url)) changed |= IosNetworkField.Url;
+            if (!SameText(before.Body, after.Body)) changed |= IosNetworkField.Body;
+            if (!SameText(before.ErrorShortMessage, after.ErrorShortMessage)) changed |= IosNetworkField.ErrorShortMessage;
+            if (!SameText(before.ErrorDescription, after.ErrorDescription)) changed |= IosNetworkField.ErrorDescription;
+            if (!SameHeaders(before.Headers, after.Headers)) changed |= IosNetworkField.Headers;
+            return changed;
+        }
+
+        static bool SameText(string a, string b) =>
+            string.IsNullOrEmpty(a) ? string.IsNullOrEmpty(b) : string.Equals(a, b, StringComparison.Ordinal);
+
         static bool Has(IosNetworkField set, IosNetworkField flag) => (set & flag) != 0;
 
         // Invariant: a culture's minus sign or digits would make the JSON invalid and native would drop the whole result.
