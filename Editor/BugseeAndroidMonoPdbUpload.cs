@@ -70,9 +70,22 @@ namespace Bugsee.Editor
             {
                 foreach (var dir in BugseeDirectoryScan.ChildDirectories(artifacts))
                 {
-                    var dll = Path.Combine(dir, "Assembly-CSharp.dll");
+                    // A project whose scripts all live in asmdefs has no Assembly-CSharp.dll: any assembly with a pdb beside it counts.
                     DateTime? written = null;
-                    try { if (File.Exists(dll)) written = File.GetLastWriteTimeUtc(dll); } catch { /* unreadable: not a candidate */ }
+                    try
+                    {
+                        foreach (var dll in Directory.GetFiles(dir, "*.dll"))
+                        {
+                            if (!File.Exists(Path.ChangeExtension(dll, ".pdb")))
+                            {
+                                continue;
+                            }
+
+                            var time = File.GetLastWriteTimeUtc(dll);
+                            if (written == null || time > written.Value) written = time;
+                        }
+                    }
+                    catch { /* unreadable: not a candidate */ }
                     candidates.Add(new CompilerOutputDirectory { Name = Path.GetFileName(dir), Path = dir, AssemblyWriteUtc = written });
                 }
             }
@@ -88,6 +101,11 @@ namespace Bugsee.Editor
             // The assemblies the app is made from (the linker's output): their module ids are the ones the runtime prints.
             var shipped = Path.Combine(artifacts, "Android", "ManagedStripped");
             var shippedDir = Directory.Exists(shipped) ? shipped : null;
+            if (shippedDir == null)
+            {
+                Debug.LogWarning($"Bugsee: {shipped} not found: the Portable PDBs are uploaded under the compiler's module ids. That matches the app only " +
+                                 "when managed stripping is Disabled; with Low or higher the frames of this build stay IL offsets.");
+            }
 
             var tooOld = MonoPortablePdb.CliTooOld(BugseeCliLocator.Resolve().Version);
             if (tooOld != null)

@@ -4,12 +4,12 @@ using System.Text.RegularExpressions;
 
 namespace Bugsee.WrapperPolicy
 {
-    /// <summary>One folder of Unity's Bee output (<c>Library/Bee/artifacts/*.dag</c>) and when its <c>Assembly-CSharp.dll</c> was written.</summary>
+    /// <summary>One folder of Unity's Bee output (<c>Library/Bee/artifacts/*.dag</c>) and when its newest assembly with a pdb was written.</summary>
     public sealed class CompilerOutputDirectory
     {
         public string Name;
         public string Path;
-        /// <summary>Write time of <c>Assembly-CSharp.dll</c> in it, or null when it has none.</summary>
+        /// <summary>Newest write time of an assembly in it that has a .pdb beside it, or null when there is none.</summary>
         public DateTime? AssemblyWriteUtc;
     }
 
@@ -81,7 +81,7 @@ namespace Bugsee.WrapperPolicy
 
             return "bugsee-cli " + cliVersion + " cannot upload Portable PDBs (--type portable-pdb needs " + MinCliVersion +
                    " or newer): managed frames of this Release Mono build stay IL offsets. Remove it from the search path (or point " +
-                   "BUGSEE_CLI_PATH at " + MinCliVersion + "+) so the package downloads its pinned release.";
+                   "BUGSEE_CLI_PATH at " + MinCliVersion + "+); without one on the path the package downloads its pinned release (not BUGSEE_CLI_VERSION below " + MinCliVersion + ").";
         }
 
         static readonly Regex PlayerDag = new Regex("^[0-9a-fA-F]+P\\.dag$", RegexOptions.CultureInvariant);

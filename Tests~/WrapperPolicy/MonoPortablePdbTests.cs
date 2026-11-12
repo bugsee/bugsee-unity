@@ -101,8 +101,10 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Other_folders_are_not_the_release_player(string name)
         {
             Assert.That(MonoPortablePdb.PickCompilerOutput(new[] { Dir(name, 0) }), Is.Null);
-            Assert.That(MonoPortablePdb.PickCompilerOutput(null), Is.Null);
         }
+
+        [Test]
+        public void No_candidates_is_no_folder() => Assert.That(MonoPortablePdb.PickCompilerOutput(null), Is.Null);
 
         [Test]
         public void Arguments_are_the_portable_pdb_upload_with_the_shipped_folder_and_no_uuid()
@@ -131,6 +133,9 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(text, Does.Contain("MonoPortablePdb.Arguments("));
             Assert.That(text, Does.Contain("BuildOptions.Development"));
             Assert.That(text, Does.Contain("BugseeBuildIdentity.AndroidNameSettings(report).Backend"));
+            Assert.That(text, Does.Not.Contain("\"Assembly-CSharp.dll\""), "an asmdef-only project has no Assembly-CSharp.dll");
+            Assert.That(text, Does.Contain("ManagedStripped"));
+            Assert.That(text, Does.Contain("not found: the Portable PDBs are uploaded under the compiler's module ids"));
             Assert.That(text, Does.Contain("catch (Exception"));
             Assert.That(text, Does.Not.Contain("throw"));
         }
