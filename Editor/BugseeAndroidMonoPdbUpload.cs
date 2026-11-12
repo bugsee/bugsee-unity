@@ -134,7 +134,7 @@ namespace Bugsee.Editor
             string shippedDir = null;
             if (shippedNewest == null)
             {
-                Debug.LogWarning($"Bugsee: {shipped} not found: the BMF mapping is uploaded under the compiler's module ids. That matches the app only " +
+                Debug.LogWarning($"Bugsee: {shipped} not found or empty: the BMF mapping is uploaded under the compiler's module ids. That matches the app only " +
                                  "when managed stripping is Disabled; with Low or higher the frames of this build stay IL offsets.");
             }
             else if (!MonoPortablePdb.ShippedMatchesCompile(shippedNewest, compiled.AssemblyWriteUtc))
@@ -164,7 +164,7 @@ namespace Bugsee.Editor
                 return;
             }
 
-            Debug.Log($"Bugsee: converting the Mono build's assemblies and portable .pdb files ({compiled.Name}) to BMF and uploading them via {BugseeCliRunner.CliPath} …");
+            Debug.Log($"Bugsee: converting the Mono build's assemblies and portable .pdb files ({compiled.Name}) to BMF and uploading the BMF files via {BugseeCliRunner.CliPath} …");
             var exit = BugseeCliRunner.Run(MonoPortablePdb.Arguments(compiled.Path, shippedDir, version, build));
             if (exit != 0)
             {
