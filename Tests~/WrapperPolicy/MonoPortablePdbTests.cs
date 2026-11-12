@@ -32,7 +32,7 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             var optOut = MonoPortablePdb.NotUploadedNotice(MonoPortablePdb.Outcome.OptedOut);
             var token = MonoPortablePdb.NotUploadedNotice(MonoPortablePdb.Outcome.NoToken);
-            Assert.That(optOut, Does.Contain("BMF").And.Contain("convert --to bmf").And.Contain("BUGSEE_NO_SYMBOL_UPLOAD").And.Contain("--type portable-pdb").And.Contain("0.9.0").And.Contain("--shipped-dir"));
+            Assert.That(optOut, Does.Contain("BMF").And.Contain("convert <Library/Bee/artifacts/...P.dag> --to bmf --shipped-dir").And.Contain("BUGSEE_NO_SYMBOL_UPLOAD").And.Contain("--type portable-pdb").And.Contain("0.9.0").And.Contain("--shipped-dir"));
             Assert.That(token, Does.Contain("BUGSEE_APP_TOKEN"));
             Assert.That(MonoPortablePdb.NotUploadedNotice(MonoPortablePdb.Outcome.Upload), Is.Null);
             Assert.That(MonoPortablePdb.NotUploadedNotice(MonoPortablePdb.Outcome.NotApplicable), Is.Null);
