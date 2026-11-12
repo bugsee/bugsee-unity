@@ -194,7 +194,7 @@ Managed exceptions use the **UnityManagedException** JSON-in-reason contract (`n
 | Mode | Build / capture | Backend | File:line? |
 |---|---|---|---|
 | **A. Rich managed stacks** | Mono **Development Build** (a portable `.pdb` ships next to each assembly), or IL2CPP **Method Name, File Name, and Line Number** (or Script Debugging) | Parse `frames[].trace` | **Yes** (from string) |
-| **A0. Mono Release** | Mono without Development Build: no `.pdb` in the player, the text is `at Ns.C.M (System.String a) [0x0000b] in <module-guid>:0` | Parse `frames[].trace` | **No**: method names only. The IL offset is not resolved anywhere (the CLI's `PortablePdb` type is a scaffold; the worker reads no Portable PDB). A Development Build has file:line for assemblies Unity compiles (not for store builds; a managed plug-in without a `.pdb` stays IL-offset only); IL2CPP has it only where Unity offers IL2CPP line information. A Release Mono Android build logs a build-time warning. |
+| **A0. Mono Release** | Mono without Development Build: no `.pdb` in the player, the text is `at Ns.C.M (System.String a) [0x0000b] in <module-guid>:0` | Parse `frames[].trace` | **Method names only in the app; file:line from the Portable PDBs the Editor uploads** (Android, `BUGSEE_APP_TOKEN` set, `bugsee-cli` 0.9.0+; see "Mono Release: Portable PDB upload"). Without that upload the IL offset stays unresolved. A Development Build has file:line for assemblies Unity compiles (not for store builds; a managed plug-in without a `.pdb` stays IL-offset only); IL2CPP has it only where Unity offers IL2CPP line information. |
 | **B. Release Method-only + LNM** | IL2CPP **Release** (not Development); thrown exception; SDK emits native IPs via `il2cpp_native_stack_trace` | PC → dSYM/ELF **with DWARF line info** → LineNumberMappings | **Android, Unity 6000.0.84f1: yes with full symbols** (needs `il2cpp-linemap` and symbols with line info: Create symbols.zip = Debugging, not Public; addresses are module-relative). iOS and Unity 2022.3 are not verified for this. Not for Development builds (see below) |
 | **C. MethodMap only** | IL2CPP mangled names; map uploaded | MethodMap.tsv demangle | **Names only** (no invented `.cs:line`) |
 
@@ -218,6 +218,17 @@ catch (Exception ex) { Bugsee.LogException(ex); } // real thrown exception
 | **Bugsee** | Mode A; Mode B path shipping (IPs + LNM; prove end-to-end); Mode C names via MethodMap | Yes | Yes (S1/S2) |
 
 IL2CPP **C# file/line** via LNM always needs uploaded `il2cpp-linemap` + matching dSYM/ELF with **line** info (and for Mode B, instruction addresses on the event).
+
+
+### Mono Release: Portable PDB upload
+
+An Android build on the Mono scripting backend that is not a Development Build ships no `.pdb`, so the runtime prints a managed frame as `at Ns.C.M (System.String a) [0x0000b] in <module-guid>:0`: a method, an IL offset and the id (MVID) of the assembly, no file or line. After such a build the Editor uploads the compiler's Portable PDBs, paired with the assemblies the app ships, with `bugsee-cli debug-files upload <Library/Bee/artifacts/<hash>P.dag> --type portable-pdb --shipped-dir <Library/Bee/artifacts/Android/ManagedStripped> --version <version> --build <build number>`, so the backend can turn the frame into `File.cs:42`. The CLI registers the mapping under the module id of the *shipped* assembly (managed stripping Low or higher gives the assembly a new id), and leaves out methods the linker removed or rewrote.
+
+- Needs `bugsee-cli` 0.9.0 or newer (the pinned release is). An older CLI found on the search path is not used for this step: the Editor logs a warning naming it and the build continues.
+- Runs when `BUGSEE_APP_TOKEN` is set in the Editor's environment and `BUGSEE_NO_SYMBOL_UPLOAD` is not. Otherwise a one-time warning gives the manual command. It is not run for a Development Build (it ships its `.pdb` files), for IL2CPP (line map) or on iOS (no Mono backend). It runs for an Export Project too, since Unity compiles the assemblies either way.
+- The compiler folder is the newest `Library/Bee/artifacts/<hash>P.dag` (the Release player; `...PDevDbg.dag` is the Development player and `...E.dag` the Editor, whose module ids the app never has). A failure, a missing folder or a non-zero exit is a warning; the build is never failed.
+- A managed plug-in dll with no `.pdb` beside it is not uploaded and stays IL-offset only.
+- Verified on a Samsung SM-T725 (Android 11, Unity 2021.3.45f1, Mono, Release, `pipeline` scenario, staging): the player printed `E2EThrowStableA (System.String marker) [0x0000b] in <2d446532fd384305b361aaee300be307>:0`, the build log showed the CLI registering `Assembly-CSharp` under that module id, and the staging issue showed `E2EThrowStableA (System.String marker) (BugseeSampleBootstrap.cs:1243)`. Managed stripping Low (the sample's setting) was the only one checked, and only on 2021.3.
 
 ## Symbol upload (Editor / CI)
 
@@ -299,7 +310,7 @@ Manual checklist for a Windows machine (Unity 2021.3.45f1 or 2022.3 LTS with And
 
 **Android**
 
-1. Scripting Backend: **IL2CPP** is the supported configuration for fully symbolicated native crashes. With Mono, frames inside the Mono runtime (`libmonobdwgc-2.0.so`, `libmono-native.so`, `libMonoPosixHelper.so`) cannot be symbolicated: Unity 2021.3 has no Mono ARM64 (ARMv7 only) and those libraries have no GNU build-id. Frames in `libunity.so` and `libmain.so` still symbolicate. A Mono Android build logs a one-time warning at build time (whether or not symbol upload is configured) and is never failed. A Mono build that is not a Development Build logs a second one-time warning: its managed frames have IL offsets only (`[0x0000b] in <module-guid>:0`), no C# file or line
+1. Scripting Backend: **IL2CPP** is the supported configuration for fully symbolicated native crashes. With Mono, frames inside the Mono runtime (`libmonobdwgc-2.0.so`, `libmono-native.so`, `libMonoPosixHelper.so`) cannot be symbolicated: Unity 2021.3 has no Mono ARM64 (ARMv7 only) and those libraries have no GNU build-id. Frames in `libunity.so` and `libmain.so` still symbolicate. A Mono Android build logs a one-time warning at build time (whether or not symbol upload is configured) and is never failed. A Mono build that is not a Development Build ships no `.pdb`, so its managed frames have IL offsets only (`[0x0000b] in <module-guid>:0`) in the app; the Editor uploads the Portable PDBs so the dashboard shows C# file:line (see "Mono Release: Portable PDB upload"), and logs a one-time warning only when it cannot (no token, `BUGSEE_NO_SYMBOL_UPLOAD`).
 2. Create symbols.zip / native debug symbols enabled
 3. For primary LNM apply: native debug symbol level **FULL** (DWARF lines), not SYMBOL_TABLE-only
 4. No custom Gradle templates needed: Bugsee patches the generated Gradle project (the Bugsee Gradle plugin with `ndk { enabled = true }` when it pins AGP 8.6+, i.e. Unity 6; on older AGPs, see below); a template of your own that pins another AGP major than your Unity's default fails the build and is reported (file layouts the patching understands: [Gradle file layouts](#gradle-file-layouts))

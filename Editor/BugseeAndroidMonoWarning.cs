@@ -16,7 +16,6 @@ namespace Bugsee.Editor
     public sealed class BugseeAndroidMonoWarning : IPostprocessBuildWithReport
     {
         static bool _warned;
-        static bool _warnedLines;
 
         public int callbackOrder => 900;
 
@@ -34,13 +33,6 @@ namespace Bugsee.Editor
                 if (warning != null)
                 {
                     Debug.LogWarning(warning);
-                }
-
-                var development = (report.summary.options & BuildOptions.Development) != 0;
-                var linesWarning = AndroidMonoSymbolPolicy.TakeManagedLinesWarning(backend, development, ref _warnedLines);
-                if (linesWarning != null)
-                {
-                    Debug.LogWarning(linesWarning);
                 }
             }
             catch (Exception ex)
