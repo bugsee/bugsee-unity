@@ -5,7 +5,7 @@ Bug reporting, crash capture, and session replay for Unity games and apps on iOS
 ## Requirements
 
 - Unity **2021.3** or newer
-- iOS builds: Xcode with Swift Package Manager support; **iOS 15+** (Bugsee 7.0.1); `bugsee-cli` on the PATH for archive-time symbol upload
+- iOS builds: Xcode with Swift Package Manager support; **iOS 15+** (Bugsee 7.1.0); `bugsee-cli` on the PATH for archive-time symbol upload
 - Android builds: nothing to set up (no EDM4U, no custom Gradle templates; the build needs Maven Central, which Unity's Gradle project already lists); `bugsee-cli` on the PATH for Editor symbol upload
 
 ## Installation
@@ -493,7 +493,7 @@ Device/CI proof remains manual.
 ### Milestone S2 — Android C# file/line
 
 1. IL2CPP Android build; Create symbols.zip / **FULL** native debug symbols.
-2. NDK enabled (`bugsee-android-ndk:7.5.0` + Gradle `ndk { enabled = true }` on Unity 6+).
+2. NDK enabled (`bugsee-android-ndk:7.6.0` + Gradle `ndk { enabled = true }` on Unity 6+).
 3. Post-build uploads `elf` + `il2cpp-linemap` (multi-ABI UUIDs).
 4. Native fatal on device; viewer shows **C# file/line**.
 
@@ -579,8 +579,8 @@ Decided in #103 against the Android 7.4.2 and iOS 7.0.0-beta7 public APIs (re-ch
 
 ## Native dependencies
 
-- **Android:** Maven `com.bugsee:bugsee-android:7.5.0` + `com.bugsee:bugsee-android-ndk:7.5.0`, declared in the generated Gradle project by `Editor/BugseeAndroidMavenDependencies.cs` (Gradle plugin `4.1.1`, patched into the generated project when it pins AGP 8.6+). Native symbols for upload come from Unity's `symbols.zip` (Player Settings > Publishing Settings > Create symbols.zip). Unity 6 defaults it to Disabled and Public holds symbol tables only; native/IL2CPP file:line symbolication needs Debugging, which is necessary but not shown to be sufficient: Release native crashes stayed unresolved on staging even with it (#263; see the section *IL2CPP handled exceptions*) (about ten times larger, mind Google Play's limits). The build warns when a Bugsee app token is set and the level is not Debugging; `Bugsee > Android > Use Full Native Symbols (Debugging) For Symbol Upload` (or `BUGSEE_ANDROID_FULL_SYMBOLS=1`) builds with Debugging and restores the setting. On 2021.3 release builds also get `debugSymbolLevel 'FULL'`. Core publishes no transitives; NDK is a separate artifact and must be declared. Fragment secure-view overloads are typed as `Object`, so Unity JNI does not need `androidx.fragment`.
-- **iOS:** SPM-only. Xcode resolves [`bugsee/spm`](https://github.com/bugsee/spm) `7.0.1` (iOS 15+). C bridge: `Plugins/iOS/BugseeUnityBridge.mm` + `BugseeUnityCallbacks.mm`.
+- **Android:** Maven `com.bugsee:bugsee-android:7.6.0` + `com.bugsee:bugsee-android-ndk:7.6.0`, declared in the generated Gradle project by `Editor/BugseeAndroidMavenDependencies.cs` (Gradle plugin `4.1.1`, patched into the generated project when it pins AGP 8.6+). Native symbols for upload come from Unity's `symbols.zip` (Player Settings > Publishing Settings > Create symbols.zip). Unity 6 defaults it to Disabled and Public holds symbol tables only; native/IL2CPP file:line symbolication needs Debugging, which is necessary but not shown to be sufficient: Release native crashes stayed unresolved on staging even with it (#263; see the section *IL2CPP handled exceptions*) (about ten times larger, mind Google Play's limits). The build warns when a Bugsee app token is set and the level is not Debugging; `Bugsee > Android > Use Full Native Symbols (Debugging) For Symbol Upload` (or `BUGSEE_ANDROID_FULL_SYMBOLS=1`) builds with Debugging and restores the setting. On 2021.3 release builds also get `debugSymbolLevel 'FULL'`. Core publishes no transitives; NDK is a separate artifact and must be declared. Fragment secure-view overloads are typed as `Object`, so Unity JNI does not need `androidx.fragment`.
+- **iOS:** SPM-only. Xcode resolves [`bugsee/spm`](https://github.com/bugsee/spm) `7.1.0` (iOS 15+). C bridge: `Plugins/iOS/BugseeUnityBridge.mm` + `BugseeUnityCallbacks.mm`.
 
 ### Feedback (in-app chat)
 
