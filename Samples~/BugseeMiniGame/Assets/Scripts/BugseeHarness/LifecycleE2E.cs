@@ -15,9 +15,11 @@ namespace Bugsee.Sample
     ///
     /// Part 1, "RAW": calls the native SDK's <c>Bugsee.relaunch / stop / launch</c> directly (bypassing the wrapper's lifecycle
     /// machine) and logs what the SDK itself answers, so the same scenario run against builds with different SDK versions (7.4.1, 7.4.2,
-    /// 7.5.0) shows what changed: <c>[Sample] lifecycle RAW name :: ...</c> lines. They are information; PASS/FAIL is judged only when the
-    /// SDK version the harness reads is in <c>JudgedSdkVersions</c> (the running SDK's own build config when it can be read, else the package's
-    /// pinned version: 7.5.0's <c>BuildConfig</c> class is not found, so there it is the pin, which the Gradle dependency also follows) (7.4.2, the version the wrapper models, and 7.5.0, whose lifecycle scenarios were run on an HONOR WOD-LX1 (Android 14) and a Samsung SM-T725 (Android 11) with the 7.4.2 expectations unchanged: 0 failures).
+    /// 7.5.0, 7.6.0) shows what changed: <c>[Sample] lifecycle RAW name :: ...</c> lines. They are information; PASS/FAIL is judged only when the
+    /// SDK version the harness reads is in <c>JudgedSdkVersions</c> (the running SDK's <c>Bugsee.getSdkVersion()</c> from 7.6.0, its <c>BuildConfig</c>
+    /// before that when it can be read, else the package's pinned version, which the Gradle dependency also follows). Judged: 7.4.2, the version the
+    /// wrapper models, and 7.5.0 and 7.6.0, whose lifecycle scenarios were run on an HONOR WOD-LX1 (Android 14) (7.5.0 also on a Samsung SM-T725,
+    /// Android 11) with the 7.4.2 expectations unchanged: 0 failures.
     ///
     /// Part 2: the same sequences through the public facade (the lifecycle machine), judged when the SDK is in <c>JudgedSdkVersions</c>:
     /// <c>[Sample] lifecycle PASS|FAIL name :: detail</c>, ending with <c>lifecycle e2e done failures=N</c>.
@@ -28,10 +30,17 @@ namespace Bugsee.Sample
         const float QuietSeconds = 6f; // long enough for a relaunch to finish, or for a never-coming callback to be missed
         static int _failures;
 
-        // The version of the SDK that is really running (its BuildConfig), not the package's pin: a project can declare another.
+        // The version of the SDK that is really running, not the package's pin: a project can declare another. 7.6.0 and later
+        // answer Bugsee.getSdkVersion() (bugsee/specs sdk/sdk-version); older ones only had a BuildConfig class (gone in 7.5.0).
         static string RunningSdkVersion()
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
+            try
+            {
+                using (var sdk = new AndroidJavaClass("com.bugsee.library.Bugsee"))
+                    return sdk.CallStatic<string>("getSdkVersion");
+            }
+            catch (Exception) { /* an SDK without the member: try the BuildConfig below */ }
             try
             {
                 using (var config = new AndroidJavaClass("com.bugsee.library.BuildConfig"))
@@ -43,7 +52,7 @@ namespace Bugsee.Sample
         }
         // Android SDK versions whose lifecycle behaviour the expectations below were checked against. On any other version the
         // scenarios only log. A policy test (LifecycleE2EJudgedVersionsTests) fails when the pinned SDK is not listed here.
-        static readonly string[] JudgedSdkVersions = { "7.4.2", "7.5.0" };
+        static readonly string[] JudgedSdkVersions = { "7.4.2", "7.5.0", "7.6.0" };
         static bool _judge;
         static readonly Stopwatch Clock = Stopwatch.StartNew();
 
