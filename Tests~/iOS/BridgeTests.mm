@@ -18,6 +18,8 @@ const char *_bugsee_test_apply_breadcrumb_fields(const char *category, const cha
 const char *_bugsee_test_apply_log_result(const char *startText, int startLevel, const char *resultJson);
 const char *_bugsee_test_copy_context_value(const char *key);
 const char *_bugsee_test_apply_network_result(const char *startJson, const char *resultJson);
+char *_bugsee_sanitize_network(const char *eventJson);
+const char *_bugsee_test_sanitize_redirect(const char *url, int sanitized);
 typedef void (*BugseeDataRequestFn)(int64_t requestId, const char *dataType);
 void _bugsee_register_data_request_callback(BugseeDataRequestFn callback);
 void _bugsee_complete_data_request(int64_t requestId, const char *json);
@@ -218,6 +220,33 @@ int main(void)
         expect(value == NULL, "a placeholder build is no build");
         free((void *)value);
     }
+
+    // +[Bugsee defaultNetworkSanitizer]: stateless, no launch needed (none has happened in this process). A sensitive header,
+    // a token query value, a password body field and a sensitive header are redacted on the native copy and come back as JSON.
+    value = _bugsee_sanitize_network(
+        "{\"id\":\"s1\",\"method\":\"POST\",\"stage\":\"before\",\"url\":\"https://user:hunter2@a.test/x?token=abc123&page=2\","
+        "\"body\":\"{\\\"password\\\":\\\"hunter2\\\",\\\"name\\\":\\\"bob\\\"}\","
+        "\"headers\":{\"Authorization\":\"Bearer abc123\",\"Accept\":\"*/*\"}}");
+    expect(value != NULL, "the default sanitizer returns the redacted event");
+    if (value) {
+        // Measured on SDK 7.0.1: query tokens, sensitive headers and JSON password fields are redacted; user:password@ URL
+        // credentials are NOT (the Android sanitizer does redact those), so they are not asserted either way.
+        expect(!strstr(value, "abc123") && strstr(value, "\"password\\\":\\\"<redacted>") && strstr(value, "\"Authorization\":\"<redacted>\""),
+               "token, password body field and Authorization are redacted");
+        expect(strstr(value, "page=2") && strstr(value, "bob") && strstr(value, "\"Accept\":\"*\\/*\""), "non-sensitive parts are kept");
+        free((void *)value);
+    }
+    value = _bugsee_sanitize_network("{\"url\":\"https://a.test/ok?page=1\",\"stage\":\"complete\"}");
+    expect(value && strstr(value, "https:\\/\\/a.test\\/ok?page=1"), "a clean event comes back as it was");
+    free((void *)value);
+    // The redirect URL is not part of the wrapper's event: a filter that sanitized gets it redacted natively on completion.
+    value = _bugsee_test_sanitize_redirect("https://a.test/r?token=abc123&page=2", 1);
+    expect(!strstr(value, "abc123") && strstr(value, "page=2"), "the redirect URL's token is redacted");
+    free((void *)value);
+    value = _bugsee_test_sanitize_redirect("https://a.test/r?token=abc123&page=2", 0);
+    expect(strstr(value, "abc123") != NULL, "a filter that did not sanitize leaves the redirect URL alone");
+    free((void *)value);
+    expect(_bugsee_sanitize_network(NULL) == NULL && _bugsee_sanitize_network("not json") == NULL, "no event, no result");
 
     // Network filter results: native applies only the keys present, a JSON null clears, and an untouched event keeps
     // a nil error / body / url (the wrapper omits what the filter did not change).

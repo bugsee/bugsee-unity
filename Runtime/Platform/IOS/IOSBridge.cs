@@ -868,9 +868,53 @@ namespace Bugsee.Platform.IOS
         public void ResetVideoCapturePermission() =>
             _resetPermissionNotice.Once(UnsupportedApiNotice.ResetVideoCapturePermissionMessage);
 
-        // iOS 7.0.0 has +[Bugsee defaultNetworkSanitizer] (BugseeNetworkSanitizer), but the wrapper does not call it yet:
-        // its filters get a wrapper-owned event, not a native BugseeNetworkEvent.
-        public bool ApplyDefaultNetworkSanitizer(INetworkEvent networkEvent) => false;
+        // +[Bugsee defaultNetworkSanitizer] (iOS 7.0.0): stateless, needs no launch and works on any thread. The event
+        // (a filter's wrapper-owned one or the app's own) goes over as JSON, is redacted on a native copy, and only the
+        // fields the sanitizer changed are written back: a setter on a filter's event marks the field as the filter's
+        // result, and a body native could not read as text (it arrives as "") must not be turned into an empty one.
+        public bool ApplyDefaultNetworkSanitizer(INetworkEvent networkEvent)
+        {
+            if (networkEvent == null) return false;
+            try
+            {
+                var before = new IosNetworkFields
+                {
+                    Url = networkEvent.Url,
+                    Body = networkEvent.Body,
+                    ErrorShortMessage = networkEvent.ErrorShortMessage,
+                    ErrorDescription = networkEvent.ErrorDescription,
+                    Headers = networkEvent.Headers,
+                };
+                var json = IosNativeCallbacks.ToNativeMapJson(
+                    IosNetworkResultJson.ForNewEvent(before, networkEvent.Id, networkEvent.Method, networkEvent.Mechanism,
+                        IosNetworkEvent.ToNativeStage(networkEvent.Stage) ?? "complete", 0), "headers");
+                var sanitized = ConsumeNativeString(_bugsee_sanitize_network(json));
+                if (sanitized == null) return false;
+
+                var dto = JsonUtility.FromJson<IosNetworkDto>(IosJsonNormalize.NormalizeNetwork(sanitized));
+                var after = new IosNetworkFields
+                {
+                    Url = dto.url,
+                    Body = dto.body,
+                    ErrorShortMessage = dto.errorShortMessage,
+                    ErrorDescription = dto.errorDescription,
+                    Headers = IosNetworkEvent.FromKv(dto.headers),
+                };
+                var changed = IosNetworkResultJson.ChangedFields(before, after);
+                if ((changed & IosNetworkField.Url) != 0) networkEvent.Url = after.Url;
+                if ((changed & IosNetworkField.Body) != 0) networkEvent.Body = after.Body;
+                if ((changed & IosNetworkField.ErrorShortMessage) != 0) networkEvent.ErrorShortMessage = after.ErrorShortMessage;
+                if ((changed & IosNetworkField.ErrorDescription) != 0) networkEvent.ErrorDescription = after.ErrorDescription;
+                if ((changed & IosNetworkField.Headers) != 0) networkEvent.Headers = after.Headers;
+                if (networkEvent is IosNetworkEvent own) own.DefaultSanitized = true;
+                return true;
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NullReferenceException)
+            {
+                Debug.LogWarning("[Bugsee] default network sanitizer failed: " + ex.Message);
+                return false;
+            }
+        }
 
         public bool AddSecureWebView(object nativeWebView) =>
             nativeWebView is IntPtr view && view != IntPtr.Zero && _bugsee_add_secure_web_view(view) != 0;
@@ -1068,6 +1112,7 @@ namespace Bugsee.Platform.IOS
         [DllImport("__Internal")] static extern int _bugsee_appearance_set_string(string propertyName, string propertyValue);
         [DllImport("__Internal")] static extern IntPtr _bugsee_appearance_get_string(string propertyName);
         [DllImport("__Internal")] static extern void _bugsee_free(IntPtr ptr);
+        [DllImport("__Internal")] static extern IntPtr _bugsee_sanitize_network(string eventJson);
 
         delegate void FeedbackReceivedNativeCallback(string messagesJson);
         delegate void FeedbackSentNativeCallback(string message);

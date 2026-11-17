@@ -869,6 +869,42 @@ void _bugsee_set_network_filter_enabled(int enabled)
     [Bugsee setNetworkEventFilter:BugseeUnityNetworkFilter()];
 }
 
+// The wrapper's event carries no redirectedFromURL, so a sanitizer run on its copy cannot redact it: the filter's result
+// says so ("sanitized":true) and the sanitizer runs here, on the pending event's redirect URL.
+static void BugseeUnitySanitizeRedirectURL(BugseeNetworkEvent *event)
+{
+    if (event.redirectedFromURL.length == 0) return;
+    @try {
+        BugseeNetworkEvent *copy = [BugseeNetworkEvent new];
+        copy.url = event.redirectedFromURL;
+        [[Bugsee defaultNetworkSanitizer] sanitize:copy];
+        if (copy.url) event.redirectedFromURL = copy.url;
+    } @catch (NSException *exception) {
+        NSLog(@"[Bugsee] default network sanitizer failed on the redirect URL: %@", exception.reason);
+    }
+}
+
+// Runs +[Bugsee defaultNetworkSanitizer] on a native event built from eventJson (the wire dictionary, as the channel
+// submit reads it) and returns the redacted event as the JSON a filter would be handed (headers as an object), or NULL
+// when the SDK has no sanitizer or it threw. The sanitizer is stateless and needs no launch. Caller frees with _bugsee_free.
+char *_bugsee_sanitize_network(const char *eventJson)
+{
+    NSDictionary *d = BugseeUnityParseJson(eventJson);
+    if (!d) return NULL;
+    @autoreleasepool { @try {
+        id<BugseeNetworkSanitizer> sanitizer = [Bugsee defaultNetworkSanitizer];
+        if (!sanitizer) return NULL;
+        BugseeNetworkEvent *event = [BugseeNetworkEvent new];
+        if ([d[@"id"] isKindOfClass:[NSString class]]) event.ID = d[@"id"];
+        BugseeUnityApplyNetworkDict(event, d);
+        [sanitizer sanitize:event];
+        return BugseeUnityCopyUTF8(BugseeUnityJsonString(BugseeUnityNetworkToDict(event)));
+    } @catch (NSException *exception) {
+        NSLog(@"[Bugsee] default network sanitizer failed: %@", exception.reason);
+        return NULL;
+    } }
+}
+
 void _bugsee_set_log_filter_enabled(int enabled)
 {
     if (!enabled) {
@@ -913,6 +949,8 @@ void _bugsee_complete_filter(int64_t requestId, int keep, const char *resultJson
 
     if ([kind isEqualToString:@"network"]) {
         BugseeUnityApplyNetworkDict(event, result);
+        if ([result[@"sanitized"] respondsToSelector:@selector(boolValue)] && [result[@"sanitized"] boolValue])
+            BugseeUnitySanitizeRedirectURL(event);
         ((BugseeNetworkFilterDecisionBlock)decision)(event);
     } else if ([kind isEqualToString:@"log"]) {
         BugseeUnityApplyLogDict(event, result);
@@ -1150,6 +1188,15 @@ const char *_bugsee_test_apply_network_result(const char *startJson, const char 
     return strdup((text ?: @"unserializable").UTF8String);
 }
 
+// Runs the redirect-URL step of a filter result with "sanitized":true on an event whose redirectedFromURL is `url`.
+const char *_bugsee_test_sanitize_redirect(const char *url, int sanitized)
+{
+    BugseeNetworkEvent *event = [BugseeNetworkEvent new];
+    event.redirectedFromURL = [NSString stringWithUTF8String:url];
+    if (sanitized) BugseeUnitySanitizeRedirectURL(event);
+    return strdup((event.redirectedFromURL ?: @"").UTF8String);
+}
+
 // Stands in for the SDK's callback of a requestData: counts the answers and keeps the last one.
 @interface BugseeUnityTestDataCallback : NSObject <BGSDataRequestResultCallback>
 @end
@@ -1360,6 +1407,7 @@ void _bugsee_channel_breadcrumb(const char *category, const char *message, int i
 void _bugsee_ensure_wrapper(const char *version, const char *build) { (void)version; (void)build; }
 void _bugsee_set_wrapper_context(const char *json) { (void)json; }
 void _bugsee_set_network_filter_enabled(int enabled) { (void)enabled; }
+char *_bugsee_sanitize_network(const char *eventJson) { (void)eventJson; return NULL; }
 void _bugsee_set_log_filter_enabled(int enabled) { (void)enabled; }
 void _bugsee_set_breadcrumb_filter_enabled(int enabled) { (void)enabled; }
 void _bugsee_complete_filter(int64_t requestId, int keep, const char *resultJson) { (void)requestId; (void)keep; (void)resultJson; }

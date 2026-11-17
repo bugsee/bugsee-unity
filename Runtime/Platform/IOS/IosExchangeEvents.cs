@@ -140,6 +140,9 @@ namespace Bugsee.Platform.IOS
         // No iOS counterpart: kept on the managed event only, not part of the DTO or the channel JSON.
         public bool IsOverride { get; set; }
 
+        // Set once the default sanitizer ran on this event: native then also redacts its redirect URL on completion (#267).
+        internal bool DefaultSanitized { get; set; }
+
         public NetworkEventStage Stage => ParseStage(_dto.stage);
 
         // Fields only, no JsonUtility: it writes a null string as "" and cannot omit one, which gave every filtered
