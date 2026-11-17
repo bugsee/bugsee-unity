@@ -38,7 +38,10 @@ namespace Bugsee.Sample
             try
             {
                 using (var sdk = new AndroidJavaClass("com.bugsee.library.Bugsee"))
-                    return sdk.CallStatic<string>("getSdkVersion");
+                {
+                    var version = sdk.CallStatic<string>("getSdkVersion");
+                    if (!string.IsNullOrEmpty(version) && version != "unknown") return version;
+                }
             }
             catch (Exception) { /* an SDK without the member: try the BuildConfig below */ }
             try
