@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
 
@@ -82,6 +83,10 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             Assert.That(AppPhaseOrder(Fixture(true)), Is.EqualTo(new[] { "Frameworks", "Embed Frameworks", Upload }));
             Assert.That(XcodeShellScriptPhase.MoveToEnd(Fixture(true), Upload), Is.EqualTo(Fixture(true)), "already last: no change");
+            string first = Fixture(true).Replace("\t\t\t\t" + UploadGuid + " /* ShellScript */,\n", "")
+                                        .Replace("\t\t\t\t1D60588F0D05DD3D006BFB54 /* Frameworks */,\n", "\t\t\t\t" + UploadGuid + " /* ShellScript */,\n\t\t\t\t1D60588F0D05DD3D006BFB54 /* Frameworks */,\n");
+            Assert.That(AppPhaseOrder(first), Is.EqualTo(new[] { Upload, "Frameworks", "Embed Frameworks" }), "set up");
+            Assert.That(AppPhaseOrder(XcodeShellScriptPhase.MoveToEnd(first, Upload)), Is.EqualTo(new[] { "Frameworks", "Embed Frameworks", Upload }));
         }
 
         [Test]
@@ -101,14 +106,9 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             // The other order of the two post-processes (the upload step run again on an Append export that has both).
             string extensionOnly = WithExtension(Fixture(false));
-            string withUpload = extensionOnly.Replace("\t\t\t\t849D05CC0FF4FCB40F10E3FD", "\t\t\t\t" + UploadGuid + " /* ShellScript */,\n\t\t\t\t849D05CC0FF4FCB40F10E3FD");
-            if (withUpload == extensionOnly)
-            {
-                // The embed phase's guid is generated: put the upload before the last list entry whatever it is.
-                withUpload = Regex.Replace(extensionOnly, @"(\t\t\t\t[0-9A-F]{24} /\* " + Embed + @" \*/,\n)(\t\t\t\);)",
-                    "\t\t\t\t" + UploadGuid + " /* ShellScript */,\n$1$2");
-            }
-
+            string withUpload = Regex.Replace(extensionOnly, @"(\t\t\t\t[0-9A-F]{24} /\* " + Embed + @" \*/,\n)(\t\t\t\);)",
+                "\t\t\t\t" + UploadGuid + " /* ShellScript */,\n$1$2");
+            Assert.That(withUpload, Is.Not.EqualTo(extensionOnly));
             withUpload = withUpload.Replace("/* Begin PBXProject section */", UploadObject + "/* Begin PBXProject section */");
             Assert.That(AppPhaseOrder(withUpload), Is.EqualTo(new[] { "Frameworks", "Embed Frameworks", Upload, Embed }), "set up: the broken order");
             Assert.That(AppPhaseOrder(XcodeShellScriptPhase.MoveToEnd(withUpload, Upload)), Is.EqualTo(new[] { "Frameworks", "Embed Frameworks", Embed, Upload }));
@@ -143,6 +143,30 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(removed, Is.Not.Null, error);
             Assert.That(AppPhaseOrder(removed), Is.EqualTo(new[] { "Frameworks", "Embed Frameworks", Upload }));
             Assert.That(AppPhaseOrder(WithExtension(removed)), Is.EqualTo(new[] { "Frameworks", "Embed Frameworks", Embed, Upload }));
+        }
+
+        [Test]
+        public void Crlf_text_keeps_its_line_endings_and_only_the_named_phase_moves_in_each_list()
+        {
+            string good = WithExtension(Fixture(true));
+            string swapped = Regex.Replace(good, @"(\t\t\t\t[0-9A-F]{24} /\* " + Embed + @" \*/,\n)(\t\t\t\t" + UploadGuid + @" /\* ShellScript \*/,\n)", "$2$1");
+            string crlf = swapped.Replace("\n", "\r\n");
+            string fixedText = XcodeShellScriptPhase.MoveToEnd(crlf, Upload);
+            Assert.That(fixedText, Is.EqualTo(good.Replace("\n", "\r\n")));
+            // Another target listing the same phase id keeps its own list consistent: the id ends that list too.
+            string twoLists = swapped.Replace("\t\t\tbuildRules = (", "\t\t\tbuildPhases = (\n\t\t\t\t" + UploadGuid + " /* ShellScript */,\n\t\t\t\t1D60588F0D05DD3D006BFB54 /* Frameworks */,\n\t\t\t);\n\t\t\tbuildRules = (");
+            string moved = XcodeShellScriptPhase.MoveToEnd(twoLists, Upload);
+            int lists = Regex.Matches(moved, @"buildPhases = \([^)]*" + UploadGuid + @"[^)]*\);").Count;
+            Assert.That(lists, Is.GreaterThan(1));
+            Assert.That(Regex.Matches(moved, @"/\* ShellScript \*/,\n\t\t\t\);").Count, Is.EqualTo(lists), "it ends every list it is in");
+        }
+
+        [Test]
+        public void The_phase_as_the_upload_step_writes_it_with_inputs_before_the_name_is_found()
+        {
+            string withInputs = XcodeShellScriptPhase.SetInputs(Fixture(true), Upload, new[] { "$(DWARF_DSYM_FOLDER_PATH)/x" });
+            string embedLast = Regex.Replace(WithExtension(withInputs), @"(\t\t\t\t" + UploadGuid + @" /\* ShellScript \*/,\n)(\t\t\t\t[0-9A-F]{24} /\* " + Embed + @" \*/,\n)", "$2$1");
+            Assert.That(AppPhaseOrder(XcodeShellScriptPhase.MoveToEnd(XcodeShellScriptPhase.SetInputs(embedLast, Upload, new[] { "a" }), Upload)).Last(), Is.EqualTo(Upload));
         }
     }
 }
