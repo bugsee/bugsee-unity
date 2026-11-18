@@ -369,6 +369,27 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void A_step_minimum_above_the_pinned_release_is_met_by_an_installed_cli_only()
+        {
+            var host = new Host();
+            host.Files["/opt/homebrew/bin/bugsee-cli"] = "0.8.1";
+            host.Files["/Users/dev/.cargo/bin/bugsee-cli"] = "0.10.0";
+            host.Files["/Users/dev/Library/Caches/Bugsee/cli/0.9.0/aarch64-apple-darwin/bugsee-cli"] = "0.9.0";
+            InstallsInto(host);
+            var s = Mac("/opt/homebrew/bin:/Users/dev/.cargo/bin");
+            var general = BugseeCliPolicy.Resolve(s, host.Probe());
+            Assert.That(general.Version, Is.EqualTo("0.8.1"));
+
+            var r = BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), general, "0.10.0");
+            Assert.That(r.Path, Is.EqualTo("/Users/dev/.cargo/bin/bugsee-cli"));
+
+            host.Files.Remove("/Users/dev/.cargo/bin/bugsee-cli");
+            r = BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), general, "0.10.0");
+            Assert.That(r.Found, Is.False, "the cached and the downloadable 0.9.0 are below 0.10.0");
+            Assert.That(host.Downloads, Is.Empty);
+        }
+
+        [Test]
         public void A_pinned_release_at_or_above_the_step_minimum_is_the_one_the_step_downloads()
         {
             var host = new Host();

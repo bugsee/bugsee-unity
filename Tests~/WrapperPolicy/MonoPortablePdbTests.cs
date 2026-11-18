@@ -198,6 +198,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(text, Does.Contain("MonoPortablePdb.CliTooOld("));
             Assert.That(text, Does.Contain("BugseeCliLocator.ResolveAtLeast(MonoPortablePdb.MinCliVersion)"), "an older installed CLI is replaced for this step, not just reported");
             Assert.That(text, Does.Contain("cliPath: cliPath"), "the upload runs the CLI the step resolved");
+            Assert.That(text, Does.Contain("var cliPath = cli.Found ? cli.Path : null;"), "the path handed to the runner is the step's, not the general lookup's");
             Assert.That(text, Does.Contain("MonoPortablePdb.Arguments("));
             Assert.That(text, Does.Contain("BuildOptions.Development"));
             Assert.That(text, Does.Contain("BugseeBuildIdentity.AndroidNameSettings(report).Backend"));

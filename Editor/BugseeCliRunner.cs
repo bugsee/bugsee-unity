@@ -37,16 +37,18 @@ namespace Bugsee.Editor
         /// <summary>Runs the CLI with the arguments; <paramref name="cliPath"/> overrides the resolved CLI for one step that needs a newer one.</summary>
         public static int Run(IList<string> args, int timeoutMs = DefaultTimeoutMs, string cliPath = null)
         {
-            string cli = string.IsNullOrEmpty(cliPath) ? CliPath : cliPath;
             if (args == null || args.Count == 0)
             {
                 return -1;
             }
 
-            if (BugseeCliLocator.ReportIfMissing())
+            // A supplied override was resolved by its caller; only the general lookup can report "no CLI".
+            if (string.IsNullOrEmpty(cliPath) && BugseeCliLocator.ReportIfMissing())
             {
                 return -1;
             }
+
+            string cli = string.IsNullOrEmpty(cliPath) ? CliPath : cliPath;
 
             var psi = new ProcessStartInfo
             {

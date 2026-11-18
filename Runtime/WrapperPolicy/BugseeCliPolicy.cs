@@ -418,6 +418,15 @@ namespace Bugsee.WrapperPolicy
                 step.Version = DefaultVersion;
             }
 
+            if (!VersionAtLeast(step.Version, stepMin))
+            {
+                // The pinned release is older than the step needs (the constants fell out of step): installed CLIs can still
+                // qualify, but neither the cache nor a download may hand back a release below the minimum.
+                step.DownloadAllowed = false;
+                step.DownloadDisabledNote = "The package's pinned bugsee-cli " + step.Version + " is older than " + stepMin + ".";
+                step.CacheDirectories = new List<string>();
+            }
+
             return Resolve(step, probe);
         }
 
