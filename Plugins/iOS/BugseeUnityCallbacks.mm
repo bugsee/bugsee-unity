@@ -871,27 +871,27 @@ void _bugsee_set_network_filter_enabled(int enabled)
 
 // The wrapper's event carries no redirectedFromURL, so a sanitizer run on its copy cannot redact it: the filter's result
 // says so ("sanitized":true) and the sanitizer runs here, on the pending event's redirect URL.
+// No @try anywhere in this file: Unity's Xcode project builds with Objective-C exceptions disabled (GCC_ENABLE_OBJC_EXCEPTIONS
+// = NO), where @try is a compile error. The sanitizer is SDK code on a plain value object, so inputs are guarded instead.
 static void BugseeUnitySanitizeRedirectURL(BugseeNetworkEvent *event)
 {
     if (event.redirectedFromURL.length == 0) return;
-    @try {
-        BugseeNetworkEvent *copy = [BugseeNetworkEvent new];
-        copy.url = event.redirectedFromURL;
-        [[Bugsee defaultNetworkSanitizer] sanitize:copy];
-        if (copy.url) event.redirectedFromURL = copy.url;
-    } @catch (NSException *exception) {
-        NSLog(@"[Bugsee] default network sanitizer failed on the redirect URL: %@", exception.reason);
-    }
+    id<BugseeNetworkSanitizer> sanitizer = [Bugsee defaultNetworkSanitizer];
+    if (!sanitizer) return;
+    BugseeNetworkEvent *copy = [BugseeNetworkEvent new];
+    copy.url = event.redirectedFromURL;
+    [sanitizer sanitize:copy];
+    if (copy.url) event.redirectedFromURL = copy.url;
 }
 
 // Runs +[Bugsee defaultNetworkSanitizer] on a native event built from eventJson (the wire dictionary, as the channel
 // submit reads it) and returns the redacted event as the JSON a filter would be handed (headers as an object), or NULL
-// when the SDK has no sanitizer or it threw. The sanitizer is stateless and needs no launch. Caller frees with _bugsee_free.
+// when the SDK has no sanitizer or the JSON is not an object. The sanitizer is stateless and needs no launch. Caller frees with _bugsee_free.
 char *_bugsee_sanitize_network(const char *eventJson)
 {
     NSDictionary *d = BugseeUnityParseJson(eventJson);
     if (!d) return NULL;
-    @autoreleasepool { @try {
+    @autoreleasepool {
         id<BugseeNetworkSanitizer> sanitizer = [Bugsee defaultNetworkSanitizer];
         if (!sanitizer) return NULL;
         BugseeNetworkEvent *event = [BugseeNetworkEvent new];
@@ -899,10 +899,7 @@ char *_bugsee_sanitize_network(const char *eventJson)
         BugseeUnityApplyNetworkDict(event, d);
         [sanitizer sanitize:event];
         return BugseeUnityCopyUTF8(BugseeUnityJsonString(BugseeUnityNetworkToDict(event)));
-    } @catch (NSException *exception) {
-        NSLog(@"[Bugsee] default network sanitizer failed: %@", exception.reason);
-        return NULL;
-    } }
+    }
 }
 
 void _bugsee_set_log_filter_enabled(int enabled)

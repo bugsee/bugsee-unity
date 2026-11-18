@@ -47,7 +47,7 @@ esac
 # one file declares and the other does not define.
 DEVICE_SLICE="$FRAMEWORK/ios-arm64"
 if [ -d "$DEVICE_SLICE" ]; then
-    clang -x objective-c++ -fobjc-arc -std=c++17 -dynamiclib \
+    clang -x objective-c++ -fobjc-arc -fno-objc-exceptions -std=c++17 -dynamiclib \
         -target arm64-apple-ios15.0 \
         -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" \
         -F "$DEVICE_SLICE" \
@@ -64,13 +64,18 @@ SLICE="$FRAMEWORK/ios-arm64_x86_64-simulator"
 BINARY="$BUILD/bridge-tests"
 EXPORT_BINARY="$BUILD/bridge-export-tests"
 
+# The bridge is compiled with -fno-objc-exceptions, as the Xcode project Unity generates builds it
+# (GCC_ENABLE_OBJC_EXCEPTIONS = NO): an @try in the bridge is a compile error there and must be one here. The test
+# files keep exceptions enabled (they use @try), so the bridge goes into objects of its own.
+COMMON="-fobjc-arc -std=c++17 -target $TARGET -isysroot $SDK -mios-simulator-version-min=15.0 -DBUGSEE_UNITY_TESTS=1 -F $SLICE"
+for F in BugseeUnityCallbacks BugseeUnityBridge; do
+    # shellcheck disable=SC2086
+    clang $COMMON -x objective-c++ -fno-objc-exceptions -c "$ROOT/Plugins/iOS/$F.mm" -o "$BUILD/$F.o"
+done
+
 build_test() { # test source, output binary
-    clang -x objective-c++ -fobjc-arc -std=c++17 \
-        -target "$TARGET" \
-        -isysroot "$SDK" \
-        -mios-simulator-version-min=15.0 \
-        -DBUGSEE_UNITY_TESTS=1 \
-        -F "$SLICE" \
+    # shellcheck disable=SC2086
+    clang $COMMON \
         -framework Bugsee \
         -framework Foundation \
         -framework UIKit \
@@ -82,9 +87,9 @@ build_test() { # test source, output binary
         -framework CFNetwork \
         -lc++ \
         -ObjC \
-        "$ROOT/Plugins/iOS/BugseeUnityCallbacks.mm" \
-        "$ROOT/Plugins/iOS/BugseeUnityBridge.mm" \
-        "$1" \
+        "$BUILD/BugseeUnityCallbacks.o" \
+        "$BUILD/BugseeUnityBridge.o" \
+        -x objective-c++ "$1" \
         -o "$2"
 }
 
