@@ -262,7 +262,8 @@ namespace Bugsee.Platform.Android
 
     /// <summary>
     /// The SDK's <c>requestData</c> channel for the one flow Unity answers (the managed view hierarchy). Called on the Android
-    /// main thread; the scene is read on Unity's thread and the reply is made from there, so this never blocks the UI thread.
+    /// main thread; the scene is read on Unity's thread in slices, the JSON is written on a worker thread and the reply is made from
+    /// there, so this never blocks the UI thread.
     /// </summary>
     sealed class DataRequestProviderProxy : AndroidJavaProxy
     {
@@ -285,22 +286,30 @@ namespace Bugsee.Platform.Android
             }
         }
 
+        // Runs on the main thread (a null that needs no work), or on a thread-pool thread (the capture's worker, or its deadline timer):
+        // the scope attaches that thread to the JVM, and the call and the release of the callback's global reference both sit inside it.
         static void Reply(AndroidJavaObject callback, string json)
         {
             try
             {
-                if (json != null)
+                using (AndroidJniScope.Enter())
                 {
-                    callback.Call("onResult", json);
-                }
-                else
-                {
-                    using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
-                        wrapper.CallStatic("replyNoData", callback);
+                    try
+                    {
+                        if (json != null)
+                        {
+                            callback.Call("onResult", json);
+                        }
+                        else
+                        {
+                            using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
+                                wrapper.CallStatic("replyNoData", callback);
+                        }
+                    }
+                    finally { callback.Dispose(); }
                 }
             }
             catch (Exception ex) { Debug.LogException(ex); }
-            finally { callback.Dispose(); }
         }
     }
 

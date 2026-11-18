@@ -332,13 +332,16 @@ namespace Bugsee.Platform.IOS
         static float UnityPixelsPerPoint() => _bugsee_pixels_per_point(Screen.width);
 
         // requestData from the SDK. Only "vh" gets an answer from managed code; the native side answers every other type itself.
-        // The SDK asks on the main thread, which is Unity's, so the scene is read and answered inside this call.
+        // The SDK asks on the main thread, which is Unity's. Its timer starts when this returns, so a small scene is answered inside the
+        // call (as before: it cannot time out); a bigger one is read in slices and answered from a worker thread (see ManagedViewHierarchy).
+        // The completion may come from any thread: the SDK's pass claims the answer atomically (BGSCaptureViewHierarchyPass onResult:) and
+        // BugseeUnityCallbacks.mm takes only gLock.
         [MonoPInvokeCallback(typeof(DataRequestCb))]
         static void OnDataRequest(long requestId, string dataType)
         {
             try
             {
-                ManagedViewHierarchy.Handle(dataType, UnityPixelsPerPoint, json => _bugsee_complete_data_request(requestId, json));
+                ManagedViewHierarchy.Handle(dataType, UnityPixelsPerPoint, json => _bugsee_complete_data_request(requestId, json), replyInlineIfSmall: true);
             }
             catch (Exception ex)
             {

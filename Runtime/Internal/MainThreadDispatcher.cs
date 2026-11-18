@@ -165,9 +165,21 @@ namespace Bugsee.Internal
             return true;
         }
 
+        // A manual report opens a native screen, which pauses the player: no frame will pump a running capture of the managed view
+        // hierarchy, so the rest of its walk is read now (the player still runs inside this callback) and the worker finishes it.
+        void OnApplicationPause(bool paused)
+        {
+            if (!paused) return;
+            DrainQueueInline(); // a request still waiting in the queue becomes the capture that is flushed
+            ManagedViewHierarchy.Flush();
+        }
+
+        void OnApplicationQuit() => ManagedViewHierarchy.Abort();
+
         void Update()
         {
             DrainQueueInline();
+            ManagedViewHierarchy.Pump();
             try { global::Bugsee.Bugsee.TickSecureScreenRects(); }
             catch (Exception ex) { Debug.LogException(ex); }
         }

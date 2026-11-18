@@ -426,6 +426,16 @@ namespace Bugsee.Sample
                         StartCoroutine(VhE2E.Run(this));
                     }
                     break;
+                case "vhscale":
+                case "vhscaleunsliced":
+                    // Measures the managed view hierarchy capture on synthetic scenes of 500 to 20000 objects: main-thread ms, worker ms, time to
+                    // reply and frame-time percentiles around each capture. Release builds too.
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        StartCoroutine(VhScaleE2E.Run(_e2eScenario == "vhscaleunsliced"));
+                    }
+                    break;
                 case "vhsecure":
                     // A manual report taken while a secure rectangle covers the top half of the screen, so the stored managed
                     // view tree can be inspected for the redaction (issue #229).

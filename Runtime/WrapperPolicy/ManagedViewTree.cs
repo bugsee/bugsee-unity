@@ -108,18 +108,35 @@ namespace Bugsee.WrapperPolicy
 
         /// <param name="protectedNodes">How many nodes had a name or component list that a secure rectangle removed.</param>
         public static string Write(
-            ManagedViewNode root, int[] secureRects, int secureCount, float pixelsPerNativeUnit, out int protectedNodes)
+            ManagedViewNode root, int[] secureRects, int secureCount, float pixelsPerNativeUnit, out int protectedNodes) =>
+            Write(root, secureRects, secureCount, pixelsPerNativeUnit, null, out protectedNodes, out _);
+
+        /// <summary>
+        /// The same JSON as the overload without a deadline while <paramref name="expired"/> stays false. Once it answers
+        /// true (it is asked every 16th node) the writer leaves out every node not yet written, closes what is open and
+        /// marks the cut nodes <c>truncated</c>, so the reply is whole JSON that says it is incomplete.
+        /// </summary>
+        /// <param name="cut">True when the deadline stopped the write.</param>
+        public static string Write(
+            ManagedViewNode root, int[] secureRects, int secureCount, float pixelsPerNativeUnit,
+            Func<bool> expired, out int protectedNodes, out bool cut)
         {
             protectedNodes = 0;
+            cut = false;
             if (root == null) return null;
             if (!(pixelsPerNativeUnit > 0f) || float.IsInfinity(pixelsPerNativeUnit)) pixelsPerNativeUnit = 1f;
             if (secureRects == null) secureCount = 0;
             else if (secureCount * 4 > secureRects.Length) secureCount = secureRects.Length / 4;
 
             Resolve(root, 1);
-            var sb = new StringBuilder(4096);
-            WriteNode(sb, root, secureRects, secureCount, pixelsPerNativeUnit, 1, ref protectedNodes);
-            return sb.ToString();
+            var ctx = new WriteContext
+            {
+                Sb = new StringBuilder(4096), Rects = secureRects, RectCount = secureCount, Scale = pixelsPerNativeUnit, Expired = expired,
+            };
+            WriteNode(ctx, root, 1);
+            protectedNodes = ctx.Protected;
+            cut = ctx.Cut;
+            return ctx.Sb.ToString();
         }
 
         /// <summary>
@@ -166,14 +183,30 @@ namespace Bugsee.WrapperPolicy
             node.RX = minX; node.RY = minY; node.RW = maxX - minX; node.RH = maxY - minY;
         }
 
-        static void WriteNode(
-            StringBuilder sb, ManagedViewNode node, int[] rects, int rectCount, float scale, int depth, ref int protectedNodes)
+        sealed class WriteContext
         {
+            public StringBuilder Sb;
+            public int[] Rects;
+            public int RectCount;
+            public float Scale;
+            public Func<bool> Expired;
+            public int Visited;
+            public int Protected;
+            public bool Cut;
+        }
+
+        static void WriteNode(WriteContext ctx, ManagedViewNode node, int depth)
+        {
+            var sb = ctx.Sb;
+            var rects = ctx.Rects;
+            var rectCount = ctx.RectCount;
+            var scale = ctx.Scale;
+            if (!ctx.Cut && ctx.Expired != null && (++ctx.Visited & 15) == 0 && ctx.Expired()) ctx.Cut = true;
             var hasBounds = node.ResolvedHas;
             float x = node.RX, y = node.RY, w = node.RW, h = node.RH;
             // Geometry that cannot be placed cannot be proven clear of a secure rectangle, so with any registered it counts as covered.
             var isProtected = rectCount > 0 && (!hasBounds || Overlaps(rects, rectCount, x, y, w, h));
-            if (isProtected && (!string.IsNullOrEmpty(node.Name) || !string.IsNullOrEmpty(node.Components))) protectedNodes++;
+            if (isProtected && (!string.IsNullOrEmpty(node.Name) || !string.IsNullOrEmpty(node.Components))) ctx.Protected++;
 
             sb.Append('{');
             sb.Append("\"id\":").Append(JsonWire.String(node.IdText ?? node.Id.ToString(CultureInfo.InvariantCulture)));
@@ -208,18 +241,31 @@ namespace Bugsee.WrapperPolicy
                 sb.Append('}');
             }
 
-            if (node.Truncated) sb.Append(",\"truncated\":true");
+            var hasChildren = depth < MaxWriteDepth && node.Children.Count > 0;
+            // The deadline passed before this node's children: none of them is written.
+            var truncatedWritten = node.Truncated || (ctx.Cut && hasChildren);
+            if (truncatedWritten) sb.Append(",\"truncated\":true");
 
-            if (depth < MaxWriteDepth && node.Children.Count > 0)
+            if (hasChildren && !ctx.Cut)
             {
                 var first = true;
-                for (var i = 0; i < node.Children.Count; i++)
+                var count = node.Children.Count;
+                for (var i = 0; i < count; i++)
                 {
                     var child = node.Children[i];
                     if (child == null) continue;
+                    if (ctx.Cut)
+                    {
+                        // The deadline passed while an earlier sibling was written: this one and the rest are left out.
+                        if (!first) sb.Append(']');
+                        if (!truncatedWritten) sb.Append(",\"truncated\":true");
+                        sb.Append('}');
+                        return;
+                    }
+
                     sb.Append(first ? ",\"subitems\":[" : ",");
                     first = false;
-                    WriteNode(sb, child, rects, rectCount, scale, depth + 1, ref protectedNodes);
+                    WriteNode(ctx, child, depth + 1);
                 }
 
                 if (!first) sb.Append(']');
@@ -285,8 +331,24 @@ namespace Bugsee.WrapperPolicy
     {
         /// <summary>The SDK gives up 500 ms after the request; a walk that starts later than this cannot be used.</summary>
         public const long MaxQueueDelayMs = 250;
-        /// <summary>The walk and the JSON writing share this much time.</summary>
-        public const long MaxBuildMs = 120;
+        /// <summary>From the request: the main thread stops taking nodes (the tree says it is truncated).</summary>
+        public const long SnapshotDeadlineMs = 250;
+        /// <summary>From the request: the worker stops writing nodes (the JSON says it is truncated).</summary>
+        public const long WriteDeadlineMs = 350;
+        /// <summary>From the request: a capture that has not replied is answered null, still inside the SDK's 500 ms (a late reply is ignored by it).</summary>
+        public const long ReplyDeadlineMs = 400;
+        /// <summary>The main thread spends at most this share of one frame per frame on the snapshot (the product limit for plugin work is 5%).</summary>
+        public const double FrameShare = 0.05;
+
+        /// <summary>A snapshot this small is written and answered inside the request when the caller may (see <see cref="ManagedViewCaptureEngine.Submit"/>).</summary>
+        public const int InlineMaxNodes = 48;
+
+        /// <summary>The longest one frame's snapshot slice, in ms, at <paramref name="refreshHz"/> (60 Hz: 0.83 ms; unknown: as 60).</summary>
+        public static double SliceMs(double refreshHz)
+        {
+            if (!(refreshHz >= 1.0) || double.IsInfinity(refreshHz)) refreshHz = 60.0;
+            return 1000.0 / refreshHz * FrameShare;
+        }
 
         static int _blockingNativeCalls;
 
