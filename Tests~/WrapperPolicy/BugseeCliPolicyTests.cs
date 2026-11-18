@@ -254,8 +254,16 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), general, StepMin), Is.SameAs(general));
             Assert.That(host.Downloads, Is.Empty);
 
-            var unknown = new CliResolution { Path = "/x/bugsee-cli", Source = CliSource.Path, Version = null };
+            // A CLI named by BUGSEE_CLI_PATH whose --version does not run has an unknown version: it is tried, as for every upload.
+            host.Files["/custom/bugsee-cli"] = "";
+            s.ExplicitPath = "/custom/bugsee-cli";
+            var unknown = BugseeCliPolicy.Resolve(s, host.Probe());
+            Assert.That(unknown.Version, Is.Null);
             Assert.That(BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), unknown, StepMin), Is.SameAs(unknown));
+
+            // The unknown-version guard also holds for a result no current lookup produces (defensive).
+            var bare = new CliResolution { Path = "/x/bugsee-cli", Source = CliSource.Path, Version = null };
+            Assert.That(BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), bare, StepMin), Is.SameAs(bare));
         }
 
         [Test]
@@ -275,6 +283,24 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(r.Version, Is.EqualTo("0.8.1"));
             Assert.That(host.Downloads, Is.Empty, "no download behind the user's back");
             Assert.That(MonoPortablePdb.CliTooOld(r.Version, r.Path), Does.Contain("/custom/bugsee-cli").And.Contain("BUGSEE_CLI_PATH"));
+        }
+
+        [Test]
+        public void A_bare_command_name_in_the_cli_path_variable_counts_as_naming_the_cli()
+        {
+            // BUGSEE_CLI_PATH=bugsee-cli (the old default) is looked up on PATH like an explicit choice: not replaced for the step.
+            var host = new Host();
+            host.Files["/usr/bin/bugsee-cli"] = "0.8.1";
+            InstallsInto(host);
+            var s = Mac();
+            s.ExplicitPath = "bugsee-cli";
+            var general = BugseeCliPolicy.Resolve(s, host.Probe());
+            Assert.That(general.Source, Is.EqualTo(CliSource.Explicit));
+
+            var r = BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), general, StepMin);
+
+            Assert.That(r, Is.SameAs(general));
+            Assert.That(host.Downloads, Is.Empty);
         }
 
         [Test]

@@ -91,7 +91,7 @@ namespace Bugsee.WrapperPolicy
             }
 
             return "bugsee-cli " + cliVersion + (string.IsNullOrEmpty(cliPath) ? "" : " (" + cliPath + ")") + " cannot convert and upload the Mono mapping (--type portable-pdb needs " + MinCliVersion +
-                   " or newer): managed frames of this Release Mono build stay IL offsets. The package uses its own " + BugseeCliPolicy.DefaultVersion + " instead of an older installed CLI " +
+                   " or newer): managed frames of this Release Mono build stay IL offsets. The package uses its own pinned release (" + BugseeCliPolicy.DefaultVersion + " unless BUGSEE_CLI_VERSION names a newer one) instead of an older installed CLI " +
                    "unless BUGSEE_CLI_PATH names this one or the download is not possible (BUGSEE_NO_CLI_DOWNLOAD is set, an earlier download failed or no release exists for this host). " +
                    "Point BUGSEE_CLI_PATH at " + MinCliVersion + "+ or allow the download.";
         }
