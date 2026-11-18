@@ -157,15 +157,18 @@ namespace Bugsee.Editor
 
             Debug.Log($"Bugsee: BMF mapping source {compiled.Name}, shipped assemblies {(shippedDir ?? "not used")}.");
 
-            var tooOld = MonoPortablePdb.CliTooOld(BugseeCliLocator.Resolve().Version, BugseeCliLocator.Resolve().Path);
+            // An older CLI is passed over for this step in favour of the first 0.9.0+ one in the lookup order, else the package's cached or downloaded pinned release.
+            var cli = BugseeCliLocator.ResolveAtLeast(MonoPortablePdb.MinCliVersion);
+            var tooOld = MonoPortablePdb.CliTooOld(cli.Version, cli.Path);
             if (tooOld != null)
             {
                 Debug.LogWarning("Bugsee: " + tooOld);
                 return;
             }
 
-            Debug.Log($"Bugsee: converting the Mono build's assemblies and portable .pdb files ({compiled.Name}) to BMF and uploading the BMF files via {BugseeCliRunner.CliPath} …");
-            var exit = BugseeCliRunner.Run(MonoPortablePdb.Arguments(compiled.Path, shippedDir, version, build));
+            var cliPath = cli.Found ? cli.Path : null;
+            Debug.Log($"Bugsee: converting the Mono build's assemblies and portable .pdb files ({compiled.Name}) to BMF and uploading the BMF files via {cliPath ?? BugseeCliRunner.CliPath} …");
+            var exit = BugseeCliRunner.Run(MonoPortablePdb.Arguments(compiled.Path, shippedDir, version, build), cliPath: cliPath);
             if (exit != 0)
             {
                 Debug.LogWarning($"Bugsee: bugsee-cli portable-pdb (BMF) upload {BugseeCliPolicy.DescribeExit(exit)} — managed frames of this Mono build stay IL offsets.");

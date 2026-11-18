@@ -34,21 +34,25 @@ namespace Bugsee.Editor
 
         public static bool HasAppToken => !string.IsNullOrEmpty(AppToken);
 
-        public static int Run(IList<string> args, int timeoutMs = DefaultTimeoutMs)
+        /// <summary>Runs the CLI with the arguments; <paramref name="cliPath"/> overrides the resolved CLI for one step that needs a newer one.</summary>
+        public static int Run(IList<string> args, int timeoutMs = DefaultTimeoutMs, string cliPath = null)
         {
             if (args == null || args.Count == 0)
             {
                 return -1;
             }
 
-            if (BugseeCliLocator.ReportIfMissing())
+            // A supplied override was resolved by its caller; only the general lookup can report "no CLI".
+            if (string.IsNullOrEmpty(cliPath) && BugseeCliLocator.ReportIfMissing())
             {
                 return -1;
             }
 
+            string cli = string.IsNullOrEmpty(cliPath) ? CliPath : cliPath;
+
             var psi = new ProcessStartInfo
             {
-                FileName = CliPath,
+                FileName = cli,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -84,7 +88,7 @@ namespace Bugsee.Editor
                 {
                     if (proc == null)
                     {
-                        Debug.LogWarning($"Bugsee: failed to start {CliPath}.");
+                        Debug.LogWarning($"Bugsee: failed to start {cli}.");
                         return -1;
                     }
 
@@ -103,7 +107,7 @@ namespace Bugsee.Editor
                         try { outThread.Join(2000); } catch { /* ignore */ }
                         try { errThread.Join(2000); } catch { /* ignore */ }
                         Debug.LogWarning(
-                            $"Bugsee: {CliPath} timed out after {timeoutMs / 1000}s — build continues.");
+                            $"Bugsee: {cli} timed out after {timeoutMs / 1000}s — build continues.");
                         return -1;
                     }
 
@@ -123,7 +127,7 @@ namespace Bugsee.Editor
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"Bugsee: {CliPath} error — {ex.Message}. Build continues.");
+                Debug.LogWarning($"Bugsee: {cli} error — {ex.Message}. Build continues.");
                 return -1;
             }
         }

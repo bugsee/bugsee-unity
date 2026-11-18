@@ -24,6 +24,9 @@ namespace Bugsee.Editor
     internal static class BugseeCliLocator
     {
         static CliResolution _resolved;
+        static CliResolution _resolvedStep;
+        static CliResolution _resolvedStepFor;
+        static string _resolvedStepMin;
         static bool _notFoundReported;
         // Kept for the editor session, across domain reloads (SessionState; Reset does not clear it): a blackholed network
         // must cost one timeout, not one per build.
@@ -45,14 +48,7 @@ namespace Bugsee.Editor
             try
             {
                 CliSettings settings = ReadSettings();
-                _resolved = BugseeCliPolicy.Resolve(settings, new CliProbe
-                {
-                    FileExists = File.Exists,
-                    QueryVersion = QueryVersion,
-                    Fetch = version => Fetch(settings, version),
-                    Install = (staged, cacheDir, version) => Install(settings, staged, cacheDir, version),
-                    Discard = _ => DiscardStaging(),
-                });
+                _resolved = BugseeCliPolicy.Resolve(settings, CreateProbe(settings));
             }
             catch (Exception ex)
             {
@@ -73,6 +69,67 @@ namespace Bugsee.Editor
             }
 
             return _resolved;
+        }
+
+        static CliProbe CreateProbe(CliSettings settings) => new CliProbe
+        {
+            FileExists = File.Exists,
+            QueryVersion = QueryVersion,
+            Fetch = version => Fetch(settings, version),
+            Install = (staged, cacheDir, version) => Install(settings, staged, cacheDir, version),
+            Discard = _ => DiscardStaging(),
+        };
+
+        /// <summary>
+        /// The CLI for a step that needs <paramref name="minVersion"/> or newer, which is above the floor of <see cref="Resolve"/>:
+        /// the general CLI when it is new enough (or named by BUGSEE_CLI_PATH, or unknown), else the first CLI of that version in the
+        /// lookup order, else the package's cached or downloaded copy of the step's release (the pinned one), so an older installed CLI does not silently cost the step. The general CLI again when that is not
+        /// possible (BUGSEE_NO_CLI_DOWNLOAD, a failed download): the caller compares its version and warns. Never throws.
+        /// </summary>
+        public static CliResolution ResolveAtLeast(string minVersion)
+        {
+            CliResolution general = Resolve();
+            if (_resolvedStep != null && _resolvedStepMin == minVersion && _resolvedStepFor == general
+                && (!_resolvedStep.Found || File.Exists(_resolvedStep.Path)))
+            {
+                return _resolvedStep;
+            }
+
+            CliResolution result = general;
+            try
+            {
+                CliSettings settings = ReadSettings(quiet: true);
+                CliResolution step = BugseeCliPolicy.ResolveAtLeast(settings, CreateProbe(settings), general, minVersion);
+                if (!ReferenceEquals(step, general))
+                {
+                    if (step.Found)
+                    {
+                        result = step;
+                        string taken = "using bugsee-cli " + (step.Version ?? "(version unknown)") + " (" + Describe(step.Source) + "): " + step.Path;
+                        Debug.Log(general.Found
+                            ? "[Bugsee] The bugsee-cli " + general.Version + " (" + Describe(general.Source) + ": " + general.Path + ") is older than " + minVersion +
+                              ", which this step needs: " + taken
+                            // The other uploads found none (an older pin of BUGSEE_CLI_VERSION was not available); this step's release is.
+                            : "[Bugsee] No bugsee-cli was found for the other uploads; this step needs " + minVersion + " or newer and is " + taken);
+                    }
+                    else
+                    {
+                        foreach (string note in step.Notes)
+                        {
+                            Debug.Log("[Bugsee] " + note);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.Log("[Bugsee] Looking for a bugsee-cli of " + minVersion + " or newer failed: " + ex.Message);
+            }
+
+            _resolvedStep = result;
+            _resolvedStepMin = minVersion;
+            _resolvedStepFor = general;
+            return result;
         }
 
         /// <summary>
@@ -123,6 +180,9 @@ namespace Bugsee.Editor
         internal static void Reset()
         {
             _resolved = null;
+            _resolvedStep = null;
+            _resolvedStepFor = null;
+            _resolvedStepMin = null;
             _notFoundReported = false;
         }
 

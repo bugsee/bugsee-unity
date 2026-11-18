@@ -191,6 +191,238 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(host.Downloads, Is.EqualTo(new[] { "0.9.0" }));
         }
 
+        // The Android Mono Portable PDB step needs 0.9.0, above the shared floor (0.8.1): see BugseeCliPolicy.ResolveAtLeast.
+        const string StepMin = "0.9.0";
+
+        static void InstallsInto(Host host)
+        {
+            host.OnFetch = version => "/tmp/stage/bugsee-cli";
+            host.OnInstall = (staged, dir, version) =>
+            {
+                string path = dir + "/" + version + "/aarch64-apple-darwin/bugsee-cli";
+                host.Files[path] = version;
+                return path;
+            };
+        }
+
+        [TestCase("0.8.1")]
+        [TestCase("0.8.2")]
+        public void The_step_passes_over_an_installed_cli_below_its_minimum_and_downloads_the_pinned_release(string installed)
+        {
+            var host = new Host();
+            host.Files["/opt/homebrew/bin/bugsee-cli"] = installed;
+            InstallsInto(host);
+            var s = Mac();
+            var general = BugseeCliPolicy.Resolve(s, host.Probe());
+            Assert.That(general.Version, Is.EqualTo(installed), "the shared lookup accepts it");
+            Assert.That(host.Downloads, Is.Empty);
+
+            var r = BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), general, StepMin);
+
+            Assert.That(r.Source, Is.EqualTo(CliSource.Downloaded));
+            Assert.That(r.Version, Is.EqualTo("0.9.0"));
+            Assert.That(r.Path, Is.EqualTo("/Users/dev/Library/Caches/Bugsee/cli/0.9.0/aarch64-apple-darwin/bugsee-cli"));
+            Assert.That(r.Notes[0], Does.Contain(installed).And.Contain("older than " + StepMin));
+            Assert.That(host.Downloads, Is.EqualTo(new[] { "0.9.0" }));
+            Assert.That(s.MinVersion, Is.EqualTo(BugseeCliPolicy.MinVersion), "the caller's settings are not changed");
+        }
+
+        [Test]
+        public void The_step_uses_the_cached_pinned_release_without_a_second_download()
+        {
+            var host = new Host();
+            host.Files["/opt/homebrew/bin/bugsee-cli"] = "0.8.1";
+            host.Files["/Users/dev/Library/Caches/Bugsee/cli/0.9.0/aarch64-apple-darwin/bugsee-cli"] = "0.9.0";
+            var s = Mac();
+            var general = BugseeCliPolicy.Resolve(s, host.Probe());
+
+            var r = BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), general, StepMin);
+
+            Assert.That(r.Source, Is.EqualTo(CliSource.Cache));
+            Assert.That(r.Version, Is.EqualTo("0.9.0"));
+            Assert.That(host.Downloads, Is.Empty);
+        }
+
+        [Test]
+        public void The_step_keeps_the_general_cli_when_it_is_new_enough_or_its_version_is_unknown()
+        {
+            var host = new Host();
+            host.Files["/opt/homebrew/bin/bugsee-cli"] = "0.9.0";
+            var s = Mac();
+            var general = BugseeCliPolicy.Resolve(s, host.Probe());
+
+            Assert.That(BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), general, StepMin), Is.SameAs(general));
+            Assert.That(host.Downloads, Is.Empty);
+
+            // A CLI named by BUGSEE_CLI_PATH whose --version does not run has an unknown version: it is tried, as for every upload.
+            host.Files["/custom/bugsee-cli"] = "";
+            s.ExplicitPath = "/custom/bugsee-cli";
+            var unknown = BugseeCliPolicy.Resolve(s, host.Probe());
+            Assert.That(unknown.Version, Is.Null);
+            Assert.That(BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), unknown, StepMin), Is.SameAs(unknown));
+
+            // The unknown-version guard also holds for a result no current lookup produces (defensive).
+            var bare = new CliResolution { Path = "/x/bugsee-cli", Source = CliSource.Path, Version = null };
+            Assert.That(BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), bare, StepMin), Is.SameAs(bare));
+        }
+
+        [Test]
+        public void An_explicit_cli_path_below_the_minimum_wins_and_is_not_replaced()
+        {
+            var host = new Host();
+            host.Files["/custom/bugsee-cli"] = "0.8.1";
+            InstallsInto(host);
+            var s = Mac();
+            s.ExplicitPath = "/custom/bugsee-cli";
+            var general = BugseeCliPolicy.Resolve(s, host.Probe());
+
+            var r = BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), general, StepMin);
+
+            Assert.That(r, Is.SameAs(general));
+            Assert.That(r.Source, Is.EqualTo(CliSource.Explicit));
+            Assert.That(r.Version, Is.EqualTo("0.8.1"));
+            Assert.That(host.Downloads, Is.Empty, "no download behind the user's back");
+            Assert.That(MonoPortablePdb.CliTooOld(r.Version, r.Path), Does.Contain("/custom/bugsee-cli").And.Contain("BUGSEE_CLI_PATH"));
+        }
+
+        [Test]
+        public void A_bare_command_name_in_the_cli_path_variable_counts_as_naming_the_cli()
+        {
+            // BUGSEE_CLI_PATH=bugsee-cli (the old default) is looked up on PATH like an explicit choice: not replaced for the step.
+            var host = new Host();
+            host.Files["/usr/bin/bugsee-cli"] = "0.8.1";
+            InstallsInto(host);
+            var s = Mac();
+            s.ExplicitPath = "bugsee-cli";
+            var general = BugseeCliPolicy.Resolve(s, host.Probe());
+            Assert.That(general.Source, Is.EqualTo(CliSource.Explicit));
+
+            var r = BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), general, StepMin);
+
+            Assert.That(r, Is.SameAs(general));
+            Assert.That(host.Downloads, Is.Empty);
+        }
+
+        [Test]
+        public void With_the_download_off_the_step_finds_nothing_better_and_the_caller_warns_about_the_installed_cli()
+        {
+            var host = new Host();
+            host.Files["/opt/homebrew/bin/bugsee-cli"] = "0.8.1";
+            InstallsInto(host);
+            var s = Mac(download: false);
+            s.DownloadDisabledNote = "Downloading bugsee-cli is disabled (BUGSEE_NO_CLI_DOWNLOAD is set).";
+            var general = BugseeCliPolicy.Resolve(s, host.Probe());
+
+            var r = BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), general, StepMin);
+
+            Assert.That(r.Found, Is.False);
+            Assert.That(host.Downloads, Is.Empty);
+            Assert.That(r.Notes, Has.Some.Contain("BUGSEE_NO_CLI_DOWNLOAD"));
+            Assert.That(MonoPortablePdb.CliTooOld(general.Version, general.Path), Is.Not.Null.And.Contain("/opt/homebrew/bin/bugsee-cli"));
+        }
+
+        [Test]
+        public void A_failed_download_leaves_the_step_without_a_better_cli()
+        {
+            var host = new Host();
+            host.Files["/opt/homebrew/bin/bugsee-cli"] = "0.8.1";
+            host.OnFetch = version => throw new InvalidOperationException("offline");
+            var s = Mac();
+            var general = BugseeCliPolicy.Resolve(s, host.Probe());
+
+            var r = BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), general, StepMin);
+
+            Assert.That(r.Found, Is.False);
+            Assert.That(r.Notes, Has.Some.Contain("offline"));
+        }
+
+        [Test]
+        public void Nothing_found_by_the_general_lookup_is_not_looked_for_again()
+        {
+            var host = new Host();
+            host.OnFetch = version => throw new InvalidOperationException("offline");
+            var s = Mac();
+            var general = BugseeCliPolicy.Resolve(s, host.Probe());
+            Assert.That(host.Downloads, Has.Count.EqualTo(1));
+
+            var r = BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), general, StepMin);
+
+            Assert.That(r, Is.SameAs(general));
+            Assert.That(host.Downloads, Has.Count.EqualTo(1), "a blackholed network costs one attempt");
+        }
+
+        [Test]
+        public void A_cached_step_release_is_found_when_the_old_pin_found_nothing_and_downloads_are_off()
+        {
+            // BUGSEE_CLI_VERSION=0.8.2 with downloads off: the shared lookup looks for a cached 0.8.2 only, the step may use a cached 0.9.0.
+            var host = new Host();
+            host.Files["/Users/dev/Library/Caches/Bugsee/cli/0.9.0/aarch64-apple-darwin/bugsee-cli"] = "0.9.0";
+            var s = Mac(download: false);
+            s.Version = "0.8.2";
+            var general = BugseeCliPolicy.Resolve(s, host.Probe());
+            Assert.That(general.Found, Is.False);
+
+            var r = BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), general, StepMin);
+
+            Assert.That(r.Source, Is.EqualTo(CliSource.Cache));
+            Assert.That(r.Version, Is.EqualTo("0.9.0"));
+            Assert.That(host.Downloads, Is.Empty);
+        }
+
+        [Test]
+        public void A_pinned_release_below_the_step_minimum_is_not_downloaded_for_the_step()
+        {
+            // BUGSEE_CLI_VERSION may pin 0.8.2 (it passes the shared floor): the step still needs 0.9.0.
+            var host = new Host();
+            host.Files["/opt/homebrew/bin/bugsee-cli"] = "0.8.1";
+            InstallsInto(host);
+            var s = Mac();
+            s.Version = "0.8.2";
+            var general = BugseeCliPolicy.Resolve(s, host.Probe());
+
+            var r = BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), general, StepMin);
+
+            Assert.That(r.Version, Is.EqualTo(BugseeCliPolicy.DefaultVersion));
+            Assert.That(host.Downloads, Is.EqualTo(new[] { BugseeCliPolicy.DefaultVersion }));
+        }
+
+        [Test]
+        public void A_step_minimum_above_the_pinned_release_is_met_by_an_installed_cli_only()
+        {
+            var host = new Host();
+            host.Files["/opt/homebrew/bin/bugsee-cli"] = "0.8.1";
+            host.Files["/Users/dev/.cargo/bin/bugsee-cli"] = "0.10.0";
+            host.Files["/Users/dev/Library/Caches/Bugsee/cli/0.9.0/aarch64-apple-darwin/bugsee-cli"] = "0.9.0";
+            InstallsInto(host);
+            var s = Mac("/opt/homebrew/bin:/Users/dev/.cargo/bin");
+            var general = BugseeCliPolicy.Resolve(s, host.Probe());
+            Assert.That(general.Version, Is.EqualTo("0.8.1"));
+
+            var r = BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), general, "0.10.0");
+            Assert.That(r.Path, Is.EqualTo("/Users/dev/.cargo/bin/bugsee-cli"));
+
+            host.Files.Remove("/Users/dev/.cargo/bin/bugsee-cli");
+            r = BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), general, "0.10.0");
+            Assert.That(r.Found, Is.False, "the cached and the downloadable 0.9.0 are below 0.10.0");
+            Assert.That(host.Downloads, Is.Empty);
+        }
+
+        [Test]
+        public void A_pinned_release_at_or_above_the_step_minimum_is_the_one_the_step_downloads()
+        {
+            var host = new Host();
+            host.Files["/opt/homebrew/bin/bugsee-cli"] = "0.8.1";
+            InstallsInto(host);
+            var s = Mac();
+            s.Version = "0.9.3";
+            var general = BugseeCliPolicy.Resolve(s, host.Probe());
+
+            var r = BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), general, StepMin);
+
+            Assert.That(host.Downloads, Is.EqualTo(new[] { "0.9.3" }));
+            Assert.That(r.Version, Is.EqualTo("0.9.3"));
+        }
+
         [Test]
         public void With_the_run_script_floor_an_installed_0_8_0_is_found_without_a_download()
         {

@@ -56,6 +56,9 @@ namespace Bugsee.WrapperPolicy.Tests
             var text = MonoPortablePdb.CliTooOld("0.8.1", "/opt/bin/bugsee-cli");
             Assert.That(text, Does.Contain("/opt/bin/bugsee-cli").And.Contain("0.8.1").And.Contain("BUGSEE_CLI_PATH"));
             Assert.That(text, Does.Not.Contain("Portable PDBs"), "the CLI uploads BMF mappings, not the pdb files");
+            Assert.That(text, Does.Contain("BUGSEE_NO_CLI_DOWNLOAD"), "it says when the package would have used its own release");
+            Assert.That(text, Does.Contain("unset it"), "an old BUGSEE_CLI_PATH is not fixed by allowing the download");
+            Assert.That(text, Does.Not.Contain("downloads its pinned release only when"), "the old wording is gone");
         }
 
         [Test]
@@ -193,6 +196,9 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(text, Does.Contain("MonoPortablePdb.ShippedMatchesCompile("));
             Assert.That(text, Does.Contain("MonoPortablePdb.AndroidReleaseFolders("));
             Assert.That(text, Does.Contain("MonoPortablePdb.CliTooOld("));
+            Assert.That(text, Does.Contain("BugseeCliLocator.ResolveAtLeast(MonoPortablePdb.MinCliVersion)"), "an older installed CLI is replaced for this step, not just reported");
+            Assert.That(text, Does.Contain("cliPath: cliPath"), "the upload runs the CLI the step resolved");
+            Assert.That(text, Does.Contain("var cliPath = cli.Found ? cli.Path : null;"), "the path handed to the runner is the step's, not the general lookup's");
             Assert.That(text, Does.Contain("MonoPortablePdb.Arguments("));
             Assert.That(text, Does.Contain("BuildOptions.Development"));
             Assert.That(text, Does.Contain("BugseeBuildIdentity.AndroidNameSettings(report).Backend"));
