@@ -506,6 +506,10 @@ namespace Bugsee.WrapperPolicy.Tests
                 Assert.That(m.Options[key].Type, Is.EqualTo("int"), m.Sdk + " type");
                 Assert.That(m.Options[key].DefaultText, Is.EqualTo("128"), m.Sdk + " default must be CrashSignals.Default");
             }
+            // The property documents that default (BugseeLaunchOptions.CrashSignals, shared by both platforms).
+            var doc = File.ReadAllText(RepoFile("Runtime/Contracts/Options/BugseeLaunchOptions.cs"));
+            Assert.That(doc, Does.Contain("Default when omitted:").And.Contain("<c>CrashSignals.Default</c>"));
+            Assert.That((int)CrashSignals.Default, Is.EqualTo(128));
         }
 
         // The documented "Default when omitted" of each bool, int and enum property of IOSLaunchOptions is the iOS manifest default.
