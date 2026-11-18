@@ -57,6 +57,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(text, Does.Contain("/opt/bin/bugsee-cli").And.Contain("0.8.1").And.Contain("BUGSEE_CLI_PATH"));
             Assert.That(text, Does.Not.Contain("Portable PDBs"), "the CLI uploads BMF mappings, not the pdb files");
             Assert.That(text, Does.Contain("BUGSEE_NO_CLI_DOWNLOAD"), "it says when the package would have used its own release");
+            Assert.That(text, Does.Contain("unset it"), "an old BUGSEE_CLI_PATH is not fixed by allowing the download");
             Assert.That(text, Does.Not.Contain("downloads its pinned release only when"), "the old wording is gone");
         }
 
