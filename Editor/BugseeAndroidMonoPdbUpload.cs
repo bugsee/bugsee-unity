@@ -157,7 +157,7 @@ namespace Bugsee.Editor
 
             Debug.Log($"Bugsee: BMF mapping source {compiled.Name}, shipped assemblies {(shippedDir ?? "not used")}.");
 
-            // An older installed CLI is passed over for this step in favour of the package's cached or downloaded pinned release.
+            // An older CLI is passed over for this step in favour of the first 0.9.0+ one in the lookup order, else the package's cached or downloaded pinned release.
             var cli = BugseeCliLocator.ResolveAtLeast(MonoPortablePdb.MinCliVersion);
             var tooOld = MonoPortablePdb.CliTooOld(cli.Version, cli.Path);
             if (tooOld != null)

@@ -82,8 +82,8 @@ namespace Bugsee.Editor
 
         /// <summary>
         /// The CLI for a step that needs <paramref name="minVersion"/> or newer, which is above the floor of <see cref="Resolve"/>:
-        /// the general CLI when it is new enough (or named by BUGSEE_CLI_PATH, or unknown), else the package's cached or downloaded
-        /// pinned release, so an older installed CLI does not silently cost the step. The general CLI again when that is not
+        /// the general CLI when it is new enough (or named by BUGSEE_CLI_PATH, or unknown), else the first CLI of that version in the
+        /// lookup order, else the package's cached or downloaded pinned release, so an older installed CLI does not silently cost the step. The general CLI again when that is not
         /// possible (BUGSEE_NO_CLI_DOWNLOAD, a failed download): the caller compares its version and warns. Never throws.
         /// </summary>
         public static CliResolution ResolveAtLeast(string minVersion)
