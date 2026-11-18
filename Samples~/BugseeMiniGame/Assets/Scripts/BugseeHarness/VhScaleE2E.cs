@@ -55,18 +55,23 @@ namespace Bugsee.Sample
                         var calledAt = Time.realtimeSinceStartup;
                         Bugsee.CaptureViewHierarchy();
                         var repliedAt = -1f;
+                        ManagedViewCaptureStats observed = null;
                         while (Time.realtimeSinceStartup - calledAt < 5f)
                         {
                             yield return null;
                             frames.Add(Time.unscaledDeltaTime * 1000f);
-                            if (repliedAt < 0 && ManagedViewDiagnostics.Count > before) repliedAt = Time.realtimeSinceStartup;
+                            if (repliedAt < 0 && ManagedViewDiagnostics.Count > before)
+                            {
+                                repliedAt = Time.realtimeSinceStartup;
+                                observed = ManagedViewDiagnostics.Last; // kept now: a capture the SDK starts later must not replace it
+                            }
                             if (repliedAt >= 0 && Time.realtimeSinceStartup - repliedAt >= AfterReplySeconds) break;
                         }
 
-                        var st = ManagedViewDiagnostics.Last;
-                        if (repliedAt < 0 || st == null)
+                        var st = observed;
+                        if (repliedAt < 0 || st == null || ManagedViewDiagnostics.Count != before + 1)
                         {
-                            Debug.Log("[VHSCALE] n=" + n + " run=" + run + " NO REPLY RECORDED");
+                            Debug.Log("[VHSCALE] n=" + n + " run=" + run + " NO REPLY RECORDED (or another capture intervened)");
                         }
                         else
                         {

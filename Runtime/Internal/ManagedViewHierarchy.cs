@@ -30,6 +30,7 @@ namespace Bugsee.Internal
             NowMs, RunWorker, Schedule, Begin, Seal, SliceMs, Finished);
         static double _sliceMs = ManagedViewRequests.SliceMs(60);
         static bool _sceneChanged;
+        static int _sliceFrame = -1;
         static string Fmt(double v, string format) => v.ToString(format, System.Globalization.CultureInfo.InvariantCulture);
         static bool _isDebugBuild; // read on the main thread (Begin); Debug.isDebugBuild is a Unity call
 
@@ -95,7 +96,11 @@ namespace Bugsee.Internal
             var askedAt = NowMs();
             MainThreadDispatcher.Run(() =>
             {
-                try { Engine.Submit(once, askedAt, pixelsPerNativeUnit, replyInlineIfSmall); }
+                try
+                {
+                    Engine.Submit(once, askedAt, pixelsPerNativeUnit, replyInlineIfSmall);
+                    if (replyInlineIfSmall) _sliceFrame = Time.frameCount; // the inline slice is this frame's
+                }
                 catch (Exception ex)
                 {
                     // Nothing to contribute: the report still carries the native half.
@@ -108,6 +113,10 @@ namespace Bugsee.Internal
         /// <summary>Main thread, every frame (MainThreadDispatcher.Update): one slice of the running capture.</summary>
         internal static void Pump()
         {
+            // One slice per frame: an iOS request that took its first slice inline in this frame does not get a second one.
+            var frame = Time.frameCount;
+            if (frame == _sliceFrame) return;
+            _sliceFrame = frame;
             try { Engine.Pump(); }
             catch (Exception ex) { LogLater(ex.Message); }
         }
@@ -161,8 +170,9 @@ namespace Bugsee.Internal
         {
             ManagedViewDiagnostics.Record(stats);
             if (!_isDebugBuild && !ManagedViewDiagnostics.LogEveryCapture) return;
-            // Logged on the next frame: a Debug.Log is captured by the SDK, and the SDK may be inside requestData right now.
-            MainThreadDispatcher.Post(() =>
+            // Logged on the next frame: a Debug.Log is captured by the SDK, and the SDK may be inside requestData right now. This runs on
+            // the worker or the timer, so it must not create the dispatcher (a destroyed one is not recreated off the main thread).
+            MainThreadDispatcher.PostIfAlive(() =>
             {
                 if (stats.Outcome == "reply")
                     Debug.Log("[Bugsee] managed view hierarchy: " + stats.Nodes + " nodes, " + stats.Chars + " chars, walk "
@@ -278,6 +288,7 @@ namespace Bugsee.Internal
         {
             if (_finished) return true;
             ManagedViewHierarchy.CollectSecureRects(_snapshot);
+            _projections.Clear(); // a camera that moved since the last slice is read again, not projected with old matrices
             do
             {
                 if (_sp == 0)
