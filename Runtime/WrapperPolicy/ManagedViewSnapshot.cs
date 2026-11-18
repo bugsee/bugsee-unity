@@ -58,6 +58,29 @@ namespace Bugsee.WrapperPolicy
         /// <summary>The secure rectangles ([l, t, r, b] each, Unity screen pixels, top-left origin), copied on the main thread when the walk ends.</summary>
         public int[] SecureRects;
         public int SecureCount;
+        /// <summary>
+        /// Adds the rectangles ([l, t, r, b] each) not already in <see cref="SecureRects"/>. The walk spans several frames, so it is
+        /// called at its start, at every slice and when it ends: a node is protected if any rectangle that existed while the walk ran
+        /// covers it, also one that was removed or moved before the walk finished.
+        /// </summary>
+        public void AddSecureRects(int[] rects, int count)
+        {
+            if (rects == null) return;
+            if (count * 4 > rects.Length) count = rects.Length / 4;
+            for (var i = 0; i < count; i++)
+            {
+                var known = false;
+                for (var k = 0; k < SecureCount && !known; k++)
+                    known = SecureRects[k * 4] == rects[i * 4] && SecureRects[k * 4 + 1] == rects[i * 4 + 1]
+                        && SecureRects[k * 4 + 2] == rects[i * 4 + 2] && SecureRects[k * 4 + 3] == rects[i * 4 + 3];
+                if (known) continue;
+                if (SecureRects == null || SecureRects.Length < (SecureCount + 1) * 4)
+                    Array.Resize(ref SecureRects, Math.Max(16, (SecureCount + 1) * 8));
+                Array.Copy(rects, i * 4, SecureRects, SecureCount * 4, 4);
+                SecureCount++;
+            }
+        }
+
         /// <summary>1 on Android, the screen scale on iOS; read on the main thread when the walk starts.</summary>
         public float PixelsPerNativeUnit = 1f;
 

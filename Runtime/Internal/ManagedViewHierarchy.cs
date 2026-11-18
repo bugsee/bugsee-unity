@@ -141,9 +141,18 @@ namespace Bugsee.Internal
             return new ManagedViewWalker(budget);
         }
 
+        static int[] _rectScratch;
+
+        // Main thread: the secure rectangles that exist now join those seen earlier in the walk (see ManagedViewSnapshot.AddSecureRects).
+        internal static void CollectSecureRects(ManagedViewSnapshot snapshot)
+        {
+            var count = SecureRectRegistry.Instance.CopyRects(0, ref _rectScratch);
+            snapshot.AddSecureRects(_rectScratch, count);
+        }
+
         static void Seal(ManagedViewSnapshot snapshot)
         {
-            snapshot.SecureCount = SecureRectRegistry.Instance.CopyRects(0, ref snapshot.SecureRects);
+            CollectSecureRects(snapshot);
             if (_sceneChanged && snapshot.Count > 0) snapshot.SetTruncated(0);
         }
 
@@ -268,6 +277,7 @@ namespace Bugsee.Internal
         public bool Step(Func<bool> sliceExpired)
         {
             if (_finished) return true;
+            ManagedViewHierarchy.CollectSecureRects(_snapshot);
             do
             {
                 if (_sp == 0)

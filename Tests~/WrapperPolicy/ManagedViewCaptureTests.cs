@@ -144,6 +144,27 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void SecureRectanglesSeenDuringTheWalkAllStayInForce()
+        {
+            var s = new ManagedViewSnapshot(4);
+            s.AddSecureRects(new[] { 0, 0, 100, 100 }, 1);
+            s.AddSecureRects(new[] { 0, 0, 100, 100, 50, 50, 60, 60 }, 2); // the first is known; one new
+            s.AddSecureRects(null, 3);
+            s.AddSecureRects(new[] { 1, 2, 3, 4 }, 9); // a count past the array is clamped
+            Assert.That(s.SecureCount, Is.EqualTo(3));
+            Assert.That(s.SecureRects.AsSpan(0, 12).ToArray(), Is.EqualTo(new[] { 0, 0, 100, 100, 50, 50, 60, 60, 1, 2, 3, 4 }));
+        }
+
+        [Test]
+        public void ARectangleRemovedBeforeTheWalkEndedStillProtectsWhatItCovered()
+        {
+            var s = Snapshot(3);
+            s.AddSecureRects(new[] { 0, 0, 5000, 5000 }, 1); // present at the start of the walk, gone at the end
+            var json = ManagedViewTreeJson.Write(s.ToTree(), s.SecureRects, s.SecureCount, 1f);
+            Assert.That(json, Does.Not.Contain("Obj"));
+        }
+
+        [Test]
         public void TheDeadlinesAreOrderedInsideTheSdksWindow()
         {
             Assert.That(ManagedViewRequests.SnapshotDeadlineMs, Is.LessThan(ManagedViewRequests.WriteDeadlineMs));
