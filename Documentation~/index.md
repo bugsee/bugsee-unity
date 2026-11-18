@@ -51,7 +51,7 @@ Bugsee.Launch(appToken, options);
 
 ### iOS-only launch options
 
-`IOSLaunchOptions` has typed properties for the iOS SDK 7.0.0 options that Android has no counterpart for. They are iOS only: on Android the wrapper drops them before launch (`OptionPlatformGate`), so setting one has no effect there. The Android SDK would drop an unknown key too, but the wrapper does not depend on that. The same keys are available as `Options` constants for `OptionsBuilder` and `SetCustomOption`, with the same gating (`OptionsBuilder` and `SetCustomOption` do no range checks; `OptionsBuilder` also has `SetCrashHandlerType`, `SetDataEncryption` and `SetReportingUIStyle`). The iOS SDK drops a host option equal to its default from the host launch options; `GetLaunchOptions` always shows the effective value.
+`IOSLaunchOptions` has typed properties for the iOS SDK 7.0.0 options that Android has no counterpart for. They are iOS only: on Android the wrapper drops them before launch (`OptionPlatformGate`), so setting one has no effect there. The Android SDK would drop an unknown key too, but the wrapper does not depend on that. The same keys are available as `Options` constants for `OptionsBuilder` (also `SetCrashSignals`, which reaches both platforms) and `SetCustomOption`, with the same gating (`OptionsBuilder` and `SetCustomOption` do no range checks; `OptionsBuilder` also has `SetCrashHandlerType`, `SetDataEncryption` and `SetReportingUIStyle`). The iOS SDK drops a host option equal to its default from the host launch options; `GetLaunchOptions` always shows the effective value.
 
 | Property | Key suffix | Type, default |
 |---|---|---|

@@ -508,7 +508,13 @@ namespace Bugsee.WrapperPolicy.Tests
             }
             // The property documents that default (BugseeLaunchOptions.CrashSignals, shared by both platforms).
             var doc = File.ReadAllText(RepoFile("Runtime/Contracts/Options/BugseeLaunchOptions.cs"));
-            Assert.That(doc, Does.Contain("Default when omitted:").And.Contain("<c>CrashSignals.Default</c>"));
+            var decl = Regex.Match(doc, @"public CrashSignals CrashSignals\s*[\r\n]");
+            Assert.That(decl.Success, Is.True, "BugseeLaunchOptions has no CrashSignals property");
+            var head = doc.Substring(0, decl.Index);
+            Assert.That(head.Substring(head.LastIndexOf("<summary>", StringComparison.Ordinal)),
+                Does.Match(@"Default when omitted:(?:\s|///)*<c>CrashSignals\.Default</c>"));
+            // A CrashSignals value given to SetCustomOption crosses to Android as its int, as on iOS.
+            Assert.That(File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidOptionsMapper.cs")), Does.Contain("value is CrashSignals"));
             Assert.That((int)CrashSignals.Default, Is.EqualTo(128));
         }
 

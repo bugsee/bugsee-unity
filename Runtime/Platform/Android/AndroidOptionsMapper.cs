@@ -52,6 +52,8 @@ namespace Bugsee.Platform.Android
             if (value is float f) return new AndroidJavaObject("java.lang.Float", f);
             if (value is double d) return new AndroidJavaObject("java.lang.Double", d);
             if (value is string s) return new AndroidJavaObject("java.lang.String", s);
+            // A flag set the SDK reads as an int (capture.crash-signals): the enum crosses by its value, as on iOS.
+            if (value is CrashSignals cs) return new AndroidJavaObject("java.lang.Integer", (int)cs);
             if (value is VideoMode vm) return EnumFromInt(VideoModeClass, "fromIntValue", (int)vm, (int)VideoMode.V2);
             if (value is VideoQuality vq) return EnumFromInt(VideoQualityClass, "fromIntValue", (int)vq, (int)VideoQuality.Default);
             if (value is FrameRate fr) return EnumFromInt(FrameRateClass, "fromIntValue", (int)fr, (int)FrameRate.High);
