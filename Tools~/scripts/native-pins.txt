@@ -12,6 +12,7 @@ android|DESIGN.md|bugsee-android:([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-
 android|DESIGN.md|bugsee-android-ndk:([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
 android|Documentation~/index.md|bugsee-android:([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
 android|Documentation~/index.md|bugsee-android-ndk:([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
+android|Documentation~/index.md|bugsee-android-feedback:([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
 android|Samples~/BugseeMiniGame/README.md|bugsee-android:([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
 android|Samples~/BugseeMiniGame/README.md|bugsee-android-ndk:([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)
 android|CHANGELOG.md|bugsee-android-ndk` ([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)

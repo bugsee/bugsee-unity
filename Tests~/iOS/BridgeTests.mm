@@ -752,9 +752,11 @@ int main(void)
     free((void *)value);
 
     // IsBlackout reads the SDK, not a managed flag. A blackout the wrapper did not start is seen, and one the
-    // wrapper ended is gone. The stop below ends nothing here: this SDK is not launched (a simulator, with a placeholder
-    // token), and 7.0.0 ends a blackout on stop only while launched or waiting to launch ("a stop while Bugsee is stopped
-    // ends nothing", Bugsee.h). On a launched SDK the flag is false after a stop (measured on an iPhone XS).
+    // wrapper ended is gone. The stop below: 7.0.1 left the blackout on here (a simulator with a placeholder token, the
+    // SDK not launched), 7.1.0 ends it ("a stop while Bugsee is stopped, with no launch waiting for the app to become
+    // active, ends nothing", Bugsee.h; the launches earlier in this test leave one waiting for the app, which a test
+    // process never makes active). Either way the export must report what the SDK says, so the test follows the SDK:
+    // the blackout is off after the stop, and the export agrees with [Bugsee isBlackout].
     [Bugsee startBlackout];
     expect(_bugsee_is_blackout() == 1, "the blackout export sees a blackout the wrapper did not start");
     _bugsee_end_blackout();
@@ -762,8 +764,9 @@ int main(void)
     _bugsee_start_blackout();
     expect(_bugsee_is_blackout() == 1, "the blackout export reports a blackout the wrapper started");
     _bugsee_stop(8, OnStopped);
-    expect(waitFor(^{ return gStoppedToken == 8 ? 1 : 0; }, 5) && _bugsee_is_blackout() == 1,
-           "the blackout export still reports a blackout a stop did not end (the SDK was not launched)");
+    expect(waitFor(^{ return gStoppedToken == 8 ? 1 : 0; }, 5) && _bugsee_is_blackout() == ([Bugsee isBlackout] ? 1 : 0),
+           "the blackout export agrees with the SDK after a stop");
+    expect(_bugsee_is_blackout() == 0, "a stop with a launch waiting for the app ends the blackout (7.1.0)");
     [Bugsee endBlackout];
     expect(_bugsee_is_blackout() == 0, "the blackout export sees a blackout the SDK ended");
 
