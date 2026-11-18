@@ -105,7 +105,7 @@ namespace Bugsee.Editor
                     if (step.Found)
                     {
                         result = step;
-                        Debug.Log("[Bugsee] The installed bugsee-cli " + general.Version + " (" + general.Path + ") is older than " + minVersion +
+                        Debug.Log("[Bugsee] The bugsee-cli " + general.Version + " (" + Describe(general.Source) + ": " + general.Path + ") is older than " + minVersion +
                                   ", which this step needs: using bugsee-cli " + (step.Version ?? "(version unknown)") + " (" + Describe(step.Source) + "): " + step.Path);
                     }
                     else
