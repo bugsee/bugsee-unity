@@ -9,12 +9,13 @@ namespace Bugsee.WrapperPolicy.Tests
     /// <summary>
     /// The Xcode project Unity generates sets GCC_ENABLE_OBJC_EXCEPTIONS = NO (2021.3, 2022.3, 6000.0), where @try, @catch,
     /// @throw and @finally are compile errors (@synchronized still compiles, and the bridge uses it). The bridge sources are compiled into every iOS export, so none
-    /// of them may use these constructs. The iOS bridge test script compiles the bridge with -fno-objc-exceptions too, but only
-    /// on macOS; this test fails on every platform.
+    /// of them may use these constructs. The iOS bridge test script compiles the two bridge files with -fno-objc-exceptions too (macOS only), which is the
+    /// authoritative check: this text scan runs on Linux CI and is a cheap early guard, not a parser. It does not see
+    /// @try spelled through a macro, behind a raw string containing a quote, or between C++14 digit separators.
     /// </summary>
     public class IosBridgeNoObjcExceptionsTests
     {
-        static readonly Regex Forbidden = new Regex(@"@(try|catch|throw|finally)\b", RegexOptions.Compiled);
+        static readonly Regex Forbidden = new Regex(@"@\s*(try|catch|throw|finally)\b", RegexOptions.Compiled);
 
         static string RepoRoot()
         {
@@ -36,7 +37,7 @@ namespace Bugsee.WrapperPolicy.Tests
             RegexOptions.Singleline | RegexOptions.Compiled);
 
         internal static string CodeOnly(string source) =>
-            NonCode.Replace(source, m => new string('\n', m.Value.Count(c => c == '\n')));
+            NonCode.Replace(Regex.Replace(source, @"\\\r?\n", ""), m => new string('\n', m.Value.Count(c => c == '\n')));
 
         static string[] BridgeSources() =>
             Directory.GetFiles(Path.Combine(RepoRoot(), "Plugins", "iOS"), "*.*", SearchOption.AllDirectories)
@@ -67,6 +68,8 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Detector_flags_code_and_ignores_comments_and_strings()
         {
             Assert.That(Forbidden.IsMatch(CodeOnly("void f() { @try { g(); } @catch (NSException *e) {} }")), Is.True);
+            Assert.That(Forbidden.IsMatch(CodeOnly("@ try { }")), Is.True);
+            Assert.That(Forbidden.IsMatch(CodeOnly("@tr\\\ny { }")), Is.True);
             Assert.That(Forbidden.IsMatch(CodeOnly("@synchronized (self) { }")), Is.False, "@synchronized compiles with exceptions disabled");
             Assert.That(Forbidden.IsMatch(CodeOnly("// no @try here\n/* @throw */ NSLog(@\"@catch\");")), Is.False);
         }
