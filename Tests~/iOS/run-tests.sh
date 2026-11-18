@@ -43,11 +43,11 @@ case "$(uname -m)" in
 esac
 
 # The device slice cannot run here, but the bridge has device-only branches (the simulator slice is the
-# crash-reporter-less stub), so build both bridge files against it and link them, which also catches a symbol
+# crash-reporter-less stub), so build the bridge files (the early-launch file too, which only the device build compiles) against it and link them, which also catches a symbol
 # one file declares and the other does not define.
 DEVICE_SLICE="$FRAMEWORK/ios-arm64"
 if [ -d "$DEVICE_SLICE" ]; then
-    clang -x objective-c++ -fobjc-arc -std=c++17 -dynamiclib \
+    clang -x objective-c++ -fobjc-arc -fno-objc-exceptions -std=c++17 -dynamiclib \
         -target arm64-apple-ios15.0 \
         -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" \
         -F "$DEVICE_SLICE" \
@@ -55,6 +55,7 @@ if [ -d "$DEVICE_SLICE" ]; then
         -lc++ -ObjC \
         "$ROOT/Plugins/iOS/BugseeUnityCallbacks.mm" \
         "$ROOT/Plugins/iOS/BugseeUnityBridge.mm" \
+        "$ROOT/Plugins/iOS/BugseeEarlyLaunch.mm" \
         -o "$BUILD/bridge-device.dylib"
     echo "Device slice: bridge compiles and links"
 fi
@@ -64,13 +65,19 @@ SLICE="$FRAMEWORK/ios-arm64_x86_64-simulator"
 BINARY="$BUILD/bridge-tests"
 EXPORT_BINARY="$BUILD/bridge-export-tests"
 
+# The bridge is compiled with -fno-objc-exceptions, as the Xcode project Unity generates builds it
+# (GCC_ENABLE_OBJC_EXCEPTIONS = NO): an @try in the bridge is a compile error there and must be one here. The test
+# files keep exceptions enabled (they use @try), so the bridge goes into objects of its own.
+cc_sim() { # extra clang args...
+    clang -fobjc-arc -std=c++17 -target "$TARGET" -isysroot "$SDK" -mios-simulator-version-min=15.0 \
+        -DBUGSEE_UNITY_TESTS=1 -F "$SLICE" "$@"
+}
+for F in BugseeUnityCallbacks BugseeUnityBridge; do
+    cc_sim -x objective-c++ -fno-objc-exceptions -c "$ROOT/Plugins/iOS/$F.mm" -o "$BUILD/$F.o"
+done
+
 build_test() { # test source, output binary
-    clang -x objective-c++ -fobjc-arc -std=c++17 \
-        -target "$TARGET" \
-        -isysroot "$SDK" \
-        -mios-simulator-version-min=15.0 \
-        -DBUGSEE_UNITY_TESTS=1 \
-        -F "$SLICE" \
+    cc_sim \
         -framework Bugsee \
         -framework Foundation \
         -framework UIKit \
@@ -82,9 +89,9 @@ build_test() { # test source, output binary
         -framework CFNetwork \
         -lc++ \
         -ObjC \
-        "$ROOT/Plugins/iOS/BugseeUnityCallbacks.mm" \
-        "$ROOT/Plugins/iOS/BugseeUnityBridge.mm" \
-        "$1" \
+        "$BUILD/BugseeUnityCallbacks.o" \
+        "$BUILD/BugseeUnityBridge.o" \
+        -x objective-c++ "$1" \
         -o "$2"
 }
 
