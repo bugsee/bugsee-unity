@@ -31,6 +31,8 @@ namespace Bugsee.WrapperPolicy
         public const string SwiftFileName = "CrashReport.swift";
         public const string InfoPlistFileName = "Info.plist";
         public const string EntitlementsFileName = IosCrashExtensionPolicy.TargetName + ".entitlements";
+        /// <summary>The Run Script phase of the symbol upload, which has to stay after every embed phase.</summary>
+        public const string UploadPhaseName = "Bugsee Upload Symbols";
         public const string EmbedPhaseName = "Embed ExtensionKit Extensions";
         const string Guid = "[0-9A-F]{24}";
         const RegexOptions Options = RegexOptions.CultureInvariant;
@@ -88,7 +90,12 @@ namespace Bugsee.WrapperPolicy
         {
             error = null;
             if (pbxproj == null || spec == null) { error = "no project text or spec"; return null; }
-            try { return Has(pbxproj) ? Refresh(pbxproj, spec) : Build(pbxproj, spec); }
+            try
+            {
+                string text = Has(pbxproj) ? Refresh(pbxproj, spec) : Build(pbxproj, spec);
+                // The symbol upload phase must come after the embed phase (an earlier export may have it before): see MoveToEnd.
+                return XcodeShellScriptPhase.MoveToEnd(text, UploadPhaseName);
+            }
             catch (InvalidOperationException e) { error = e.Message; return null; }
         }
 

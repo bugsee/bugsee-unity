@@ -568,7 +568,7 @@ namespace Bugsee.Editor
             project.ReadFromFile(projectPath);
             var target = project.GetUnityMainTargetGuid();
 
-            const string phaseName = "Bugsee Upload Symbols";
+            const string phaseName = XcodeCrashExtensionProject.UploadPhaseName;
             // Write a dedicated shell script and add a run-script phase.
 
             var scriptsDir = Path.Combine(pathToBuiltProject, "BugseeScripts");
@@ -611,7 +611,10 @@ namespace Bugsee.Editor
             project.WriteToFile(projectPath);
             // Declared inputs make Xcode run the phase after the tasks that write the app's and UnityFramework's dSYMs: a
             // phase without inputs may run beside them and find the dSYM missing or half written.
-            File.WriteAllText(projectPath, XcodeShellScriptPhase.SetInputs(File.ReadAllText(projectPath), phaseName, DsymInputPaths),
+            // It goes last in the target: after the embed phases (an "Append" export may already have the Crash Report
+            // Extension's), else Xcode finds a dependency cycle (see XcodeShellScriptPhase.MoveToEnd).
+            File.WriteAllText(projectPath,
+                XcodeShellScriptPhase.MoveToEnd(XcodeShellScriptPhase.SetInputs(File.ReadAllText(projectPath), phaseName, DsymInputPaths), phaseName),
                 new UTF8Encoding(false));
             Debug.Log(
                 "[Bugsee] Injected Xcode Run Script 'Bugsee Upload Symbols' for archive-time " +
