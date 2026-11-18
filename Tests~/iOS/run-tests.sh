@@ -67,15 +67,16 @@ EXPORT_BINARY="$BUILD/bridge-export-tests"
 # The bridge is compiled with -fno-objc-exceptions, as the Xcode project Unity generates builds it
 # (GCC_ENABLE_OBJC_EXCEPTIONS = NO): an @try in the bridge is a compile error there and must be one here. The test
 # files keep exceptions enabled (they use @try), so the bridge goes into objects of its own.
-COMMON="-fobjc-arc -std=c++17 -target $TARGET -isysroot $SDK -mios-simulator-version-min=15.0 -DBUGSEE_UNITY_TESTS=1 -F $SLICE"
+cc_sim() { # extra clang args...
+    clang -fobjc-arc -std=c++17 -target "$TARGET" -isysroot "$SDK" -mios-simulator-version-min=15.0 \
+        -DBUGSEE_UNITY_TESTS=1 -F "$SLICE" "$@"
+}
 for F in BugseeUnityCallbacks BugseeUnityBridge; do
-    # shellcheck disable=SC2086
-    clang $COMMON -x objective-c++ -fno-objc-exceptions -c "$ROOT/Plugins/iOS/$F.mm" -o "$BUILD/$F.o"
+    cc_sim -x objective-c++ -fno-objc-exceptions -c "$ROOT/Plugins/iOS/$F.mm" -o "$BUILD/$F.o"
 done
 
 build_test() { # test source, output binary
-    # shellcheck disable=SC2086
-    clang $COMMON \
+    cc_sim \
         -framework Bugsee \
         -framework Foundation \
         -framework UIKit \

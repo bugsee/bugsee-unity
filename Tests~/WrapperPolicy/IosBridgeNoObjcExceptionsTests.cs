@@ -30,12 +30,13 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         /// <summary>Source with comments and string literals blanked, so a comment explaining the rule does not trip it.</summary>
-        internal static string CodeOnly(string source)
-        {
-            source = Regex.Replace(source, @"/\*.*?\*/", " ", RegexOptions.Singleline);
-            source = Regex.Replace(source, "@?\"(?:[^\"\\\\\\n]|\\\\.)*\"", "\"\"");
-            return Regex.Replace(source, @"//[^\n]*", " ");
-        }
+        // One pass, so a "/*" inside a string or a "//" comment cannot hide code; newlines are kept so line numbers stay right.
+        static readonly Regex NonCode = new Regex(
+            "/\\*.*?\\*/|//[^\\n]*|@?\"(?:[^\"\\\\\\n]|\\\\.)*\"|'(?:[^'\\\\\\n]|\\\\.)*'",
+            RegexOptions.Singleline | RegexOptions.Compiled);
+
+        internal static string CodeOnly(string source) =>
+            NonCode.Replace(source, m => new string('\n', m.Value.Count(c => c == '\n')));
 
         static string[] BridgeSources() =>
             Directory.GetFiles(Path.Combine(RepoRoot(), "Plugins", "iOS"), "*.*", SearchOption.AllDirectories)
