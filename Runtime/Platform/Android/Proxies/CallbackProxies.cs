@@ -290,26 +290,43 @@ namespace Bugsee.Platform.Android
         // the scope attaches that thread to the JVM, and the call and the release of the callback's global reference both sit inside it.
         static void Reply(AndroidJavaObject callback, string json)
         {
+            AndroidJniScope scope;
             try
             {
-                using (AndroidJniScope.Enter())
-                {
-                    try
-                    {
-                        if (json != null)
-                        {
-                            callback.Call("onResult", json);
-                        }
-                        else
-                        {
-                            using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
-                                wrapper.CallStatic("replyNoData", callback);
-                        }
-                    }
-                    finally { callback.Dispose(); }
-                }
+                scope = AndroidJniScope.Enter();
             }
+            catch (Exception ex)
+            {
+                // The thread could not be attached: nothing may be called from it. Unity's main thread is attached, so it answers "none"
+                // (the SDK is not left waiting its whole budget) and releases the callback's global reference.
+                Debug.LogWarning("[Bugsee] The managed view hierarchy reply could not attach its thread: " + ex.Message);
+                MainThreadDispatcher.Post(() => ReplyNoData(callback));
+                return;
+            }
+
+            using (scope)
+            {
+                try
+                {
+                    if (json != null) callback.Call("onResult", json);
+                    else CallReplyNoData(callback);
+                }
+                catch (Exception ex) { Debug.LogException(ex); }
+                finally { callback.Dispose(); }
+            }
+        }
+
+        static void ReplyNoData(AndroidJavaObject callback)
+        {
+            try { CallReplyNoData(callback); }
             catch (Exception ex) { Debug.LogException(ex); }
+            finally { callback.Dispose(); }
+        }
+
+        static void CallReplyNoData(AndroidJavaObject callback)
+        {
+            using (var wrapper = new AndroidJavaClass("com.bugsee.unity.UnityWrapper"))
+                wrapper.CallStatic("replyNoData", callback);
         }
     }
 
