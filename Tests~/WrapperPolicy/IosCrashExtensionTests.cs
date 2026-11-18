@@ -217,7 +217,7 @@ namespace Bugsee.WrapperPolicy.Tests
         const string Pkg = "D6A94630BE6E4397329CD968";
 
         // A trimmed Unity 2022.3 iOS project after the SPM step: app + UnityFramework + Tests targets, remote package.
-        const string Unity =
+        internal const string Unity =
 "// !$*UTF8*$!\n{\n\tarchiveVersion = 1;\n\tclasses = {\n\t};\n\tobjectVersion = 46;\n\tobjects = {\n\n" +
 "/* Begin PBXBuildFile section */\n" +
 "\t\t187D458690E021C183A18696 /* Bugsee in Frameworks */ = {isa = PBXBuildFile; productRef = DF274CE6B57BB2973826E5D5 /* Bugsee */; };\n" +
