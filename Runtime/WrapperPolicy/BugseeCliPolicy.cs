@@ -393,8 +393,8 @@ namespace Bugsee.WrapperPolicy
         /// The CLI for a step that needs a newer release (<paramref name="stepMin"/>) than the floor the shared lookup applies
         /// (<see cref="MinVersion"/>), given what that lookup (<paramref name="general"/>) found. The general result stands when it
         /// is already new enough, when its version is unknown (it is tried, as for every upload), when it is the BUGSEE_CLI_PATH
-        /// binary (named by the user, so it is used and the step warns about it) and when nothing was found (a second attempt
-        /// would only repeat the failed download). Otherwise the lookup runs again with the higher floor: an installed CLI that is
+        /// binary (named by the user, so it is used and the step warns about it) and when nothing was found for a release that already
+        /// meets the minimum (a second attempt would only repeat the failed download). Otherwise the lookup runs again with the higher floor: an installed CLI that is
         /// too old is passed over and the package's cache or the pinned release (never older than <paramref name="stepMin"/>) is
         /// used, and the result is not found when that is not possible (download off or failed), so the caller can warn about
         /// <paramref name="general"/>.
@@ -406,7 +406,16 @@ namespace Bugsee.WrapperPolicy
                 general = Resolve(s, probe);
             }
 
-            if (!general.Found || general.Source == CliSource.Explicit || general.Version == null || VersionAtLeast(general.Version, stepMin))
+            if (!general.Found)
+            {
+                // Nothing to improve on, and a second attempt at the same release would only repeat a failed download. A pin below
+                // the step's minimum is another release though (and may be cached): that one is looked for below.
+                if (VersionAtLeast(s.Version, stepMin))
+                {
+                    return general;
+                }
+            }
+            else if (general.Source == CliSource.Explicit || general.Version == null || VersionAtLeast(general.Version, stepMin))
             {
                 return general;
             }

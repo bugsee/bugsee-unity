@@ -352,6 +352,24 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void A_cached_step_release_is_found_when_the_old_pin_found_nothing_and_downloads_are_off()
+        {
+            // BUGSEE_CLI_VERSION=0.8.2 with downloads off: the shared lookup looks for a cached 0.8.2 only, the step may use a cached 0.9.0.
+            var host = new Host();
+            host.Files["/Users/dev/Library/Caches/Bugsee/cli/0.9.0/aarch64-apple-darwin/bugsee-cli"] = "0.9.0";
+            var s = Mac(download: false);
+            s.Version = "0.8.2";
+            var general = BugseeCliPolicy.Resolve(s, host.Probe());
+            Assert.That(general.Found, Is.False);
+
+            var r = BugseeCliPolicy.ResolveAtLeast(s, host.Probe(), general, StepMin);
+
+            Assert.That(r.Source, Is.EqualTo(CliSource.Cache));
+            Assert.That(r.Version, Is.EqualTo("0.9.0"));
+            Assert.That(host.Downloads, Is.Empty);
+        }
+
+        [Test]
         public void A_pinned_release_below_the_step_minimum_is_not_downloaded_for_the_step()
         {
             // BUGSEE_CLI_VERSION may pin 0.8.2 (it passes the shared floor): the step still needs 0.9.0.
