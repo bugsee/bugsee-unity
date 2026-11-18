@@ -66,7 +66,7 @@ namespace Bugsee.Contracts.Options
         public const string CaptureBreadcrumbsExtras = "com.bugsee.option.capture.breadcrumbs.extras";
         /// <summary>iOS only: a <see cref="CrashHandlerType"/>, sent as its int value.</summary>
         public const string CaptureCrashHandlerType = "com.bugsee.option.capture.crash-handler-type";
-        /// <summary>iOS only: a <see cref="CrashSignals"/> bit set, sent as its int value.</summary>
+        /// <summary>A <see cref="CrashSignals"/> bit set, sent as its int value, to both platforms (Android: the <c>bugsee-android-ndk</c> extension reads it).</summary>
         public const string CaptureCrashSignals = "com.bugsee.option.capture.crash-signals";
         /// <summary>iOS only: bool.</summary>
         public const string CaptureOnDeviceSymbolication = "com.bugsee.option.capture.on-device-symbolication";

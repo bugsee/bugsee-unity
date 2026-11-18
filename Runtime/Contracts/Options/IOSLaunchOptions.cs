@@ -27,18 +27,6 @@ namespace Bugsee.Contracts.Options
             set => Set(Options.CaptureCrashHandlerType, (int)value);
         }
 
-        /// <summary>
-        /// The fatal signals the crash reporter intercepts. Default when omitted: <c>CrashSignals.Default</c>
-        /// (every signal; the SDK drops <c>Segv</c>/<c>Bus</c> only for its Xamarin/.NET wrappers, not for Unity). Keep
-        /// <c>Segv</c> and <c>Bus</c>: Unity's IL2CPP raises <c>NullReferenceException</c> with explicit null checks, not
-        /// from a signal, so managed null references never reach the crash reporter, while a real fault would go unreported
-        /// without them.
-        /// </summary>
-        public CrashSignals CrashSignals
-        {
-            set => Set(Options.CaptureCrashSignals, (int)value);
-        }
-
         /// <summary>Symbolicate system frames on the device. Default when omitted: false.</summary>
         public bool CaptureOnDeviceSymbolication
         {

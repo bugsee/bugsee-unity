@@ -68,9 +68,12 @@ namespace Bugsee.WrapperPolicy.Tests
         public void Every_typed_key_is_gated_off_Android_and_kept_for_iOS()
         {
             var d = Typed();
-            Assert.That(OptionPlatformGate.ForAndroid(d), Is.Empty, "an iOS-only typed option reached the Android launch");
+            // CrashSignals is the one typed option both SDKs know (Android: NDK extension), so it is kept for Android.
+            Assert.That(OptionPlatformGate.ForAndroid(d).Keys, Is.EquivalentTo(new[] { Options.CaptureCrashSignals }), "an iOS-only typed option reached the Android launch");
             Assert.That(OptionPlatformGate.ForIos(d).Count, Is.EqualTo(d.Count));
-            Assert.That(OptionPlatformGate.IosOnly, Is.SupersetOf(d.Keys));
+            var iosOnly = new System.Collections.Generic.List<string>(d.Keys);
+            iosOnly.Remove(Options.CaptureCrashSignals);
+            Assert.That(OptionPlatformGate.IosOnly, Is.SupersetOf(iosOnly));
         }
 
         [Test]
@@ -100,7 +103,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(d[Options.CaptureCrashSignals], Is.EqualTo(63));
             Assert.That(d[Options.DataEncryption], Is.EqualTo(2));
             Assert.That(d[Options.ReportingUIStyle], Is.EqualTo(0));
-            Assert.That(OptionPlatformGate.ForAndroid(d), Is.Empty);
+            Assert.That(OptionPlatformGate.ForAndroid(d).Keys, Is.EquivalentTo(new[] { Options.CaptureCrashSignals }));
         }
     }
 }
