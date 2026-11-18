@@ -105,8 +105,12 @@ namespace Bugsee.Editor
                     if (step.Found)
                     {
                         result = step;
-                        Debug.Log("[Bugsee] The bugsee-cli " + general.Version + " (" + Describe(general.Source) + ": " + general.Path + ") is older than " + minVersion +
-                                  ", which this step needs: using bugsee-cli " + (step.Version ?? "(version unknown)") + " (" + Describe(step.Source) + "): " + step.Path);
+                        string taken = "using bugsee-cli " + (step.Version ?? "(version unknown)") + " (" + Describe(step.Source) + "): " + step.Path;
+                        Debug.Log(general.Found
+                            ? "[Bugsee] The bugsee-cli " + general.Version + " (" + Describe(general.Source) + ": " + general.Path + ") is older than " + minVersion +
+                              ", which this step needs: " + taken
+                            // The other uploads found none (an older pin of BUGSEE_CLI_VERSION was not available); this step's release is.
+                            : "[Bugsee] No bugsee-cli was found for the other uploads; this step needs " + minVersion + " or newer and is " + taken);
                     }
                     else
                     {
