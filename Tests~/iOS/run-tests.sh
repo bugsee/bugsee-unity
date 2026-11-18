@@ -43,7 +43,7 @@ case "$(uname -m)" in
 esac
 
 # The device slice cannot run here, but the bridge has device-only branches (the simulator slice is the
-# crash-reporter-less stub), so build both bridge files against it and link them, which also catches a symbol
+# crash-reporter-less stub), so build the bridge files (the early-launch file too, which only the device build compiles) against it and link them, which also catches a symbol
 # one file declares and the other does not define.
 DEVICE_SLICE="$FRAMEWORK/ios-arm64"
 if [ -d "$DEVICE_SLICE" ]; then
@@ -55,6 +55,7 @@ if [ -d "$DEVICE_SLICE" ]; then
         -lc++ -ObjC \
         "$ROOT/Plugins/iOS/BugseeUnityCallbacks.mm" \
         "$ROOT/Plugins/iOS/BugseeUnityBridge.mm" \
+        "$ROOT/Plugins/iOS/BugseeEarlyLaunch.mm" \
         -o "$BUILD/bridge-device.dylib"
     echo "Device slice: bridge compiles and links"
 fi
