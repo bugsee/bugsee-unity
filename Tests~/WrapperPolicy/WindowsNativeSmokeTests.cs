@@ -92,12 +92,13 @@ namespace Bugsee.WrapperPolicy.Tests
             },
         };
 
-        static CliSettings RealSettings(string path) => new CliSettings
+        // Hermetic: a CLI the user has installed under their own home or %LOCALAPPDATA% must not change what a test resolves.
+        CliSettings RealSettings(string path) => new CliSettings
         {
             IsWindows = true,
             PathEnv = path,
-            Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            LocalAppData = Environment.GetEnvironmentVariable("LOCALAPPDATA"),
+            Home = _root,
+            LocalAppData = Path.Combine(_root, "Local"),
             Triple = BugseeCliPolicy.HostTriple("windows", "X64"),
         };
 

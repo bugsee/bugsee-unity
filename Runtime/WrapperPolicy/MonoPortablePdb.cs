@@ -77,7 +77,12 @@ namespace Bugsee.WrapperPolicy
                    "--to bmf --shipped-dir <...ManagedStripped> --output <dir> makes the same BMF files locally, to look at). The build continues.";
         }
 
-        /// <summary>Why the installed CLI cannot do the conversion and upload, or null when it can (or its version is unknown: then it is tried).</summary>
+        /// <summary>
+        /// Why the CLI the step ended up with cannot do the conversion and upload, or null when it can (or its version is unknown:
+        /// then it is tried). The step first passes over an older installed CLI for the package's cached or downloaded pinned
+        /// release (<see cref="BugseeCliPolicy.ResolveAtLeast"/>), so this is reached only with the BUGSEE_CLI_PATH binary or when
+        /// that release could not be had (BUGSEE_NO_CLI_DOWNLOAD, a failed download, no release for the host).
+        /// </summary>
         public static string CliTooOld(string cliVersion, string cliPath = null)
         {
             if (string.IsNullOrEmpty(cliVersion) || BugseeCliPolicy.VersionAtLeast(cliVersion, MinCliVersion))
@@ -86,8 +91,9 @@ namespace Bugsee.WrapperPolicy
             }
 
             return "bugsee-cli " + cliVersion + (string.IsNullOrEmpty(cliPath) ? "" : " (" + cliPath + ")") + " cannot convert and upload the Mono mapping (--type portable-pdb needs " + MinCliVersion +
-                   " or newer): managed frames of this Release Mono build stay IL offsets. Replace it, or point " +
-                   "BUGSEE_CLI_PATH at " + MinCliVersion + "+ (the package downloads its pinned release only when it finds no CLI of " + BugseeCliPolicy.MinVersion + " or newer).";
+                   " or newer): managed frames of this Release Mono build stay IL offsets. The package uses its own " + BugseeCliPolicy.DefaultVersion + " instead of an older installed CLI " +
+                   "unless BUGSEE_CLI_PATH names this one or the download is not possible (BUGSEE_NO_CLI_DOWNLOAD is set, an earlier download failed or no release exists for this host). " +
+                   "Point BUGSEE_CLI_PATH at " + MinCliVersion + "+ or allow the download.";
         }
 
         /// <summary>Whether the text of a compiler response file (<c>Assembly-CSharp.rsp</c>) defines <c>UNITY_ANDROID</c> and not <c>UNITY_IOS</c>.</summary>

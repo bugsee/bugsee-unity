@@ -43,6 +43,9 @@ namespace Bugsee.WrapperPolicy
         public string DownloadDisabledNote = "Downloading bugsee-cli is disabled (BUGSEE_NO_CLI_DOWNLOAD is set).";
         /// <summary>Directories a download is cached under, in order of preference.</summary>
         public IList<string> CacheDirectories = new List<string>();
+
+        /// <summary>A copy to adjust for one lookup (the cache directory list is shared, not copied: nothing writes to it).</summary>
+        public CliSettings Clone() => (CliSettings)MemberwiseClone();
     }
 
     /// <summary>The file system, the process runner and the downloader, injected so the policy is testable.</summary>
@@ -385,6 +388,38 @@ namespace Bugsee.WrapperPolicy
         /// project did not opt out with BUGSEE_NO_CLI_DOWNLOAD.
         /// </summary>
         public static bool DownloadAllowed(bool tokenSet, bool optedOut) => tokenSet && !optedOut;
+
+        /// <summary>
+        /// The CLI for a step that needs a newer release (<paramref name="stepMin"/>) than the floor the shared lookup applies
+        /// (<see cref="MinVersion"/>), given what that lookup (<paramref name="general"/>) found. The general result stands when it
+        /// is already new enough, when its version is unknown (it is tried, as for every upload), when it is the BUGSEE_CLI_PATH
+        /// binary (named by the user, so it is used and the step warns about it) and when nothing was found (a second attempt
+        /// would only repeat the failed download). Otherwise the lookup runs again with the higher floor: an installed CLI that is
+        /// too old is passed over and the package's cache or the pinned release (never older than <paramref name="stepMin"/>) is
+        /// used, and the result is not found when that is not possible (download off or failed), so the caller can warn about
+        /// <paramref name="general"/>.
+        /// </summary>
+        public static CliResolution ResolveAtLeast(CliSettings s, CliProbe probe, CliResolution general, string stepMin)
+        {
+            if (general == null)
+            {
+                general = Resolve(s, probe);
+            }
+
+            if (!general.Found || general.Source == CliSource.Explicit || general.Version == null || VersionAtLeast(general.Version, stepMin))
+            {
+                return general;
+            }
+
+            CliSettings step = s.Clone();
+            step.MinVersion = stepMin;
+            if (!VersionAtLeast(step.Version, stepMin))
+            {
+                step.Version = DefaultVersion;
+            }
+
+            return Resolve(step, probe);
+        }
 
         public static CliResolution Resolve(CliSettings s, CliProbe probe)
         {
