@@ -41,7 +41,8 @@ extern "C" {
 
 static NSString *const kBugseeEarlyKey = @"BugseeEarlyLaunch";
 
-// Unity builds with Objective-C exceptions disabled, so no @try and no @synchronized: a plain lock.
+// Unity builds with Objective-C exceptions disabled, so no @try here (a compile error; a policy test enforces it for every
+// Plugins/iOS file). This file uses a plain lock; @synchronized itself compiles in that mode and the other bridge files use it.
 static NSLock *EarlyLock(void)
 {
     static NSLock *lock;
