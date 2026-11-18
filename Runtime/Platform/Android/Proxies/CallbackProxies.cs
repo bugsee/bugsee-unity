@@ -300,7 +300,7 @@ namespace Bugsee.Platform.Android
                 // The thread could not be attached: nothing may be called from it. Unity's main thread is attached, so it answers "none"
                 // (the SDK is not left waiting its whole budget) and releases the callback's global reference.
                 Debug.LogWarning("[Bugsee] The managed view hierarchy reply could not attach its thread: " + ex.Message);
-                MainThreadDispatcher.Post(() => ReplyNoData(callback));
+                MainThreadDispatcher.PostIfAlive(() => ReplyNoData(callback)); // from a pool thread: never creates the dispatcher
                 return;
             }
 

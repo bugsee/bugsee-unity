@@ -229,7 +229,7 @@ namespace Bugsee.Internal
 
         readonly ManagedViewSnapshot _snapshot = new ManagedViewSnapshot();
         readonly ManagedViewBudget _budget;
-        readonly int _width, _height;
+        int _width, _height; // refreshed each slice (a rotation or a resolution change between slices)
         readonly Camera _camera;
         readonly MainThreadDispatcher _host;
         readonly List<Scene> _scenes = new List<Scene>();
@@ -288,6 +288,8 @@ namespace Bugsee.Internal
         {
             if (_finished) return true;
             ManagedViewHierarchy.CollectSecureRects(_snapshot);
+            _width = Screen.width;
+            _height = Screen.height;
             _projections.Clear(); // a camera that moved since the last slice is read again, not projected with old matrices
             do
             {
