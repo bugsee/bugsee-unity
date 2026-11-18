@@ -133,6 +133,21 @@ namespace Bugsee.Contracts.Options
         }
 
         /// <summary>
+        /// The fatal signals the native crash reporter intercepts, on both platforms. Default when omitted:
+        /// <c>CrashSignals.Default</c> (every signal; the iOS SDK drops <c>Segv</c>/<c>Bus</c> only for its Xamarin/.NET
+        /// wrappers, not for Unity, and the Android SDK never drops any). Keep <c>Segv</c> and <c>Bus</c>: Unity's IL2CPP raises
+        /// <c>NullReferenceException</c> with explicit null checks, not from a signal, so managed null references never reach the
+        /// crash reporter, while a real fault would go unreported without them. On Android the key belongs to the
+        /// <c>bugsee-android-ndk</c> extension and is ignored without it. See <see cref="CrashSignals"/> for the per-platform
+        /// differences in how a value is read. Android used to drop this key: a mask meant only for iOS (for example
+        /// <c>CrashSignals.None</c>) now also applies there, so leave it out of the Android options to keep every signal.
+        /// </summary>
+        public CrashSignals CrashSignals
+        {
+            set => Set(Options.CaptureCrashSignals, (int)value);
+        }
+
+        /// <summary>
         /// Unity managed auto-capture (ExceptionPipeline). Independent of
         /// <see cref="DetectAndReportCrash"/>. Omit for default (enabled).
         /// </summary>

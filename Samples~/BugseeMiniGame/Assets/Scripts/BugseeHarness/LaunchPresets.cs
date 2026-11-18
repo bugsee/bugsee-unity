@@ -208,7 +208,7 @@ namespace Bugsee.Sample
                 .Set(Options.PerformanceUploadMode, "realtime")
                 .Set(Options.MaxDataSize, 25)
                 .Set(Options.MaxPendingReports, 12)
-                // iOS-only keys through the builder: Android's launch drops them (OptionPlatformGate).
+                // Crash signals go to both platforms; the reporting UI style is iOS-only (Android's launch drops it, OptionPlatformGate).
                 .SetCrashSignals(CrashSignals.Abrt | CrashSignals.Segv | CrashSignals.Bus | CrashSignals.Trap)
                 .SetReportingUIStyle(ReportingUIStyle.BasedOnStatusBar)
                 .Set(Options.CaptureVideoMaxFrameRate, 20)

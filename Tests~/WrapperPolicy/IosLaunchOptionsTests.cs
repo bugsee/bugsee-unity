@@ -8,7 +8,8 @@ namespace Bugsee.WrapperPolicy.Tests
 {
     /// <summary>
     /// The iOS-only typed launch options (#97): each property writes its key with the wire type the iOS SDK reads
-    /// (bool, int, string; enums as their SDK int), and the platform gate keeps them out of an Android launch.
+    /// (bool, int, string; enums as their SDK int), and the platform gate keeps them out of an Android launch, except
+    /// <c>CrashSignals</c>, which both SDKs know.
     /// </summary>
     public class IosLaunchOptionsTests
     {
@@ -65,12 +66,22 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void Every_typed_key_is_gated_off_Android_and_kept_for_iOS()
+        public void Every_typed_key_but_crash_signals_is_gated_off_Android_and_all_are_kept_for_iOS()
         {
             var d = Typed();
-            Assert.That(OptionPlatformGate.ForAndroid(d), Is.Empty, "an iOS-only typed option reached the Android launch");
+            // CrashSignals is the one typed option both SDKs know (Android: NDK extension), so it is kept for Android.
+            Assert.That(OptionPlatformGate.ForAndroid(d).Keys, Is.EquivalentTo(new[] { Options.CaptureCrashSignals }), "an iOS-only typed option reached the Android launch");
             Assert.That(OptionPlatformGate.ForIos(d).Count, Is.EqualTo(d.Count));
-            Assert.That(OptionPlatformGate.IosOnly, Is.SupersetOf(d.Keys));
+            var iosOnly = new System.Collections.Generic.List<string>(d.Keys);
+            iosOnly.Remove(Options.CaptureCrashSignals);
+            Assert.That(OptionPlatformGate.IosOnly, Is.SupersetOf(iosOnly));
+        }
+
+        [Test]
+        public void Crash_signals_set_on_AndroidLaunchOptions_reach_the_android_launch_as_an_int()
+        {
+            var d = new AndroidLaunchOptions { CrashSignals = CrashSignals.Segv | CrashSignals.Bus }.ToDictionary();
+            Assert.That(OptionPlatformGate.ForAndroid(d)[Options.CaptureCrashSignals], Is.EqualTo(6).And.TypeOf<int>());
         }
 
         [Test]
@@ -100,7 +111,7 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(d[Options.CaptureCrashSignals], Is.EqualTo(63));
             Assert.That(d[Options.DataEncryption], Is.EqualTo(2));
             Assert.That(d[Options.ReportingUIStyle], Is.EqualTo(0));
-            Assert.That(OptionPlatformGate.ForAndroid(d), Is.Empty);
+            Assert.That(OptionPlatformGate.ForAndroid(d).Keys, Is.EquivalentTo(new[] { Options.CaptureCrashSignals }));
         }
     }
 }

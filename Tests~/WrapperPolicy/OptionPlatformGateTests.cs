@@ -50,7 +50,7 @@ namespace Bugsee.WrapperPolicy.Tests
             nameof(Options.Duration), nameof(Options.WifiOnlyUpload), nameof(Options.MaxDataSize), nameof(Options.MaxPendingReports), nameof(Options.MaxPendingReportAge), nameof(Options.NotifyFlushDelay), nameof(Options.DetectAndReportExit),
             nameof(Options.DetectAndReportHang), nameof(Options.DetectAndReportHangFairLevel),
             nameof(Options.DetectAndReportHangMediumLevel), nameof(Options.DetectAndReportHangSevereLevel),
-            nameof(Options.DetectAndReportCrash), nameof(Options.DetectAndReportMainThreadMisuse),
+            nameof(Options.DetectAndReportCrash), nameof(Options.CaptureCrashSignals), nameof(Options.DetectAndReportMainThreadMisuse),
             nameof(Options.DetectAndReportEarlyCrash), nameof(Options.DetectAndReportHttpErrors),
             nameof(Options.DetectAndReportAnomaly), nameof(Options.DetectFrustration), nameof(Options.CaptureLogs),
             nameof(Options.CaptureLogsLevel), nameof(Options.CaptureScreenshot),
@@ -259,6 +259,18 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(android.ContainsKey(Options.PerformanceUploadMode), Is.True);
             Assert.That(options.ContainsKey(Options.CaptureCrashHandlerType), Is.True, "input must not be mutated");
             Assert.That(OptionPlatformGate.IosOnly, Does.Contain(Options.CaptureCrashHandlerType));
+        }
+
+        // capture.crash-signals is known to both SDKs (Android: bugsee-android-ndk), with the same bit values: neither launch drops it.
+        [Test]
+        public void Crash_signals_reach_both_platforms_as_the_int_sent()
+        {
+            var options = new Dictionary<string, object> { [Options.CaptureCrashSignals] = (int)(CrashSignals.Abrt | CrashSignals.Trap) };
+
+            Assert.That(OptionPlatformGate.ForAndroid(options)[Options.CaptureCrashSignals], Is.EqualTo(33).And.TypeOf<int>());
+            Assert.That(OptionPlatformGate.ForIos(options)[Options.CaptureCrashSignals], Is.EqualTo(33).And.TypeOf<int>());
+            Assert.That(OptionPlatformGate.IosOnly, Does.Not.Contain(Options.CaptureCrashSignals));
+            Assert.That(OptionPlatformGate.AndroidOnly, Does.Not.Contain(Options.CaptureCrashSignals));
         }
 
         [Test]

@@ -18,7 +18,6 @@ namespace Bugsee.WrapperPolicy
         static readonly HashSet<string> IosOnlyKeys = new HashSet<string>
         {
             Options.CaptureCrashHandlerType,
-            Options.CaptureCrashSignals,
             Options.CaptureOnDeviceSymbolication,
             Options.DetectCrashSwiftAsyncStackTraces,
             Options.DetectCrashFillEmptyExceptionStacks,

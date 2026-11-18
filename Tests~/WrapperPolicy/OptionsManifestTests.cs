@@ -474,20 +474,9 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(Android.Options.ContainsKey(Bugsee.Contracts.Options.Options.CaptureCrashHandlerType), Is.False,
                 "Android now has capture.crash-handler-type: it is no longer iOS-only, so the platform gate must stop dropping it");
             var iosOnly = new HashSet<string>(OptionPlatformGate.IosOnly);
-            // Keys the Android SDK has grown but the wrapper still sends to iOS only, on purpose: the key is in the Android manifest
-            // (bugsee-android-ndk module, Android 7.5.0), but nothing says its int bit set means the iOS BugseeCrashSignals values,
-            // and the wrapper's CrashSignals enum documents the iOS ones. Exposing it on Android needs that checked first.
-            var androidHasButNotSent = new HashSet<string> { Bugsee.Contracts.Options.Options.CaptureCrashSignals };
             foreach (var key in iosOnly)
             {
                 Assert.That(Ios.Options.ContainsKey(key), Is.True, key + " is gated as iOS-only but is not a key of the iOS manifest");
-                if (androidHasButNotSent.Contains(key))
-                {
-                    Assert.That(Android.Options.ContainsKey(key), Is.True,
-                        key + " is listed as a key Android has but the wrapper does not send, yet Android's manifest no longer has it: remove it from androidHasButNotSent");
-                    continue;
-                }
-
                 Assert.That(Android.Options.ContainsKey(key), Is.False,
                     "Android now has " + key + ": it is no longer iOS-only, so the platform gate must stop dropping it");
             }
@@ -496,6 +485,37 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(extra, Is.Empty,
                 "These constants are in the iOS manifest but not the Android one (Android " + Android.SdkVersion + " dropped or never had them), so they are iOS-only now: " +
                 string.Join(", ", extra) + ". They must be dropped from the Android launch (OptionPlatformGate.ForAndroid / IosOnly): update the gate and this test together.");
+        }
+
+        // capture.crash-signals is sent to both SDKs, so the CrashSignals enum must mean the same bits on both. iOS: BugseeCrashSignals
+        // (7.1.0 header). Android: the constants of com.bugsee.library.contracts.options.CrashSignals in the bugsee-android-ndk
+        // 7.5.0/7.6.0 AAR (javap -constants: NONE 0, ABRT 1, SEGV 2, BUS 4, ILL 8, FPE 16, TRAP 32, ALL 63, DEFAULT 128). The Android
+        // class is not in the vendored manifest, so this table is the recorded evidence: re-check it against the AAR on an Android bump.
+        [Test]
+        public void Crash_signals_enum_matches_the_android_and_ios_bit_sets()
+        {
+            var recorded = new Dictionary<string, int>
+            {
+                ["None"] = 0, ["Abrt"] = 1, ["Segv"] = 2, ["Bus"] = 4, ["Ill"] = 8, ["Fpe"] = 16, ["Trap"] = 32, ["All"] = 63, ["Default"] = 128,
+            };
+            var actual = Enum.GetNames(typeof(CrashSignals)).ToDictionary(n => n, n => (int)Enum.Parse(typeof(CrashSignals), n));
+            Assert.That(actual, Is.EquivalentTo(recorded));
+            var key = Bugsee.Contracts.Options.Options.CaptureCrashSignals;
+            foreach (var m in new[] { Android, Ios })
+            {
+                Assert.That(m.Options[key].Type, Is.EqualTo("int"), m.Sdk + " type");
+                Assert.That(m.Options[key].DefaultText, Is.EqualTo("128"), m.Sdk + " default must be CrashSignals.Default");
+            }
+            // The property documents that default (BugseeLaunchOptions.CrashSignals, shared by both platforms).
+            var doc = File.ReadAllText(RepoFile("Runtime/Contracts/Options/BugseeLaunchOptions.cs"));
+            var decl = Regex.Match(doc, @"public CrashSignals CrashSignals\s*[\r\n]");
+            Assert.That(decl.Success, Is.True, "BugseeLaunchOptions has no CrashSignals property");
+            var head = doc.Substring(0, decl.Index);
+            Assert.That(head.Substring(head.LastIndexOf("<summary>", StringComparison.Ordinal)),
+                Does.Match(@"Default when omitted:(?:\s|///)*<c>CrashSignals\.Default</c>"));
+            // A CrashSignals value given to SetCustomOption crosses to Android as its int, as on iOS.
+            Assert.That(File.ReadAllText(RepoFile("Runtime/Platform/Android/AndroidOptionsMapper.cs")), Does.Contain("value is CrashSignals"));
+            Assert.That((int)CrashSignals.Default, Is.EqualTo(128));
         }
 
         // The documented "Default when omitted" of each bool, int and enum property of IOSLaunchOptions is the iOS manifest default.

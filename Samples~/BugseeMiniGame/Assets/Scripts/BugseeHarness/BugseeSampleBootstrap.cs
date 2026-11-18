@@ -673,9 +673,10 @@ namespace Bugsee.Sample
             Probe(options, Options.MaxPendingReports, 9);
             Probe(options, Options.MaxPendingReportAge, 11);
             Probe(options, Options.NotifyFlushDelay, 321);
+            // capture.crash-signals is known to both SDKs (Android: NDK extension), so it must come back as sent on both.
+            Probe(options, Options.CaptureCrashSignals, (int)(CrashSignals.Abrt | CrashSignals.Trap));
             // Every iOS-only key, type-correct and non-default: iOS must report each as sent, Android must drop each (#97).
             Probe(options, Options.CaptureCrashHandlerType, 3);
-            Probe(options, Options.CaptureCrashSignals, (int)(CrashSignals.Abrt | CrashSignals.Trap));
             Probe(options, Options.CaptureOnDeviceSymbolication, true);
             Probe(options, Options.DetectCrashSwiftAsyncStackTraces, false);
             Probe(options, Options.DetectCrashFillEmptyExceptionStacks, true);
@@ -720,7 +721,7 @@ namespace Bugsee.Sample
             }
             // Shared keys: not gated, so each must be reported with the value sent, on both platforms. The iOS SDK
             // enforces max-data-size and the pending-report limits since 7.0.0 (beta7 only echoed max-data-size back).
-            foreach (var key in new[] { Options.MaxDataSize, Options.MaxPendingReports, Options.MaxPendingReportAge, Options.NotifyFlushDelay })
+            foreach (var key in new[] { Options.MaxDataSize, Options.MaxPendingReports, Options.MaxPendingReportAge, Options.NotifyFlushDelay, Options.CaptureCrashSignals })
             {
                 var has = launched != null && launched.ContainsKey(key);
                 var sent = ProbeSent.TryGetValue(key, out var sv) ? sv.ToString() : "-";
@@ -1282,6 +1283,9 @@ namespace Bugsee.Sample
                 options.ReportingDefaultBugPriority = bugPriority;
             if (!string.IsNullOrWhiteSpace(endpointOverride))
                 options.SetCustomOption(InternalOptionKeys.Endpoint, endpointOverride.Trim());
+            // "bugsee_crash_signals" = a CrashSignals bit set (Default = 128); unset leaves the SDK's own choice.
+            if (int.TryParse(ReadE2EValue("bugsee_crash_signals", "BUGSEE_E2E_CRASH_SIGNALS"), out var androidSignals))
+                options.CrashSignals = (CrashSignals)androidSignals;
             if (ReadE2EValue("bugsee_e2e", "BUGSEE_E2E_SCENARIO") == "options")
                 AddGatingProbeOptions(options);
             return options;

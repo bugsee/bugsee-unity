@@ -36,7 +36,7 @@ namespace Bugsee.Contracts.Options
 
         /// <summary>iOS only; Android drops it.</summary>
         public OptionsBuilder SetCrashHandlerType(CrashHandlerType type) => Set(Options.CaptureCrashHandlerType, (int)type);
-        /// <summary>iOS only; Android drops it.</summary>
+        /// <summary>Both platforms (Android: needs the NDK extension); see <see cref="CrashSignals"/>.</summary>
         public OptionsBuilder SetCrashSignals(CrashSignals signals) => Set(Options.CaptureCrashSignals, (int)signals);
         /// <summary>iOS only; Android drops it.</summary>
         public OptionsBuilder SetDataEncryption(DataEncryptionMode mode) => Set(Options.DataEncryption, (int)mode);
