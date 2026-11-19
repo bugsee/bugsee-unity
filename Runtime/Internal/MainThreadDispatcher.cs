@@ -58,6 +58,13 @@ namespace Bugsee.Internal
             Queue.Enqueue(action);
         }
 
+        /// <summary>Queued for the next frame only while the dispatcher exists; unlike <see cref="Post"/> it never creates it (safe from any thread).</summary>
+        public static void PostIfAlive(Action action)
+        {
+            if (action == null || _instance == null) return;
+            Queue.Enqueue(action);
+        }
+
         /// <summary>Always queued for the next frame, even when called on the main thread (unlike <see cref="Run"/>).</summary>
         public static void Post(Action action)
         {
@@ -165,11 +172,24 @@ namespace Bugsee.Internal
             return true;
         }
 
+        // A manual report opens a native screen, which pauses the player: no frame will pump a running capture of the managed view
+        // hierarchy, so the rest of its walk is read now (the player still runs inside this callback) and the worker finishes it.
+        void OnApplicationPause(bool paused)
+        {
+            if (!paused) return;
+            DrainQueueInline(); // a request still waiting in the queue becomes the capture that is flushed
+            ManagedViewHierarchy.Flush();
+        }
+
+        void OnApplicationQuit() => ManagedViewHierarchy.Abort();
+
         void Update()
         {
             DrainQueueInline();
+            // The screen-space secure rectangles are converted first, so the walk's slice (and its seal) sees them as of this frame.
             try { global::Bugsee.Bugsee.TickSecureScreenRects(); }
             catch (Exception ex) { Debug.LogException(ex); }
+            ManagedViewHierarchy.Pump();
         }
     }
 }

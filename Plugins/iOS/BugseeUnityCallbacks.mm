@@ -674,16 +674,20 @@ void _bugsee_register_data_request_callback(BugseeUnityDataRequestCb dataRequest
 // wins; a second one (or one for an id already expired) finds nothing and does nothing.
 void _bugsee_complete_data_request(int64_t requestId, const char *json)
 {
-    BugseeUnityEnsureState();
-    NSMutableDictionary *pending;
-    @synchronized (gLock) {
-        pending = gPending[@(requestId)];
-        if (![pending[@"kind"] isEqualToString:@"data"]) return;
-        [gPending removeObjectForKey:@(requestId)];
+    // Called from a thread-pool or timer thread when the reply is made off Unity's thread: such a thread has no autorelease pool, and
+    // the reply can be hundreds of KB (the NSString and what the SDK autoreleases while recording it).
+    @autoreleasepool {
+        BugseeUnityEnsureState();
+        NSMutableDictionary *pending;
+        @synchronized (gLock) {
+            pending = gPending[@(requestId)];
+            if (![pending[@"kind"] isEqualToString:@"data"]) return;
+            [gPending removeObjectForKey:@(requestId)];
+        }
+        id<BGSDataRequestResultCallback> callback = pending[@"dataRequest"];
+        NSString *text = json ? [NSString stringWithUTF8String:json] : nil;
+        [callback onResult:text];
     }
-    id<BGSDataRequestResultCallback> callback = pending[@"dataRequest"];
-    NSString *text = json ? [NSString stringWithUTF8String:json] : nil;
-    [callback onResult:text];
 }
 
 void _bugsee_set_secure_buffer(int display, int *packed, int packedLength)
