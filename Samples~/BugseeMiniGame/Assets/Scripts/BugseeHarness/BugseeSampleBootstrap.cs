@@ -426,6 +426,14 @@ namespace Bugsee.Sample
                         StartCoroutine(VhE2E.Run(this));
                     }
                     break;
+                case "scenebench":
+                    // Measurement spike: main-thread cost of batch/cached strategies for reading the Unity scene (Samples SceneReadBench).
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        StartCoroutine(SceneReadBench.Run());
+                    }
+                    break;
                 case "vhscale":
                 case "vhscaleunsliced":
                     // Measures the managed view hierarchy capture on synthetic scenes of 500 to 20000 objects: main-thread ms, worker ms, time to

@@ -187,7 +187,7 @@ namespace Bugsee.Sample
         static int? _cullingBefore;
         static Camera _cullingCamera;
 
-        static void RestoreCamera()
+        internal static void RestoreCamera()
         {
             if (_cullingBefore != null && _cullingCamera != null) _cullingCamera.cullingMask = _cullingBefore.Value;
             _cullingBefore = null;
@@ -205,7 +205,7 @@ namespace Bugsee.Sample
 #endif
         }
 
-        static GameObject Build(int n)
+        internal static GameObject Build(int n)
         {
             var root = new GameObject("VhScaleRoot") { layer = SyntheticLayer };
             var cam = Camera.main;
