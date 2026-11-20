@@ -273,7 +273,7 @@ Authoritative design: `bugsee-cli/docs/unity-il2cpp-linenumber-mappings.md` and 
 
 ### Symbol upload
 
-Editor/CI discovers `LineNumberMappings.json` (+ `MethodMap.tsv`, `il2cppFileRoot.txt`) and shells:
+Editor/CI discovers `LineNumberMappings.json` (+ `MethodMap.tsv`, and `il2cppFileRoot.txt` when it sits beside the map; Unity writes that file itself (observed on Android; iOS not checked here), the package does not, and the worker resolves the same frames without it for Unity's flat output, #208) and shells:
 
 ```text
 bugsee-cli debug-files upload <path> --type il2cpp-linemap \
