@@ -23,11 +23,11 @@ Collected from the entries of this section: what they show to be a break for an 
 - **iOS `BugseeEnableMachExceptions` is not supported** (the iOS SDK removed it). Migration: use `IOSLaunchOptions.CrashHandlerType`.
 - **Managed exception client signatures changed** (the recipe of `Documentation~/exception-signatures.md`: user frames only, never the message, the build GUID, IL offsets or directories), so existing issues may regroup after the update.
 - **CI that sets `BUGSEE_BUILD_UUID`**: the Android mapping upload is now keyed by the id the built app carries, and `BUGSEE_BUILD_UUID` applies to it only when the app has no such asset (and is a UUID). A CI that set a random GUID per build no longer moves the mapping off the id the app reports.
-- **iOS export on Xcode 27+ can add a `BugseeCrashReport` extension target** with an App Group entitlement on the app. Default Auto adds it only in an interactive Editor build with Automatically Sign on and a team (never in batch mode). Migration: `BUGSEE_IOS_CRASH_EXTENSION=0` (or Bugsee > iOS > Off) keeps the export as before; with On, register the App Group on both App IDs.
+- **iOS export on Xcode 27+ can add a `BugseeCrashReport` extension target** with an App Group entitlement on the app. Default Auto adds it only in an interactive Editor build with Automatically Sign on and a team (never in batch mode). Migration: `BUGSEE_IOS_CRASH_EXTENSION=0` (or Bugsee > iOS > Crash Report Extension > Off) keeps the export as before; with On, register the App Group on both App IDs.
 
 ### Known issues
 
-- Handled managed exceptions in a Release IL2CPP build on Android stay unsymbolicated (no file:line) when the symbols are Public (symbol table only); use Debugging symbols plus the il2cpp-linemap. Development builds send no addresses on Android, and Debugging symbols do not change that. See `Documentation~/index.md`, "IL2CPP handled exceptions: what resolves (issue #263)".
+- Handled managed exceptions in a Release IL2CPP build on Android without IL2CPP line information stay unsymbolicated (no file:line) when the symbols are Public (symbol table only); use Debugging symbols plus the il2cpp-linemap. Development builds send no addresses on Android, and Debugging symbols do not change that. See `Documentation~/index.md`, "IL2CPP handled exceptions: what resolves (issue #263)".
 - Switching the symbol level from Public to Debugging for the same `libil2cpp.so` build id may leave frames raw on the dashboard. Open and under investigation (#263).
 - After an iOS launch that died before the app became active, the next launch may block the main thread for up to about 8 seconds while the crash report is uploaded. The fix is in the native iOS SDK (bugsee-cocoa PR #351, not yet released). Unity launches normally do not hit it, because the SDK starts while the app is active; the opt-in iOS native early launch starts the SDK at app launch, before the app is active, so an app that uses it can hit this.
 
@@ -254,9 +254,8 @@ Behaviour changes to be aware of. 7.0.0-beta.1 is not released, so these correct
 - `GetAttribute` keeps the kind of a scalar on both platforms: a string reads back as `string`, a bool as `bool`,
   an integer input as an integer and a floating-point input as floating point (a whole-valued one such as `1.0`
   stays floating point on iOS, it does not become an integer), so the string "1", the number 1 and `true`
-  are distinct. The width is not promised (Android returns the boxed type that was set, with `sbyte`/`ushort`
-  stored as `int`, `uint`/`ulong` as `long` and `decimal` as `double`; iOS returns `long` and `double`), so
-  compare with `Convert` rather than a cast. A container set natively (not through this API) reads as a
+  are distinct. The width is not promised (both platforms now return `long` for integers and `double` for floating
+  point, see Breaking changes), so compare with `Convert` rather than a cast. A container set natively (not through this API) reads as a
   `Dictionary` on Android and as its JSON text on iOS. Reports still show the natural value.
 - iOS launch and relaunch now send `wrapper_info` (type, version, build, metal, fps) unless the caller supplied
   one. This changes the SDK's video capture to its Unity path. `fps` is `Application.targetFrameRate` (30 when
