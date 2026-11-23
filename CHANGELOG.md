@@ -13,6 +13,7 @@ This is the first beta of the 7.x line of the Bugsee Unity SDK, which continues 
 
 Collected from the entries of this section: what they show to be a break for an existing app, a CI setup, or the API of earlier unreleased builds of this package.
 
+- **A new package and a new C# API instead of the 6.x `.unitypackage` / `Assets/Plugins` distribution** (per `DESIGN.md`: a clean 7.0 API surface, no legacy `BugseePlugin` names, and the 6.x `Bugsee-Unity.aar` / `BugseeUnityAdapter` are not bundled). Migration: install the package from git (see the README), remove the old plugin files and AAR from `Assets/Plugins`, and port the calls to the `Bugsee` facade; the 6.x method-by-method mapping is not part of this repository.
 - **Shake and notification-bar triggers are off by default.** The native SDKs moved to Android 7.6.0 and iOS 7.1.0, whose defaults are `reporting.triggers.shake` off on both platforms and `reporting.triggers.notification-bar` off on Android (both were on). Migration: set `ReportingTriggerByShake = true` (both platforms) and `AndroidLaunchOptions.ReportingTriggerByNotification = true` (Android) in the launch options.
 - **`CrashSignals` moved from `IOSLaunchOptions` to the shared `BugseeLaunchOptions`, and Android now honors it.** Source compatible (`IOSLaunchOptions` inherits it), but a mask meant only for iOS (for example `CrashSignals.None`) now also narrows or switches off native signal capture on Android when the NDK extension is present. Migration: omit the mask on Android, or set a per-platform value, to keep the default of every signal.
 - **Android `DeleteCollectedDataOnDevice` also deletes finished reports that were not uploaded yet**, and stops the SDK first when it is not stopped. Migration: call `DeleteCollectedDataOnDevice(DeleteScope.CaptureAndIntermediate)` to keep finished reports waiting for upload; every scope stops the SDK and drops an unfinished managed report and any in-flight managed upload.
@@ -217,7 +218,7 @@ Collected from the entries of this section: what they show to be a break for an 
 
 ### Changed
 
-Behaviour changes to be aware of. 7.0.0-beta.1 is not released, so these correct earlier unreleased work.
+Behaviour changes to be aware of. 7.0.0-beta.1 is not released, so these correct earlier pre-release builds.
 
 - Native SDKs: Android `bugsee-android` / `bugsee-android-ndk` 7.6.0 and iOS `bugsee/spm` 7.1.0.
 - Android `DeleteCollectedDataOnDevice` now stops the SDK whenever it is not stopped and also deletes finished

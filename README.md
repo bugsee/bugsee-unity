@@ -49,8 +49,8 @@ top-level `package/` folder (what `npm pack` makes), and rejects an archive with
 git archive --format=tar.gz --prefix=package/ -o bugsee-unity-7.0.0-beta.1.tgz v7.0.0-beta.1
 ```
 
-Unity rejects an archive whose files are at the top level or under another folder name, which includes GitHub's "Source code" download (its top folder is named after the repository and the tag); use the command above instead. (A tarball also copies `Samples~` and `Tests~`; Unity ignores folders
-whose names end in `~`, so they do not reach your project.)
+Unity rejects an archive whose files are at the top level or under another folder name, which includes GitHub's "Source code" download (its top folder is named after the repository and the tag); use the command above instead. (A tarball also carries `Samples~`, `Tests~`, `Documentation~` and the
+other `~` folders; Unity ignores folders whose names end in `~`, so they do not reach your project.)
 
 That is the whole install: no scoped registry, no EDM4U, no dependency-resolve step and no custom
 Gradle templates to enable. On Android the package declares the Bugsee SDK in the Gradle project Unity
