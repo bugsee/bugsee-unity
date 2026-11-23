@@ -88,14 +88,14 @@ namespace Bugsee.WrapperPolicy
             return right > left && bottom > top;
         }
 
-        /// <summary>
-        /// Fail closed for the managed view hierarchy when the rectangles cannot be placed in render pixels (unknown view, a surface that was
-        /// never read): every rectangle becomes one far larger than any screen, so every node with bounds counts as covered.
-        /// </summary>
         const int Far = 1 << 24;
 
         static int Clamp(double v) => (int)Math.Max(-Far, Math.Min(Far, v));
 
+        /// <summary>
+        /// Fail closed for the managed view hierarchy when the rectangles cannot be placed in render pixels (unknown view, a surface that was
+        /// never read, or a view caught mid-rotation): every rectangle becomes one far larger than any screen, so every node with bounds counts as covered.
+        /// </summary>
         public static void CoverScreen(int[] rects, int count)
         {
             if (rects == null) return;
