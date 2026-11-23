@@ -61,6 +61,16 @@ If the project already declares `com.bugsee:bugsee-android` itself (through EDM4
 `mainTemplate.gradle` or a local AAR), that declaration is kept, nothing is added next to it, and the build
 log warns when its version differs from the one this package pins.
 
+## Quick start
+
+```csharp
+using BugseeSdk = Bugsee.Bugsee;
+
+BugseeSdk.Launch("<app token>");
+```
+
+The namespace `Bugsee` and the static facade class `Bugsee.Bugsee` share a name, so in code outside `namespace Bugsee...` a bare `Bugsee.Launch(...)` resolves `Bugsee` to the namespace and fails with CS0234 (a second alias named `Bugsee` fails with CS0576). Use the `BugseeSdk` alias, or write `Bugsee.Bugsee.Launch(...)`; the types (`AndroidLaunchOptions`, `ISpan`, ...) stay unqualified with a `using` of their namespace (`Bugsee.Contracts.Options`, `Bugsee.Contracts.Apm`, ...). The full launch options are in [Documentation~/index.md](Documentation~/index.md#launch).
+
 ## Native SDKs
 
 | Platform | Integration | Current pin |
