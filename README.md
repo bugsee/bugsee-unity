@@ -16,7 +16,7 @@ https://github.com/bugsee/bugsee-unity.git
 Pin a version/tag when available:
 
 ```
-https://github.com/bugsee/bugsee-unity.git#7.0.0-beta.1
+https://github.com/bugsee/bugsee-unity.git#v7.0.0-beta.1
 ```
 
 That is the whole install: no scoped registry, no EDM4U, no dependency-resolve step and no custom

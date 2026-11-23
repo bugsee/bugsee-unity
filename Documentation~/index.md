@@ -509,9 +509,9 @@ Reading of the table: in a Release IL2CPP build without IL2CPP line information,
 
 ## Known issues (7.0.0-beta.1)
 
-- **Handled managed exceptions on IL2CPP with the default Public symbols** stay unsymbolicated; use Debugging symbols plus the il2cpp-linemap. See "IL2CPP handled exceptions: what resolves (issue #263)".
+- **Handled managed exceptions in a Release IL2CPP build on Android with Public symbols (symbol table only)** stay unsymbolicated; use Debugging symbols plus the il2cpp-linemap. Development builds send no addresses on Android. See "IL2CPP handled exceptions: what resolves (issue #263)".
 - **Public, then Debugging, for the same `libil2cpp.so` build id** may keep frames raw on the dashboard (open, under investigation, #263); see the same section.
-- **iOS, next launch after a launch that died before the app became active:** the next launch may block the main thread for up to about 8 seconds while the crash report is uploaded. The fix is in the native iOS SDK (bugsee-cocoa PR #351, not yet released). Unity launches normally do not hit it, because the SDK starts while the app is active.
+- **iOS, next launch after a launch that died before the app became active:** the next launch may block the main thread for up to about 8 seconds while the crash report is uploaded. The fix is in the native iOS SDK (bugsee-cocoa PR #351, not yet released). Unity launches normally do not hit it, because the SDK starts while the app is active; the opt-in iOS native early launch starts the SDK before the app is active, so an app that uses it can hit this.
 
 ## Field validation (S1 / S2)
 
