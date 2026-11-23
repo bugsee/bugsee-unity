@@ -5,10 +5,36 @@ All notable changes to this package are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - Unreleased
+## [7.0.0-beta.1] - Unreleased
+
+This is the first beta of the 7.x line of the Bugsee Unity SDK, which continues the sequence from 6.0. It may contain rough edges, and breaking changes relative to 6.x are expected (see below). Please report problems on the repository's issue tracker.
+
+### Breaking changes
+
+Collected from the entries of this section: what they show to be a break for an existing app, a CI setup, or the API of earlier unreleased builds of this package.
+
+- **A new package and a new C# API instead of the 6.x `.unitypackage` / `Assets/Plugins` distribution** (per `DESIGN.md`: a clean 7.0 API surface, no legacy `BugseePlugin` names, and the 6.x `Bugsee-Unity.aar` / `BugseeUnityAdapter` are not bundled). Migration: install the package from git (see the README), remove the old plugin files and AAR from `Assets/Plugins`, and port the calls to the `Bugsee` facade; the 6.x method-by-method mapping is not part of this repository.
+- **Shake and notification-bar triggers are off by default.** The native SDKs moved to Android 7.6.0 and iOS 7.1.0, whose defaults are `reporting.triggers.shake` off on both platforms and `reporting.triggers.notification-bar` off on Android (both were on). Migration: set `ReportingTriggerByShake = true` (both platforms) and `AndroidLaunchOptions.ReportingTriggerByNotification = true` (Android) in the launch options.
+- **`CrashSignals` moved from `IOSLaunchOptions` to the shared `BugseeLaunchOptions`, and Android now honors it.** Source compatible (`IOSLaunchOptions` inherits it), but a mask meant only for iOS (for example `CrashSignals.None`) now also narrows or switches off native signal capture on Android when the NDK extension is present. Migration: omit the mask on Android, or set a per-platform value, to keep the default of every signal.
+- **Android `DeleteCollectedDataOnDevice` also deletes finished reports that were not uploaded yet**, and stops the SDK first when it is not stopped. Migration: call `DeleteCollectedDataOnDevice(DeleteScope.CaptureAndIntermediate)` to keep finished reports waiting for upload; every scope stops the SDK and drops an unfinished managed report and any in-flight managed upload.
+- **`IReport.Severity` is `IssueSeverity?`**: severity `0` is unset, not `VeryLow`, and is omitted from the create-report JSON. Migration: treat `null` as unset; code that assigned or compared a `VeryLow` default needs updating.
+- **`IssueSeverity? severity = null` on `Bugsee.Upload` and `Bugsee.ShowReportDialog`** (they used to always send High and ignore `ReportingDefaultBugPriority`). Source compatible, but binary incompatible: recompile precompiled assemblies, and update delegates bound to these methods and implementers of the public `IBugseeNativeBridge`.
+- **Android attribute values are `long` / `double`**: `IReport.GetAttribute`, `IReport.Attributes` and `Bugsee.GetAttribute` return `long` for every integer and `double` for floating point (as iOS), not the boxed width that was set. Migration: replace `(int)` unboxing with `Convert.ToInt32` or `(long)`.
+- **No typed `Debug` or `Endpoint` launch option**: `Options.Debug`/`Endpoint`, `BugseeLaunchOptions.Debug`/`Endpoint` and `OptionsBuilder.Debug`/`Endpoint` are removed. Migration: `SetCustomOption("com.bugsee.option.$$ENDPOINT", url)` (both platforms) and `SetCustomOption("com.bugsee.option.$$DEBUG", true)` (Android only).
+- **iOS `BugseeEnableMachExceptions` is not supported** (the iOS SDK removed it). Migration: use `IOSLaunchOptions.CrashHandlerType`.
+- **Managed exception client signatures changed** (the recipe of `Documentation~/exception-signatures.md`: user frames only, never the message, the build GUID, IL offsets or directories), so existing issues may regroup after the update.
+- **CI that sets `BUGSEE_BUILD_UUID`**: the Android mapping upload is now keyed by the id the built app carries, and `BUGSEE_BUILD_UUID` applies to it only when the app has no such asset (and is a UUID). A CI that set a random GUID per build no longer moves the mapping off the id the app reports.
+- **iOS export on Xcode 27+ can add a `BugseeCrashReport` extension target** with an App Group entitlement on the app. Default Auto adds it only in an interactive Editor build with Automatically Sign on and a team (never in batch mode). Migration: `BUGSEE_IOS_CRASH_EXTENSION=0` (or Bugsee > iOS > Crash Report Extension > Off) keeps the export as before; with On, register the App Group on both App IDs.
+
+### Known issues
+
+- Handled managed exceptions in a Release IL2CPP build on Android without IL2CPP line information stay unsymbolicated (no file:line) when the symbols are Public (symbol table only); use Debugging symbols plus the il2cpp-linemap. Development builds send no addresses on Android, and Debugging symbols do not change that. See `Documentation~/index.md`, "IL2CPP handled exceptions: what resolves (issue #263)".
+- Switching the symbol level from Public to Debugging for the same `libil2cpp.so` build id may leave frames raw on the dashboard. Open and under investigation (#263).
+- After an iOS launch that died before the app became active, the next launch may block the main thread for up to about 8 seconds while the crash report is uploaded. The fix is in the native iOS SDK (bugsee-cocoa PR #351, not yet released). Unity launches normally do not hit it, because the SDK starts while the app is active; the opt-in iOS native early launch starts the SDK at app launch, before the app is active, so an app that uses it can hit this.
 
 ### Added
 
+- The package now declares the built-in Unity modules its code uses (`com.unity.modules.androidjni`, `jsonserialize` and `ui`, all at 1.0.0; no registry packages). Without them, a project that had those modules disabled failed to compile (CS1069 at `AndroidJavaObject`, CS0103 at `JsonUtility`, CS1069 at `Canvas`). `com.unity.modules.screencapture` stays optional: without it the Android DirectBuffers frame pusher is not compiled in and the SDK's own capture is used.
 - `CrashSignals` now reaches Android too. The Android SDK has `capture.crash-signals` (in its NDK extension) with the same bit values as iOS `BugseeCrashSignals` (read from the NDK extension AAR classes: `Abrt` 1, `Segv` 2, `Bus` 4, `Ill` 8, `Fpe` 16, `Trap` 32, `All` 63, `Default` 128; default 128 in both manifests), but the wrapper dropped it from an Android launch. The platform gate no longer drops it and `CrashSignals` moved from `IOSLaunchOptions` to the shared `BugseeLaunchOptions` (source compatible: `IOSLaunchOptions` inherits it), so it also works on `AndroidLaunchOptions`; `OptionsBuilder.SetCrashSignals` and `SetCustomOption` send it to both. On Android the key is read by the NDK extension, so it has no effect without it. Differences in reading a value: Android resolves `Default` and any non-zero value that selects none of the six signals to every signal, and ignores other bits; iOS uses a value as given. Migration: Android used to drop this key, so an app whose shared options carry a mask meant only for iOS (for example `CrashSignals.None`) now narrows or switches off native signal capture on Android as well (with the NDK extension); omit the mask on Android to keep the default of every signal.
 - Native SDKs moved to Android 7.6.0 and iOS 7.1.0. Their published option defaults changed: `reporting.triggers.shake` is now off by default on both platforms and `reporting.triggers.notification-bar` is off by default on Android (both were on). A game that relied on shake-to-report or the notification-bar trigger must set `ReportingTriggerByShake = true` (shake) or `AndroidLaunchOptions.ReportingTriggerByNotification = true` (notification bar, Android only) explicitly.
 - iOS native early launch (opt-in, off by default): with `BUGSEE_IOS_EARLY_LAUNCH=1` and `BUGSEE_IOS_APP_TOKEN` (optional `BUGSEE_IOS_EARLY_LAUNCH_OPTIONS`, or Bugsee > iOS > Early Launch) the export writes the token and options into Info.plist and the iOS SDK starts natively at app launch, before Unity's first scene; the first `Bugsee.Launch` adopts that session instead of starting another. The SDK then starts before any C# consent check. Launch-watchdog and jetsam kills are reported through the crash extension (verified on an iPhone 16 Pro, iOS 27.2). The options are stored in Info.plist with `$` escaped as `\u0024` so Xcode's `$$` collapse cannot drop internal keys such as the endpoint. Launch-only options and a different token in `Bugsee.Launch` are warned about, not applied.
@@ -166,7 +192,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Bugsee.StartTransaction(name, operation, attributes)` and `ISpan` (`StartChild`, `SetName`, `SetDescription`, `SetAttribute`, `SetStatus`, `Finish`, `Dispose`) for APM on Android and iOS. A span is a managed wrapper over a native handle that is released when the span finishes (children still live are finished as `Cancelled` first); there is no global `StartSpan`/`GetActiveSpan`.
 - Initial UPM package scaffold (`com.bugsee.unity`).
 - Android native SDK from Maven Central (`com.bugsee:bugsee-android:7.6.0` + `bugsee-android-ndk:7.6.0`), declared in the generated Gradle project at build time. Installing is just adding the package: no EDM4U, no OpenUPM scoped registry, no resolve step, no custom Gradle templates. A Bugsee dependency the project already declares (EDM4U, custom template, local AAR) is kept, and a different version is reported. Core AAR publishes no transitives; NDK is declared explicitly.
-- Android Gradle plugin `4.1.1` (NDK enabled on Unity 6+ launcher templates).
+- Bugsee Gradle plugin `4.1.1` (NDK enabled on Unity 6+ launcher templates).
 - iOS SPM-only native SDK: Xcode resolves [`bugsee/spm`](https://github.com/bugsee/spm) `7.1.0` + `Plugins/iOS/BugseeUnityBridge.mm` P/Invoke bridge (7.x selectors; iOS 15 deployment target).
 - ExceptionPipeline managed capture (`CaptureManagedExceptions`) with UnityManagedException JSON-in-reason.
 - `Bugsee.LogUnhandledException` on Android and iOS.
@@ -192,7 +218,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-Behaviour changes to be aware of. 0.1.0 is not released, so these correct earlier unreleased work.
+Behaviour changes to be aware of. 7.0.0-beta.1 is not released, so these correct earlier pre-release builds.
 
 - Native SDKs: Android `bugsee-android` / `bugsee-android-ndk` 7.6.0 and iOS `bugsee/spm` 7.1.0.
 - Android `DeleteCollectedDataOnDevice` now stops the SDK whenever it is not stopped and also deletes finished
@@ -230,9 +256,8 @@ Behaviour changes to be aware of. 0.1.0 is not released, so these correct earlie
 - `GetAttribute` keeps the kind of a scalar on both platforms: a string reads back as `string`, a bool as `bool`,
   an integer input as an integer and a floating-point input as floating point (a whole-valued one such as `1.0`
   stays floating point on iOS, it does not become an integer), so the string "1", the number 1 and `true`
-  are distinct. The width is not promised (Android returns the boxed type that was set, with `sbyte`/`ushort`
-  stored as `int`, `uint`/`ulong` as `long` and `decimal` as `double`; iOS returns `long` and `double`), so
-  compare with `Convert` rather than a cast. A container set natively (not through this API) reads as a
+  are distinct. The width is not promised (both platforms now return `long` for integers and `double` for floating
+  point, see Breaking changes), so compare with `Convert` rather than a cast. A container set natively (not through this API) reads as a
   `Dictionary` on Android and as its JSON text on iOS. Reports still show the natural value.
 - iOS launch and relaunch now send `wrapper_info` (type, version, build, metal, fps) unless the caller supplied
   one. This changes the SDK's video capture to its Unity path. `fps` is `Application.targetFrameRate` (30 when
