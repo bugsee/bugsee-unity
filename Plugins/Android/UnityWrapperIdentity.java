@@ -7,7 +7,7 @@ package com.bugsee.unity;
  */
 final class UnityWrapperIdentity {
     static final String VERSION = "7.0.0-beta.1";
-    static final String BUILD = "dev";
+    static final String BUILD = "51b50e237a61";
 
     private UnityWrapperIdentity() {}
 }
