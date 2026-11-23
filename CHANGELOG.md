@@ -5,7 +5,7 @@ All notable changes to this package are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [7.0.0-beta.1] - Unreleased
+## [7.0.0-beta.1] - 2026-11-23
 
 This is the first beta of the 7.x line of the Bugsee Unity SDK, which continues the sequence from 6.0. It may contain rough edges, and breaking changes relative to 6.x are expected (see below). Please report problems on the repository's issue tracker.
 
