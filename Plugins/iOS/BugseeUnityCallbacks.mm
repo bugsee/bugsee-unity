@@ -43,7 +43,7 @@ static BOOL gBreadcrumbFilterCallbackInstalled = NO;
 static NSMutableDictionary<NSNumber *, NSMutableDictionary *> *gPending;
 static int64_t gNextRequestId = 1;
 static NSObject *gLock;
-static NSString *gWrapperVersion = @"0.1.0";
+static NSString *gWrapperVersion = @"7.0.0-beta.1";
 static NSString *gWrapperBuild = nil;
 static NSDictionary<NSString *, NSString *> *gWrapperContext = nil;
 

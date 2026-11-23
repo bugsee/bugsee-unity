@@ -5,7 +5,26 @@ All notable changes to this package are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - Unreleased
+## [7.0.0-beta.1] - Unreleased
+
+This is the first beta of the 7.x line of the Bugsee Unity SDK, which continues the sequence from 6.0. It may contain rough edges, and breaking changes relative to 6.x are expected (see below). Please report problems on the repository's issue tracker.
+
+### Breaking changes
+
+Collected from the entries of this section and the repository history. The 6.x source is not part of this repository, so this list covers what the entries below show to be a break for an existing app or for earlier unreleased API of this package; compare it against the 6.x API before release.
+
+- **Shake and notification-bar triggers are off by default.** The native SDKs moved to Android 7.6.0 and iOS 7.1.0, whose defaults are `reporting.triggers.shake` off on both platforms and `reporting.triggers.notification-bar` off on Android (both were on). Migration: set `ReportingTriggerByShake = true` (both platforms) and `AndroidLaunchOptions.ReportingTriggerByNotification = true` (Android) in the launch options.
+- **`CrashSignals` moved from `IOSLaunchOptions` to the shared `BugseeLaunchOptions`, and Android now honors it.** Source compatible (`IOSLaunchOptions` inherits it), but a mask meant only for iOS (for example `CrashSignals.None`) now also narrows or switches off native signal capture on Android when the NDK extension is present. Migration: omit the mask on Android, or set a per-platform value, to keep the default of every signal.
+- **Android `DeleteCollectedDataOnDevice` also deletes finished reports that were not uploaded yet**, and stops the SDK first when it is not stopped. Migration: upload or export pending reports before calling it.
+- **`IReport.Severity` is `IssueSeverity?`**: severity `0` is unset, not `VeryLow`, and is omitted from the create-report JSON. Migration: treat `null` as unset; code that assigned or compared a `VeryLow` default needs updating.
+- **Tool versions the package pins moved**: `bugsee-cli` 0.9.0 (the Android Mono Portable PDB upload needs it and now fetches it when the installed CLI is older) and Android Gradle plugin `4.1.1`. Migration: CI that pins its own older `bugsee-cli` through `BUGSEE_CLI_PATH` or `BUGSEE_CLI_VERSION` should move to 0.9.0 or newer for the Mono mapping step.
+- **iOS export on Xcode 27+ can add a `BugseeCrashReport` extension target** with an App Group entitlement on the app. Default Auto adds it only in an interactive Editor build with Automatically Sign on and a team (never in batch mode). Migration: `BUGSEE_IOS_CRASH_EXTENSION=0` (or Bugsee > iOS > Off) keeps the export as before; with On, register the App Group on both App IDs.
+
+### Known issues
+
+- Handled managed exceptions on IL2CPP stay unsymbolicated with the default Public symbols; use Debugging symbols (and the il2cpp-linemap). See `Documentation~/index.md`, "IL2CPP handled exceptions: what resolves".
+- Switching the symbol level from Public to Debugging for the same `libil2cpp.so` build id may leave frames raw on the dashboard. Open and under investigation (#263).
+- After an iOS launch that died before the app became active, the next launch may block the main thread for up to about 8 seconds while the crash report is uploaded. The fix is in the native iOS SDK (bugsee-cocoa PR #351, not yet released). Unity launches normally do not hit it, because the SDK starts while the app is active.
 
 ### Added
 
@@ -192,7 +211,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-Behaviour changes to be aware of. 0.1.0 is not released, so these correct earlier unreleased work.
+Behaviour changes to be aware of. 7.0.0-beta.1 is not released, so these correct earlier unreleased work.
 
 - Native SDKs: Android `bugsee-android` / `bugsee-android-ndk` 7.6.0 and iOS `bugsee/spm` 7.1.0.
 - Android `DeleteCollectedDataOnDevice` now stops the SDK whenever it is not stopped and also deletes finished
