@@ -87,6 +87,31 @@ namespace Bugsee.WrapperPolicy
             bottom = view.Top + (int)Math.Ceiling(bottomPx);
             return right > left && bottom > top;
         }
+
+        /// <summary>
+        /// The reverse of <see cref="TryToNative"/> for the managed view hierarchy, whose node boxes are in Unity render pixels
+        /// (<c>Screen.width</c> by <c>Screen.height</c>, top-left origin) while the registry holds native pixels: removes the surface
+        /// offset, scales by the screen size over the surface size, and rounds outwards so the result covers at least the registered
+        /// rectangle. Not clamped (a node box is never clamped either, so a rectangle that leaves the surface still meets the nodes
+        /// that leave it). Converts <paramref name="count"/> rectangles of <paramref name="rects"/> ([l, t, r, b] each) in place;
+        /// returns false and leaves them as they are when the view is unknown.
+        /// </summary>
+        public static bool NativeToRender(int[] rects, int count, SecureRectView view)
+        {
+            if (rects == null || !view.IsValid) return false;
+            if (count * 4 > rects.Length) count = rects.Length / 4;
+            double sx = (double)view.ScreenWidth / view.Width;
+            double sy = (double)view.ScreenHeight / view.Height;
+            for (var i = 0; i < count; i++)
+            {
+                var o = i * 4;
+                rects[o] = (int)Math.Floor((rects[o] - view.Left) * sx);
+                rects[o + 1] = (int)Math.Floor((rects[o + 1] - view.Top) * sy);
+                rects[o + 2] = (int)Math.Ceiling((rects[o + 2] - view.Left) * sx);
+                rects[o + 3] = (int)Math.Ceiling((rects[o + 3] - view.Top) * sy);
+            }
+            return true;
+        }
     }
 
     /// <summary>

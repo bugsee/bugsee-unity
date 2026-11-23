@@ -55,7 +55,7 @@ namespace Bugsee.WrapperPolicy
             }
         }
 
-        /// <summary>The secure rectangles ([l, t, r, b] each, Unity screen pixels, top-left origin), copied on the main thread when the walk ends.</summary>
+        /// <summary>The secure rectangles ([l, t, r, b] each, Unity render pixels, top-left origin, the space of the node boxes: converted from the registry's native pixels before they get here), copied on the main thread when the walk ends.</summary>
         public int[] SecureRects;
         public int SecureCount;
         /// <summary>

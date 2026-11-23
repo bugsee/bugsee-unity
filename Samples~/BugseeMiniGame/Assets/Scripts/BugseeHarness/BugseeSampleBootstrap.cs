@@ -436,6 +436,14 @@ namespace Bugsee.Sample
                         StartCoroutine(VhScaleE2E.Run(_e2eScenario == "vhscaleunsliced"));
                     }
                     break;
+                case "vhsecurescale":
+                    // Secure rectangle over a named uGUI card at the native and at half the resolution: the same nodes must be secured (issue #291).
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        StartCoroutine(VhSecureScaleE2E.Run());
+                    }
+                    break;
                 case "vhsecure":
                     // A manual report taken while a secure rectangle covers the top half of the screen, so the stored managed
                     // view tree can be inspected for the redaction (issue #229).

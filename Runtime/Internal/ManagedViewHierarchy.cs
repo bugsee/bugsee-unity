@@ -156,6 +156,9 @@ namespace Bugsee.Internal
         internal static void CollectSecureRects(ManagedViewSnapshot snapshot)
         {
             var count = SecureRectRegistry.Instance.CopyRects(0, ref _rectScratch);
+            // The registry holds native pixels, the node boxes are Unity render pixels (Resolution Scaling, Screen.SetResolution, a
+            // surface offset, an iOS scale that differs from the screen's): both go into the render pixels before the overlap test.
+            if (count > 0) global::Bugsee.Bugsee.ConvertSecureRectsToRender(_rectScratch, count);
             snapshot.AddSecureRects(_rectScratch, count);
         }
 

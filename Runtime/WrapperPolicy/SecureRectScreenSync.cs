@@ -95,6 +95,9 @@ namespace Bugsee.WrapperPolicy
             return view;
         }
 
+        /// <summary>The view the registered rectangles of <paramref name="displayId"/> are converted through now (the last surface read, or the display's size).</summary>
+        public SecureRectView CurrentView(int displayId) => Resolve(displayId, out _);
+
         /// <param name="screenWidth">Unity's screen size when the app made the call, when the call was made on the main thread; 0 reads it now
         /// (a call queued from another thread). Without it a resolution change between the call and the frame that runs it would be
         /// taken for the size the rectangle was given for.</param>
