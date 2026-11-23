@@ -89,11 +89,25 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>
+        /// Fail closed for the managed view hierarchy when the rectangles cannot be placed in render pixels (unknown view, a surface that was
+        /// never read): every rectangle becomes the whole render screen, so every node with bounds counts as covered.
+        /// </summary>
+        public static void CoverScreen(int[] rects, int count, int screenWidth, int screenHeight)
+        {
+            if (rects == null) return;
+            if (count * 4 > rects.Length) count = rects.Length / 4;
+            for (var i = 0; i < count; i++)
+            {
+                rects[i * 4] = 0; rects[i * 4 + 1] = 0;
+                rects[i * 4 + 2] = Math.Max(1, screenWidth); rects[i * 4 + 3] = Math.Max(1, screenHeight);
+            }
+        }
+
+        /// <summary>
         /// The reverse of <see cref="TryToNative"/> for the managed view hierarchy, whose node boxes are in Unity render pixels
         /// (<c>Screen.width</c> by <c>Screen.height</c>, top-left origin) while the registry holds native pixels: removes the surface
         /// offset, scales by the screen size over the surface size, and rounds outwards so the result covers at least the registered
-        /// rectangle. Not clamped (a node box is never clamped either, so a rectangle that leaves the surface still meets the nodes
-        /// that leave it). Converts <paramref name="count"/> rectangles of <paramref name="rects"/> ([l, t, r, b] each) in place;
+        /// rectangle. Not clamped (rectangles from <c>AddSecureRectangle</c> may leave the surface; screen-space ones were clamped to it when registered). Converts <paramref name="count"/> rectangles of <paramref name="rects"/> ([l, t, r, b] each) in place;
         /// returns false and leaves them as they are when the view is unknown.
         /// </summary>
         public static bool NativeToRender(int[] rects, int count, SecureRectView view)

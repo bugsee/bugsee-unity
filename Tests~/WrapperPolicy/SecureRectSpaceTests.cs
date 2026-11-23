@@ -253,6 +253,25 @@ namespace Bugsee.WrapperPolicy.Tests
             new SecureRectViewRead { ScreenWidth = sw, ScreenHeight = sh, Ok = true, Settled = true, Left = l, Top = t, Width = w, Height = h, FallbackWidth = w, FallbackHeight = h };
 
         [Test]
+        public void CurrentViewIsQuietAndSaysWhenTheSurfaceWasNeverRead()
+        {
+            var unreadable = new SecureRectViewRead { ScreenWidth = 500, ScreenHeight = 1000, FallbackWidth = 1000, FallbackHeight = 2000 };
+            var h = new Harness(unreadable);
+            var view = h.Sync.CurrentView(0, out var exact);
+            Assert.That(exact, Is.False, "never read: only the display size is known");
+            Assert.That((view.Width, view.Height), Is.EqualTo((1000, 2000)));
+            Assert.That(h.Warnings, Is.Empty, "no log line from inside a native request");
+
+            h.Read = Good(500, 1000, 0, 96, 1000, 2000);
+            h.Sync.CurrentView(0, out exact);
+            Assert.That(exact, Is.True);
+            h.Read = unreadable;
+            view = h.Sync.CurrentView(0, out exact);
+            Assert.That(exact, Is.True, "the last good surface is kept");
+            Assert.That(view.Top, Is.EqualTo(96));
+        }
+
+        [Test]
         public void TickConvertsAgainOnlyWhenTheViewChanged()
         {
             var h = new Harness(Good(500, 1000, 0, 0, 1000, 2000));

@@ -25,6 +25,9 @@ namespace Bugsee.WrapperPolicy
     public sealed class SecureRectViewResolver
     {
         bool _hasGood;
+
+        /// <summary>A settled surface was read at least once.</summary>
+        public bool HasGoodRead => _hasGood;
         int _gl, _gt, _gw, _gh;
 
         public SecureRectViewState State { get; private set; } = SecureRectViewState.Ok;
@@ -82,13 +85,13 @@ namespace Bugsee.WrapperPolicy
 
         public bool HasEntries => _owners.HasEntries;
 
-        SecureRectView Resolve(int displayId, out SecureRectViewState state)
+        SecureRectView Resolve(int displayId, out SecureRectViewState state, bool warn = true)
         {
             if (!_resolvers.TryGetValue(displayId, out var resolver))
                 _resolvers[displayId] = resolver = new SecureRectViewResolver();
             var view = resolver.Resolve(_read(displayId), out bool changed);
             state = resolver.State;
-            if (changed && state != SecureRectViewState.Ok)
+            if (warn && changed && state != SecureRectViewState.Ok)
                 _warn("Could not read where Unity's view sits on display " + displayId
                     + " (" + (state == SecureRectViewState.Unreadable ? "unreadable" : "does not match Unity's screen")
                     + "); screen-space secure rectangles use the last surface read, or the display's full size, until it can be read.");
@@ -96,7 +99,17 @@ namespace Bugsee.WrapperPolicy
         }
 
         /// <summary>The view the registered rectangles of <paramref name="displayId"/> are converted through now (the last surface read, or the display's size).</summary>
-        public SecureRectView CurrentView(int displayId) => Resolve(displayId, out _);
+        /// <remarks>
+        /// Quiet (no warning: this can run inside the native SDK's request, where a log line is captured). <paramref name="exact"/> is false when
+        /// the surface was never read (unreadable, nothing good before): the view is then only the display's size, and a rectangle given in
+        /// native pixels cannot be placed exactly in render pixels.
+        /// </remarks>
+        public SecureRectView CurrentView(int displayId, out bool exact)
+        {
+            var view = Resolve(displayId, out var state, warn: false);
+            exact = state != SecureRectViewState.Unreadable || _resolvers[displayId].HasGoodRead;
+            return view;
+        }
 
         /// <param name="screenWidth">Unity's screen size when the app made the call, when the call was made on the main thread; 0 reads it now
         /// (a call queued from another thread). Without it a resolution change between the call and the frame that runs it would be

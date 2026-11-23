@@ -138,7 +138,7 @@ namespace Bugsee.WrapperPolicy.Tests
             var view = new SecureRectView(540, 1200, 0, 96, 1080, 2304);
             var registry = new SecureRectRegistry();
             registry.Set("manual:1", 0, 100, 296, 500, 396); // native
-            var node = Node(5, Hidden, 50, 100, 200, 50);    // the same area in render pixels: ((296-96)/2 .. )
+            var node = Node(5, Hidden, 50, 100, 200, 50);    // the same area in render pixels: (296-96)*1200/2304 = 104 to (396-96)*1200/2304 = 156
             var json = Report(Root(view, node, Node(6, "Logo", 400, 900, 20, 20)), registry, view, true, out _);
             Assert.That(HasName(json, Hidden), Is.False);
             Assert.That(HasName(json, "Logo"), Is.True);
@@ -190,6 +190,19 @@ namespace Bugsee.WrapperPolicy.Tests
             var json = Report(Root(view, unplaced), registry, view, true, out var secured);
             Assert.That(HasName(json, "Unplaced"), Is.False, "geometry that cannot be placed counts as covered");
             Assert.That(secured, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void CoverScreenMakesEveryRectangleTheWholeScreen()
+        {
+            var view = new SecureRectView(540, 1200, 0, 0, 1080, 2400);
+            var registry = new SecureRectRegistry();
+            registry.Set("manual:1", 0, 900, 2000, 910, 2010);
+            int[] rects = null;
+            var count = registry.CopyRects(0, ref rects);
+            SecureRectSpace.CoverScreen(rects, count, 540, 1200);
+            var json = ManagedViewTreeJson.Write(Root(view, Node(5, "Anywhere", 500, 1100, 10, 10)), rects, count, 1f);
+            Assert.That(HasName(json, "Anywhere"), Is.False);
         }
 
         [Test]
