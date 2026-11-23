@@ -57,8 +57,15 @@ namespace Bugsee.Sample
 
                 // 2: half the resolution (the display stays native, Unity renders smaller).
                 Screen.SetResolution(nativeW / 2, nativeH / 2, fullscreen);
+                var waitedFrames = 0;
+                while (Screen.width == nativeW && Screen.height == nativeH && waitedFrames++ < 120) yield return null;
                 for (var i = 0; i < 10; i++) yield return null;
                 Debug.Log("[VHSECURESCALE] screen now " + Screen.width + "x" + Screen.height);
+                if (Screen.width == nativeW && Screen.height == nativeH)
+                {
+                    Debug.Log("[Sample] vhsecurescale SKIP the resolution did not change (" + Screen.width + "x" + Screen.height + "), nothing to compare");
+                    yield break;
+                }
                 var scaled = new int[1];
                 yield return Measure(card, rt, "half", scaled, r => rect = r);
                 Remove(ref rect);

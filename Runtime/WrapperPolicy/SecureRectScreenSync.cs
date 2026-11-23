@@ -114,8 +114,9 @@ namespace Bugsee.WrapperPolicy
             var view = Resolve(displayId, out var state, warn: false);
             // The warning for a state change is the next loud Resolve's to give (Add, Tick), not lost to this lookup.
             _resolvers[displayId].RestoreState(previous);
-            // An unsettled view (caught mid-rotation) mixes the new screen size with the old surface: not exact either.
-            exact = state == SecureRectViewState.Ok || (state == SecureRectViewState.Unreadable && _resolvers[displayId].HasGoodRead);
+            // Only a settled read of now is exact: an unreadable or unsettled one (mid-rotation) is the last surface mixed with the new screen
+            // size. The screen-space rectangles must also have been converted through this very view (Tick has not caught up with a change yet).
+            exact = state == SecureRectViewState.Ok && _owners.IsConvertedThrough(displayId, view);
             return view;
         }
 

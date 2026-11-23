@@ -158,7 +158,16 @@ namespace Bugsee.Internal
             var count = SecureRectRegistry.Instance.CopyRects(0, ref _rectScratch);
             // The registry holds native pixels, the node boxes are Unity render pixels (Resolution Scaling, Screen.SetResolution, a
             // surface offset, an iOS scale that differs from the screen's): both go into the render pixels before the overlap test.
-            if (count > 0) global::Bugsee.Bugsee.ConvertSecureRectsToRender(_rectScratch, count);
+            if (count > 0)
+            {
+                global::Bugsee.Bugsee.ConvertSecureRectsToRender(_rectScratch, count);
+                // The rectangles an earlier slice kept are in that slice's render space: a changed size covers everything for the rest of the walk.
+                if (snapshot.NoteRenderSize(Screen.width, Screen.height))
+                {
+                    var all = new[] { -SecureRectSpace.Far, -SecureRectSpace.Far, SecureRectSpace.Far, SecureRectSpace.Far };
+                    snapshot.AddSecureRects(all, 1);
+                }
+            }
             snapshot.AddSecureRects(_rectScratch, count);
         }
 

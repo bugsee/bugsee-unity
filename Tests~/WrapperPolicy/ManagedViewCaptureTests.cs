@@ -144,6 +144,16 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void AChangedRenderSizeMidWalkIsReportedOnceSoTheCallerCanCoverEverything()
+        {
+            var s = new ManagedViewSnapshot();
+            Assert.That(s.NoteRenderSize(540, 1200), Is.False, "the first slice");
+            Assert.That(s.NoteRenderSize(540, 1200), Is.False, "the same size again");
+            Assert.That(s.NoteRenderSize(1080, 2400), Is.True, "rectangles kept from the old size are in another space");
+            Assert.That(s.NoteRenderSize(1080, 2400), Is.False);
+        }
+
+        [Test]
         public void SecureRectanglesSeenDuringTheWalkAllStayInForce()
         {
             var s = new ManagedViewSnapshot(4);

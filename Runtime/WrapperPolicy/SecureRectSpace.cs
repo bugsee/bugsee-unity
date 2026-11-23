@@ -88,7 +88,8 @@ namespace Bugsee.WrapperPolicy
             return right > left && bottom > top;
         }
 
-        const int Far = 1 << 24;
+        /// <summary>A coordinate beyond any screen: <c>[-Far, -Far, Far, Far]</c> covers every node.</summary>
+        public const int Far = 1 << 24;
 
         static int Clamp(double v) => (int)Math.Max(-Far, Math.Min(Far, v));
 
@@ -162,6 +163,15 @@ namespace Bugsee.WrapperPolicy
             OwnerIdPrefix + displayId + ":" + Fmt(xMin) + "," + Fmt(yMin) + "," + Fmt(xMax) + "," + Fmt(yMax);
 
         public bool HasEntries { get { lock (_sync) return _entries.Count > 0; } }
+
+        /// <summary>
+        /// True when the registry holds nothing of this display that was converted through another view than <paramref name="view"/>:
+        /// the screen-space rectangles in the registry are then in step with a conversion made through the same view.
+        /// </summary>
+        public bool IsConvertedThrough(int displayId, SecureRectView view)
+        {
+            lock (_sync) return !_appliedViews.TryGetValue(displayId, out var applied) || applied.Equals(view);
+        }
 
         public void Add(float xMin, float yMin, float xMax, float yMax, int displayId, SecureRectView view, SecureRectRegistry registry)
         {

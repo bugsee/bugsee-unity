@@ -81,6 +81,21 @@ namespace Bugsee.WrapperPolicy
             }
         }
 
+        int _renderWidth, _renderHeight;
+
+        /// <summary>
+        /// Notes the render size the rectangles were converted for in this slice; true when an earlier slice of the walk used another one.
+        /// The rectangles kept from that slice are in the old space, so the caller covers everything (<see cref="AddSecureRects"/> of a
+        /// rectangle beyond any screen).
+        /// </summary>
+        public bool NoteRenderSize(int width, int height)
+        {
+            var changed = _renderWidth != 0 && (_renderWidth != width || _renderHeight != height);
+            _renderWidth = width;
+            _renderHeight = height;
+            return changed;
+        }
+
         /// <summary>1 on Android, the screen scale on iOS; read on the main thread when the walk starts.</summary>
         public float PixelsPerNativeUnit = 1f;
 

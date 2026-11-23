@@ -265,12 +265,28 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(h.Warnings.Count, Is.EqualTo(1), "the change the quiet lookup saw is still warned about by the next call that may");
 
             h.Read = Good(500, 1000, 0, 96, 1000, 2000);
+            h.Sync.Tick();
             h.Sync.CurrentView(0, out exact);
             Assert.That(exact, Is.True);
             h.Read = unreadable;
             view = h.Sync.CurrentView(0, out exact);
-            Assert.That(exact, Is.True, "the last good surface is kept");
+            Assert.That(exact, Is.False, "an unreadable surface is not exact, even with an earlier good read");
             Assert.That(view.Top, Is.EqualTo(96));
+        }
+
+        [Test]
+        public void CurrentViewIsNotExactUntilTickCaughtUpWithAChangedView()
+        {
+            var h = new Harness(Good(500, 1000, 0, 0, 1000, 2000));
+            h.Sync.Add(0, 0, 10, 10, 0);
+            h.Sync.CurrentView(0, out var exact);
+            Assert.That(exact, Is.True, "the registry was converted through this view");
+            h.Read = Good(500, 1000, 0, 96, 1000, 2000); // the surface moved after the last Tick
+            h.Sync.CurrentView(0, out exact);
+            Assert.That(exact, Is.False, "the registry still holds the old conversion");
+            h.Sync.Tick();
+            h.Sync.CurrentView(0, out exact);
+            Assert.That(exact, Is.True, "Tick converted again through the new view");
         }
 
         [Test]
