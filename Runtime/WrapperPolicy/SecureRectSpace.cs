@@ -170,7 +170,13 @@ namespace Bugsee.WrapperPolicy
         /// </summary>
         public bool IsConvertedThrough(int displayId, SecureRectView view)
         {
-            lock (_sync) return !_appliedViews.TryGetValue(displayId, out var applied) || applied.Equals(view);
+            lock (_sync)
+            {
+                // Nothing screen-space left on the display: nothing in the registry was converted through any view.
+                var any = false;
+                foreach (var e in _entries.Values) if (e.DisplayId == displayId) { any = true; break; }
+                return !any || !_appliedViews.TryGetValue(displayId, out var applied) || applied.Equals(view);
+            }
         }
 
         public void Add(float xMin, float yMin, float xMax, float yMax, int displayId, SecureRectView view, SecureRectRegistry registry)

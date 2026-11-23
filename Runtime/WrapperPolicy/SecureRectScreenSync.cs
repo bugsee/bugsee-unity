@@ -104,7 +104,8 @@ namespace Bugsee.WrapperPolicy
         /// <summary>The view the registered rectangles of <paramref name="displayId"/> are converted through now (the last surface read, or the display's size).</summary>
         /// <remarks>
         /// Quiet (no warning: this can run inside the native SDK's request, where a log line is captured). <paramref name="exact"/> is false when
-        /// the surface was never read (unreadable, nothing good before) or the view is caught mid-rotation: the view is then only the display's size, and a rectangle given in
+        /// the surface could not be read now (also after an earlier good read), the view is caught mid-rotation, or the screen-space
+        /// rectangles were converted through another view than this one: the view is then only the display's size, and a rectangle given in
         /// native pixels cannot be placed exactly in render pixels.
         /// </remarks>
         public SecureRectView CurrentView(int displayId, out bool exact)

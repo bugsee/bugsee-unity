@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **The managed view hierarchy now hides the name and components of every node under a secure rectangle at any render resolution.** The node boxes are in Unity render pixels but the registered rectangles are in native pixels, so with Resolution Scaling, `Screen.SetResolution` below the display size, a surface offset (status bar, cutout) or an iOS render scale that differs from the screen scale, a covered node could keep `options.name` and `options.components`. The rectangles are now converted into render pixels with the surface mapping read now before the overlap test (a node without bounds is still treated as covered, and while the surface was never readable or is mid-rotation every node is).
+- **The managed view hierarchy now hides the name and components of every node under a secure rectangle at any render resolution.** The node boxes are in Unity render pixels but the registered rectangles are in native pixels, so with Resolution Scaling, `Screen.SetResolution` below the display size, a surface offset (status bar, cutout) or an iOS render scale that differs from the screen scale, a covered node could keep `options.name` and `options.components`. The rectangles are now converted into render pixels with the surface mapping read now before the overlap test (a node without bounds is still treated as covered, and while the surface cannot be read or is mid-rotation every node is, for the rest of that capture).
 
 ## [7.0.0-beta.1] - 2026-11-23
 

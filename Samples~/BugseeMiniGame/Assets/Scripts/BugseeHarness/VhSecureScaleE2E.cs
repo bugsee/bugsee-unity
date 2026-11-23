@@ -45,13 +45,20 @@ namespace Bugsee.Sample
                         if (go != canvasGo && go.activeSelf) { go.SetActive(false); hidden.Add(go); }
                 var card = new GameObject("CardNumberSecret", typeof(RectTransform));
                 card.transform.SetParent(canvasGo.transform, false);
+                // A named node in the opposite corner, clear of the rectangle: it must keep its name at both resolutions, so a PASS cannot
+                // come from covering everything.
+                var clear = new GameObject("ClearCornerNode", typeof(RectTransform));
+                clear.transform.SetParent(canvasGo.transform, false);
+                var crt = (RectTransform)clear.transform;
+                crt.anchorMin = crt.anchorMax = new Vector2(0.9f, 0.9f);
+                crt.sizeDelta = new Vector2(nativeW * 0.05f, nativeH * 0.02f);
                 var rt = (RectTransform)card.transform;
                 rt.anchorMin = rt.anchorMax = new Vector2(0.25f, 0.4f); // a fraction of the screen, so it scales with the resolution
                 rt.sizeDelta = new Vector2(nativeW * 0.2f, nativeH * 0.05f);
                 yield return null;
 
                 // 1: native resolution.
-                var native = new int[1];
+                var native = new int[2];
                 yield return Measure(card, rt, "native", native, r => rect = r);
                 Remove(ref rect);
 
@@ -66,11 +73,14 @@ namespace Bugsee.Sample
                     Debug.Log("[Sample] vhsecurescale SKIP the resolution did not change (" + Screen.width + "x" + Screen.height + "), nothing to compare");
                     yield break;
                 }
-                var scaled = new int[1];
+                var scaled = new int[2];
                 yield return Measure(card, rt, "half", scaled, r => rect = r);
                 Remove(ref rect);
 
                 if (native[0] < 2) { failures++; Debug.Log("[Sample] vhsecurescale FAIL the native capture should secure at least the canvas and the card: secured=" + native[0]); }
+                // Nodes: the unnamed root plus the clear corner node (named, not under the rectangle) never count as secured.
+                foreach (var r in new[] { native, scaled })
+                    if (r[0] > r[1] - 2) { failures++; Debug.Log("[Sample] vhsecurescale FAIL the clear corner node was secured too: secured=" + r[0] + " nodes=" + r[1]); }
                 if (scaled[0] != native[0]) { failures++; Debug.Log("[Sample] vhsecurescale FAIL the half-resolution capture secured " + scaled[0] + " nodes, the native one " + native[0]); }
                 else Debug.Log("[Sample] vhsecurescale PASS half-resolution secured=" + scaled[0] + " equals native secured=" + native[0]);
             }
@@ -106,6 +116,7 @@ namespace Bugsee.Sample
             while (ManagedViewDiagnostics.Count == before && waited < 10f) { waited += Time.unscaledDeltaTime; yield return null; }
             var last = ManagedViewDiagnostics.Last;
             secured[0] = ManagedViewDiagnostics.Count > before && last != null ? last.Secured : -1;
+            secured[1] = last != null ? last.Nodes : -1;
             Debug.Log("[VHSECURESCALE] " + label + " screen=" + Screen.width + "x" + Screen.height + " rect=" + rect + " nodes=" + (last != null ? last.Nodes : -1)
                 + " secured=" + secured[0] + " outcome=" + (last != null ? last.Outcome : "none"));
             yield return new WaitForSecondsRealtime(1f);

@@ -290,6 +290,17 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void ARemovedScreenRectangleLeavesNoStaleViewBehind()
+        {
+            var h = new Harness(Good(500, 1000, 0, 0, 1000, 2000));
+            h.Sync.Add(0, 0, 10, 10, 0);
+            h.Sync.Remove(0, 0, 10, 10, 0);
+            h.Read = Good(500, 1000, 0, 96, 1000, 2000); // later the surface moves, with only a manual rectangle registered
+            h.Sync.CurrentView(0, out var exact);
+            Assert.That(exact, Is.True, "no screen-space rectangle was converted, so nothing is out of step");
+        }
+
+        [Test]
         public void CurrentViewIsNotExactWhileTheSurfaceDoesNotSettle()
         {
             var h = new Harness(Good(500, 1000, 0, 0, 1000, 2000));
