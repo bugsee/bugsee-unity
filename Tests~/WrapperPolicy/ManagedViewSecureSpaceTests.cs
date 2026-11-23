@@ -200,7 +200,7 @@ namespace Bugsee.WrapperPolicy.Tests
             registry.Set("manual:1", 0, 900, 2000, 910, 2010);
             int[] rects = null;
             var count = registry.CopyRects(0, ref rects);
-            SecureRectSpace.CoverScreen(rects, count, 540, 1200);
+            SecureRectSpace.CoverScreen(rects, count);
             var json = ManagedViewTreeJson.Write(Root(view, Node(5, "Anywhere", 500, 1100, 10, 10)), rects, count, 1f);
             Assert.That(HasName(json, "Anywhere"), Is.False);
         }

@@ -90,16 +90,18 @@ namespace Bugsee.WrapperPolicy
 
         /// <summary>
         /// Fail closed for the managed view hierarchy when the rectangles cannot be placed in render pixels (unknown view, a surface that was
-        /// never read): every rectangle becomes the whole render screen, so every node with bounds counts as covered.
+        /// never read): every rectangle becomes one far larger than any screen, so every node with bounds counts as covered.
         /// </summary>
-        public static void CoverScreen(int[] rects, int count, int screenWidth, int screenHeight)
+        const int Far = 1 << 24;
+
+        public static void CoverScreen(int[] rects, int count)
         {
             if (rects == null) return;
             if (count * 4 > rects.Length) count = rects.Length / 4;
             for (var i = 0; i < count; i++)
             {
-                rects[i * 4] = 0; rects[i * 4 + 1] = 0;
-                rects[i * 4 + 2] = Math.Max(1, screenWidth); rects[i * 4 + 3] = Math.Max(1, screenHeight);
+                rects[i * 4] = -Far; rects[i * 4 + 1] = -Far;
+                rects[i * 4 + 2] = Far; rects[i * 4 + 3] = Far;
             }
         }
 

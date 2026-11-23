@@ -32,6 +32,9 @@ namespace Bugsee.WrapperPolicy
 
         public SecureRectViewState State { get; private set; } = SecureRectViewState.Ok;
 
+        /// <summary>Puts the state back, so a change that a quiet lookup saw is still a change for the next one that warns.</summary>
+        public void RestoreState(SecureRectViewState state) => State = state;
+
         public SecureRectView Resolve(SecureRectViewRead read, out bool stateChanged)
         {
             SecureRectViewState next;
@@ -106,7 +109,11 @@ namespace Bugsee.WrapperPolicy
         /// </remarks>
         public SecureRectView CurrentView(int displayId, out bool exact)
         {
+            _resolvers.TryGetValue(displayId, out var known);
+            var previous = known?.State ?? SecureRectViewState.Ok;
             var view = Resolve(displayId, out var state, warn: false);
+            // The warning for a state change is the next loud Resolve's to give (Add, Tick), not lost to this lookup.
+            _resolvers[displayId].RestoreState(previous);
             exact = state != SecureRectViewState.Unreadable || _resolvers[displayId].HasGoodRead;
             return view;
         }

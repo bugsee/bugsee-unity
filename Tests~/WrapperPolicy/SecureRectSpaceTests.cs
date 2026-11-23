@@ -261,6 +261,8 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(exact, Is.False, "never read: only the display size is known");
             Assert.That((view.Width, view.Height), Is.EqualTo((1000, 2000)));
             Assert.That(h.Warnings, Is.Empty, "no log line from inside a native request");
+            h.Sync.Add(0, 0, 10, 10, 0);
+            Assert.That(h.Warnings.Count, Is.EqualTo(1), "the change the quiet lookup saw is still warned about by the next call that may");
 
             h.Read = Good(500, 1000, 0, 96, 1000, 2000);
             h.Sync.CurrentView(0, out exact);

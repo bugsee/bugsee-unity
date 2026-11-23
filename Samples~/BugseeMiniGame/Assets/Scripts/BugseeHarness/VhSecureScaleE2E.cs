@@ -23,6 +23,7 @@ namespace Bugsee.Sample
             var canvasGo = new GameObject("VhSecureScaleCanvas", typeof(Canvas));
             canvasGo.GetComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
             canvasGo.GetComponent<Canvas>().sortingOrder = -100;
+            Object.DontDestroyOnLoad(canvasGo); // a scene load must not stop the coroutine before its finally restores everything
             canvasGo.AddComponent<Runner>().StartCoroutine(Run(canvasGo));
         }
 
