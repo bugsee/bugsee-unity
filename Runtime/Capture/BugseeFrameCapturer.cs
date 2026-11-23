@@ -72,7 +72,11 @@ namespace Bugsee.Capture
         public static BugseeFrameCapturerOptions DefaultOptions = new BugseeFrameCapturerOptions();
 
         /// <summary>Raised on the main thread when a running pusher turned itself off after repeated readback failures.</summary>
+        // Bugsee.AfterLaunchResult subscribes in every configuration, but only the readback build (BUGSEE_READBACK) raises it,
+        // so the other configurations (Editor, iOS, Unity before 2022.2, no Screen Capture module) report CS0067.
+#pragma warning disable CS0067
         internal static event Action Failed;
+#pragma warning restore CS0067
 
         public static BugseeFrameCapturerStats Stats => _instance != null ? _instance.ReadStats() : default;
 

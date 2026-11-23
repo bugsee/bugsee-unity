@@ -4,6 +4,11 @@
   "displayName": "Bugsee",
   "description": "Bugsee crash and session-replay SDK for Unity (iOS & Android).",
   "unity": "2021.3",
+  "dependencies": {
+    "com.unity.modules.androidjni": "1.0.0",
+    "com.unity.modules.jsonserialize": "1.0.0",
+    "com.unity.modules.ui": "1.0.0"
+  },
   "documentationUrl": "https://docs.bugsee.com/sdk/unity/",
   "changelogUrl": "https://github.com/bugsee/bugsee-unity/blob/main/CHANGELOG.md",
   "licensesUrl": "https://github.com/bugsee/bugsee-unity/blob/main/LICENSE",

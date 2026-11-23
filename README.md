@@ -7,17 +7,50 @@ UPM package for the Bugsee crash and session-replay SDK on Unity (**2021.3+**).
 
 ## Install
 
-In Unity Package Manager → **Add package from git URL**:
+**This is a beta (`7.0.0-beta.1`): it may have rough edges, and it has breaking changes relative to 6.x (see the
+[changelog](CHANGELOG.md)). The minimum Unity version is 2021.3.**
 
-```
-https://github.com/bugsee/bugsee-unity.git
-```
-
-Pin a version/tag when available:
+The package is installed from git, pinned to a release tag:
 
 ```
 https://github.com/bugsee/bugsee-unity.git#v7.0.0-beta.1
 ```
+
+Without `#<tag>` Unity follows the repository's default branch, which is not a release.
+
+**Package Manager.** Window > Package Manager > **+** > **Add package from git URL...**, paste the URL above.
+
+**By hand.** Add the dependency to `Packages/manifest.json` (Unity resolves it the next time the Editor has focus):
+
+```json
+{
+  "dependencies": {
+    "com.bugsee.unity": "https://github.com/bugsee/bugsee-unity.git#v7.0.0-beta.1"
+  }
+}
+```
+
+**A clone or another git host.** Unity accepts a Git URL that ends in `.git` (before the optional `#tag`) or starts with
+`git+`; other spellings are rejected as an invalid version. For a clone on disk, or a mirror:
+
+```
+file:///path/to/bugsee-unity.git#v7.0.0-beta.1
+git+file:///path/to/bugsee-unity#v7.0.0-beta.1
+```
+
+**From disk.** Package Manager > **+** > **Add package from disk...**, then pick the `package.json` in the root of a
+checkout (the folder that holds `package.json`, `Runtime` and `Editor`); in `manifest.json` it is
+`"com.bugsee.unity": "file:/path/to/bugsee-unity"`. Unity reads the folder in place, so keep it where it is.
+
+**From a tarball.** Package Manager > **+** > **Add package from tarball...**. Unity needs the package files under a
+top-level `package/` folder (what `npm pack` makes), and rejects an archive without it. From a checkout:
+
+```
+git archive --format=tar.gz --prefix=package/ -o bugsee-unity-7.0.0-beta.1.tgz v7.0.0-beta.1
+```
+
+Unity rejects an archive whose files are at the top level or under another folder name, which includes GitHub's "Source code" download (its top folder is named after the repository and the tag); use the command above instead. (A tarball also copies `Samples~` and `Tests~`; Unity ignores folders
+whose names end in `~`, so they do not reach your project.)
 
 That is the whole install: no scoped registry, no EDM4U, no dependency-resolve step and no custom
 Gradle templates to enable. On Android the package declares the Bugsee SDK in the Gradle project Unity
