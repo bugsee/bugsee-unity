@@ -441,7 +441,7 @@ namespace Bugsee.Sample
                     if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
                     {
                         _e2ePhase = 99;
-                        StartCoroutine(VhSecureScaleE2E.Run());
+                        VhSecureScaleE2E.Start();
                     }
                     break;
                 case "vhsecure":

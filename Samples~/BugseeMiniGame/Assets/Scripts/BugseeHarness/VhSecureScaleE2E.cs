@@ -1,7 +1,7 @@
 using System.Collections;
+using System.Collections.Generic;
 using Bugsee.Internal;
 using UnityEngine;
-using UnityEngine.UI;
 
 namespace Bugsee.Sample
 {
@@ -15,21 +15,34 @@ namespace Bugsee.Sample
     /// </summary>
     static class VhSecureScaleE2E
     {
-        public static IEnumerator Run()
+        sealed class Runner : MonoBehaviour { }
+
+        /// <summary>Starts the scenario on the canvas object itself: the scene's own objects (the bootstrap among them) are switched off while it runs.</summary>
+        public static void Start()
+        {
+            var canvasGo = new GameObject("VhSecureScaleCanvas", typeof(Canvas));
+            canvasGo.GetComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
+            canvasGo.GetComponent<Canvas>().sortingOrder = -100;
+            canvasGo.AddComponent<Runner>().StartCoroutine(Run(canvasGo));
+        }
+
+        static IEnumerator Run(GameObject canvasGo)
         {
             var nativeW = Screen.width;
             var nativeH = Screen.height;
             var fullscreen = Screen.fullScreen;
             Rect? rect = null;
-            GameObject canvasGo = null;
+            var hidden = new List<GameObject>();
             var failures = 0;
             try
             {
                 Debug.Log("[VHSECURESCALE] start launched=" + Bugsee.IsLaunched + " screen=" + nativeW + "x" + nativeH);
-                canvasGo = new GameObject("VhSecureScaleCanvas", typeof(Canvas));
-                canvasGo.GetComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
-                canvasGo.GetComponent<Canvas>().sortingOrder = -100;
-                var card = new GameObject("CardNumberSecret", typeof(RectTransform), typeof(Image));
+                // The walk is sliced and capped, so the nodes it reaches vary between captures of a busy scene: the scene's own objects are
+                // switched off for the run, leaving the canvas and the card, so the counts below are stable (4 on the HONOR WOD-LX1: the canvas, the card and what the host adds).
+                for (var i = 0; i < UnityEngine.SceneManagement.SceneManager.sceneCount; i++)
+                    foreach (var go in UnityEngine.SceneManagement.SceneManager.GetSceneAt(i).GetRootGameObjects())
+                        if (go != canvasGo && go.activeSelf) { go.SetActive(false); hidden.Add(go); }
+                var card = new GameObject("CardNumberSecret", typeof(RectTransform));
                 card.transform.SetParent(canvasGo.transform, false);
                 var rt = (RectTransform)card.transform;
                 rt.anchorMin = rt.anchorMax = new Vector2(0.25f, 0.4f); // a fraction of the screen, so it scales with the resolution
@@ -49,7 +62,7 @@ namespace Bugsee.Sample
                 yield return Measure(card, rt, "half", scaled, r => rect = r);
                 Remove(ref rect);
 
-                if (native[0] < 1) { failures++; Debug.Log("[Sample] vhsecurescale FAIL the native capture secured nothing: secured=" + native[0]); }
+                if (native[0] < 2) { failures++; Debug.Log("[Sample] vhsecurescale FAIL the native capture should secure at least the canvas and the card: secured=" + native[0]); }
                 if (scaled[0] != native[0]) { failures++; Debug.Log("[Sample] vhsecurescale FAIL the half-resolution capture secured " + scaled[0] + " nodes, the native one " + native[0]); }
                 else Debug.Log("[Sample] vhsecurescale PASS half-resolution secured=" + scaled[0] + " equals native secured=" + native[0]);
             }
@@ -57,7 +70,8 @@ namespace Bugsee.Sample
             {
                 Remove(ref rect);
                 Screen.SetResolution(nativeW, nativeH, fullscreen);
-                if (canvasGo != null) Object.Destroy(canvasGo);
+                Object.Destroy(canvasGo);
+                foreach (var go in hidden) if (go != null) go.SetActive(true);
                 Debug.Log("[Sample] vhsecurescale done failures=" + failures);
             }
         }
