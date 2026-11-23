@@ -45,7 +45,7 @@ Everything in this list is a break against the 6.x line (checked against 6.0.1, 
 
 - **Managed exceptions follow `CaptureManagedExceptions`** (default `true`), not `DetectAndReportCrash`: in 6.x the `AppDomain.UnhandledException` and Unity log hooks were installed only when `CrashReport` was `true`. Migration: set `CaptureManagedExceptions = false` to stop reporting C# exceptions.
 - **Managed exception client signatures changed** (the recipe of `Documentation~/exception-signatures.md`: user frames only, never the message, the build GUID, IL offsets or directories; 6.x hashed the exception name, every raw stack line and the build GUID), so existing issues may regroup after the update.
-- **iOS export on Xcode 27+ can add a `BugseeCrashReport` extension target** with an App Group entitlement on the app. Default Auto adds it only in an interactive Editor build with Automatically Sign on and a team (never in batch mode). Migration: `BUGSEE_IOS_CRASH_EXTENSION=0` (or Bugsee > iOS > Crash Report Extension > Off) keeps the export as before; with On, register the App Group on both App IDs.
+- **iOS export on Xcode 27+ can add a `BugseeCrashReport` extension target** (new in 7.x, not a regression: 6.x never added one, so an upgraded export can gain a target) with an App Group entitlement on the app. Default Auto adds it only in an interactive Editor build with Automatically Sign on and a team (never in batch mode). Migration: `BUGSEE_IOS_CRASH_EXTENSION=0` (or Bugsee > iOS > Crash Report Extension > Off) keeps the export as before; with On, register the App Group on both App IDs.
 
 ### Known issues
 
