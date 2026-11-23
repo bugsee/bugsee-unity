@@ -99,7 +99,7 @@ namespace Bugsee.WrapperPolicy
         const int MaxWriteDepth = 64;
 
         /// <param name="root">The tree; geometry in Unity screen pixels, top-left origin.</param>
-        /// <param name="secureRects">[left, top, right, bottom, ...] in the same pixels (SecureRectRegistry.CopyRects).</param>
+        /// <param name="secureRects">[left, top, right, bottom, ...] in the same pixels as the node boxes (Unity render pixels): SecureRectRegistry.CopyRects holds native pixels, run them through SecureRectSpace.NativeToRender first.</param>
         /// <param name="secureCount">How many rectangles of <paramref name="secureRects"/> are in use.</param>
         /// <param name="pixelsPerNativeUnit">1 on Android (the native tree is in pixels), the screen scale on iOS (points).</param>
         public static string Write(

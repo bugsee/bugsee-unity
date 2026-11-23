@@ -274,6 +274,17 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void CurrentViewIsNotExactWhileTheSurfaceDoesNotSettle()
+        {
+            var h = new Harness(Good(500, 1000, 0, 0, 1000, 2000));
+            h.Sync.CurrentView(0, out var exact);
+            Assert.That(exact, Is.True);
+            h.Read = new SecureRectViewRead { ScreenWidth = 1000, ScreenHeight = 500, Ok = true, Settled = false, Width = 1000, Height = 2000, FallbackWidth = 1000, FallbackHeight = 2000 };
+            h.Sync.CurrentView(0, out exact);
+            Assert.That(exact, Is.False, "mid-rotation: the rectangles are covered whole");
+        }
+
+        [Test]
         public void TickConvertsAgainOnlyWhenTheViewChanged()
         {
             var h = new Harness(Good(500, 1000, 0, 0, 1000, 2000));

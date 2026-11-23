@@ -94,6 +94,8 @@ namespace Bugsee.WrapperPolicy
         /// </summary>
         const int Far = 1 << 24;
 
+        static int Clamp(double v) => (int)Math.Max(-Far, Math.Min(Far, v));
+
         public static void CoverScreen(int[] rects, int count)
         {
             if (rects == null) return;
@@ -121,10 +123,11 @@ namespace Bugsee.WrapperPolicy
             for (var i = 0; i < count; i++)
             {
                 var o = i * 4;
-                rects[o] = (int)Math.Floor((rects[o] - view.Left) * sx);
-                rects[o + 1] = (int)Math.Floor((rects[o + 1] - view.Top) * sy);
-                rects[o + 2] = (int)Math.Ceiling((rects[o + 2] - view.Left) * sx);
-                rects[o + 3] = (int)Math.Ceiling((rects[o + 3] - view.Top) * sy);
+                // In double, clamped before the cast: a huge manual rectangle must stay huge, not wrap or collapse.
+                rects[o] = Clamp(Math.Floor(((double)rects[o] - view.Left) * sx));
+                rects[o + 1] = Clamp(Math.Floor(((double)rects[o + 1] - view.Top) * sy));
+                rects[o + 2] = Clamp(Math.Ceiling(((double)rects[o + 2] - view.Left) * sx));
+                rects[o + 3] = Clamp(Math.Ceiling(((double)rects[o + 3] - view.Top) * sy));
             }
             return true;
         }

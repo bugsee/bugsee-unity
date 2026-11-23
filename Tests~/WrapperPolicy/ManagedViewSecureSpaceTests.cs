@@ -193,6 +193,17 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void AHugeManualRectangleStaysHuge()
+        {
+            var view = new SecureRectView(1500, 1000, 40, 96, 1000, 2000); // sx 1.5: a naive int cast of the right edge would wrap
+            var rects = new[] { int.MinValue / 2, int.MinValue / 2, int.MaxValue, int.MaxValue };
+            Assert.That(SecureRectSpace.NativeToRender(rects, 1, view), Is.True);
+            Assert.That(rects[0], Is.LessThan(-1000000));
+            Assert.That(rects[2], Is.GreaterThan(1000000));
+            Assert.That(rects[3], Is.GreaterThan(1000000));
+        }
+
+        [Test]
         public void CoverScreenMakesEveryRectangleTheWholeScreen()
         {
             var view = new SecureRectView(540, 1200, 0, 0, 1080, 2400);

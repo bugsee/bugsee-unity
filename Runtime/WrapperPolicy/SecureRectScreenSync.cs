@@ -104,7 +104,7 @@ namespace Bugsee.WrapperPolicy
         /// <summary>The view the registered rectangles of <paramref name="displayId"/> are converted through now (the last surface read, or the display's size).</summary>
         /// <remarks>
         /// Quiet (no warning: this can run inside the native SDK's request, where a log line is captured). <paramref name="exact"/> is false when
-        /// the surface was never read (unreadable, nothing good before): the view is then only the display's size, and a rectangle given in
+        /// the surface was never read (unreadable, nothing good before) or the view is caught mid-rotation: the view is then only the display's size, and a rectangle given in
         /// native pixels cannot be placed exactly in render pixels.
         /// </remarks>
         public SecureRectView CurrentView(int displayId, out bool exact)
@@ -114,7 +114,8 @@ namespace Bugsee.WrapperPolicy
             var view = Resolve(displayId, out var state, warn: false);
             // The warning for a state change is the next loud Resolve's to give (Add, Tick), not lost to this lookup.
             _resolvers[displayId].RestoreState(previous);
-            exact = state != SecureRectViewState.Unreadable || _resolvers[displayId].HasGoodRead;
+            // An unsettled view (caught mid-rotation) mixes the new screen size with the old surface: not exact either.
+            exact = state == SecureRectViewState.Ok || (state == SecureRectViewState.Unreadable && _resolvers[displayId].HasGoodRead);
             return view;
         }
 
