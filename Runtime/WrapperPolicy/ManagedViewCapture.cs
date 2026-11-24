@@ -208,7 +208,8 @@ namespace Bugsee.WrapperPolicy
                 // the worker gets the time that is left, instead of the hand-off happening past the write deadline (the reply would be cut
                 // to nothing, or answered null by the timer).
                 // sincePump is a frame only once a slice has run: before that it is the time the request waited for the main thread.
-                if (inlineSmall || job.Slices < 2 || started + sincePump - job.AskedAt <= ManagedViewRequests.SnapshotDeadlineMs) return;
+                var walkEnd = job.Source.Snapshot.Scene != null ? ManagedViewRequests.SceneReadDeadlineMs : ManagedViewRequests.SnapshotDeadlineMs;
+                if (inlineSmall || job.Slices < 2 || started + sincePump - job.AskedAt <= walkEnd) return;
                 var snapshot = job.Source.Snapshot;
                 if (snapshot.Count > 0 && !snapshot.TreeComplete) snapshot.SetTruncated(0);
                 try { job.Source.Abandon(); } catch (Exception) { }

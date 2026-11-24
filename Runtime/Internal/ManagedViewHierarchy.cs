@@ -668,6 +668,10 @@ namespace Bugsee.Internal
             // Phase 2: the world-space and camera canvases, one per step.
             if (_canvases == null)
             {
+                // The objects were read over several frames: the cameras are read again, so the selection uses where they ended up.
+                try { scene.ClearCameras(); ReadCameras(scene); }
+                catch (Exception) { scene.Incomplete = true; }
+
                 if (_budget.SceneExpired)
                 {
                     // No time left for the canvases: the scene is a part of what there is.

@@ -42,6 +42,9 @@ namespace Bugsee.WrapperPolicy
 
         public int CameraCount => _cameraCount;
 
+        /// <summary>Forgets the cameras read so far (they are read again when the objects are done, so the selection uses the cameras of the end of the read).</summary>
+        public void ClearCameras() => _cameraCount = 0;
+
         /// <param name="id">The id of the camera's GameObject (the id of its tree node).</param>
         /// <param name="pose">position x, y, z then rotation x, y, z, w (Unity world space).</param>
         /// <param name="view">The camera's worldToCameraMatrix, row-major (Unity's m00, m01, ...).</param>

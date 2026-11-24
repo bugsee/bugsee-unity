@@ -1282,7 +1282,9 @@ namespace Bugsee.Sample
         {
             var value = ReadE2EValue("bugsee_scene_graph", "BUGSEE_E2E_SCENE_GRAPH");
             if (value == null) return;
-            if (Enum.TryParse(value, true, out SceneGraphCapture level)) options.CaptureSceneGraph = level;
+            // A level name goes in through the typed property; anything else (a typo, a number) as written, to see the wrapper refuse it.
+            var named = Array.Find(Enum.GetNames(typeof(SceneGraphCapture)), n => string.Equals(n, value, StringComparison.OrdinalIgnoreCase));
+            if (named != null) options.CaptureSceneGraph = (SceneGraphCapture)Enum.Parse(typeof(SceneGraphCapture), named);
             else options.SetCustomOption(Options.CaptureSceneGraph, value);
         }
 

@@ -320,6 +320,24 @@ namespace Bugsee.WrapperPolicy.Tests
             Assert.That(JsonDocument.Parse(replies[0]).RootElement.TryGetProperty("truncated", out _), Is.False);
         }
 
+        [TestCase(true, 0)]
+        [TestCase(false, 1)]
+        public void TheLastSliceRuleUsesTheSceneDeadlineForAJobWithAScene(bool withScene, int handedOff)
+        {
+            var snapshot = TreeSnapshot();
+            if (withScene) snapshot.Scene = new ManagedViewSceneSnapshot();
+            double now = 1000;
+            var worker = new List<Action>();
+            var engine = new ManagedViewCaptureEngine(
+                () => now, worker.Add, (d, a) => new Timer(_ => { }, null, Timeout.Infinite, Timeout.Infinite),
+                b => new SlowSource(snapshot), x => { }, () => 1.0, _ => { });
+            engine.Submit(new ManagedViewRequests.Once(_ => { }), 1000.0, () => 1f, false, withScene ? SceneGraphCapture.All : SceneGraphCapture.NamesOnly);
+            now = 1100; engine.Pump();
+            now = 1180; engine.Pump();
+            now = 1230; engine.Pump(); // the next frame would land at 1280: past 250 ms, inside 290 ms
+            Assert.That(worker.Count, Is.EqualTo(handedOff));
+        }
+
         sealed class SlowSource : IManagedViewSource
         {
             readonly ManagedViewSnapshot _s;
