@@ -395,16 +395,14 @@ namespace Bugsee.WrapperPolicy
         /// <summary>From the request: the main thread stops reading the scene (a scene read cut short says so).</summary>
         public const long SnapshotDeadlineMs = 250;
         /// <summary>
-        /// From the request, when the capture also reads the 3D scene: the tree's share of the walk ends here (the tree says it is truncated)
-        /// and the rest of <see cref="SnapshotDeadlineMs"/> is the scene's. The tree is read first, so a small scene leaves the scene the rest
-        /// of the window and a large one gives the tree 60% of it. A choice, not a measurement: the main thread has 5% of every frame in this
-        /// window whichever way it is split.
+        /// From the request, when the capture also reads the 3D scene: the main thread stops reading it. The tree keeps its whole
+        /// <see cref="SnapshotDeadlineMs"/>; the scene gets what the tree leaves of it and this much more, so it never takes the tree's time.
         /// </summary>
-        public const long TreeDeadlineMs = 150;
+        public const long SceneReadDeadlineMs = 290;
         /// <summary>From the request: the worker stops converting the scene, which leaves the rest of the write window to the tree.</summary>
-        public const long SceneBuildDeadlineMs = 300;
+        public const long SceneBuildDeadlineMs = 340;
         /// <summary>From the request: the worker stops writing nodes (the JSON says it is truncated).</summary>
-        public const long WriteDeadlineMs = 350;
+        public const long WriteDeadlineMs = 370;
         /// <summary>From the request: a capture that has not replied is answered null, still inside the SDK's 500 ms (a late reply is ignored by it).</summary>
         public const long ReplyDeadlineMs = 400;
         /// <summary>The main thread spends at most this share of one frame per frame on the snapshot (the product limit for plugin work is 5%).</summary>

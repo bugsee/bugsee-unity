@@ -661,7 +661,7 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void WithASceneTheTreeGetsTheFirstPartOfTheWindowAndTheSceneTheRest()
+        public void WithASceneTheTreeKeepsItsWholeWindowAndTheSceneMayReadALittlePastIt()
         {
             double now = 1000;
             ManagedViewBudget budget = null;
@@ -669,13 +669,15 @@ namespace Bugsee.WrapperPolicy.Tests
                 () => now, a => { }, (d, a) => new Timer(_ => { }, null, Timeout.Infinite, Timeout.Infinite),
                 b => { budget = b; return new SceneSource(TreeSnapshot()); }, x => { }, () => 1.0, _ => { });
             engine.Submit(new ManagedViewRequests.Once(_ => { }), 1000.0, () => 1f, false, SceneGraphCapture.All);
-            Assert.That(budget.IsExhausted, Is.False);
-            now = 1000 + ManagedViewRequests.TreeDeadlineMs + 1;
-            Assert.That(budget.IsExhausted, Is.True, "the tree's share is spent");
-            Assert.That(budget.SceneExpired, Is.False, "the scene still has its part");
+            now = 1000 + ManagedViewRequests.SnapshotDeadlineMs - 1;
+            Assert.That(budget.IsExhausted, Is.False, "the tree is as long as it was without a scene");
             now = 1000 + ManagedViewRequests.SnapshotDeadlineMs + 1;
+            Assert.That(budget.IsExhausted, Is.True);
+            Assert.That(budget.SceneExpired, Is.False, "the scene still has its extra time");
+            now = 1000 + ManagedViewRequests.SceneReadDeadlineMs + 1;
             Assert.That(budget.SceneExpired, Is.True);
-            Assert.That(ManagedViewRequests.TreeDeadlineMs, Is.LessThan(ManagedViewRequests.SnapshotDeadlineMs));
+            Assert.That(ManagedViewRequests.SceneReadDeadlineMs, Is.LessThan(ManagedViewRequests.SceneBuildDeadlineMs));
+            Assert.That(ManagedViewRequests.SceneBuildDeadlineMs, Is.LessThan(ManagedViewRequests.WriteDeadlineMs));
         }
 
         [Test]
@@ -687,7 +689,7 @@ namespace Bugsee.WrapperPolicy.Tests
                 () => now, a => { }, (d, a) => new Timer(_ => { }, null, Timeout.Infinite, Timeout.Infinite),
                 b => { budget = b; return new SceneSource(TreeSnapshot()); }, x => { }, () => 1.0, _ => { });
             engine.Submit(new ManagedViewRequests.Once(_ => { }), 1000.0, () => 1f, false, SceneGraphCapture.NamesOnly);
-            now = 1000 + ManagedViewRequests.TreeDeadlineMs + 1;
+            now = 1000 + ManagedViewRequests.SnapshotDeadlineMs - 1;
             Assert.That(budget.IsExhausted, Is.False);
             Assert.That(budget.Level, Is.EqualTo(SceneGraphCapture.NamesOnly));
         }

@@ -130,11 +130,11 @@ namespace Bugsee.WrapperPolicy
             Job job = null;
             try
             {
-                // With a scene the tree gets the first part of the walk's time and the scene the rest; without one the tree has all of it.
-                var treeDeadline = level == SceneGraphCapture.All ? ManagedViewRequests.TreeDeadlineMs : ManagedViewRequests.SnapshotDeadlineMs;
+                // The tree keeps its whole window; with a scene, the scene may read a little past it.
+                var sceneDeadline = level == SceneGraphCapture.All ? ManagedViewRequests.SceneReadDeadlineMs : ManagedViewRequests.SnapshotDeadlineMs;
                 var budget = new ManagedViewBudget(
-                    expired: () => _nowMs() - askedAtMs > treeDeadline,
-                    sceneExpired: () => _nowMs() - askedAtMs > ManagedViewRequests.SnapshotDeadlineMs,
+                    expired: () => _nowMs() - askedAtMs > ManagedViewRequests.SnapshotDeadlineMs,
+                    sceneExpired: () => _nowMs() - askedAtMs > sceneDeadline,
                     level: level);
                 var source = _begin(budget);
                 float scale;
