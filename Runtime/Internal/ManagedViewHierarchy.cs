@@ -607,6 +607,8 @@ namespace Bugsee.Internal
 
         readonly List<Transform> _units = new List<Transform>(64);
         readonly List<int> _next = new List<int>(64);
+        Canvas[] _canvases;
+        int _canvasIndex;
         bool _sceneDone;
         int _scenePhase; // 0 cameras and seeding, 1 enumerating the units, 2 the canvases
         int _sceneSeen;
@@ -663,15 +665,33 @@ namespace Bugsee.Internal
                 if (sliceExpired()) return false;
             }
 
-            if (_budget.SceneExpired)
+            // Phase 2: the world-space and camera canvases, one per step.
+            if (_canvases == null)
             {
-                // No time left for the canvases: the scene is a part of what there is.
-                scene.Incomplete = true;
-                return true;
+                if (_budget.SceneExpired)
+                {
+                    // No time left for the canvases: the scene is a part of what there is.
+                    scene.Incomplete = true;
+                    return true;
+                }
+
+#if UNITY_2022_2_OR_NEWER
+                _canvases = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None);
+#else
+                _canvases = UnityEngine.Object.FindObjectsOfType<Canvas>();
+#endif
+                _canvasIndex = 0;
+                if (sliceExpired()) return false;
             }
 
-            try { ReadCanvases(scene); }
-            catch (Exception) { scene.Incomplete = true; /* the canvases that were not read are missing: the counts are not exact */ }
+            while (_canvasIndex < _canvases.Length)
+            {
+                if (_budget.SceneExpired || scene.ObjectCount >= MaxSceneObjectsRead) { scene.Incomplete = true; return true; }
+                try { ReadCanvas(scene, _canvases[_canvasIndex++]); }
+                catch (Exception) { scene.Incomplete = true; /* the canvases that were not read are missing: the counts are not exact */ }
+                if (sliceExpired()) return false;
+            }
+
             scene.Seen = _sceneSeen;
             return true;
         }
@@ -833,37 +853,27 @@ namespace Bugsee.Internal
 
         // World-space and screen-space-camera canvases are planes in the scene; an overlay canvas (and a camera canvas without a camera) is
         // drawn straight onto the screen and has no position in the world: its elements stay in the tree with their bounds.
-        void ReadCanvases(ManagedViewSceneSnapshot scene)
+        void ReadCanvas(ManagedViewSceneSnapshot scene, Canvas canvas)
         {
-#if UNITY_2022_2_OR_NEWER
-            var canvases = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None);
-#else
-            var canvases = UnityEngine.Object.FindObjectsOfType<Canvas>();
-#endif
-            for (var i = 0; i < canvases.Length; i++)
+            if (canvas == null || !canvas.isRootCanvas || !canvas.enabled) return;
+            _sceneSeen++;
+            var mode = canvas.renderMode;
+            var drawnBy = 0;
+            if (mode == RenderMode.ScreenSpaceOverlay) return;
+            if (mode == RenderMode.ScreenSpaceCamera)
             {
-                if (_budget.SceneExpired || scene.ObjectCount >= MaxSceneObjectsRead) { scene.Incomplete = true; return; }
-                var canvas = canvases[i];
-                if (canvas == null || !canvas.isRootCanvas || !canvas.enabled) continue;
-                _sceneSeen++;
-                var mode = canvas.renderMode;
-                var drawnBy = 0;
-                if (mode == RenderMode.ScreenSpaceOverlay) continue;
-                if (mode == RenderMode.ScreenSpaceCamera)
-                {
-                    var worldCamera = canvas.worldCamera;
-                    if (worldCamera == null || !worldCamera.isActiveAndEnabled) continue; // Unity draws such a canvas as an overlay
-                    drawnBy = worldCamera.gameObject.GetInstanceID();
-                }
-
-                var rt = canvas.transform as RectTransform;
-                if (rt == null) continue;
-                var rect = rt.rect;
-                CopyMatrix(rt.localToWorldMatrix, Matrix16);
-                var go = canvas.gameObject;
-                scene.AddObject(
-                    go.GetInstanceID(), SceneObjectKind.Ui, go.layer, drawnBy, Matrix16, rect.center.x, rect.center.y, 0f, rect.width, rect.height, 0f);
+                var worldCamera = canvas.worldCamera;
+                if (worldCamera == null || !worldCamera.isActiveAndEnabled) return; // Unity draws such a canvas as an overlay
+                drawnBy = worldCamera.gameObject.GetInstanceID();
             }
+
+            var rt = canvas.transform as RectTransform;
+            if (rt == null) return;
+            var rect = rt.rect;
+            CopyMatrix(rt.localToWorldMatrix, Matrix16);
+            var go = canvas.gameObject;
+            scene.AddObject(
+                go.GetInstanceID(), SceneObjectKind.Ui, go.layer, drawnBy, Matrix16, rect.center.x, rect.center.y, 0f, rect.width, rect.height, 0f);
         }
 
         // Fills NameBuffer with the component type names (up to the shown limit) and returns the type of the first component that says

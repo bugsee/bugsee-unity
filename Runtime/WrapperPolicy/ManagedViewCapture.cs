@@ -161,7 +161,7 @@ namespace Bugsee.WrapperPolicy
 
             var delay = ManagedViewRequests.ReplyDeadlineMs - (_nowMs() - askedAtMs);
             IDisposable timer = null;
-            try { timer = _schedule(delay > 0 ? delay : 0, () => job.Settle(null, "deadline")); }
+            try { timer = _schedule(delay > 0 ? delay : 0, () => job.SettleAtDeadline()); }
             catch (Exception) { /* no timer: the stages are still bounded by their own deadlines */ }
             job.SetTimer(timer);
         }
@@ -287,7 +287,7 @@ namespace Bugsee.WrapperPolicy
             {
                 var snapshot = job.Source.Snapshot;
                 var tree = snapshot.ToTree();
-                var options = new ManagedViewWriteOptions { EmitBounds = snapshot.EmitBounds, SceneExpired = job.WriteExpired };
+                var options = new ManagedViewWriteOptions { EmitBounds = snapshot.EmitBounds, SceneExpired = job.WriteExpired, OnTreeWritten = json => job.TreeOnlyJson = json };
                 if (snapshot.Scene != null)
                 {
                     // Built after the tree has been written in full (inside the write), so it only spends the time the tree left.
@@ -363,6 +363,15 @@ namespace Bugsee.WrapperPolicy
             public int SceneUnits, SceneRenderers;
 
             public readonly SceneGraphCapture Level;
+            string _treeOnlyJson;
+            /// <summary>The finished tree without its scene, once the worker has it: what the deadline timer answers if the scene is still being built.</summary>
+            public string TreeOnlyJson { get => System.Threading.Volatile.Read(ref _treeOnlyJson); set => System.Threading.Volatile.Write(ref _treeOnlyJson, value); }
+
+            public void SettleAtDeadline()
+            {
+                var tree = TreeOnlyJson;
+                if (tree != null) Settle(tree, null); else Settle(null, "deadline");
+            }
 
             public Job(ManagedViewCaptureEngine engine, ManagedViewRequests.Once first, double askedAt, IManagedViewSource source, SceneGraphCapture level)
             {

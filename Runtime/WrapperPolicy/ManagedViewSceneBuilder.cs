@@ -63,6 +63,10 @@ namespace Bugsee.WrapperPolicy
     {
         /// <summary>A reflection only changes the sign of a component, so a quaternion within this of the identity is written as none.</summary>
         const double IdentityEpsilon = 1e-6;
+        // The wire keeps six decimals of the matrix: an offset that shows there is sent.
+        const double OffCenterEpsilon = 5e-7;
+        /// <summary>Cameras emitted at most (a scene with more is incomplete in its cameras, not in its size).</summary>
+        public const int MaxCameras = 64;
 
         public static ManagedViewSceneDocument Build(ManagedViewSceneSnapshot s, Func<bool> expired = null)
         {
@@ -74,6 +78,7 @@ namespace Bugsee.WrapperPolicy
             var valid = new List<int>(); // snapshot indices of the cameras that are valid, in snapshot order
             for (var i = 0; i < s.CameraCount; i++)
             {
+                if (valid.Count >= MaxCameras) { doc.Incomplete = true; break; }
                 if (!TryCamera(s, i, out var cam)) continue;
                 valid.Add(i);
                 doc.Cameras.Add(cam);
@@ -191,9 +196,9 @@ namespace Bugsee.WrapperPolicy
             // Lens shift, an oblique plane or the off-center projection an AR session sets are not in fov and aspect: send the matrix.
             // Unity's projection is OpenGL's (camera space looks along -Z with +Y up, depth -1 at the near plane), which is also glTF's, and
             // the camera space is the same on both sides of the mirror, so the matrix is written as it is, column-major.
-            if (Math.Abs(s.CameraProjection(i, 2)) > 1e-4 || Math.Abs(s.CameraProjection(i, 6)) > 1e-4
-                || Math.Abs(s.CameraProjection(i, 8)) > 1e-4 || Math.Abs(s.CameraProjection(i, 9)) > 1e-4
-                || Math.Abs(s.CameraProjection(i, 3)) > 1e-4 || Math.Abs(s.CameraProjection(i, 7)) > 1e-4) // an off-center orthographic window
+            if (Math.Abs(s.CameraProjection(i, 2)) > OffCenterEpsilon || Math.Abs(s.CameraProjection(i, 6)) > OffCenterEpsilon
+                || Math.Abs(s.CameraProjection(i, 8)) > OffCenterEpsilon || Math.Abs(s.CameraProjection(i, 9)) > OffCenterEpsilon
+                || Math.Abs(s.CameraProjection(i, 3)) > OffCenterEpsilon || Math.Abs(s.CameraProjection(i, 7)) > OffCenterEpsilon) // an off-center orthographic window
             {
                 var m = new double[16];
                 var finite = true;

@@ -411,6 +411,58 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void AHeaderAndCamerasThatFillTheCapMeanNoSceneAtAll()
+        {
+            var sb = new StringBuilder("{\"x\":1");
+            var before = sb.ToString();
+            var wrote = ManagedViewSceneJson.Write(sb, ManagedViewSceneBuilder.Build(Fixture()), 100, 1, null, out var sent, out _);
+            Assert.That(wrote, Is.False);
+            Assert.That(sent, Is.EqualTo(0));
+            Assert.That(sb.ToString(), Is.EqualTo(before), "nothing of the scene is left behind");
+        }
+
+        [Test]
+        public void TheFinishedTreeIsHandedOverBeforeTheSceneIsBuilt()
+        {
+            string tree = null;
+            var opts = new ManagedViewWriteOptions
+            {
+                OnTreeWritten = j => tree = j,
+                SceneFactory = () =>
+                {
+                    Assert.That(tree, Is.Not.Null, "the tree is already out when the scene work starts");
+                    return ManagedViewSceneBuilder.Build(Fixture());
+                },
+            };
+            var full = ManagedViewTreeJson.Write(TreeSnapshot().ToTree(), null, 0, 1f, null, out _, out _, opts);
+            var doc = JsonDocument.Parse(tree).RootElement;
+            Assert.That(doc.TryGetProperty("scene", out _), Is.False, "the fallback is the tree alone");
+            Assert.That(doc.GetProperty("subitems").GetArrayLength(), Is.EqualTo(2));
+            Assert.That(JsonDocument.Parse(full).RootElement.TryGetProperty("scene", out _), Is.True);
+        }
+
+        [Test]
+        public void ASmallOffCenterOffsetThatShowsInSixDecimalsIsSent()
+        {
+            var s = new ManagedViewSceneSnapshot();
+            var p = Ortho(2, 1.0, 0.3, 100);
+            p[3] = 0.00005f;
+            AddCamera(s, 1, Identity, 0, 0, 0, p, true, 0.3f, 100f, 0f, new[] { 0f, 0f, 1f, 1f });
+            Assert.That(SceneOf(s).GetProperty("cameras")[0].TryGetProperty("projection_matrix", out _), Is.True);
+        }
+
+        [Test]
+        public void MoreCamerasThanTheLimitMakeTheSceneIncomplete()
+        {
+            var s = new ManagedViewSceneSnapshot();
+            for (var i = 0; i < ManagedViewSceneBuilder.MaxCameras + 5; i++)
+                AddCamera(s, i + 1, Identity, 0, 0, 0, Perspective(60, 1.0, 0.3, 100), false, 0.3f, 100f, i, new[] { 0f, 0f, 1f, 1f });
+            var scene = SceneOf(s);
+            Assert.That(scene.GetProperty("cameras").GetArrayLength(), Is.EqualTo(ManagedViewSceneBuilder.MaxCameras));
+            Assert.That(scene.TryGetProperty("truncated", out _) || scene.TryGetProperty("skipped", out _), Is.True);
+        }
+
+        [Test]
         public void ARequestAtAnotherLevelIsNotAnsweredByARunningCapture()
         {
             var snapshot = TreeSnapshot();

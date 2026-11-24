@@ -108,6 +108,8 @@ namespace Bugsee.WrapperPolicy
         public int MaxSceneChars = ManagedViewSceneJson.DefaultMaxChars;
         /// <summary>True once the scene's share of the write time is spent: the remaining objects are left out.</summary>
         public Func<bool> SceneExpired;
+        /// <summary>Called with the complete tree-only JSON just before the scene is built and written, so a reply that cannot wait for the scene can still give the tree.</summary>
+        public Action<string> OnTreeWritten;
         /// <summary>Out: whether the scene was written, and how many objects (of how many qualified) it carries.</summary>
         public bool SceneWritten;
         public int SceneSent;
@@ -316,17 +318,26 @@ namespace Bugsee.WrapperPolicy
             if (depth == 1 && !ctx.Cut && ctx.EmitBounds && ctx.Options != null && (ctx.Options.Scene != null || ctx.Options.SceneFactory != null) && hasBounds && w > 0f && h > 0f)
             {
                 var before = sb.Length;
+                if (ctx.Options.OnTreeWritten != null)
+                {
+                    // The tree is complete here: a copy closed as it stands is the fallback if the scene overruns the reply deadline.
+                    sb.Append('}');
+                    ctx.Options.OnTreeWritten(sb.ToString());
+                    sb.Length--;
+                }
+
                 if (ctx.Options.Scene == null) ctx.Options.Scene = ctx.Options.SceneFactory();
                 var sent = 0;
                 var sceneTruncated = false;
+                var written = false;
                 if (ctx.Options.Scene != null)
                 {
-                    ManagedViewSceneJson.Write(
+                    written = ManagedViewSceneJson.Write(
                         sb, ctx.Options.Scene, ctx.Options.MaxSceneObjects, ctx.Options.MaxSceneChars, ctx.Options.SceneExpired,
                         out sent, out sceneTruncated);
                 }
 
-                ctx.Options.SceneWritten = ctx.Options.Scene != null;
+                ctx.Options.SceneWritten = written;
                 ctx.Options.SceneSent = sent;
                 ctx.Options.SceneTruncated = sceneTruncated;
                 ctx.Options.SceneChars = sb.Length - before;

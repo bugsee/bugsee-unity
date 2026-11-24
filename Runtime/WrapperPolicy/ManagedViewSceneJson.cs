@@ -22,11 +22,13 @@ namespace Bugsee.WrapperPolicy
 
         /// <summary>Appends <c>"scene":{...}</c> (with its leading comma) to <paramref name="sb"/>.</summary>
         /// <param name="expired">Asked every 64 objects; once true the remaining objects are left out.</param>
-        public static void Write(
+        /// <returns>False when the scene's own header and cameras do not fit <paramref name="maxChars"/>: nothing is written then.</returns>
+        public static bool Write(
             StringBuilder sb, ManagedViewSceneDocument doc, int maxObjects, int maxChars, Func<bool> expired,
             out int sent, out bool truncated)
         {
             sent = 0;
+            truncated = false;
             var start = sb.Length;
             sb.Append(",\"scene\":{\"version\":").Append(Version.ToString(CultureInfo.InvariantCulture));
             sb.Append(",\"selection\":\"").Append(SelectionVisible).Append('"');
@@ -43,6 +45,13 @@ namespace Bugsee.WrapperPolicy
             }
 
             sb.Append("],\"objects\":[");
+            if (sb.Length - start > maxChars - ReserveChars)
+            {
+                // The header and the cameras alone fill the cap: no scene rather than an oversized one.
+                sb.Length = start;
+                return false;
+            }
+
             var limit = Math.Min(maxObjects, doc.Objects.Count);
             var budgetEnd = start + maxChars;
             var cutBySize = false;
@@ -71,6 +80,7 @@ namespace Bugsee.WrapperPolicy
                 skipped = cutBySize ? ManagedViewSceneSnapshot.SkippedSizeBudget : ManagedViewSceneSnapshot.SkippedTimeBudget;
             if (skipped != null && sent == 0) sb.Append(",\"skipped\":").Append(JsonWire.String(skipped));
             sb.Append('}');
+            return true;
         }
 
         static void WriteLayerNames(StringBuilder sb, string[] names)
