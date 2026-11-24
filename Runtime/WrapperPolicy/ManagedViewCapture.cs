@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Bugsee.Contracts.Options;
 
 namespace Bugsee.WrapperPolicy
 {
@@ -37,6 +38,16 @@ namespace Bugsee.WrapperPolicy
         public bool Truncated;
         /// <summary>The write deadline stopped the JSON.</summary>
         public bool Cut;
+        /// <summary>The 3D scene: objects written, whether the reply carries a <c>scene</c> at all, whether it is incomplete, its characters, and the worker time its conversion took.</summary>
+        public bool Scene;
+        public int SceneObjects;
+        public int SceneCameras;
+        public bool SceneTruncated;
+        public int SceneChars;
+        public double SceneWorkerMs;
+        /// <summary>Main-thread time of the scene read alone (the rest of <see cref="MainMs"/> is the tree).</summary>
+        public double SceneMainMs;
+        public int SceneUnits, SceneRenderers;
         /// <summary>How many requests this reply answered (a request made while a capture ran joins it).</summary>
         public int Requests = 1;
         /// <summary>True when a JSON was given; false when the reply was null.</summary>
@@ -98,8 +109,10 @@ namespace Bugsee.WrapperPolicy
         /// <see cref="ManagedViewRequests.InlineMaxNodes"/> nodes the JSON is written and the reply given before returning, as the
         /// capture always did before: no timer, no hop, no silent mode. Anything bigger goes the asynchronous way.
         /// </param>
+        /// <param name="level">What the reply carries (<c>None</c> is answered by the caller, never submitted): <c>All</c> shares the walk's time between the tree and the scene.</param>
         public void Submit(
-            ManagedViewRequests.Once once, double askedAtMs, Func<float> pixelsPerNativeUnit, bool replyInlineIfSmall = false)
+            ManagedViewRequests.Once once, double askedAtMs, Func<float> pixelsPerNativeUnit, bool replyInlineIfSmall = false,
+            SceneGraphCapture level = SceneGraphCapture.All)
         {
             if (once == null) return;
             if (ManagedViewRequests.IsStale((long)askedAtMs, (long)_nowMs()))
@@ -110,21 +123,27 @@ namespace Bugsee.WrapperPolicy
             }
 
             var running = _active;
-            if (running != null && running.TryJoin(once)) return;
+            // A capture started at another level (a relaunch changed the option) is not joined: it may carry more than this request may send.
+            if (running != null && running.Level == level && running.TryJoin(once)) return;
+            if (running != null && running.Level != level) running.Settle(null, "level changed");
             if (running != null) Release(running);
             _active = null;
 
             Job job = null;
             try
             {
+                // The tree keeps its whole window; with a scene, the scene may read a little past it.
+                var sceneDeadline = level == SceneGraphCapture.All ? ManagedViewRequests.SceneReadDeadlineMs : ManagedViewRequests.SnapshotDeadlineMs;
                 var budget = new ManagedViewBudget(
-                    expired: () => _nowMs() - askedAtMs > ManagedViewRequests.SnapshotDeadlineMs);
+                    expired: () => _nowMs() - askedAtMs > ManagedViewRequests.SnapshotDeadlineMs,
+                    sceneExpired: () => _nowMs() - askedAtMs > sceneDeadline,
+                    level: level);
                 var source = _begin(budget);
                 float scale;
                 try { scale = pixelsPerNativeUnit != null ? pixelsPerNativeUnit() : 1f; }
                 catch (Exception) { scale = 1f; }
                 source.Snapshot.PixelsPerNativeUnit = scale;
-                job = new Job(this, once, askedAtMs, source);
+                job = new Job(this, once, askedAtMs, source, level);
                 _active = job;
             }
             catch (Exception ex)
@@ -142,7 +161,7 @@ namespace Bugsee.WrapperPolicy
 
             var delay = ManagedViewRequests.ReplyDeadlineMs - (_nowMs() - askedAtMs);
             IDisposable timer = null;
-            try { timer = _schedule(delay > 0 ? delay : 0, () => job.Settle(null, "deadline")); }
+            try { timer = _schedule(delay > 0 ? delay : 0, () => job.SettleAtDeadline()); }
             catch (Exception) { /* no timer: the stages are still bounded by their own deadlines */ }
             job.SetTimer(timer);
         }
@@ -189,9 +208,10 @@ namespace Bugsee.WrapperPolicy
                 // the worker gets the time that is left, instead of the hand-off happening past the write deadline (the reply would be cut
                 // to nothing, or answered null by the timer).
                 // sincePump is a frame only once a slice has run: before that it is the time the request waited for the main thread.
-                if (inlineSmall || job.Slices < 2 || started + sincePump - job.AskedAt <= ManagedViewRequests.SnapshotDeadlineMs) return;
+                var walkEnd = job.Source.Snapshot.Scene != null ? ManagedViewRequests.SceneReadDeadlineMs : ManagedViewRequests.SnapshotDeadlineMs;
+                if (inlineSmall || job.Slices < 2 || started + sincePump - job.AskedAt <= walkEnd) return;
                 var snapshot = job.Source.Snapshot;
-                if (snapshot.Count > 0) snapshot.SetTruncated(0);
+                if (snapshot.Count > 0 && !snapshot.TreeComplete) snapshot.SetTruncated(0);
                 try { job.Source.Abandon(); } catch (Exception) { }
             }
 
@@ -204,7 +224,10 @@ namespace Bugsee.WrapperPolicy
             {
                 _seal(job.Source.Snapshot);
                 job.Handed = true;
-                if (inlineSmall && job.Source.Snapshot.Count <= ManagedViewRequests.InlineMaxNodes) Work(job);
+                var snapshot = job.Source.Snapshot;
+                var small = snapshot.Count <= ManagedViewRequests.InlineMaxNodes
+                    && (snapshot.Scene == null || snapshot.Scene.ObjectCount <= ManagedViewRequests.InlineMaxNodes);
+                if (inlineSmall && small) Work(job);
                 else _runWorker(() => Work(job));
             }
             catch (Exception ex)
@@ -265,9 +288,31 @@ namespace Bugsee.WrapperPolicy
             {
                 var snapshot = job.Source.Snapshot;
                 var tree = snapshot.ToTree();
+                var options = new ManagedViewWriteOptions { EmitBounds = snapshot.EmitBounds, SceneExpired = job.WriteExpired, OnTreeWritten = json => job.TreeOnlyJson = json };
+                if (snapshot.Scene != null)
+                {
+                    // Built after the tree has been written in full (inside the write), so it only spends the time the tree left.
+                    options.SceneFactory = () =>
+                    {
+                        if (job.SceneBuildExpired()) return null; // no time left for the scene: the finished tree is answered as it is
+                        var sceneStarted = _nowMs();
+                        try { return ManagedViewSceneBuilder.Build(snapshot.Scene, job.SceneBuildExpired); }
+                        catch (Exception) { return null; } // the scene is best effort: the tree is still answered
+                        finally { job.SceneWorkerMs = _nowMs() - sceneStarted; }
+                    };
+                }
+
                 var json = ManagedViewTreeJson.Write(
                     tree, snapshot.SecureRects, snapshot.SecureCount, snapshot.PixelsPerNativeUnit,
-                    job.WriteExpired, out var secured, out var cut);
+                    job.WriteExpired, out var secured, out var cut, options);
+                job.Scene = options.SceneWritten;
+                job.SceneObjects = options.SceneSent;
+                job.SceneCameras = options.Scene == null ? 0 : options.Scene.Cameras.Count;
+                job.SceneTruncated = options.SceneTruncated;
+                job.SceneChars = options.SceneChars;
+                job.SceneMainMs = snapshot.Scene == null ? 0 : snapshot.Scene.MainMs;
+                job.SceneUnits = snapshot.Scene == null ? 0 : snapshot.Scene.ReadUnits;
+                job.SceneRenderers = snapshot.Scene == null ? 0 : snapshot.Scene.ReadRenderers;
                 job.WorkerMs = _nowMs() - started;
                 job.Nodes = snapshot.Count;
                 job.Chars = json == null ? 0 : json.Length;
@@ -305,6 +350,7 @@ namespace Bugsee.WrapperPolicy
             public readonly IManagedViewSource Source;
             public readonly Func<bool> SliceExpired;
             public readonly Func<bool> WriteExpired;
+            public readonly Func<bool> SceneBuildExpired;
             public double SliceLimit;
             public double LastPumpAt;
             public bool Handed;
@@ -312,9 +358,25 @@ namespace Bugsee.WrapperPolicy
             public double MainMs, MaxSliceMs, WorkerMs;
             public int Nodes, Chars, Secured;
             public bool Truncated, Cut;
+            public bool Scene, SceneTruncated;
+            public int SceneObjects, SceneCameras, SceneChars;
+            public double SceneWorkerMs, SceneMainMs;
+            public int SceneUnits, SceneRenderers;
 
-            public Job(ManagedViewCaptureEngine engine, ManagedViewRequests.Once first, double askedAt, IManagedViewSource source)
+            public readonly SceneGraphCapture Level;
+            string _treeOnlyJson;
+            /// <summary>The finished tree without its scene, once the worker has it: what the deadline timer answers if the scene is still being built.</summary>
+            public string TreeOnlyJson { get => System.Threading.Volatile.Read(ref _treeOnlyJson); set => System.Threading.Volatile.Write(ref _treeOnlyJson, value); }
+
+            public void SettleAtDeadline()
             {
+                var tree = TreeOnlyJson;
+                if (tree != null) Settle(tree, null); else Settle(null, "deadline");
+            }
+
+            public Job(ManagedViewCaptureEngine engine, ManagedViewRequests.Once first, double askedAt, IManagedViewSource source, SceneGraphCapture level)
+            {
+                Level = level;
                 _engine = engine;
                 _waiters.Add(first);
                 AskedAt = askedAt;
@@ -322,6 +384,7 @@ namespace Bugsee.WrapperPolicy
                 Source = source;
                 SliceExpired = () => engine._nowMs() >= SliceLimit;
                 WriteExpired = () => engine._nowMs() - askedAt > ManagedViewRequests.WriteDeadlineMs;
+                SceneBuildExpired = () => engine._nowMs() - askedAt > ManagedViewRequests.SceneBuildDeadlineMs;
             }
 
             public bool IsSettled { get { lock (_sync) return _settled; } }
@@ -375,6 +438,10 @@ namespace Bugsee.WrapperPolicy
                     Nodes = Nodes, Chars = Chars, Secured = Secured, Slices = Slices, MainMs = MainMs, MaxSliceMs = MaxSliceMs,
                     WorkerMs = WorkerMs, TotalMs = _engine._nowMs() - AskedAt, Truncated = Truncated, Cut = Cut,
                     Requests = waiters.Length, Replied = json != null, Outcome = json != null ? "reply" : failure ?? "error",
+                    // The scene numbers belong to the reply that won: a null answer (the deadline beat the worker) reports none.
+                    Scene = json != null && Scene, SceneObjects = json != null ? SceneObjects : 0, SceneCameras = json != null ? SceneCameras : 0,
+                    SceneTruncated = json != null && SceneTruncated, SceneChars = json != null ? SceneChars : 0, SceneWorkerMs = SceneWorkerMs,
+                    SceneMainMs = SceneMainMs, SceneUnits = SceneUnits, SceneRenderers = SceneRenderers,
                 });
             }
         }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using Bugsee.Contracts.Options;
 
 namespace Bugsee.WrapperPolicy
 {
@@ -39,14 +40,27 @@ namespace Bugsee.WrapperPolicy
         readonly int _maxNodes;
         readonly int _maxDepth;
         readonly Func<bool> _expired;
+        readonly Func<bool> _sceneExpired;
         int _taken;
 
-        public ManagedViewBudget(int maxNodes = DefaultMaxNodes, int maxDepth = DefaultMaxDepth, Func<bool> expired = null)
+        /// <param name="expired">When the tree's share of the time is spent (the walk stops taking nodes).</param>
+        /// <param name="sceneExpired">When the whole snapshot's time is spent: the 3D scene is read between the two. Null: the same as <paramref name="expired"/>.</param>
+        public ManagedViewBudget(
+            int maxNodes = DefaultMaxNodes, int maxDepth = DefaultMaxDepth, Func<bool> expired = null, Func<bool> sceneExpired = null,
+            SceneGraphCapture level = SceneGraphCapture.All)
         {
             _maxNodes = maxNodes;
             _maxDepth = maxDepth;
             _expired = expired;
+            _sceneExpired = sceneExpired ?? expired;
+            Level = level;
         }
+
+        /// <summary>What the capture sends: the walk reads the 3D scene only for <c>All</c> and computes boxes for the secure-rectangle test for any level above <c>None</c>.</summary>
+        public SceneGraphCapture Level { get; }
+
+        /// <summary>True once the time for the 3D scene read is spent.</summary>
+        public bool SceneExpired => _sceneExpired != null && _sceneExpired();
 
         /// <summary>True once something was left out because of the budget.</summary>
         public bool Truncated { get; private set; }
@@ -79,6 +93,28 @@ namespace Bugsee.WrapperPolicy
             _taken++;
             return true;
         }
+    }
+
+    /// <summary>What a <c>vh</c> reply adds to or leaves out of the plain tree, and what the write reports back.</summary>
+    public sealed class ManagedViewWriteOptions
+    {
+        /// <summary>False: no node writes <c>bounds</c> (<c>SceneGraphCapture.NamesOnly</c>); the boxes still decide which names are withheld.</summary>
+        public bool EmitBounds = true;
+        /// <summary>The scene to write as the root's <c>scene</c> key, or null for none.</summary>
+        public ManagedViewSceneDocument Scene;
+        /// <summary>Builds the scene when the tree has been written in full, so the conversion only spends the time the tree left; used when <see cref="Scene"/> is null.</summary>
+        public Func<ManagedViewSceneDocument> SceneFactory;
+        public int MaxSceneObjects = ManagedViewSceneJson.DefaultMaxObjects;
+        public int MaxSceneChars = ManagedViewSceneJson.DefaultMaxChars;
+        /// <summary>True once the scene's share of the write time is spent: the remaining objects are left out.</summary>
+        public Func<bool> SceneExpired;
+        /// <summary>Called with the complete tree-only JSON just before the scene is built and written, so a reply that cannot wait for the scene can still give the tree.</summary>
+        public Action<string> OnTreeWritten;
+        /// <summary>Out: whether the scene was written, and how many objects (of how many qualified) it carries.</summary>
+        public bool SceneWritten;
+        public int SceneSent;
+        public bool SceneTruncated;
+        public int SceneChars;
     }
 
     /// <summary>
@@ -119,7 +155,13 @@ namespace Bugsee.WrapperPolicy
         /// <param name="cut">True when the deadline stopped the write.</param>
         public static string Write(
             ManagedViewNode root, int[] secureRects, int secureCount, float pixelsPerNativeUnit,
-            Func<bool> expired, out int protectedNodes, out bool cut)
+            Func<bool> expired, out int protectedNodes, out bool cut) =>
+            Write(root, secureRects, secureCount, pixelsPerNativeUnit, expired, out protectedNodes, out cut, null);
+
+        /// <param name="options">What to leave out of the tree and what to add to it; null writes the plain tree.</param>
+        public static string Write(
+            ManagedViewNode root, int[] secureRects, int secureCount, float pixelsPerNativeUnit,
+            Func<bool> expired, out int protectedNodes, out bool cut, ManagedViewWriteOptions options)
         {
             protectedNodes = 0;
             cut = false;
@@ -132,6 +174,7 @@ namespace Bugsee.WrapperPolicy
             var ctx = new WriteContext
             {
                 Sb = new StringBuilder(4096), Rects = secureRects, RectCount = secureCount, Scale = pixelsPerNativeUnit, Expired = expired,
+                Options = options, EmitBounds = options == null || options.EmitBounds,
             };
             WriteNode(ctx, root, 1);
             protectedNodes = ctx.Protected;
@@ -193,6 +236,8 @@ namespace Bugsee.WrapperPolicy
             public int Visited;
             public int Protected;
             public bool Cut;
+            public ManagedViewWriteOptions Options;
+            public bool EmitBounds;
         }
 
         static void WriteNode(WriteContext ctx, ManagedViewNode node, int depth)
@@ -211,20 +256,17 @@ namespace Bugsee.WrapperPolicy
             sb.Append('{');
             sb.Append("\"id\":").Append(JsonWire.String(node.IdText ?? node.Id.ToString(CultureInfo.InvariantCulture)));
             sb.Append(",\"class_name\":").Append(JsonWire.String(string.IsNullOrEmpty(node.ClassName) ? "GameObject" : node.ClassName));
-            sb.Append(",\"bounds\":[");
-            if (hasBounds)
+            // The key is absent when positions are not sent (NamesOnly: the box above only decided which labels are withheld) and for a node whose
+            // position is unknown, never [0, 0, 0, 0]: the spec makes `bounds` optional for exactly these two cases.
+            if (ctx.EmitBounds && hasBounds)
             {
+                sb.Append(",\"bounds\":[");
                 Number(sb, x / scale); sb.Append(',');
                 Number(sb, y / scale); sb.Append(',');
                 Number(sb, w / scale); sb.Append(',');
                 Number(sb, h / scale);
+                sb.Append(']');
             }
-            else
-            {
-                sb.Append("0,0,0,0");
-            }
-
-            sb.Append(']');
 
             var withName = !isProtected && !string.IsNullOrEmpty(node.Name);
             var withComponents = !isProtected && !string.IsNullOrEmpty(node.Components);
@@ -269,6 +311,36 @@ namespace Bugsee.WrapperPolicy
                 }
 
                 if (!first) sb.Append(']');
+            }
+
+            // The scene sits on the root (the spec's key placement), after its tree and only when the tree itself was written in full: a scene
+            // is best effort and never costs the tree its reply. Its viewport fractions are fractions of the root's bounds, so it needs them.
+            if (depth == 1 && !ctx.Cut && ctx.EmitBounds && ctx.Options != null && (ctx.Options.Scene != null || ctx.Options.SceneFactory != null) && hasBounds && w > 0f && h > 0f)
+            {
+                var before = sb.Length;
+                if (ctx.Options.OnTreeWritten != null)
+                {
+                    // The tree is complete here: a copy closed as it stands is the fallback if the scene overruns the reply deadline.
+                    sb.Append('}');
+                    ctx.Options.OnTreeWritten(sb.ToString());
+                    sb.Length--;
+                }
+
+                if (ctx.Options.Scene == null) ctx.Options.Scene = ctx.Options.SceneFactory();
+                var sent = 0;
+                var sceneTruncated = false;
+                var written = false;
+                if (ctx.Options.Scene != null)
+                {
+                    written = ManagedViewSceneJson.Write(
+                        sb, ctx.Options.Scene, ctx.Options.MaxSceneObjects, ctx.Options.MaxSceneChars, ctx.Options.SceneExpired,
+                        out sent, out sceneTruncated);
+                }
+
+                ctx.Options.SceneWritten = written;
+                ctx.Options.SceneSent = sent;
+                ctx.Options.SceneTruncated = sceneTruncated;
+                ctx.Options.SceneChars = sb.Length - before;
             }
 
             sb.Append('}');
@@ -331,10 +403,17 @@ namespace Bugsee.WrapperPolicy
     {
         /// <summary>The SDK gives up 500 ms after the request; a walk that starts later than this cannot be used.</summary>
         public const long MaxQueueDelayMs = 250;
-        /// <summary>From the request: the main thread stops taking nodes (the tree says it is truncated).</summary>
+        /// <summary>From the request: the main thread stops reading the scene (a scene read cut short says so).</summary>
         public const long SnapshotDeadlineMs = 250;
+        /// <summary>
+        /// From the request, when the capture also reads the 3D scene: the main thread stops reading it. The tree keeps its whole
+        /// <see cref="SnapshotDeadlineMs"/>; the scene gets what the tree leaves of it and this much more, so it never takes the tree's time.
+        /// </summary>
+        public const long SceneReadDeadlineMs = 290;
+        /// <summary>From the request: the worker stops converting the scene, which leaves the rest of the write window to the tree.</summary>
+        public const long SceneBuildDeadlineMs = 340;
         /// <summary>From the request: the worker stops writing nodes (the JSON says it is truncated).</summary>
-        public const long WriteDeadlineMs = 350;
+        public const long WriteDeadlineMs = 370;
         /// <summary>From the request: a capture that has not replied is answered null, still inside the SDK's 500 ms (a late reply is ignored by it).</summary>
         public const long ReplyDeadlineMs = 400;
         /// <summary>The main thread spends at most this share of one frame per frame on the snapshot (the product limit for plugin work is 5%).</summary>

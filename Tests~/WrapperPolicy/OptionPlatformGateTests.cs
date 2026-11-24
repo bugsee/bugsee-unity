@@ -75,7 +75,7 @@ namespace Bugsee.WrapperPolicy.Tests
         static readonly string[] WrapperConstants =
         {
             nameof(Options.CaptureManagedExceptions), nameof(Options.TreatUnityLogExceptionsAsFatal),
-            nameof(Options.CaptureUnobservedTaskExceptions)
+            nameof(Options.CaptureUnobservedTaskExceptions), nameof(Options.CaptureSceneGraph)
         };
 
         static HashSet<string> ExpectedAndroidOnlyKeysFromOptionsContract()

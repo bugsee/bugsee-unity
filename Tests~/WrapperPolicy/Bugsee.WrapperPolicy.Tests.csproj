@@ -23,6 +23,7 @@
     <Compile Include="..\..\Runtime\Contracts\Options\CrashSignals.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\DataEncryptionMode.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\ReportingUIStyle.cs" />
+    <Compile Include="..\..\Runtime\Contracts\Options\SceneGraphCapture.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\IssueSeverity.cs" />
     <Compile Include="..\..\Runtime\Contracts\Options\IssueType.cs" />
     <Compile Include="..\..\Runtime\Contracts\Lifecycle\BugseeStatus.cs" />

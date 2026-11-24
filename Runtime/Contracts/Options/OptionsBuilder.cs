@@ -51,6 +51,9 @@ namespace Bugsee.Contracts.Options
         public OptionsBuilder CaptureManagedExceptions(bool enabled) => Set(Options.CaptureManagedExceptions, enabled);
         public OptionsBuilder CaptureUnobservedTaskExceptions(bool enabled) =>
             Set(Options.CaptureUnobservedTaskExceptions, enabled);
+        /// <summary>Unity only; see <see cref="SceneGraphCapture"/>. Stored by constant name.</summary>
+        public OptionsBuilder CaptureSceneGraph(SceneGraphCapture level) =>
+            Set(Options.CaptureSceneGraph, SceneGraphCaptureOption.ToWire(level));
         public OptionsBuilder DetectAndReportHang(bool enabled) => Set(Options.DetectAndReportHang, enabled);
         public OptionsBuilder DetectAndReportExitNotResponding(bool enabled) =>
             Set(Options.DetectAndReportExitNotResponding, enabled);
