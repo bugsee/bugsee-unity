@@ -16,7 +16,8 @@ namespace Bugsee.WrapperPolicy
         /// <summary>Characters the scene may add to the reply; the whole <c>managed</c> document crosses the native bridge as one string.</summary>
         public const int DefaultMaxChars = 1000000;
 
-        const int ReserveChars = 600; // a row (about 250) and the footer (about 200)
+        const int ReserveChars = 600; // a row (about 250) and the footer (about 200), checked before the row is written
+        const int FooterChars = 300;  // the closing counts, checked on the row as written
         public const int Version = 1;
         public const string SelectionVisible = "visible";
 
@@ -60,8 +61,11 @@ namespace Bugsee.WrapperPolicy
                 if ((i & 63) == 63 && expired != null && expired()) break;
                 // Room for this row and the closing counts: the cap holds for the whole scene, not only for what was written before the check.
                 if (sb.Length > budgetEnd - ReserveChars) { cutBySize = true; break; }
+                var rowStart = sb.Length;
                 if (sent > 0) sb.Append(',');
                 WriteObject(sb, doc.Objects[i]);
+                // The row as written, not as estimated: it must leave room for the closing counts.
+                if (sb.Length - start > maxChars - FooterChars) { sb.Length = rowStart; cutBySize = true; break; }
                 sent++;
             }
 

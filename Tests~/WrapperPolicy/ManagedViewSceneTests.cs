@@ -481,6 +481,52 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void ARowLongerThanTheReserveStillRespectsTheCap()
+        {
+            var doc = new ManagedViewSceneDocument { Qualified = 1 };
+            doc.Objects.Add(new SceneObjectDoc { Id = 1, CX = 1e100, CY = 1e100, CZ = 1e100, SX = 1e100, SY = 1e100, SZ = 1e100, QW = 1 });
+            var sb = new StringBuilder();
+            ManagedViewSceneJson.Write(sb, doc, 10, 700, null, out var sent, out var truncated);
+            Assert.That(sb.Length, Is.LessThanOrEqualTo(700));
+            Assert.That(sent, Is.EqualTo(0));
+            Assert.That(truncated, Is.True);
+        }
+
+        [Test]
+        public void TheDeadlineTimerFiringWhileTheSceneIsBeingBuiltAnswersTheFinishedTreeOnce()
+        {
+            var sawTreeFallback = false;
+            for (var fireAt = 1; fireAt <= 80; fireAt++)
+            {
+                var snapshot = TreeSnapshot();
+                snapshot.TreeComplete = true;
+                snapshot.Scene = new ManagedViewSceneSnapshot();
+                AddCamera(snapshot.Scene, 1, Identity, 0, 0, 0, Perspective(60, 1.0, 0.3, 1000), false, 0.3f, 1000f, 0f, new[] { 0f, 0f, 1f, 1f });
+                for (var i = 0; i < 600; i++) AddBox(snapshot.Scene, 100 + i, Trs(Identity, 0, 0, 5 + i * 0.1), 1, 1, 1);
+                Action timer = null;
+                var clockReads = 0;
+                var replies = new List<string>();
+                var worker = new List<Action>();
+                ManagedViewCaptureEngine engine = null;
+                engine = new ManagedViewCaptureEngine(
+                    () => { if (++clockReads == fireAt && timer != null) timer(); return 1000.0; },
+                    worker.Add, (d, a) => { timer = a; return new Timer(_ => { }, null, Timeout.Infinite, Timeout.Infinite); },
+                    b => new SceneSource(snapshot), x => { }, () => 1.0, _ => { });
+                engine.Submit(new ManagedViewRequests.Once(replies.Add), 1000.0, () => 1f, false, SceneGraphCapture.All);
+                engine.Pump();
+                foreach (var w in worker.ToArray()) w();
+                Assert.That(replies.Count, Is.EqualTo(1), "fire at read " + fireAt + ": answered exactly once");
+                if (replies[0] != null)
+                {
+                    var root = JsonDocument.Parse(replies[0]).RootElement; // valid JSON either way
+                    if (!root.TryGetProperty("scene", out _) && root.GetProperty("subitems").GetArrayLength() == 2) sawTreeFallback = true;
+                }
+            }
+
+            Assert.That(sawTreeFallback, Is.True, "a timer that fires during the scene work answers the finished tree, not null");
+        }
+
+        [Test]
         public void ARequestAtAnotherLevelIsNotAnsweredByARunningCapture()
         {
             var snapshot = TreeSnapshot();
