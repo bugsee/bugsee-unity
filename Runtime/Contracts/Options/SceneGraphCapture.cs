@@ -37,7 +37,8 @@ namespace Bugsee.Contracts.Options
             {
                 case SceneGraphCapture.None: return "None";
                 case SceneGraphCapture.NamesOnly: return "NamesOnly";
-                default: return "All";
+                case SceneGraphCapture.All: return "All";
+                default: return ((int)level).ToString(System.Globalization.CultureInfo.InvariantCulture); // not a level: read back as one that sends nothing
             }
         }
 

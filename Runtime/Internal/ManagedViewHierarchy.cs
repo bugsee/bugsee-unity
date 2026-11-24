@@ -594,8 +594,6 @@ namespace Bugsee.Internal
         // transform with many children is split into its children, so no single call is larger than a small subtree.
         // ------------------------------------------------------------------------------------------------------------------
 
-        // A transform with at least this many children is read child by child; a smaller subtree is one native call.
-        const int SplitChildCount = 32;
         // Objects read at most (twice what a reply carries): the rest cannot be sent, and the document says it is incomplete.
         const int MaxSceneObjectsRead = ManagedViewSceneJson.DefaultMaxObjects * 2;
 
@@ -608,8 +606,7 @@ namespace Bugsee.Internal
         static readonly float[] IdentityMatrix = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
 
         readonly List<Transform> _units = new List<Transform>(64);
-        readonly List<Renderer> _pending = new List<Renderer>(64); // the renderers of the sub-tree being read
-        int _pendingIndex;
+        readonly List<int> _next = new List<int>(64);
         bool _sceneDone;
         int _scenePhase; // 0 cameras and seeding, 1 enumerating the units, 2 the canvases
         int _sceneSeen;
@@ -640,30 +637,37 @@ namespace Bugsee.Internal
 
             if (_scenePhase == 1)
             {
-                while (_units.Count > 0 || _pendingIndex < _pending.Count)
+                while (_units.Count > 0)
                 {
                     if (_budget.SceneExpired || scene.ObjectCount >= MaxSceneObjectsRead)
                     {
-                        // Out of time (or of room) with units still unread: what was read is a part of the scene.
+                        // Out of time (or of room) with transforms unread: what was read is a part of the scene.
                         scene.Incomplete = true;
                         if (scene.ObjectCount == 0) scene.Skipped = ManagedViewSceneSnapshot.SkippedTimeBudget;
                         _units.Clear();
-                        _pending.Clear();
-                        _pendingIndex = 0;
+                        _next.Clear();
                         return true;
                     }
 
-                    try
+                    try { ReadUnit(scene); }
+                    catch (Exception)
                     {
-                        // The renderers of a sub-tree are read one at a time, so a slice ends between two of them, not after the whole sub-tree.
-                        if (_pendingIndex < _pending.Count) ReadRenderer(scene, _pending[_pendingIndex++]);
-                        else ReadUnit(scene);
+                        // An object destroyed under the read, a missing script: this transform's remaining children are lost.
+                        if (_units.Count > 0) Pop();
                     }
-                    catch (Exception) { /* an object destroyed under the read, a missing script: this one is lost */ }
+
                     if (sliceExpired()) return false;
                 }
 
                 _scenePhase = 2;
+                if (sliceExpired()) return false;
+            }
+
+            if (_budget.SceneExpired)
+            {
+                // No time left for the canvases: the scene is a part of what there is.
+                scene.Incomplete = true;
+                return true;
             }
 
             try { ReadCanvases(scene); }
@@ -714,6 +718,7 @@ namespace Bugsee.Internal
         void SeedUnits()
         {
             _units.Clear();
+            _next.Clear();
             for (var i = _scenes.Count - 1; i >= 0; i--)
             {
                 var scene = _scenes[i];
@@ -726,28 +731,38 @@ namespace Bugsee.Internal
                     var root = roots[k];
                     if (root == null || (_host != null && root == _host.gameObject)) continue;
                     _units.Add(root.transform);
+                    _next.Add(-1);
                 }
             }
         }
 
-        // One unit off the end of the list (the first root is last, so the hierarchy is read in order).
+        // One transform per step: its own renderer, then its next child pushed. A step is a few native calls whatever the size of the sub-tree,
+        // so a slice always ends within a handful of microseconds of its limit. (`_units` holds the transforms being walked, `_next` the index of the
+        // next child to visit of each.)
         void ReadUnit(ManagedViewSceneSnapshot scene)
         {
-            var t = _units[_units.Count - 1];
-            _units.RemoveAt(_units.Count - 1);
-            scene.ReadUnits++;
-            if (t == null || !t.gameObject.activeInHierarchy) return;
-            var children = t.childCount;
-            if (children >= SplitChildCount)
+            var top = _units.Count - 1;
+            var t = _units[top];
+            if (_next[top] < 0)
             {
+                // First visit: this transform's own renderer, and how many children it has.
+                scene.ReadUnits++;
+                if (t == null || !t.gameObject.activeInHierarchy) { Pop(); return; }
+                _next[top] = 0;
                 if (t.TryGetComponent<Renderer>(out var own)) ReadRenderer(scene, own);
-                for (var i = children - 1; i >= 0; i--) _units.Add(t.GetChild(i));
                 return;
             }
 
-            _pending.Clear();
-            _pendingIndex = 0;
-            t.GetComponentsInChildren(false, _pending);
+            if (t == null || _next[top] >= t.childCount) { Pop(); return; }
+            var child = t.GetChild(_next[top]++);
+            _units.Add(child);
+            if (_next.Count == _units.Count - 1) _next.Add(-1); else _next[_units.Count - 1] = -1;
+        }
+
+        void Pop()
+        {
+            _units.RemoveAt(_units.Count - 1);
+            if (_next.Count > _units.Count) _next.RemoveAt(_next.Count - 1);
         }
 
         void ReadRenderer(ManagedViewSceneSnapshot scene, Renderer r)

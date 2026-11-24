@@ -145,11 +145,11 @@ namespace Bugsee.Platform.IOS
                 return;
             }
             IosNativeCallbacks.EarlyReplay.Disarm();
+            ManagedViewHierarchy.ApplyLaunchOptions(options); // before the native call: a vh request the new session makes must see the new level
             var startedToken = RegisterLaunchResult(started);
             _bugsee_launch(appToken, ToJsonObject(WithWrapperInfo(OptionPlatformGate.ForIos(options))),
                 startedToken, startedToken == 0 ? null : (LaunchStartedNativeCallback)OnNativeStarted);
             ExceptionPipeline.Install(this, options);
-            ManagedViewHierarchy.ApplyLaunchOptions(options);
             HostLogForwarder.InstallOnce(this);
         }
 
@@ -162,8 +162,8 @@ namespace Bugsee.Platform.IOS
                 OptionPlatformGate.ForIos(options), ConsumeNativeString(_bugsee_early_launch_options()));
             var warning = IosEarlyLaunchPolicy.AdoptionWarning(adoption, differing);
             if (warning != null) Debug.LogWarning(warning);
-            ExceptionPipeline.Install(this, options);
             ManagedViewHierarchy.ApplyLaunchOptions(options);
+            ExceptionPipeline.Install(this, options);
             HostLogForwarder.InstallOnce(this);
             var status = GetStatus();
             Debug.Log("[Bugsee] Launch adopted the session the native early launch started (SDK status " + status + (status == BugseeStatus.Stopped ? ", its start is deferred until the app is active" : "") + "); no second launch was made.");
@@ -183,11 +183,11 @@ namespace Bugsee.Platform.IOS
             _breadcrumbLaunchBuffer.BeginNewLaunchCycle();
             _networkLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
             _breadcrumbLaunchBuffer.SetPhase(NetworkLaunchPhase.BeforeLaunched);
+            ManagedViewHierarchy.ApplyLaunchOptions(options);
             var startedToken = RegisterLaunchResult(started);
             _bugsee_relaunch(ToJsonObject(WithWrapperInfo(OptionPlatformGate.ForIos(options))),
                 startedToken, startedToken == 0 ? null : (LaunchStartedNativeCallback)OnNativeStarted);
             ExceptionPipeline.Install(this, options);
-            ManagedViewHierarchy.ApplyLaunchOptions(options);
             HostLogForwarder.InstallOnce(this);
         }
 

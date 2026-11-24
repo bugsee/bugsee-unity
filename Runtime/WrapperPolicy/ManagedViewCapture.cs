@@ -288,10 +288,14 @@ namespace Bugsee.WrapperPolicy
                 var options = new ManagedViewWriteOptions { EmitBounds = snapshot.EmitBounds, SceneExpired = job.WriteExpired };
                 if (snapshot.Scene != null)
                 {
-                    var sceneStarted = _nowMs();
-                    try { options.Scene = ManagedViewSceneBuilder.Build(snapshot.Scene, job.SceneBuildExpired); }
-                    catch (Exception) { /* the scene is best effort: the tree is still answered */ }
-                    job.SceneWorkerMs = _nowMs() - sceneStarted;
+                    // Built after the tree has been written in full (inside the write), so it only spends the time the tree left.
+                    options.SceneFactory = () =>
+                    {
+                        var sceneStarted = _nowMs();
+                        try { return ManagedViewSceneBuilder.Build(snapshot.Scene, job.SceneBuildExpired); }
+                        catch (Exception) { return null; } // the scene is best effort: the tree is still answered
+                        finally { job.SceneWorkerMs = _nowMs() - sceneStarted; }
+                    };
                 }
 
                 var json = ManagedViewTreeJson.Write(

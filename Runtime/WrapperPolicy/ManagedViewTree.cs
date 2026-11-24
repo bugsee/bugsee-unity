@@ -102,6 +102,8 @@ namespace Bugsee.WrapperPolicy
         public bool EmitBounds = true;
         /// <summary>The scene to write as the root's <c>scene</c> key, or null for none.</summary>
         public ManagedViewSceneDocument Scene;
+        /// <summary>Builds the scene when the tree has been written in full, so the conversion only spends the time the tree left; used when <see cref="Scene"/> is null.</summary>
+        public Func<ManagedViewSceneDocument> SceneFactory;
         public int MaxSceneObjects = ManagedViewSceneJson.DefaultMaxObjects;
         public int MaxSceneChars = ManagedViewSceneJson.DefaultMaxChars;
         /// <summary>True once the scene's share of the write time is spent: the remaining objects are left out.</summary>
@@ -311,13 +313,20 @@ namespace Bugsee.WrapperPolicy
 
             // The scene sits on the root (the spec's key placement), after its tree and only when the tree itself was written in full: a scene
             // is best effort and never costs the tree its reply. Its viewport fractions are fractions of the root's bounds, so it needs them.
-            if (depth == 1 && !ctx.Cut && ctx.EmitBounds && ctx.Options != null && ctx.Options.Scene != null && hasBounds && w > 0f && h > 0f)
+            if (depth == 1 && !ctx.Cut && ctx.EmitBounds && ctx.Options != null && (ctx.Options.Scene != null || ctx.Options.SceneFactory != null) && hasBounds && w > 0f && h > 0f)
             {
                 var before = sb.Length;
-                ManagedViewSceneJson.Write(
-                    sb, ctx.Options.Scene, ctx.Options.MaxSceneObjects, ctx.Options.MaxSceneChars, ctx.Options.SceneExpired,
-                    out var sent, out var sceneTruncated);
-                ctx.Options.SceneWritten = true;
+                if (ctx.Options.Scene == null) ctx.Options.Scene = ctx.Options.SceneFactory();
+                var sent = 0;
+                var sceneTruncated = false;
+                if (ctx.Options.Scene != null)
+                {
+                    ManagedViewSceneJson.Write(
+                        sb, ctx.Options.Scene, ctx.Options.MaxSceneObjects, ctx.Options.MaxSceneChars, ctx.Options.SceneExpired,
+                        out sent, out sceneTruncated);
+                }
+
+                ctx.Options.SceneWritten = ctx.Options.Scene != null;
                 ctx.Options.SceneSent = sent;
                 ctx.Options.SceneTruncated = sceneTruncated;
                 ctx.Options.SceneChars = sb.Length - before;

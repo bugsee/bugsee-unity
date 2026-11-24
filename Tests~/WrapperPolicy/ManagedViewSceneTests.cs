@@ -742,6 +742,32 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void AnUndefinedLevelIsNeverWrittenAsAll()
+        {
+            var wire = SceneGraphCaptureOption.ToWire((SceneGraphCapture)5);
+            Assert.That(wire, Is.Not.EqualTo("All"));
+            Assert.That(SceneGraphCaptureOption.Parse(wire, out var ok), Is.EqualTo(SceneGraphCapture.None));
+            Assert.That(ok, Is.False);
+        }
+
+        [Test]
+        public void TheSceneIsBuiltOnlyOnceTheTreeHasBeenWrittenInFull()
+        {
+            var built = 0;
+            var opts = new ManagedViewWriteOptions { SceneFactory = () => { built++; return ManagedViewSceneBuilder.Build(Fixture()); } };
+            var big = new ManagedViewSnapshot(4);
+            var root = big.Add(ManagedViewSnapshot.NoParent, 0, null, "UnityPlayer", null);
+            big.SetBounds(root, 0, 0, 100, 100);
+            for (var i = 0; i < 100; i++) big.Add(root, 10 + i, null, "Node", "n");
+            ManagedViewTreeJson.Write(big.ToTree(), null, 0, 1f, () => true, out _, out var cut, opts);
+            Assert.That(cut, Is.True);
+            Assert.That(built, Is.EqualTo(0), "a cut tree never pays for the scene");
+            var json = ManagedViewTreeJson.Write(TreeSnapshot().ToTree(), null, 0, 1f, null, out _, out _, opts);
+            Assert.That(built, Is.EqualTo(1));
+            Assert.That(JsonDocument.Parse(json).RootElement.GetProperty("scene").GetProperty("objects_sent").GetInt32(), Is.EqualTo(2));
+        }
+
+        [Test]
         public void TheOptionReachesNativeUnchangedOnBothPlatforms()
         {
             var options = new Dictionary<string, object> { [Options.CaptureSceneGraph] = "NamesOnly" };

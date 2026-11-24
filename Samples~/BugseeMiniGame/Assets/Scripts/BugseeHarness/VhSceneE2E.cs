@@ -99,13 +99,6 @@ namespace Bugsee.Sample
                     CheckScene(root, json, fx);
                 }
 
-                if (uploadReport)
-                {
-                    Bugsee.Upload("e2e-vhscene-" + runId + "-" + level.ToString().ToLowerInvariant(), "managed view hierarchy with the 3D scene block");
-                    Debug.Log("[Sample] vhscene upload requested e2e-vhscene-" + runId + "-" + level.ToString().ToLowerInvariant());
-                    yield return new WaitForSecondsRealtime(6f);
-                }
-
                 // A secure rectangle over the whole screen: every name goes, in both levels, and the geometry of the scene stays.
                 var count = level == SceneGraphCapture.All ? SceneObjects(root).Count : -1;
                 rect = new Rect(0, 0, Screen.width, Screen.height);
@@ -133,6 +126,17 @@ namespace Bugsee.Sample
                         foreach (var o in after)
                             Check("scene object " + o["id"] + " carries no label", !o.ContainsKey("name") && !o.ContainsKey("options"), "has a label");
                     }
+                }
+                if (uploadReport)
+                {
+                    // Last: the report's own work (video, files) slows the captures that follow it, which the checks above must not see.
+                    if (rect != null) { Bugsee.RemoveSecureScreenRectangle(rect.Value); rect = null; }
+                    yield return null;
+                    yield return null;
+                    var title = "e2e-vhscene-" + runId + "-" + level.ToString().ToLowerInvariant();
+                    Bugsee.Upload(title, "managed view hierarchy with the 3D scene block");
+                    Debug.Log("[Sample] vhscene upload requested " + title);
+                    yield return new WaitForSecondsRealtime(8f);
                 }
             }
             finally
