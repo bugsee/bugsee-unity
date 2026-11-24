@@ -253,7 +253,9 @@ namespace Bugsee.Sample
             Bugsee.CaptureViewHierarchy();
             var waited = 0f;
             while (ManagedViewDiagnostics.ReplyCount == before && waited < 10f) { waited += Time.unscaledDeltaTime; yield return null; }
-            done(ManagedViewDiagnostics.ReplyCount > before ? ManagedViewDiagnostics.LastReply : null);
+            var answered = ManagedViewDiagnostics.ReplyCount > before;
+            Check("the SDK asked and the wrapper answered (a null answer counts, silence does not)", answered, "no reply within 10 s");
+            done(answered ? ManagedViewDiagnostics.LastReply : null);
             yield return new WaitForSecondsRealtime(0.5f);
         }
 

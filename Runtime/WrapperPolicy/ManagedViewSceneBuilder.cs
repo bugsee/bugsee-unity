@@ -132,7 +132,8 @@ namespace Bugsee.WrapperPolicy
                 var own = s.ObjectCamera(i);
                 var ownEmitted = false;
                 for (var k = 0; k < doc.Cameras.Count; k++) if (doc.Cameras[k].Id == own) ownEmitted = true;
-                obj.Camera = own != 0 && ownEmitted ? own : (seenBy == 1 ? by : 0);
+                // a canvas drawn by a camera that is not in the document names none (it is not drawn by whichever other camera happens to see it)
+                obj.Camera = own != 0 ? (ownEmitted ? own : 0) : (seenBy == 1 ? by : 0);
                 obj.Priority = best;
                 doc.Objects.Add(obj);
             }
@@ -191,7 +192,8 @@ namespace Bugsee.WrapperPolicy
             // Unity's projection is OpenGL's (camera space looks along -Z with +Y up, depth -1 at the near plane), which is also glTF's, and
             // the camera space is the same on both sides of the mirror, so the matrix is written as it is, column-major.
             if (Math.Abs(s.CameraProjection(i, 2)) > 1e-4 || Math.Abs(s.CameraProjection(i, 6)) > 1e-4
-                || Math.Abs(s.CameraProjection(i, 8)) > 1e-4 || Math.Abs(s.CameraProjection(i, 9)) > 1e-4)
+                || Math.Abs(s.CameraProjection(i, 8)) > 1e-4 || Math.Abs(s.CameraProjection(i, 9)) > 1e-4
+                || Math.Abs(s.CameraProjection(i, 3)) > 1e-4 || Math.Abs(s.CameraProjection(i, 7)) > 1e-4) // an off-center orthographic window
             {
                 var m = new double[16];
                 var finite = true;
@@ -346,7 +348,11 @@ namespace Bugsee.WrapperPolicy
                 Id = s.ObjectId(i), Kind = s.ObjectKind(i), Layer = s.ObjectLayer(i),
                 CX = wcx, CY = wcy, CZ = -wcz,
                 QX = q.X, QY = q.Y, QZ = q.Z, QW = q.W,
-                SX = lx * lsx, SY = ly * lsy, SZ = lz * lsz,
+                // The extent along each emitted axis is the sum of the absolute projections of the three transformed half-edges onto it: equal to
+                // scale * size for an unsheared object, and a box that still contains a sheared one.
+                SX = (Math.Abs(V3.Dot(cx, ex)) * lsx + Math.Abs(V3.Dot(cy, ex)) * lsy + Math.Abs(V3.Dot(cz, ex)) * lsz),
+                SY = (Math.Abs(V3.Dot(cx, ey)) * lsx + Math.Abs(V3.Dot(cy, ey)) * lsy + Math.Abs(V3.Dot(cz, ey)) * lsz),
+                SZ = (Math.Abs(V3.Dot(cx, ez)) * lsx + Math.Abs(V3.Dot(cy, ez)) * lsy + Math.Abs(V3.Dot(cz, ez)) * lsz),
             };
             if (!IsFinite(obj.CX) || !IsFinite(obj.CY) || !IsFinite(obj.CZ) || !IsFinite(obj.SX) || !IsFinite(obj.SY) || !IsFinite(obj.SZ)) return false;
             axes = new BoxAxes

@@ -368,6 +368,66 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void ACanvasDrawnByACameraThatIsNotEmittedNamesNoCameraEvenWhenAnotherOneSeesIt()
+        {
+            var s = Fixture();
+            s.AddObject(42, SceneObjectKind.Ui, 5, 7777, Trs(Identity, 0, 0, 4), 0, 0, 0, 2, 1, 0);
+            Assert.That(ById(SceneOf(s).GetProperty("objects"), "42").TryGetProperty("camera", out _), Is.False);
+        }
+
+        [Test]
+        public void AShearedObjectKeepsAllItsCornersInsideTheEmittedBox()
+        {
+            var s = Fixture();
+            // columns (1,0,0), (1,1,0), (0,0,1): a unit cube sheared in x by y
+            var m = new float[] { 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 6, 0, 0, 0, 1 };
+            s.AddObject(43, SceneObjectKind.Mesh, 0, 0, m, 0, 0, 0, 2, 2, 2);
+            var o = ById(SceneOf(s).GetProperty("objects"), "43");
+            var size = Numbers(o.GetProperty("size"));
+            Assert.That(size[0], Is.EqualTo(4).Within(1e-3), "x reaches 1 + 1 on each side of the center");
+            Assert.That(size[1], Is.EqualTo(2).Within(1e-3));
+        }
+
+        [Test]
+        public void AnOffCenterOrthographicWindowIsSentAsItsMatrix()
+        {
+            var s = new ManagedViewSceneSnapshot();
+            var p = Ortho(2, 1.0, 0.3, 100);
+            p[3] = -1f; // Matrix4x4.Ortho(0, 4, -2, 2, ...)
+            AddCamera(s, 1, Identity, 0, 0, 0, p, true, 0.3f, 100f, 0f, new[] { 0f, 0f, 1f, 1f });
+            Assert.That(SceneOf(s).GetProperty("cameras")[0].TryGetProperty("projection_matrix", out _), Is.True);
+        }
+
+        [Test]
+        public void TheCharacterCapHoldsForTheWholeSceneIncludingItsClosingCounts()
+        {
+            var s = new ManagedViewSceneSnapshot();
+            AddCamera(s, 1, Identity, 0, 0, 0, Perspective(60, 1.0, 0.3, 1000), false, 0.3f, 1000f, 0f, new[] { 0f, 0f, 1f, 1f });
+            for (var i = 0; i < 100; i++) AddBox(s, 100 + i, Trs(Identity, 0, 0, 5 + i), 1, 1, 1);
+            var sb = new StringBuilder();
+            ManagedViewSceneJson.Write(sb, ManagedViewSceneBuilder.Build(s), 1000, 2500, null, out _, out var truncated);
+            Assert.That(sb.Length, Is.LessThanOrEqualTo(2500));
+            Assert.That(truncated, Is.True);
+        }
+
+        [Test]
+        public void ARequestAtAnotherLevelIsNotAnsweredByARunningCapture()
+        {
+            var snapshot = TreeSnapshot();
+            snapshot.Scene = Fixture();
+            var sources = new List<SlowSource>();
+            var engine = new ManagedViewCaptureEngine(
+                () => 1000.0, a => { }, (d, a) => new Timer(_ => { }, null, Timeout.Infinite, Timeout.Infinite),
+                b => { var src = new SlowSource(snapshot); sources.Add(src); return src; }, x => { }, () => 1.0, _ => { });
+            var first = new List<string>();
+            var second = new List<string>();
+            engine.Submit(new ManagedViewRequests.Once(first.Add), 1000.0, () => 1f, false, SceneGraphCapture.All);
+            engine.Submit(new ManagedViewRequests.Once(second.Add), 1000.0, () => 1f, false, SceneGraphCapture.NamesOnly);
+            Assert.That(sources.Count, Is.EqualTo(2), "the NamesOnly request started its own capture");
+            Assert.That(first, Is.EqualTo(new string[] { null }), "the capture at the old level was answered null, not given to the new request");
+        }
+
+        [Test]
         public void AnOffCenterProjectionIsSentAsItsMatrix()
         {
             var s = new ManagedViewSceneSnapshot();

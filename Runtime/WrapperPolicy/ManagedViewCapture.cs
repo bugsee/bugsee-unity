@@ -123,7 +123,9 @@ namespace Bugsee.WrapperPolicy
             }
 
             var running = _active;
-            if (running != null && running.TryJoin(once)) return;
+            // A capture started at another level (a relaunch changed the option) is not joined: it may carry more than this request may send.
+            if (running != null && running.Level == level && running.TryJoin(once)) return;
+            if (running != null && running.Level != level) running.Settle(null, "level changed");
             if (running != null) Release(running);
             _active = null;
 
@@ -141,7 +143,7 @@ namespace Bugsee.WrapperPolicy
                 try { scale = pixelsPerNativeUnit != null ? pixelsPerNativeUnit() : 1f; }
                 catch (Exception) { scale = 1f; }
                 source.Snapshot.PixelsPerNativeUnit = scale;
-                job = new Job(this, once, askedAtMs, source);
+                job = new Job(this, once, askedAtMs, source, level);
                 _active = job;
             }
             catch (Exception ex)
@@ -291,6 +293,7 @@ namespace Bugsee.WrapperPolicy
                     // Built after the tree has been written in full (inside the write), so it only spends the time the tree left.
                     options.SceneFactory = () =>
                     {
+                        if (job.SceneBuildExpired()) return null; // no time left for the scene: the finished tree is answered as it is
                         var sceneStarted = _nowMs();
                         try { return ManagedViewSceneBuilder.Build(snapshot.Scene, job.SceneBuildExpired); }
                         catch (Exception) { return null; } // the scene is best effort: the tree is still answered
@@ -359,8 +362,11 @@ namespace Bugsee.WrapperPolicy
             public double SceneWorkerMs, SceneMainMs;
             public int SceneUnits, SceneRenderers;
 
-            public Job(ManagedViewCaptureEngine engine, ManagedViewRequests.Once first, double askedAt, IManagedViewSource source)
+            public readonly SceneGraphCapture Level;
+
+            public Job(ManagedViewCaptureEngine engine, ManagedViewRequests.Once first, double askedAt, IManagedViewSource source, SceneGraphCapture level)
             {
+                Level = level;
                 _engine = engine;
                 _waiters.Add(first);
                 AskedAt = askedAt;
@@ -422,8 +428,10 @@ namespace Bugsee.WrapperPolicy
                     Nodes = Nodes, Chars = Chars, Secured = Secured, Slices = Slices, MainMs = MainMs, MaxSliceMs = MaxSliceMs,
                     WorkerMs = WorkerMs, TotalMs = _engine._nowMs() - AskedAt, Truncated = Truncated, Cut = Cut,
                     Requests = waiters.Length, Replied = json != null, Outcome = json != null ? "reply" : failure ?? "error",
-                    Scene = Scene, SceneObjects = SceneObjects, SceneCameras = SceneCameras, SceneTruncated = SceneTruncated,
-                    SceneChars = SceneChars, SceneWorkerMs = SceneWorkerMs, SceneMainMs = SceneMainMs, SceneUnits = SceneUnits, SceneRenderers = SceneRenderers,
+                    // The scene numbers belong to the reply that won: a null answer (the deadline beat the worker) reports none.
+                    Scene = json != null && Scene, SceneObjects = json != null ? SceneObjects : 0, SceneCameras = json != null ? SceneCameras : 0,
+                    SceneTruncated = json != null && SceneTruncated, SceneChars = json != null ? SceneChars : 0, SceneWorkerMs = SceneWorkerMs,
+                    SceneMainMs = SceneMainMs, SceneUnits = SceneUnits, SceneRenderers = SceneRenderers,
                 });
             }
         }

@@ -842,6 +842,7 @@ namespace Bugsee.Internal
 #endif
             for (var i = 0; i < canvases.Length; i++)
             {
+                if (_budget.SceneExpired || scene.ObjectCount >= MaxSceneObjectsRead) { scene.Incomplete = true; return; }
                 var canvas = canvases[i];
                 if (canvas == null || !canvas.isRootCanvas || !canvas.enabled) continue;
                 _sceneSeen++;
