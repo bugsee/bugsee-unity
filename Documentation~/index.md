@@ -25,7 +25,12 @@ next to it, and the build log warns if its version differs from the package's pi
 
 ## Launch
 
+The snippets here call the facade through `using BugseeSdk = Bugsee.Bugsee;`. The namespace `Bugsee` and the static class `Bugsee.Bugsee` share a name, so in code outside `namespace Bugsee...` a bare `Bugsee.Launch(...)` resolves `Bugsee` to the namespace and fails with CS0234. Prose elsewhere writes `Bugsee.X` for short; in code use the alias (or `Bugsee.Bugsee.X`). Types such as `AndroidLaunchOptions` come from their own namespaces (`Bugsee.Contracts.Options`, `Bugsee.Contracts.Apm`, ...), so each snippet lists the Bugsee `using` lines it needs.
+
 ```csharp
+using Bugsee.Contracts.Options;
+using BugseeSdk = Bugsee.Bugsee;
+
 #if UNITY_ANDROID
 var options = new AndroidLaunchOptions
 {
@@ -35,7 +40,7 @@ var options = new AndroidLaunchOptions
     DetectAndReportExitNotResponding = true, // ApplicationExitInfo ANR
     DetectAndReportExitLowMemory = true,     // OOM / low memory exits
 };
-Bugsee.Launch(appToken, options);
+BugseeSdk.Launch(appToken, options);
 #elif UNITY_IOS
 var options = new IOSLaunchOptions
 {
@@ -43,7 +48,7 @@ var options = new IOSLaunchOptions
     CaptureManagedExceptions = true,
     DetectAndReportHang = true,
 };
-Bugsee.Launch(appToken, options);
+BugseeSdk.Launch(appToken, options);
 #endif
 ```
 
@@ -230,8 +235,11 @@ Why the pool case is silent on Mono is taken from knowledge of the Mono runtime 
 Mode **B** follows the same capture idea as Sentry (`il2cpp_native_stack_trace` on a thrown exception). Prefer:
 
 ```csharp
+using System;
+using BugseeSdk = Bugsee.Bugsee;
+
 try { DoThing(); }
-catch (Exception ex) { Bugsee.LogException(ex); } // real thrown exception
+catch (Exception ex) { BugseeSdk.LogException(ex); } // real thrown exception
 ```
 
 `new Exception("…")` never thrown cannot get Mode B lines. Unity **Stack Trace Log Type** does not rewrite `Exception.StackTrace`.
@@ -629,10 +637,12 @@ Contract:
 On Android and iOS a filter set with `Bugsee.SetNetworkEventFilter` (on Android also one declared in the manifest) turns the SDK's built-in redaction off: `Authorization` and `Cookie` headers, `token` query values and `password` body fields (and on Android `user:password@` URL credentials) are recorded as is unless the filter redacts them. Call `Bugsee.ApplyDefaultNetworkSanitizer(event)` first in the filter to keep the built-in redaction, then add your own:
 
 ```csharp
-Bugsee.SetNetworkEventFilter(e =>
+using BugseeSdk = Bugsee.Bugsee;
+
+BugseeSdk.SetNetworkEventFilter(e =>
 {
     // SDK defaults, in place. If it could not run (false), drop the event rather than record it unredacted.
-    if (!Bugsee.ApplyDefaultNetworkSanitizer(e)) return null;
+    if (!BugseeSdk.ApplyDefaultNetworkSanitizer(e)) return null;
     e.Url = e.Url.Replace("/internal/", "/x/");
     return e;
 });
@@ -767,7 +777,11 @@ The network, log and breadcrumb filters and the report handler run on the Unity 
 ### Performance transactions and spans (APM)
 
 ```csharp
-using (var checkout = Bugsee.StartTransaction("checkout", "user.flow", new Dictionary<string, object> { ["cart"] = 3 }))
+using System.Collections.Generic;
+using Bugsee.Contracts.Apm;
+using BugseeSdk = Bugsee.Bugsee;
+
+using (var checkout = BugseeSdk.StartTransaction("checkout", "user.flow", new Dictionary<string, object> { ["cart"] = 3 }))
 using (var pay = checkout.StartChild("payment", "charge card"))
 {
     pay.SetAttribute("provider", "stripe");
@@ -792,10 +806,13 @@ Not benchmarked beyond one tablet; do not enable it in production without measur
 **Falling back to the default capture.** `VideoMode.DirectBuffers` means "the app pushes the frames", and in Unity the only frame source is this capturer. So you ask for it with the launch option alone (no `Enable()` call needed): `Bugsee.Launch` / `Relaunch` start the capturer, with `BugseeFrameCapturer.DefaultOptions` (set it before launching). If it cannot run, the wrapper itself, before the options reach the native SDK, replaces `DirectBuffers` with the default capture (`VideoMode.V2`) and logs one warning with the reason, so the session never runs in `DirectBuffers` without a frame source (that records no real video). Reasons: the player was not probed yet (a launch from another thread before Unity finished starting), Unity that is not a release build of 2022.2.0f1 or newer, no Screen Capture module, no `AsyncGPUReadback` on the device, a graphics API whose readback row order was not measured (OpenGLES3 and Vulkan are measured; set `DefaultOptions.RowOrder` to declare another), or the capturer failing to start after the launch was accepted (then the wrapper relaunches with the default capture, unless a newer Launch/Relaunch is waiting, which then decides). The capturer follows what the native SDK actually did: an ignored Launch (SDK already running) or a refused one leaves it alone, and an accepted one is read back from the SDK's effective launch options. Other video modes are never touched. Apps that push frames themselves through the native `getVideoFrameConsumer()` are affected too: use a native mode there or this fallback applies.
 
 ```csharp
-// using Bugsee.Capture;
+using Bugsee.Capture;
+using Bugsee.Contracts.Options;
+using BugseeSdk = Bugsee.Bugsee;
+
 #if UNITY_ANDROID && !UNITY_EDITOR
 BugseeFrameCapturer.DefaultOptions = new BugseeFrameCapturerOptions { TargetFps = 5, MaxDimension = 640 }; // optional
-Bugsee.Launch(token, new AndroidLaunchOptions { CaptureVideo = true, CaptureVideoMode = VideoMode.DirectBuffers });
+BugseeSdk.Launch(token, new AndroidLaunchOptions { CaptureVideo = true, CaptureVideoMode = VideoMode.DirectBuffers });
 #endif
 ```
 
