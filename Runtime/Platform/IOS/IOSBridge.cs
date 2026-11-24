@@ -149,6 +149,7 @@ namespace Bugsee.Platform.IOS
             _bugsee_launch(appToken, ToJsonObject(WithWrapperInfo(OptionPlatformGate.ForIos(options))),
                 startedToken, startedToken == 0 ? null : (LaunchStartedNativeCallback)OnNativeStarted);
             ExceptionPipeline.Install(this, options);
+            ManagedViewHierarchy.ApplyLaunchOptions(options);
             HostLogForwarder.InstallOnce(this);
         }
 
@@ -162,6 +163,7 @@ namespace Bugsee.Platform.IOS
             var warning = IosEarlyLaunchPolicy.AdoptionWarning(adoption, differing);
             if (warning != null) Debug.LogWarning(warning);
             ExceptionPipeline.Install(this, options);
+            ManagedViewHierarchy.ApplyLaunchOptions(options);
             HostLogForwarder.InstallOnce(this);
             var status = GetStatus();
             Debug.Log("[Bugsee] Launch adopted the session the native early launch started (SDK status " + status + (status == BugseeStatus.Stopped ? ", its start is deferred until the app is active" : "") + "); no second launch was made.");
@@ -185,6 +187,7 @@ namespace Bugsee.Platform.IOS
             _bugsee_relaunch(ToJsonObject(WithWrapperInfo(OptionPlatformGate.ForIos(options))),
                 startedToken, startedToken == 0 ? null : (LaunchStartedNativeCallback)OnNativeStarted);
             ExceptionPipeline.Install(this, options);
+            ManagedViewHierarchy.ApplyLaunchOptions(options);
             HostLogForwarder.InstallOnce(this);
         }
 

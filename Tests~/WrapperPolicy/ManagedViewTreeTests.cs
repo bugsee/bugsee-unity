@@ -76,12 +76,12 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
-        public void ANodeWithNoGeometryAnywhereReportsAnEmptyBox()
+        public void ANodeWithNoGeometryAnywhereWritesNoBounds()
         {
+            // The spec makes `bounds` optional on a managed node: absent means the position is unknown, never [0, 0, 0, 0].
             var root = Node(0, "UnityPlayer", null, 0, 0, 100, 100, Container(1, "empty"));
-            var bounds = Parse(ManagedViewTreeJson.Write(root, null, 0, 1f)).GetProperty("subitems")[0].GetProperty("bounds");
-            Assert.That(bounds.GetArrayLength(), Is.EqualTo(4));
-            Assert.That(bounds[2].GetDouble(), Is.EqualTo(0));
+            var kid = Parse(ManagedViewTreeJson.Write(root, null, 0, 1f)).GetProperty("subitems")[0];
+            Assert.That(kid.TryGetProperty("bounds", out _), Is.False);
         }
 
         [Test]

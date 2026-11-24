@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The managed view hierarchy carries the 3D scene: a `scene` block with the cameras and the oriented bounding boxes of the visible objects, chosen by the new Unity-only launch option `CaptureSceneGraph` (`com.bugsee.option.unity.capture-scene-graph`).** Values: `All` (the default when omitted: the tree with names and 2D `bounds` plus the `scene` block), `NamesOnly` (the tree with names and no positions: no `bounds`, no `scene`) and `None` (no managed tree). The `scene` block follows the view-tree-scene spec (glTF axes, metres, quaternions `[x, y, z, w]`, converted from Unity's left-handed space) and holds the enabled cameras, every renderer that was drawn and sits inside a camera's view volume (meshes and sprites as oriented boxes), and the World Space and Screen Space - Camera canvases as planes. **With the default an AR app ships the device pose and the geometry of the AR planes and meshes it renders unless it sets `NamesOnly` or `None`.** The scene is read after the tree in the same 5% slices (the tree's share of the walk is now its first 150 ms, so a large scene reaches fewer tree nodes than before) and is truncated, with counts, rather than late. `bounds` is no longer written on any node under `NamesOnly`. See "Managed view hierarchy" in the documentation.
+
 ### Fixed
 
 - **The managed view hierarchy now hides the name and components of every node under a secure rectangle at any render resolution.** The node boxes are in Unity render pixels but the registered rectangles are in native pixels, so with Resolution Scaling, `Screen.SetResolution` below the display size, a surface offset (status bar, cutout) or an iOS render scale that differs from the screen scale, a covered node could keep `options.name` and `options.components`. The rectangles are now converted into render pixels with the surface mapping read now before the overlap test (a node without bounds is still treated as covered, and while the surface cannot be read or is mid-rotation every node is, for the rest of that capture).

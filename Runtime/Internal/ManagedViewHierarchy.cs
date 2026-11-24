@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
+using Bugsee.Contracts.Options;
 using Bugsee.WrapperPolicy;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -35,6 +36,30 @@ namespace Bugsee.Internal
         static bool _isDebugBuild; // read on the main thread (Begin); Debug.isDebugBuild is a Unity call
 
         static double NowMs() => Clock.ElapsedTicks * 1000.0 / Stopwatch.Frequency;
+
+        static int _level = (int)SceneGraphCaptureOption.Default;
+
+        /// <summary>What the reply carries; set from the launch options (<see cref="ApplyLaunchOptions"/>), readable from any thread.</summary>
+        internal static SceneGraphCapture Level
+        {
+            get => (SceneGraphCapture)Volatile.Read(ref _level);
+            set => Volatile.Write(ref _level, (int)value);
+        }
+
+        /// <summary>
+        /// Reads <c>com.bugsee.option.unity.capture-scene-graph</c> from the options a launch or relaunch was given (absent: the default,
+        /// <c>All</c>; a relaunch that leaves it out resets it, as for every option). Call where the launch's managed hooks are installed.
+        /// </summary>
+        internal static void ApplyLaunchOptions(IDictionary<string, object> options)
+        {
+            object raw = null;
+            if (options != null) options.TryGetValue(Options.CaptureSceneGraph, out raw);
+            var level = SceneGraphCaptureOption.Parse(raw, out var recognized);
+            if (!recognized)
+                Debug.LogWarning("[Bugsee] " + Options.CaptureSceneGraph + " is \"" + InvariantText.Of(raw) + "\", not one of None, NamesOnly, All: "
+                    + "the managed view hierarchy is not sent (an option that asks for less never sends more).");
+            Level = level;
+        }
 
         static void RunWorker(Action work) =>
             ThreadPool.QueueUserWorkItem(_ =>
@@ -80,9 +105,11 @@ namespace Bugsee.Internal
             {
                 var t = Volatile.Read(ref watchdog);
                 if (t != null) try { t.Dispose(); } catch (Exception) { }
+                ManagedViewDiagnostics.NoteReply(json);
                 reply(json);
             });
-            if (dataType != ManagedViewTreeJson.DataType || ManagedViewRequests.IsMainThreadInBlockingNativeCall)
+            var level = Level;
+            if (dataType != ManagedViewTreeJson.DataType || level == SceneGraphCapture.None || ManagedViewRequests.IsMainThreadInBlockingNativeCall)
             {
                 once.Reply(null);
                 return;
@@ -98,7 +125,7 @@ namespace Bugsee.Internal
             {
                 try
                 {
-                    Engine.Submit(once, askedAt, pixelsPerNativeUnit, replyInlineIfSmall);
+                    Engine.Submit(once, askedAt, pixelsPerNativeUnit, replyInlineIfSmall, level);
                     if (replyInlineIfSmall) _sliceFrame = Time.frameCount; // the inline slice is this frame's
                 }
                 catch (Exception ex)
@@ -190,7 +217,11 @@ namespace Bugsee.Internal
                     Debug.Log("[Bugsee] managed view hierarchy: " + stats.Nodes + " nodes, " + stats.Chars + " chars, walk "
                         + Fmt(stats.MainMs, "F1") + " ms in " + stats.Slices + " slices (longest " + Fmt(stats.MaxSliceMs, "F2")
                         + " ms), write " + Fmt(stats.WorkerMs, "F1") + " ms, total " + Fmt(stats.TotalMs, "F0") + " ms"
-                        + (stats.Truncated ? ", truncated" : "") + ", secured " + stats.Secured);
+                        + (stats.Truncated ? ", truncated" : "") + ", secured " + stats.Secured
+                        + (stats.Scene
+                            ? "; scene " + stats.SceneObjects + " objects, " + stats.SceneCameras + " cameras, " + stats.SceneChars + " chars (units " + stats.SceneUnits + ", renderers looked at " + stats.SceneRenderers + "), read "
+                                + Fmt(stats.SceneMainMs, "F1") + " ms, convert+write " + Fmt(stats.SceneWorkerMs, "F1") + " ms" + (stats.SceneTruncated ? ", truncated" : "")
+                            : "; no scene"));
                 else if (stats.Outcome.StartsWith("error", StringComparison.Ordinal))
                     Debug.LogWarning("[Bugsee] The managed view hierarchy could not be read: " + stats.Outcome);
                 else
@@ -252,12 +283,15 @@ namespace Bugsee.Internal
         int _sceneIndex;
         int _root;
         bool _finished;
+        bool _treeDone;
 
         public ManagedViewSnapshot Snapshot => _snapshot;
 
         public ManagedViewWalker(ManagedViewBudget budget)
         {
             _budget = budget;
+            _snapshot.EmitBounds = budget.Level == SceneGraphCapture.All;
+            if (budget.Level == SceneGraphCapture.All) _snapshot.Scene = new ManagedViewSceneSnapshot();
             _width = Screen.width;
             _height = Screen.height;
             _camera = Camera.main;
@@ -284,7 +318,18 @@ namespace Bugsee.Internal
         static void OnSceneLoaded(Scene scene, LoadSceneMode mode) => ManagedViewHierarchy.NoteSceneChange();
         static void OnSceneUnloaded(Scene scene) => ManagedViewHierarchy.NoteSceneChange();
 
-        public void Abandon() => Finish();
+        // The capture ended before the walk did (the deadline, a pause, an error): a scene not read to the end says it is incomplete.
+        public void Abandon()
+        {
+            var scene = _snapshot.Scene;
+            if (scene != null && !_sceneDone)
+            {
+                scene.Incomplete = true;
+                if (scene.ObjectCount == 0 && scene.Skipped == null) scene.Skipped = ManagedViewSceneSnapshot.SkippedTimeBudget;
+            }
+
+            Finish();
+        }
 
         void Finish()
         {
@@ -303,31 +348,50 @@ namespace Bugsee.Internal
             _width = Screen.width;
             _height = Screen.height;
             _projections.Clear(); // a camera that moved since the last slice is read again, not projected with old matrices
-            do
+            if (!_treeDone)
             {
-                if (_sp == 0)
+                do
                 {
-                    if (!StartNextScene())
+                    if (_sp == 0)
                     {
-                        Finish();
-                        return true;
+                        if (!StartNextScene()) { _treeDone = true; break; }
+                        continue;
                     }
 
-                    continue;
+                    try
+                    {
+                        if (!StepFrame()) _sp--;
+                    }
+                    catch (Exception)
+                    {
+                        // Destroyed under the walk, a missing script: this object's remaining children are lost, not the tree.
+                        _sp--;
+                    }
                 }
+                while (!sliceExpired());
+                if (!_treeDone) return false;
+            }
 
-                try
-                {
-                    if (!StepFrame()) _sp--;
-                }
+            // The tree is read; the 3D scene follows, best effort, in the same slices (the main thread's share per frame is the same).
+            if (_snapshot.Scene != null && !_sceneDone)
+            {
+                if (sliceExpired()) return false;
+                var started = Stopwatch.GetTimestamp();
+                try { _sceneDone = SceneStep(sliceExpired); }
                 catch (Exception)
                 {
-                    // Destroyed under the walk, a missing script: this object's remaining children are lost, not the tree.
-                    _sp--;
+                    // The scene is best effort: whatever was read stands, and the document says it is incomplete.
+                    _snapshot.Scene.Incomplete = true;
+                    if (_snapshot.Scene.ObjectCount == 0) _snapshot.Scene.Skipped = ManagedViewSceneSnapshot.SkippedError;
+                    _sceneDone = true;
                 }
+
+                _snapshot.Scene.MainMs += (Stopwatch.GetTimestamp() - started) * 1000.0 / Stopwatch.Frequency;
+                if (!_sceneDone) return false;
             }
-            while (!sliceExpired());
-            return false;
+
+            Finish();
+            return true;
         }
 
         // False: the scene list is done (or the budget is spent).
@@ -521,6 +585,267 @@ namespace Bugsee.Internal
             cached = new ManagedViewProjection(v, q, pixels.x, pixels.y, pixels.width, pixels.height);
             _projections[camera] = cached;
             return cached;
+        }
+
+        // ------------------------------------------------------------------------------------------------------------------
+        // The 3D scene (SceneGraphCapture.All): the cameras, then every renderer drawn last frame and every world-space canvas, read as
+        // plain values (ManagedViewSceneSnapshot); the conversion to the wire's convention, the selection by view volume and the JSON are the
+        // worker's. The enumeration is the sliced part: a unit is one subtree read with a single GetComponentsInChildren call, and a
+        // transform with many children is split into its children, so no single call is larger than a small subtree.
+        // ------------------------------------------------------------------------------------------------------------------
+
+        // A transform with at least this many children is read child by child; a smaller subtree is one native call.
+        const int SplitChildCount = 32;
+        // Objects read at most (twice what a reply carries): the rest cannot be sent, and the document says it is incomplete.
+        const int MaxSceneObjectsRead = ManagedViewSceneJson.DefaultMaxObjects * 2;
+
+        static readonly List<Renderer> RendererBuffer = new List<Renderer>(64);
+        static readonly Dictionary<Type, SceneObjectKind> RendererKinds = new Dictionary<Type, SceneObjectKind>();
+        static readonly float[] Matrix16 = new float[16];
+        static readonly float[] CameraPose = new float[7];
+        static readonly float[] CameraView = new float[16];
+        static readonly float[] CameraProjection = new float[16];
+        static readonly float[] CameraRect = new float[4];
+        static readonly float[] IdentityMatrix = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+
+        readonly List<Transform> _units = new List<Transform>(64);
+        bool _sceneDone;
+        int _scenePhase; // 0 cameras and seeding, 1 enumerating the units, 2 the canvases
+        int _sceneSeen;
+
+        // True when the scene is complete (or has been given up). Main thread; one unit of work per check of the slice.
+        bool SceneStep(Func<bool> sliceExpired)
+        {
+            var scene = _snapshot.Scene;
+            if (_scenePhase == 0)
+            {
+                ReadCameras(scene);
+                scene.TimeScale = Time.timeScale;
+                scene.Frame = Time.frameCount;
+                var names = new string[32];
+                for (var i = 0; i < names.Length; i++) names[i] = LayerMask.LayerToName(i);
+                scene.LayerNames = names;
+                if (scene.CameraCount == 0)
+                {
+                    // The selection is "drawn by a camera": with none, nothing qualifies, and that is a complete, empty scene.
+                    scene.Skipped = ManagedViewSceneSnapshot.SkippedNoCamera;
+                    return true;
+                }
+
+                SeedUnits();
+                _scenePhase = 1;
+                if (sliceExpired()) return false;
+            }
+
+            if (_scenePhase == 1)
+            {
+                while (_units.Count > 0)
+                {
+                    if (_budget.SceneExpired || scene.ObjectCount >= MaxSceneObjectsRead)
+                    {
+                        // Out of time (or of room) with units still unread: what was read is a part of the scene.
+                        scene.Incomplete = true;
+                        if (scene.ObjectCount == 0) scene.Skipped = ManagedViewSceneSnapshot.SkippedTimeBudget;
+                        _units.Clear();
+                        return true;
+                    }
+
+                    try { ReadUnit(scene); }
+                    catch (Exception) { /* an object destroyed under the read, a missing script: this unit is lost */ }
+                    if (sliceExpired()) return false;
+                }
+
+                _scenePhase = 2;
+            }
+
+            try { ReadCanvases(scene); }
+            catch (Exception) { /* the canvases are optional extras of the scene */ }
+            scene.Seen = _sceneSeen;
+            return true;
+        }
+
+        void ReadCameras(ManagedViewSceneSnapshot scene)
+        {
+            var count = Camera.allCamerasCount;
+            if (count <= 0) return;
+            var cameras = new Camera[count];
+            count = Camera.GetAllCameras(cameras);
+            for (var i = 0; i < count; i++)
+            {
+                var camera = cameras[i];
+                if (camera == null) continue;
+                try
+                {
+                    var t = camera.transform;
+                    var p = t.position;
+                    var q = t.rotation;
+                    CameraPose[0] = p.x; CameraPose[1] = p.y; CameraPose[2] = p.z;
+                    CameraPose[3] = q.x; CameraPose[4] = q.y; CameraPose[5] = q.z; CameraPose[6] = q.w;
+                    CopyMatrix(camera.worldToCameraMatrix, CameraView);
+                    CopyMatrix(camera.projectionMatrix, CameraProjection);
+                    var rect = camera.rect;
+                    CameraRect[0] = rect.x; CameraRect[1] = rect.y; CameraRect[2] = rect.width; CameraRect[3] = rect.height;
+                    scene.AddCamera(
+                        camera.gameObject.GetInstanceID(), CameraPose, CameraView, CameraProjection, camera.nearClipPlane, camera.farClipPlane,
+                        camera.depth, CameraRect, camera.cullingMask, camera == _camera, camera.targetTexture != null, camera.orthographic);
+                }
+                catch (Exception)
+                {
+                    // A camera destroyed under the read: it is not in the scene.
+                }
+            }
+        }
+
+        static void CopyMatrix(Matrix4x4 m, float[] into)
+        {
+            for (var r = 0; r < 4; r++)
+            for (var c = 0; c < 4; c++)
+                into[r * 4 + c] = m[r, c];
+        }
+
+        void SeedUnits()
+        {
+            _units.Clear();
+            for (var i = _scenes.Count - 1; i >= 0; i--)
+            {
+                var scene = _scenes[i];
+                if (!scene.isLoaded) continue;
+                GameObject[] roots;
+                try { roots = scene.GetRootGameObjects(); }
+                catch (Exception) { continue; }
+                for (var k = roots.Length - 1; k >= 0; k--)
+                {
+                    var root = roots[k];
+                    if (root == null || (_host != null && root == _host.gameObject)) continue;
+                    _units.Add(root.transform);
+                }
+            }
+        }
+
+        // One unit off the end of the list (the first root is last, so the hierarchy is read in order).
+        void ReadUnit(ManagedViewSceneSnapshot scene)
+        {
+            var t = _units[_units.Count - 1];
+            _units.RemoveAt(_units.Count - 1);
+            scene.ReadUnits++;
+            if (t == null || !t.gameObject.activeInHierarchy) return;
+            var children = t.childCount;
+            if (children >= SplitChildCount)
+            {
+                if (t.TryGetComponent<Renderer>(out var own)) ReadRenderer(scene, own);
+                for (var i = children - 1; i >= 0; i--) _units.Add(t.GetChild(i));
+                return;
+            }
+
+            t.GetComponentsInChildren(false, RendererBuffer);
+            try
+            {
+                for (var i = 0; i < RendererBuffer.Count; i++) ReadRenderer(scene, RendererBuffer[i]);
+            }
+            finally
+            {
+                RendererBuffer.Clear();
+            }
+        }
+
+        void ReadRenderer(ManagedViewSceneSnapshot scene, Renderer r)
+        {
+            _sceneSeen++;
+            scene.ReadRenderers++;
+            if (r == null || !r.isVisible) return; // not drawn last frame (a disabled renderer, a culled one): not in a "visible" scene
+            var go = r.gameObject;
+            var kind = KindOf(r.GetType(), out var worldBox);
+            float cx, cy, cz, sx, sy, sz;
+            float[] matrix;
+            if (worldBox)
+            {
+                // Skinned meshes (bounds relative to their root bone), particles, lines and trails (often simulated in world space): the
+                // world-space box the engine keeps, not rotated.
+                var b = r.bounds;
+                var c = b.center;
+                var size = b.size;
+                cx = c.x; cy = c.y; cz = c.z; sx = size.x; sy = size.y; sz = size.z;
+                matrix = IdentityMatrix;
+            }
+            else
+            {
+                var lb = r.localBounds;
+                var c = lb.center;
+                var size = lb.size;
+                cx = c.x; cy = c.y; cz = c.z; sx = size.x; sy = size.y; sz = size.z;
+                // A sprite is a flat quad: Unity gives its local bounds a thickness of 0.2 that is not part of the picture, the spec's flat object has none.
+                if (kind == SceneObjectKind.Sprite) { cz = 0f; sz = 0f; }
+                CopyMatrix(r.localToWorldMatrix, Matrix16);
+                matrix = Matrix16;
+            }
+
+            scene.AddObject(go.GetInstanceID(), kind, go.layer, 0, matrix, cx, cy, cz, sx, sy, sz);
+        }
+
+        // The kind from the renderer's type or the first base type that is known; a type name is matched, so a module that is not part of the
+        // project (tilemaps, particles) is never referenced. Cached per type.
+        static SceneObjectKind KindOf(Type type, out bool worldBox)
+        {
+            if (!RendererKinds.TryGetValue(type, out var kind))
+            {
+                kind = SceneObjectKind.Other;
+                for (var t = type; t != null && t != typeof(Renderer) && t != typeof(object); t = t.BaseType)
+                {
+                    var known = true;
+                    switch (t.Name)
+                    {
+                        case "MeshRenderer": kind = SceneObjectKind.Mesh; break;
+                        case "SkinnedMeshRenderer": kind = SceneObjectKind.Skinned; break;
+                        case "SpriteRenderer": kind = SceneObjectKind.Sprite; break;
+                        case "ParticleSystemRenderer": kind = SceneObjectKind.Particles; break;
+                        case "LineRenderer":
+                        case "TrailRenderer": kind = SceneObjectKind.Line; break;
+                        case "TilemapRenderer": kind = SceneObjectKind.Tilemap; break;
+                        default: known = false; break;
+                    }
+
+                    if (known) break;
+                }
+
+                RendererKinds[type] = kind;
+            }
+
+            worldBox = kind == SceneObjectKind.Skinned || kind == SceneObjectKind.Particles || kind == SceneObjectKind.Line;
+            return kind;
+        }
+
+        // World-space and screen-space-camera canvases are planes in the scene; an overlay canvas (and a camera canvas without a camera) is
+        // drawn straight onto the screen and has no position in the world: its elements stay in the tree with their bounds.
+        void ReadCanvases(ManagedViewSceneSnapshot scene)
+        {
+#if UNITY_2022_2_OR_NEWER
+            var canvases = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None);
+#else
+            var canvases = UnityEngine.Object.FindObjectsOfType<Canvas>();
+#endif
+            for (var i = 0; i < canvases.Length; i++)
+            {
+                var canvas = canvases[i];
+                if (canvas == null || !canvas.isRootCanvas || !canvas.enabled) continue;
+                _sceneSeen++;
+                var mode = canvas.renderMode;
+                var drawnBy = 0;
+                if (mode == RenderMode.ScreenSpaceOverlay) continue;
+                if (mode == RenderMode.ScreenSpaceCamera)
+                {
+                    var worldCamera = canvas.worldCamera;
+                    if (worldCamera == null) continue;
+                    drawnBy = worldCamera.gameObject.GetInstanceID();
+                }
+
+                var rt = canvas.transform as RectTransform;
+                if (rt == null) continue;
+                var rect = rt.rect;
+                CopyMatrix(rt.localToWorldMatrix, Matrix16);
+                var go = canvas.gameObject;
+                scene.AddObject(
+                    go.GetInstanceID(), SceneObjectKind.Ui, go.layer, drawnBy, Matrix16, rect.center.x, rect.center.y, 0f, rect.width, rect.height, 0f);
+            }
         }
 
         // Fills NameBuffer with the component type names (up to the shown limit) and returns the type of the first component that says

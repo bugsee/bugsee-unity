@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Bugsee.Contracts.Options;
 
 namespace Bugsee.WrapperPolicy
 {
@@ -37,6 +38,16 @@ namespace Bugsee.WrapperPolicy
         public bool Truncated;
         /// <summary>The write deadline stopped the JSON.</summary>
         public bool Cut;
+        /// <summary>The 3D scene: objects written, whether the reply carries a <c>scene</c> at all, whether it is incomplete, its characters, and the worker time its conversion took.</summary>
+        public bool Scene;
+        public int SceneObjects;
+        public int SceneCameras;
+        public bool SceneTruncated;
+        public int SceneChars;
+        public double SceneWorkerMs;
+        /// <summary>Main-thread time of the scene read alone (the rest of <see cref="MainMs"/> is the tree).</summary>
+        public double SceneMainMs;
+        public int SceneUnits, SceneRenderers;
         /// <summary>How many requests this reply answered (a request made while a capture ran joins it).</summary>
         public int Requests = 1;
         /// <summary>True when a JSON was given; false when the reply was null.</summary>
@@ -98,8 +109,10 @@ namespace Bugsee.WrapperPolicy
         /// <see cref="ManagedViewRequests.InlineMaxNodes"/> nodes the JSON is written and the reply given before returning, as the
         /// capture always did before: no timer, no hop, no silent mode. Anything bigger goes the asynchronous way.
         /// </param>
+        /// <param name="level">What the reply carries (<c>None</c> is answered by the caller, never submitted): <c>All</c> shares the walk's time between the tree and the scene.</param>
         public void Submit(
-            ManagedViewRequests.Once once, double askedAtMs, Func<float> pixelsPerNativeUnit, bool replyInlineIfSmall = false)
+            ManagedViewRequests.Once once, double askedAtMs, Func<float> pixelsPerNativeUnit, bool replyInlineIfSmall = false,
+            SceneGraphCapture level = SceneGraphCapture.All)
         {
             if (once == null) return;
             if (ManagedViewRequests.IsStale((long)askedAtMs, (long)_nowMs()))
@@ -117,8 +130,12 @@ namespace Bugsee.WrapperPolicy
             Job job = null;
             try
             {
+                // With a scene the tree gets the first part of the walk's time and the scene the rest; without one the tree has all of it.
+                var treeDeadline = level == SceneGraphCapture.All ? ManagedViewRequests.TreeDeadlineMs : ManagedViewRequests.SnapshotDeadlineMs;
                 var budget = new ManagedViewBudget(
-                    expired: () => _nowMs() - askedAtMs > ManagedViewRequests.SnapshotDeadlineMs);
+                    expired: () => _nowMs() - askedAtMs > treeDeadline,
+                    sceneExpired: () => _nowMs() - askedAtMs > ManagedViewRequests.SnapshotDeadlineMs,
+                    level: level);
                 var source = _begin(budget);
                 float scale;
                 try { scale = pixelsPerNativeUnit != null ? pixelsPerNativeUnit() : 1f; }
@@ -204,7 +221,10 @@ namespace Bugsee.WrapperPolicy
             {
                 _seal(job.Source.Snapshot);
                 job.Handed = true;
-                if (inlineSmall && job.Source.Snapshot.Count <= ManagedViewRequests.InlineMaxNodes) Work(job);
+                var snapshot = job.Source.Snapshot;
+                var small = snapshot.Count <= ManagedViewRequests.InlineMaxNodes
+                    && (snapshot.Scene == null || snapshot.Scene.ObjectCount <= ManagedViewRequests.InlineMaxNodes);
+                if (inlineSmall && small) Work(job);
                 else _runWorker(() => Work(job));
             }
             catch (Exception ex)
@@ -265,9 +285,26 @@ namespace Bugsee.WrapperPolicy
             {
                 var snapshot = job.Source.Snapshot;
                 var tree = snapshot.ToTree();
+                var options = new ManagedViewWriteOptions { EmitBounds = snapshot.EmitBounds, SceneExpired = job.WriteExpired };
+                if (snapshot.Scene != null)
+                {
+                    var sceneStarted = _nowMs();
+                    try { options.Scene = ManagedViewSceneBuilder.Build(snapshot.Scene, job.WriteExpired); }
+                    catch (Exception) { /* the scene is best effort: the tree is still answered */ }
+                    job.SceneWorkerMs = _nowMs() - sceneStarted;
+                }
+
                 var json = ManagedViewTreeJson.Write(
                     tree, snapshot.SecureRects, snapshot.SecureCount, snapshot.PixelsPerNativeUnit,
-                    job.WriteExpired, out var secured, out var cut);
+                    job.WriteExpired, out var secured, out var cut, options);
+                job.Scene = options.SceneWritten;
+                job.SceneObjects = options.SceneSent;
+                job.SceneCameras = options.Scene == null ? 0 : options.Scene.Cameras.Count;
+                job.SceneTruncated = options.SceneTruncated;
+                job.SceneChars = options.SceneChars;
+                job.SceneMainMs = snapshot.Scene == null ? 0 : snapshot.Scene.MainMs;
+                job.SceneUnits = snapshot.Scene == null ? 0 : snapshot.Scene.ReadUnits;
+                job.SceneRenderers = snapshot.Scene == null ? 0 : snapshot.Scene.ReadRenderers;
                 job.WorkerMs = _nowMs() - started;
                 job.Nodes = snapshot.Count;
                 job.Chars = json == null ? 0 : json.Length;
@@ -312,6 +349,10 @@ namespace Bugsee.WrapperPolicy
             public double MainMs, MaxSliceMs, WorkerMs;
             public int Nodes, Chars, Secured;
             public bool Truncated, Cut;
+            public bool Scene, SceneTruncated;
+            public int SceneObjects, SceneCameras, SceneChars;
+            public double SceneWorkerMs, SceneMainMs;
+            public int SceneUnits, SceneRenderers;
 
             public Job(ManagedViewCaptureEngine engine, ManagedViewRequests.Once first, double askedAt, IManagedViewSource source)
             {
@@ -375,6 +416,8 @@ namespace Bugsee.WrapperPolicy
                     Nodes = Nodes, Chars = Chars, Secured = Secured, Slices = Slices, MainMs = MainMs, MaxSliceMs = MaxSliceMs,
                     WorkerMs = WorkerMs, TotalMs = _engine._nowMs() - AskedAt, Truncated = Truncated, Cut = Cut,
                     Requests = waiters.Length, Replied = json != null, Outcome = json != null ? "reply" : failure ?? "error",
+                    Scene = Scene, SceneObjects = SceneObjects, SceneCameras = SceneCameras, SceneTruncated = SceneTruncated,
+                    SceneChars = SceneChars, SceneWorkerMs = SceneWorkerMs, SceneMainMs = SceneMainMs, SceneUnits = SceneUnits, SceneRenderers = SceneRenderers,
                 });
             }
         }

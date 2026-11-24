@@ -77,7 +77,10 @@ namespace Bugsee.Sample
                         {
                             Debug.Log("[VHSCALE] n=" + n + " run=" + run + " outcome=" + st.Outcome + " nodes=" + st.Nodes + " chars=" + st.Chars
                                 + " mainMs=" + F(st.MainMs) + " slices=" + st.Slices + " maxSliceMs=" + F(st.MaxSliceMs) + " workerMs=" + F(st.WorkerMs)
-                                + " totalMs=" + F(st.TotalMs) + " truncated=" + st.Truncated + " frames " + Percentiles(frames));
+                                + " totalMs=" + F(st.TotalMs) + " truncated=" + st.Truncated
+                                + " scene=" + st.Scene + " sceneObjects=" + st.SceneObjects + " sceneCameras=" + st.SceneCameras + " sceneChars=" + st.SceneChars
+                                + " sceneUnits=" + st.SceneUnits + " sceneRenderers=" + st.SceneRenderers + " sceneMainMs=" + F(st.SceneMainMs) + " sceneWorkerMs=" + F(st.SceneWorkerMs) + " sceneTruncated=" + st.SceneTruncated
+                                + " frames " + Percentiles(frames));
                             mains.Add(st.MainMs);
                             totals.Add(st.TotalMs);
                         }

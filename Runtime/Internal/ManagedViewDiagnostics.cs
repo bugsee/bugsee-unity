@@ -24,6 +24,25 @@ namespace Bugsee.Internal
 
         public static ManagedViewCaptureStats Last => Volatile.Read(ref _last);
 
+        /// <summary>Keep the JSON of every reply in <see cref="LastReply"/> (the sample's scenarios read it back; off by default, a reply is hundreds of KB).</summary>
+        public static bool KeepReplies;
+
+        static string _lastReply;
+        static int _replyCount;
+
+        /// <summary>The last reply given while <see cref="KeepReplies"/> was on: its JSON, or null when the wrapper answered null (no managed tree).</summary>
+        public static string LastReply => Volatile.Read(ref _lastReply);
+
+        /// <summary>Replies given (null ones too) while <see cref="KeepReplies"/> was on.</summary>
+        public static int ReplyCount => Volatile.Read(ref _replyCount);
+
+        internal static void NoteReply(string json)
+        {
+            if (!KeepReplies) return;
+            Volatile.Write(ref _lastReply, json);
+            Interlocked.Increment(ref _replyCount);
+        }
+
         internal static void Record(ManagedViewCaptureStats stats)
         {
             Volatile.Write(ref _last, stats);

@@ -52,7 +52,7 @@ namespace Bugsee.WrapperPolicy.Tests
         // options and they must never be forwarded as if the SDK knew them.
         static readonly Dictionary<string, string> WrapperOnly = Keys("wrapper-only key (unity.*)",
             "unity.capture-managed-exceptions", "unity.treat-log-exceptions-as-fatal",
-            "unity.capture-unobserved-task-exceptions");
+            "unity.capture-unobserved-task-exceptions", "unity.capture-scene-graph");
 
         // Native options with a constant but no typed setter on the launch options (reachable through Set/OptionsBuilder).
         static readonly Dictionary<string, string> NoTypedSetter = new Dictionary<string, string>();

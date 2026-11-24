@@ -785,6 +785,7 @@ namespace Bugsee.Platform.Android
             public void InstallHooks(IDictionary<string, object> options)
             {
                 ExceptionPipeline.Install(_bridge, options);
+                ManagedViewHierarchy.ApplyLaunchOptions(options);
                 HostLogForwarder.InstallOnce(_bridge);
             }
 

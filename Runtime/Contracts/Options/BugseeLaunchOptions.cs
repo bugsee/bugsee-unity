@@ -175,6 +175,18 @@ namespace Bugsee.Contracts.Options
             set => Set(Options.TreatUnityLogExceptionsAsFatal, value);
         }
 
+        /// <summary>
+        /// Unity only: how much of the Unity scene goes into the managed view hierarchy of a report. Omit for the default,
+        /// <see cref="SceneGraphCapture.All"/>: the tree with names and 2D bounds plus the 3D scene (cameras and bounding boxes of the
+        /// visible objects). <see cref="SceneGraphCapture.NamesOnly"/> sends the tree with names and no positions of any kind,
+        /// <see cref="SceneGraphCapture.None"/> sends no managed tree. The native <c>CaptureViewHierarchy</c> option still gates all of it.
+        /// With the default an AR app ships the pose of its camera and the boxes of the AR geometry it renders: set a lower level to opt out.
+        /// </summary>
+        public SceneGraphCapture CaptureSceneGraph
+        {
+            set => Set(Options.CaptureSceneGraph, SceneGraphCaptureOption.ToWire(value));
+        }
+
         public bool DetectAndReportEarlyCrash
         {
             set => Set(Options.DetectAndReportEarlyCrash, value);

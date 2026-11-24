@@ -426,6 +426,15 @@ namespace Bugsee.Sample
                         StartCoroutine(VhE2E.Run(this));
                     }
                     break;
+                case "vhscene":
+                    // The 3D scene block of the managed view hierarchy on a real scene: cameras, rotated / scaled / nested objects, a canvas in each
+                    // render mode and a secure rectangle; the reply is read back and checked. bugsee_scene_graph selects the launch option.
+                    if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
+                    {
+                        _e2ePhase = 99;
+                        VhSceneE2E.Start(_e2eRunId, ReadE2EValue("bugsee_scene_graph", "BUGSEE_E2E_SCENE_GRAPH"), ReadE2EValue("bugsee_scene_report", "BUGSEE_E2E_SCENE_REPORT") == "1");
+                    }
+                    break;
                 case "vhscale":
                 case "vhscaleunsliced":
                     // Measures the managed view hierarchy capture on synthetic scenes of 500 to 20000 objects: main-thread ms, worker ms, time to
@@ -1267,6 +1276,16 @@ namespace Bugsee.Sample
             throw new ArgumentException("E2E StableB " + marker);
         }
 
+        // "bugsee_scene_graph" / BUGSEE_E2E_SCENE_GRAPH = none | namesonly | all (the vhscene scenario); unset keeps the SDK's default (All). A value
+        // that is none of the three goes in as written, to see the wrapper refuse it.
+        static void ApplySceneGraphOption(BugseeLaunchOptions options)
+        {
+            var value = ReadE2EValue("bugsee_scene_graph", "BUGSEE_E2E_SCENE_GRAPH");
+            if (value == null) return;
+            if (Enum.TryParse(value, true, out SceneGraphCapture level)) options.CaptureSceneGraph = level;
+            else options.SetCustomOption(Options.CaptureSceneGraph, value);
+        }
+
         /// <summary>
         /// The sample's launch options (Android and iOS; null in the Editor) with the preset on top. The iOS crash handler goes through
         /// the typed <see cref="IOSLaunchOptions.CrashHandlerType"/>, and BUGSEE_E2E_CRASH_HANDLER = 1 (BSD) | 2 (Mach) | 3 (Mach + BSD)
@@ -1301,6 +1320,7 @@ namespace Bugsee.Sample
                 options.ReportingDefaultBugPriority = bugPriority;
             if (!string.IsNullOrWhiteSpace(endpointOverride))
                 options.SetCustomOption(InternalOptionKeys.Endpoint, endpointOverride.Trim());
+            ApplySceneGraphOption(options);
             // "bugsee_crash_signals" = a CrashSignals bit set (Default = 128); unset leaves the SDK's own choice.
             if (int.TryParse(ReadE2EValue("bugsee_crash_signals", "BUGSEE_E2E_CRASH_SIGNALS"), out var androidSignals))
                 options.CrashSignals = (CrashSignals)androidSignals;
@@ -1328,6 +1348,7 @@ namespace Bugsee.Sample
                 options.ReportingDefaultBugPriority = bugPriority;
             if (!string.IsNullOrWhiteSpace(endpointOverride))
                 options.SetCustomOption(InternalOptionKeys.Endpoint, endpointOverride.Trim());
+            ApplySceneGraphOption(options);
             var crashHandler = Environment.GetEnvironmentVariable("BUGSEE_E2E_CRASH_HANDLER");
             if (int.TryParse(crashHandler, out var handlerType)) // any integer goes to the SDK as given, also an invalid one
                 options.CrashHandlerType = (CrashHandlerType)handlerType;

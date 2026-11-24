@@ -100,6 +100,15 @@ namespace Bugsee.WrapperPolicy
         public float PixelsPerNativeUnit = 1f;
 
         /// <summary>
+        /// False under <c>SceneGraphCapture.NamesOnly</c>: the boxes are still computed (a node's name is withheld when its box overlaps a secure
+        /// rectangle) but no node writes <c>bounds</c>.
+        /// </summary>
+        public bool EmitBounds = true;
+
+        /// <summary>The 3D scene read after the tree (<c>SceneGraphCapture.All</c> only); null when none is captured.</summary>
+        public ManagedViewSceneSnapshot Scene;
+
+        /// <summary>
         /// Appends a node and returns its index. <paramref name="parent"/> is an index already returned, or
         /// <see cref="NoParent"/> for the root (the first node).
         /// </summary>

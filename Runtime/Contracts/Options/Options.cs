@@ -154,5 +154,13 @@ namespace Bugsee.Contracts.Options
         /// </summary>
         public const string CaptureUnobservedTaskExceptions =
             "com.bugsee.option.unity.capture-unobserved-task-exceptions";
+
+        /// <summary>
+        /// Unity-only: how much of the Unity scene the managed view hierarchy sends, a <see cref="SceneGraphCapture"/> stored by its
+        /// constant name (<c>"None"</c>, <c>"NamesOnly"</c>, <c>"All"</c>). Default when omitted: <c>All</c> (the tree with names and
+        /// 2D bounds plus the <c>scene</c> block of cameras and 3D boxes). The native <see cref="CaptureViewHierarchy"/> still gates
+        /// the whole capture.
+        /// </summary>
+        public const string CaptureSceneGraph = "com.bugsee.option.unity.capture-scene-graph";
     }
 }
