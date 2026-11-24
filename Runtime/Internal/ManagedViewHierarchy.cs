@@ -354,7 +354,7 @@ namespace Bugsee.Internal
                 {
                     if (_sp == 0)
                     {
-                        if (!StartNextScene()) { _treeDone = true; break; }
+                        if (!StartNextScene()) { _treeDone = true; _snapshot.TreeComplete = !_budget.Truncated; break; }
                         continue;
                     }
 
@@ -599,7 +599,6 @@ namespace Bugsee.Internal
         // Objects read at most (twice what a reply carries): the rest cannot be sent, and the document says it is incomplete.
         const int MaxSceneObjectsRead = ManagedViewSceneJson.DefaultMaxObjects * 2;
 
-        static readonly List<Renderer> RendererBuffer = new List<Renderer>(64);
         static readonly Dictionary<Type, SceneObjectKind> RendererKinds = new Dictionary<Type, SceneObjectKind>();
         static readonly float[] Matrix16 = new float[16];
         static readonly float[] CameraPose = new float[7];
@@ -609,6 +608,8 @@ namespace Bugsee.Internal
         static readonly float[] IdentityMatrix = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
 
         readonly List<Transform> _units = new List<Transform>(64);
+        readonly List<Renderer> _pending = new List<Renderer>(64); // the renderers of the sub-tree being read
+        int _pendingIndex;
         bool _sceneDone;
         int _scenePhase; // 0 cameras and seeding, 1 enumerating the units, 2 the canvases
         int _sceneSeen;
@@ -639,7 +640,7 @@ namespace Bugsee.Internal
 
             if (_scenePhase == 1)
             {
-                while (_units.Count > 0)
+                while (_units.Count > 0 || _pendingIndex < _pending.Count)
                 {
                     if (_budget.SceneExpired || scene.ObjectCount >= MaxSceneObjectsRead)
                     {
@@ -647,11 +648,18 @@ namespace Bugsee.Internal
                         scene.Incomplete = true;
                         if (scene.ObjectCount == 0) scene.Skipped = ManagedViewSceneSnapshot.SkippedTimeBudget;
                         _units.Clear();
+                        _pending.Clear();
+                        _pendingIndex = 0;
                         return true;
                     }
 
-                    try { ReadUnit(scene); }
-                    catch (Exception) { /* an object destroyed under the read, a missing script: this unit is lost */ }
+                    try
+                    {
+                        // The renderers of a sub-tree are read one at a time, so a slice ends between two of them, not after the whole sub-tree.
+                        if (_pendingIndex < _pending.Count) ReadRenderer(scene, _pending[_pendingIndex++]);
+                        else ReadUnit(scene);
+                    }
+                    catch (Exception) { /* an object destroyed under the read, a missing script: this one is lost */ }
                     if (sliceExpired()) return false;
                 }
 
@@ -737,15 +745,9 @@ namespace Bugsee.Internal
                 return;
             }
 
-            t.GetComponentsInChildren(false, RendererBuffer);
-            try
-            {
-                for (var i = 0; i < RendererBuffer.Count; i++) ReadRenderer(scene, RendererBuffer[i]);
-            }
-            finally
-            {
-                RendererBuffer.Clear();
-            }
+            _pending.Clear();
+            _pendingIndex = 0;
+            t.GetComponentsInChildren(false, _pending);
         }
 
         void ReadRenderer(ManagedViewSceneSnapshot scene, Renderer r)
@@ -834,7 +836,7 @@ namespace Bugsee.Internal
                 if (mode == RenderMode.ScreenSpaceCamera)
                 {
                     var worldCamera = canvas.worldCamera;
-                    if (worldCamera == null) continue;
+                    if (worldCamera == null || !worldCamera.isActiveAndEnabled) continue; // Unity draws such a canvas as an overlay
                     drawnBy = worldCamera.gameObject.GetInstanceID();
                 }
 

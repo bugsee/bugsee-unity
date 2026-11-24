@@ -111,7 +111,6 @@ namespace Bugsee.WrapperPolicy
                 }
 
                 if (!TryObject(s, i, out var obj, out var axes, out var halfLocal)) continue;
-                if (!ids.Add(obj.Id)) continue; // a second renderer on one GameObject: its box is the first one's, the id is unique
                 var seenBy = 0;
                 var by = 0;
                 var best = 0.0;
@@ -127,9 +126,13 @@ namespace Bugsee.WrapperPolicy
                 }
 
                 if (seenBy == 0) continue;
+                if (!ids.Add(obj.Id)) continue; // a second renderer on one GameObject (the first that qualified wins): the id is unique
                 qualified++;
                 // A screen-space-camera canvas is drawn by exactly its own camera; anything else by the one camera that sees it, if one.
-                obj.Camera = s.ObjectCamera(i) != 0 ? s.ObjectCamera(i) : (seenBy == 1 ? by : 0);
+                var own = s.ObjectCamera(i);
+                var ownEmitted = false;
+                for (var k = 0; k < doc.Cameras.Count; k++) if (doc.Cameras[k].Id == own) ownEmitted = true;
+                obj.Camera = own != 0 && ownEmitted ? own : (seenBy == 1 ? by : 0);
                 obj.Priority = best;
                 doc.Objects.Add(obj);
             }

@@ -208,7 +208,7 @@ namespace Bugsee.WrapperPolicy
                 // sincePump is a frame only once a slice has run: before that it is the time the request waited for the main thread.
                 if (inlineSmall || job.Slices < 2 || started + sincePump - job.AskedAt <= ManagedViewRequests.SnapshotDeadlineMs) return;
                 var snapshot = job.Source.Snapshot;
-                if (snapshot.Count > 0) snapshot.SetTruncated(0);
+                if (snapshot.Count > 0 && !snapshot.TreeComplete) snapshot.SetTruncated(0);
                 try { job.Source.Abandon(); } catch (Exception) { }
             }
 
@@ -289,7 +289,7 @@ namespace Bugsee.WrapperPolicy
                 if (snapshot.Scene != null)
                 {
                     var sceneStarted = _nowMs();
-                    try { options.Scene = ManagedViewSceneBuilder.Build(snapshot.Scene, job.WriteExpired); }
+                    try { options.Scene = ManagedViewSceneBuilder.Build(snapshot.Scene, job.SceneBuildExpired); }
                     catch (Exception) { /* the scene is best effort: the tree is still answered */ }
                     job.SceneWorkerMs = _nowMs() - sceneStarted;
                 }
@@ -342,6 +342,7 @@ namespace Bugsee.WrapperPolicy
             public readonly IManagedViewSource Source;
             public readonly Func<bool> SliceExpired;
             public readonly Func<bool> WriteExpired;
+            public readonly Func<bool> SceneBuildExpired;
             public double SliceLimit;
             public double LastPumpAt;
             public bool Handed;
@@ -363,6 +364,7 @@ namespace Bugsee.WrapperPolicy
                 Source = source;
                 SliceExpired = () => engine._nowMs() >= SliceLimit;
                 WriteExpired = () => engine._nowMs() - askedAt > ManagedViewRequests.WriteDeadlineMs;
+                SceneBuildExpired = () => engine._nowMs() - askedAt > ManagedViewRequests.SceneBuildDeadlineMs;
             }
 
             public bool IsSettled { get { lock (_sync) return _settled; } }

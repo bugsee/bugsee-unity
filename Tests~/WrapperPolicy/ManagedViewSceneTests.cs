@@ -275,6 +275,55 @@ namespace Bugsee.WrapperPolicy.Tests
         }
 
         [Test]
+        public void ASecondRendererQualifiesWhenTheFirstOneOfTheGameObjectIsOutsideEveryView()
+        {
+            var s = Fixture();
+            AddBox(s, 40, Trs(Identity, 0, 0, -50), 1, 1, 1); // behind the camera
+            AddBox(s, 40, Trs(Identity, 0, 0, 8), 1, 1, 1);   // the same GameObject's other renderer, in view
+            var scene = SceneOf(s);
+            Assert.That(ById(scene.GetProperty("objects"), "40").GetProperty("center")[2].GetDouble(), Is.EqualTo(-8).Within(1e-3));
+        }
+
+        [Test]
+        public void ACanvasDrawnByACameraThatIsNotInTheSceneNamesNoCamera()
+        {
+            var s = Fixture();
+            s.AddObject(41, SceneObjectKind.Ui, 5, 9999, Trs(Identity, 0, 0, 4), 0, 0, 0, 2, 1, 0);
+            var o = ById(SceneOf(s).GetProperty("objects"), "41");
+            Assert.That(o.TryGetProperty("camera", out var c) ? c.GetString() : null, Is.Not.EqualTo("9999"));
+        }
+
+        [Test]
+        public void AFinishedTreeIsNotMarkedTruncatedWhenOnlyTheSceneIsCutOff()
+        {
+            var snapshot = TreeSnapshot();
+            snapshot.Scene = new ManagedViewSceneSnapshot();
+            snapshot.TreeComplete = true;
+            double now = 1000;
+            var src = new SlowSource(snapshot);
+            var worker = new List<Action>();
+            var engine = new ManagedViewCaptureEngine(
+                () => now, worker.Add, (d, a) => new Timer(_ => { }, null, Timeout.Infinite, Timeout.Infinite),
+                b => src, x => { }, () => 1.0, _ => { });
+            var replies = new List<string>();
+            engine.Submit(new ManagedViewRequests.Once(replies.Add), 1000.0, () => 1f, false, SceneGraphCapture.All);
+            now = 1100; engine.Pump();
+            now = 1300; engine.Pump(); // past the snapshot deadline, the scene still unread
+            Assert.That(worker.Count, Is.EqualTo(1));
+            worker[0]();
+            Assert.That(JsonDocument.Parse(replies[0]).RootElement.TryGetProperty("truncated", out _), Is.False);
+        }
+
+        sealed class SlowSource : IManagedViewSource
+        {
+            readonly ManagedViewSnapshot _s;
+            public SlowSource(ManagedViewSnapshot s) { _s = s; }
+            public ManagedViewSnapshot Snapshot => _s;
+            public bool Step(Func<bool> sliceExpired) => false;
+            public void Abandon() { }
+        }
+
+        [Test]
         public void NonFiniteObjectsAndCamerasAreLeftOutAndNotCounted()
         {
             var s = Fixture();

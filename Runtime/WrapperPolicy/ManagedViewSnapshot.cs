@@ -105,6 +105,9 @@ namespace Bugsee.WrapperPolicy
         /// </summary>
         public bool EmitBounds = true;
 
+        /// <summary>Set by the walk when the whole tree was read (the scene may still be read after it): a capture cut off later does not mark the tree truncated.</summary>
+        public bool TreeComplete;
+
         /// <summary>The 3D scene read after the tree (<c>SceneGraphCapture.All</c> only); null when none is captured.</summary>
         public ManagedViewSceneSnapshot Scene;
 

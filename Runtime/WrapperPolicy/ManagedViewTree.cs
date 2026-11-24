@@ -392,6 +392,8 @@ namespace Bugsee.WrapperPolicy
         /// window whichever way it is split.
         /// </summary>
         public const long TreeDeadlineMs = 150;
+        /// <summary>From the request: the worker stops converting the scene, which leaves the rest of the write window to the tree.</summary>
+        public const long SceneBuildDeadlineMs = 300;
         /// <summary>From the request: the worker stops writing nodes (the JSON says it is truncated).</summary>
         public const long WriteDeadlineMs = 350;
         /// <summary>From the request: a capture that has not replied is answered null, still inside the SDK's 500 ms (a late reply is ignored by it).</summary>
