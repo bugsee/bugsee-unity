@@ -221,10 +221,16 @@ namespace Bugsee.WrapperPolicy.Tests
             AssertVec(o.GetProperty("size"), 2, 1, 1);
             var q = Numbers(o.GetProperty("rotation"));
             Assert.That(Math.Sqrt(q.Sum(v => v * v)), Is.EqualTo(1).Within(1e-3), "a unit quaternion");
-            // The proper rotation has a positive determinant and no scale: rebuilding the matrix from the wire values must be orthonormal.
+            // The axes must be the source object's own: rebuilt from the wire quaternion and mirrored back (S R S), the first two columns equal the
+            // normalized columns of the Unity matrix (the third is the one the reflection flips, which the symmetric box does not show).
             var r = Rotation(q[0], q[1], q[2], q[3]);
-            var det = r[0] * (r[4] * r[8] - r[5] * r[7]) - r[1] * (r[3] * r[8] - r[5] * r[6]) + r[2] * (r[3] * r[7] - r[4] * r[6]);
-            Assert.That(det, Is.EqualTo(1).Within(1e-4));
+            var src = Trs(AboutY(20), 0, 0, 6, -2, 1, 1); // the object's own matrix, scale (-2, 1, 1)
+            for (var col = 0; col < 2; col++)
+            for (var row = 0; row < 3; row++)
+            {
+                var mirrored = r[row * 3 + col] * (row == 2 ? -1 : 1) * (col == 2 ? -1 : 1);
+                Assert.That(mirrored, Is.EqualTo(src[row * 4 + col] / (col == 0 ? 2f : 1f)).Within(1e-3), "axis " + col + " component " + row);
+            }
         }
 
         // ---- selection, order, attribution ----
@@ -606,8 +612,9 @@ namespace Bugsee.WrapperPolicy.Tests
             var opts = new ManagedViewWriteOptions { Scene = ManagedViewSceneBuilder.Build(Fixture()) };
             var json = ManagedViewTreeJson.Write(t.ToTree(), new[] { -10, -10, 5000, 5000 }, 1, 1f, null, out _, out _, opts);
             var root = JsonDocument.Parse(json).RootElement;
-            var plain = ManagedViewTreeJson.Write(TreeSnapshot().ToTree(), new[] { -10, -10, 5000, 5000 }, 1, 1f, null, out _, out _, new ManagedViewWriteOptions { Scene = ManagedViewSceneBuilder.Build(Fixture()) });
-            Assert.That(json, Is.EqualTo(plain));
+            var open = ManagedViewTreeJson.Write(TreeSnapshot().ToTree(), null, 0, 1f, null, out _, out _, new ManagedViewWriteOptions { Scene = ManagedViewSceneBuilder.Build(Fixture()) });
+            Assert.That(JsonDocument.Parse(open).RootElement.GetProperty("scene").GetRawText(), Is.EqualTo(root.GetProperty("scene").GetRawText()),
+                "the scene is the same with and without the rectangle");
             foreach (var o in root.GetProperty("scene").GetProperty("objects").EnumerateArray())
             {
                 Assert.That(o.TryGetProperty("name", out _), Is.False);

@@ -354,7 +354,7 @@ namespace Bugsee.Internal
                 {
                     if (_sp == 0)
                     {
-                        if (!StartNextScene()) { _treeDone = true; _snapshot.TreeComplete = !_budget.Truncated; break; }
+                        if (!StartNextScene()) { _treeDone = true; _snapshot.TreeComplete = true; // every cut is flagged where it happened (a node, a frame, the root) break; }
                         continue;
                     }
 
@@ -671,7 +671,7 @@ namespace Bugsee.Internal
             }
 
             try { ReadCanvases(scene); }
-            catch (Exception) { /* the canvases are optional extras of the scene */ }
+            catch (Exception) { scene.Incomplete = true; /* the canvases that were not read are missing: the counts are not exact */ }
             scene.Seen = _sceneSeen;
             return true;
         }

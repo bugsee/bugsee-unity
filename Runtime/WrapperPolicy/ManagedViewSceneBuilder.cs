@@ -189,7 +189,8 @@ namespace Bugsee.WrapperPolicy
             // Lens shift, an oblique plane or the off-center projection an AR session sets are not in fov and aspect: send the matrix.
             // Unity's projection is OpenGL's (camera space looks along -Z with +Y up, depth -1 at the near plane), which is also glTF's, and
             // the camera space is the same on both sides of the mirror, so the matrix is written as it is, column-major.
-            if (Math.Abs(s.CameraProjection(i, 2)) > 1e-4 || Math.Abs(s.CameraProjection(i, 6)) > 1e-4)
+            if (Math.Abs(s.CameraProjection(i, 2)) > 1e-4 || Math.Abs(s.CameraProjection(i, 6)) > 1e-4
+                || Math.Abs(s.CameraProjection(i, 8)) > 1e-4 || Math.Abs(s.CameraProjection(i, 9)) > 1e-4)
             {
                 var m = new double[16];
                 var finite = true;
