@@ -354,7 +354,7 @@ namespace Bugsee.Internal
                 {
                     if (_sp == 0)
                     {
-                        if (!StartNextScene()) { _treeDone = true; _snapshot.TreeComplete = true; // every cut is flagged where it happened (a node, a frame, the root) break; }
+                        if (!StartNextScene()) { _treeDone = true; _snapshot.TreeComplete = true; break; } // TreeComplete: every cut is flagged where it happened (a node, a frame, the root)
                         continue;
                     }
 
