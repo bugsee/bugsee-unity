@@ -87,6 +87,51 @@ namespace Bugsee.WrapperPolicy
             bottom = view.Top + (int)Math.Ceiling(bottomPx);
             return right > left && bottom > top;
         }
+
+        /// <summary>A coordinate beyond any screen: <c>[-Far, -Far, Far, Far]</c> covers every node.</summary>
+        public const int Far = 1 << 24;
+
+        static int Clamp(double v) => (int)Math.Max(-Far, Math.Min(Far, v));
+
+        /// <summary>
+        /// Fail closed for the managed view hierarchy when the rectangles cannot be placed in render pixels (unknown view, a surface that was
+        /// never read, or a view caught mid-rotation): every rectangle becomes one far larger than any screen, so every node with bounds counts as covered.
+        /// </summary>
+        public static void CoverScreen(int[] rects, int count)
+        {
+            if (rects == null) return;
+            if (count * 4 > rects.Length) count = rects.Length / 4;
+            for (var i = 0; i < count; i++)
+            {
+                rects[i * 4] = -Far; rects[i * 4 + 1] = -Far;
+                rects[i * 4 + 2] = Far; rects[i * 4 + 3] = Far;
+            }
+        }
+
+        /// <summary>
+        /// The reverse of <see cref="TryToNative"/> for the managed view hierarchy, whose node boxes are in Unity render pixels
+        /// (<c>Screen.width</c> by <c>Screen.height</c>, top-left origin) while the registry holds native pixels: removes the surface
+        /// offset, scales by the screen size over the surface size, and rounds outwards so the result covers at least the registered
+        /// rectangle. Not clamped (rectangles from <c>AddSecureRectangle</c> may leave the surface; screen-space ones were clamped to it when registered). Converts <paramref name="count"/> rectangles of <paramref name="rects"/> ([l, t, r, b] each) in place;
+        /// returns false and leaves them as they are when the view is unknown.
+        /// </summary>
+        public static bool NativeToRender(int[] rects, int count, SecureRectView view)
+        {
+            if (rects == null || !view.IsValid) return false;
+            if (count * 4 > rects.Length) count = rects.Length / 4;
+            double sx = (double)view.ScreenWidth / view.Width;
+            double sy = (double)view.ScreenHeight / view.Height;
+            for (var i = 0; i < count; i++)
+            {
+                var o = i * 4;
+                // In double, clamped before the cast: a huge manual rectangle must stay huge, not wrap or collapse.
+                rects[o] = Clamp(Math.Floor(((double)rects[o] - view.Left) * sx));
+                rects[o + 1] = Clamp(Math.Floor(((double)rects[o + 1] - view.Top) * sy));
+                rects[o + 2] = Clamp(Math.Ceiling(((double)rects[o + 2] - view.Left) * sx));
+                rects[o + 3] = Clamp(Math.Ceiling(((double)rects[o + 3] - view.Top) * sy));
+            }
+            return true;
+        }
     }
 
     /// <summary>
@@ -118,6 +163,21 @@ namespace Bugsee.WrapperPolicy
             OwnerIdPrefix + displayId + ":" + Fmt(xMin) + "," + Fmt(yMin) + "," + Fmt(xMax) + "," + Fmt(yMax);
 
         public bool HasEntries { get { lock (_sync) return _entries.Count > 0; } }
+
+        /// <summary>
+        /// True when the registry holds nothing of this display that was converted through another view than <paramref name="view"/>:
+        /// the screen-space rectangles in the registry are then in step with a conversion made through the same view.
+        /// </summary>
+        public bool IsConvertedThrough(int displayId, SecureRectView view)
+        {
+            lock (_sync)
+            {
+                // Nothing screen-space left on the display: nothing in the registry was converted through any view.
+                var any = false;
+                foreach (var e in _entries.Values) if (e.DisplayId == displayId) { any = true; break; }
+                return !any || !_appliedViews.TryGetValue(displayId, out var applied) || applied.Equals(view);
+            }
+        }
 
         public void Add(float xMin, float yMin, float xMax, float yMax, int displayId, SecureRectView view, SecureRectRegistry registry)
         {

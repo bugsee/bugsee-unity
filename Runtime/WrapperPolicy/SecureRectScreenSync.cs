@@ -25,9 +25,15 @@ namespace Bugsee.WrapperPolicy
     public sealed class SecureRectViewResolver
     {
         bool _hasGood;
+
+        /// <summary>A settled surface was read at least once.</summary>
+        public bool HasGoodRead => _hasGood;
         int _gl, _gt, _gw, _gh;
 
         public SecureRectViewState State { get; private set; } = SecureRectViewState.Ok;
+
+        /// <summary>Puts the state back, so a change that a quiet lookup saw is still a change for the next one that warns.</summary>
+        public void RestoreState(SecureRectViewState state) => State = state;
 
         public SecureRectView Resolve(SecureRectViewRead read, out bool stateChanged)
         {
@@ -82,16 +88,36 @@ namespace Bugsee.WrapperPolicy
 
         public bool HasEntries => _owners.HasEntries;
 
-        SecureRectView Resolve(int displayId, out SecureRectViewState state)
+        SecureRectView Resolve(int displayId, out SecureRectViewState state, bool warn = true)
         {
             if (!_resolvers.TryGetValue(displayId, out var resolver))
                 _resolvers[displayId] = resolver = new SecureRectViewResolver();
             var view = resolver.Resolve(_read(displayId), out bool changed);
             state = resolver.State;
-            if (changed && state != SecureRectViewState.Ok)
+            if (warn && changed && state != SecureRectViewState.Ok)
                 _warn("Could not read where Unity's view sits on display " + displayId
                     + " (" + (state == SecureRectViewState.Unreadable ? "unreadable" : "does not match Unity's screen")
                     + "); screen-space secure rectangles use the last surface read, or the display's full size, until it can be read.");
+            return view;
+        }
+
+        /// <summary>The view the registered rectangles of <paramref name="displayId"/> are converted through now (the last surface read, or the display's size).</summary>
+        /// <remarks>
+        /// Quiet (no warning: this can run inside the native SDK's request, where a log line is captured). <paramref name="exact"/> is false when
+        /// the surface could not be read now (also after an earlier good read), the view is caught mid-rotation, or the screen-space
+        /// rectangles were converted through another view than this one: the view is then only the display's size, and a rectangle given in
+        /// native pixels cannot be placed exactly in render pixels.
+        /// </remarks>
+        public SecureRectView CurrentView(int displayId, out bool exact)
+        {
+            _resolvers.TryGetValue(displayId, out var known);
+            var previous = known?.State ?? SecureRectViewState.Ok;
+            var view = Resolve(displayId, out var state, warn: false);
+            // The warning for a state change is the next loud Resolve's to give (Add, Tick), not lost to this lookup.
+            _resolvers[displayId].RestoreState(previous);
+            // Only a settled read of now is exact: an unreadable or unsettled one (mid-rotation) is the last surface mixed with the new screen
+            // size. The screen-space rectangles must also have been converted through this very view (Tick has not caught up with a change yet).
+            exact = state == SecureRectViewState.Ok && _owners.IsConvertedThrough(displayId, view);
             return view;
         }
 

@@ -739,6 +739,15 @@ namespace Bugsee
             return read; // a display that does not exist: not Ok, no size
         }
 
+        // Main thread: the registered rectangles of the default display from native pixels into Unity render pixels (the managed view hierarchy's space).
+        // Fail closed: a surface that was never read, or an unusable view, covers everything.
+        internal static void ConvertSecureRectsToRender(int[] rects, int count)
+        {
+            var view = _screenSecureRects.CurrentView(DefaultSecureRectDisplayId, out var exact);
+            if (!exact || !SecureRectSpace.NativeToRender(rects, count, view))
+                SecureRectSpace.CoverScreen(rects, count);
+        }
+
         /// <summary>Called every frame by the dispatcher: converts screen-space rectangles again when their view changed.</summary>
         internal static void TickSecureScreenRects() => _screenSecureRects.Tick();
 

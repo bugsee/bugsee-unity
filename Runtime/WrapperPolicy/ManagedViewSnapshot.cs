@@ -55,7 +55,7 @@ namespace Bugsee.WrapperPolicy
             }
         }
 
-        /// <summary>The secure rectangles ([l, t, r, b] each, Unity screen pixels, top-left origin), copied on the main thread when the walk ends.</summary>
+        /// <summary>The secure rectangles ([l, t, r, b] each, Unity render pixels, top-left origin, the space of the node boxes: converted from the registry's native pixels before they get here), copied on the main thread when the walk ends.</summary>
         public int[] SecureRects;
         public int SecureCount;
         /// <summary>
@@ -79,6 +79,21 @@ namespace Bugsee.WrapperPolicy
                 Array.Copy(rects, i * 4, SecureRects, SecureCount * 4, 4);
                 SecureCount++;
             }
+        }
+
+        int _renderWidth, _renderHeight;
+
+        /// <summary>
+        /// Notes the render size the rectangles were converted for in this slice; true when an earlier slice of the walk used another one.
+        /// The rectangles kept from that slice are in the old space, so the caller covers everything (<see cref="AddSecureRects"/> of a
+        /// rectangle beyond any screen).
+        /// </summary>
+        public bool NoteRenderSize(int width, int height)
+        {
+            var changed = _renderWidth != 0 && (_renderWidth != width || _renderHeight != height);
+            _renderWidth = width;
+            _renderHeight = height;
+            return changed;
         }
 
         /// <summary>1 on Android, the screen scale on iOS; read on the main thread when the walk starts.</summary>
