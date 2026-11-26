@@ -336,6 +336,7 @@ namespace Bugsee.Internal
         {
             if (_finished) return;
             _finished = true;
+            MainThreadDispatcher.PostIfAlive(() => Debug.Log(VhProf.Dump()));
             SceneManager.sceneLoaded -= OnSceneLoaded;
             SceneManager.sceneUnloaded -= OnSceneUnloaded;
             Array.Clear(_stack, 0, _stack.Length);
@@ -348,7 +349,6 @@ namespace Bugsee.Internal
             Func<bool> sliceExpired = () => { var r = sliceExpiredRaw(); VhProf.T(_inScene ? VhProf.Sc_SliceChk : VhProf.SliceChk); return r; };
             var done = Step2(sliceExpired);
             VhProf.StepEnd();
-            if (done) MainThreadDispatcher.PostIfAlive(() => Debug.Log(VhProf.Dump()));
             return done;
         }
 
