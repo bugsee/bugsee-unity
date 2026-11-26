@@ -422,7 +422,9 @@ namespace Bugsee.Internal
                 {
                     var node = _snapshot.Add(_root, scene.handle, "scene-" + scene.handle, "Scene", scene.name);
                     if (!scene.isLoaded) { if (_feed != null) _feed.MarkBroken(); continue; } // unloaded since the walk began: an empty scene node, and the tree is flagged
-                    Push(new Frame { Roots = scene.GetRootGameObjects(), Node = node, Depth = 2, SceneHandle = scene });
+                    var roots = scene.GetRootGameObjects();
+                    _sceneRootCounts.Add(roots.Length);
+                    Push(new Frame { Roots = roots, Node = node, Depth = 2, SceneHandle = scene });
                     return true;
                 }
                 catch (Exception)
@@ -691,6 +693,7 @@ namespace Bugsee.Internal
         Canvas[] _canvases;
         int _canvasIndex;
         bool _sceneDone;
+        readonly List<int> _sceneRootCounts = new List<int>(); // roots each started scene had when the tree listed it, by start order
         bool _useFeed;
         bool _feedTailChecked;
         int _feedIndex;
@@ -703,6 +706,7 @@ namespace Bugsee.Internal
             var scene = _snapshot.Scene;
             if (_scenePhase == 0)
             {
+                ManagedViewDiagnostics.LastSceneFeedUsed = false;
                 ReadCameras(scene);
                 scene.TimeScale = Time.timeScale;
                 scene.Frame = Time.frameCount;
@@ -866,10 +870,9 @@ namespace Bugsee.Internal
             _units.Clear();
             _next.Clear();
             var feed = _feed;
-            ManagedViewDiagnostics.LastSceneFeedUsed = false;
             // A tree that is a clean prefix of the scene's walk (complete, or cut by the node count or the deadline) answers for what it
             // visited; anything else (a level below the depth limit, a read that threw) and the scene is walked in full, as it always was.
-            if (feed != null && !feed.Broken && !ManagedViewDiagnostics.DisableSceneFeed && (feed.Cut || !_budget.Truncated))
+            if (feed != null && !feed.Broken && !ManagedViewDiagnostics.DisableSceneFeed && (feed.Cut || !_budget.Truncated) && StartedScenesUnchanged())
             {
                 _useFeed = true;
                 ManagedViewDiagnostics.LastSceneFeedUsed = true;
@@ -884,6 +887,24 @@ namespace Bugsee.Internal
             }
 
             SeedScenes(0);
+        }
+
+        // A root created or destroyed in a scene the tree already listed (the open frame is checked as it finishes or at the cut): the feed does not have it.
+        bool StartedScenesUnchanged()
+        {
+            try
+            {
+                var started = 0;
+                for (var i = 0; i < _scenes.Count && started < _sceneRootCounts.Count; i++)
+                {
+                    if (!_scenes[i].isLoaded) continue;
+                    if (_scenes[i].rootCount != _sceneRootCounts[started]) return false;
+                    started++;
+                }
+
+                return true;
+            }
+            catch (Exception) { return false; }
         }
 
         // The roots of the loaded scenes from index `from` on, pushed so the first scene's first root is read first.

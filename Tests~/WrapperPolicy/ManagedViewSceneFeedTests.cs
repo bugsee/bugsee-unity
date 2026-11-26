@@ -254,9 +254,10 @@ namespace Bugsee.WrapperPolicy.Tests
             }
 
             // a cut that stops before the second scene starts leaves the scenes from index 1 to the scene read
-            var cutEarly = TreeWalk(scenes, 5);
+            var cutEarly = TreeWalk(scenes, 19); // the first scene's whole cost: its scene node and 6 active nodes in each of 3 roots
             Assert.That(cutEarly.Cut, Is.True);
             Assert.That(cutEarly.ResumeSceneIndex, Is.EqualTo(1));
+            Assert.That(cutEarly.RemainingCount, Is.EqualTo(0));
         }
 
         [Test]

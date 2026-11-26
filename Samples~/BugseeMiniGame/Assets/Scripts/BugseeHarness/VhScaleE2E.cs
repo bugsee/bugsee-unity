@@ -173,7 +173,7 @@ namespace Bugsee.Sample
 
             string Norm(string json) => json == null ? null : System.Text.RegularExpressions.Regex.Replace(json, "\"frame\":\\d+", "\"frame\":0");
             // the "on" captures (1, 3, 5) really used the feed and the "off" ones (2, 4) did not, and every capture settled: otherwise nothing was compared
-            var identical = replies.Count == 5 && replies[1] != null && advanced && feedUsed[2] && feedUsed[4] && !feedUsed[1] && !feedUsed[3];
+            var identical = replies.Count == 5 && replies[1] != null && replies[1].Contains("\"kind\":") && advanced && feedUsed[2] && feedUsed[4] && !feedUsed[1] && !feedUsed[3];
             for (var i = 2; identical && i < 5; i++) identical = Norm(replies[i]) == Norm(replies[1]);
             Debug.Log("[VHSCALE] feed-compare n=" + n + " identical=" + identical + " captures=" + replies.Count + " feedUsed=" + string.Join("/", feedUsed) + " chars="
                 + string.Join("/", replies.ConvertAll(r => r == null ? "null" : r.Length.ToString(CultureInfo.InvariantCulture))));
