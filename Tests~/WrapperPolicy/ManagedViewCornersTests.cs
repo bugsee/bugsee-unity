@@ -78,7 +78,7 @@ namespace Bugsee.WrapperPolicy.Tests
         {
             var got = Run(k);
             for (var i = 0; i < 12; i++)
-                Assert.That(got[i], Is.EqualTo(k.Expected[i]).Within(1).Ulps, k.Name + " value " + i);
+                Assert.That(got[i], Is.EqualTo(k.Expected[i]), k.Name + " value " + i);
         }
 
         [Test]
