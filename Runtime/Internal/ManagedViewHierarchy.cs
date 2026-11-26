@@ -423,7 +423,7 @@ namespace Bugsee.Internal
                     var node = _snapshot.Add(_root, scene.handle, "scene-" + scene.handle, "Scene", scene.name);
                     if (!scene.isLoaded) { if (_feed != null) _feed.MarkBroken(); continue; } // unloaded since the walk began: an empty scene node, and the tree is flagged
                     var roots = scene.GetRootGameObjects();
-                    _sceneRootCounts.Add(roots.Length);
+                    _sceneRoots.Add(roots);
                     Push(new Frame { Roots = roots, Node = node, Depth = 2, SceneHandle = scene });
                     return true;
                 }
@@ -443,13 +443,15 @@ namespace Bugsee.Internal
             _stack[_sp++] = frame;
         }
 
-        static bool SceneRootsUnchanged(Frame f)
+        static bool SceneRootsUnchanged(Frame f) => SceneRootsUnchanged(f.SceneHandle, f.Roots);
+
+        static bool SceneRootsUnchanged(Scene scene, GameObject[] roots)
         {
             try
             {
-                if (!f.SceneHandle.isLoaded) return true;
-                if (f.SceneHandle.rootCount != f.Roots.Length) return false;
-                for (var i = 0; i < f.Roots.Length; i++) if (f.Roots[i] == null) return false; // one went away and another may have come: the count says nothing
+                if (!scene.isLoaded) return true;
+                if (scene.rootCount != roots.Length) return false;
+                for (var i = 0; i < roots.Length; i++) if (roots[i] == null) return false; // one went away and another may have come: the count says nothing
                 return true;
             }
             catch (Exception) { return false; }
@@ -693,7 +695,7 @@ namespace Bugsee.Internal
         Canvas[] _canvases;
         int _canvasIndex;
         bool _sceneDone;
-        readonly List<int> _sceneRootCounts = new List<int>(); // roots each started scene had when the tree listed it, by start order
+        readonly List<GameObject[]> _sceneRoots = new List<GameObject[]>(); // the roots of each scene the tree started, by start order (the same index as _scenes while the feed is not broken)
         bool _useFeed;
         bool _feedTailChecked;
         int _feedIndex;
@@ -894,12 +896,11 @@ namespace Bugsee.Internal
         {
             try
             {
-                var started = 0;
-                for (var i = 0; i < _scenes.Count && started < _sceneRootCounts.Count; i++)
+                for (var i = 0; i < _sceneRoots.Count && i < _scenes.Count; i++)
                 {
-                    if (!_scenes[i].isLoaded) continue;
-                    if (_scenes[i].rootCount != _sceneRootCounts[started]) return false;
-                    started++;
+                    var scene = _scenes[i];
+                    if (!scene.isLoaded) return false;
+                    if (!SceneRootsUnchanged(scene, _sceneRoots[i])) return false;
                 }
 
                 return true;
