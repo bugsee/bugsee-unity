@@ -342,13 +342,27 @@ namespace Bugsee.Internal
             _sp = 0;
         }
 
-        public bool Step(Func<bool> sliceExpired)
+        bool VhProfStarted;
+        public bool Step(Func<bool> sliceExpiredRaw)
+        {
+            Func<bool> sliceExpired = () => { var r = sliceExpiredRaw(); VhProf.T(_inScene ? VhProf.Sc_SliceChk : VhProf.SliceChk); return r; };
+            var done = Step2(sliceExpired);
+            VhProf.StepEnd();
+            if (done) MainThreadDispatcher.PostIfAlive(() => Debug.Log(VhProf.Dump()));
+            return done;
+        }
+
+        bool _inScene;
+        bool Step2(Func<bool> sliceExpired)
         {
             if (_finished) return true;
+            if (!VhProfStarted) { VhProfStarted = true; VhProf.Calibrate(); VhProf.Reset(); }
+            VhProf.StepBegin();
             ManagedViewHierarchy.CollectSecureRects(_snapshot);
             _width = Screen.width;
             _height = Screen.height;
             _projections.Clear(); // a camera that moved since the last slice is read again, not projected with old matrices
+            VhProf.T(VhProf.Step_Pre);
             if (!_treeDone)
             {
                 do
@@ -378,6 +392,7 @@ namespace Bugsee.Internal
             {
                 if (sliceExpired()) return false;
                 var started = Stopwatch.GetTimestamp();
+                _inScene = true;
                 try { _sceneDone = SceneStep(sliceExpired); }
                 catch (Exception)
                 {
@@ -446,10 +461,15 @@ namespace Bugsee.Internal
             }
 
             if (f.Transform == null) { _snapshot.SetTruncated(f.Node); return false; } // destroyed between slices: its other children are lost
-            if (f.Next >= f.Transform.childCount) return false;
-            if (_budget.IsExhausted) { _snapshot.SetTruncated(f.Node); return false; }
+            var cc = f.Transform.childCount;
+            VhProf.T(VhProf.SF_Count);
+            if (f.Next >= cc) return false;
+            var ex = _budget.IsExhausted;
+            VhProf.T(VhProf.SF_Budget);
+            if (ex) { _snapshot.SetTruncated(f.Node); return false; }
             var child = f.Transform.GetChild(f.Next++).gameObject;
             _stack[_sp - 1] = f;
+            VhProf.T(VhProf.SF_GetChild);
             if (Visit(child, f.Depth + 1, f.Canvas, f.Node)) _snapshot.SetTruncated(f.Node);
             return true;
         }
@@ -457,12 +477,20 @@ namespace Bugsee.Internal
         // Reads one object; true when the budget cut it off (the caller marks itself truncated). A node whose own read throws is left out.
         bool Visit(GameObject go, int depth, CanvasContext canvas, int parent)
         {
-            if (go == null || !go.activeInHierarchy) return false;
+            var act = go != null && go.activeInHierarchy;
+            VhProf.T(VhProf.V_Active);
+            if (!act) return false;
             int id;
             try { id = go.GetInstanceID(); }
             catch (Exception) { return false; }
-            if (!_seen.Add(id)) return false; // read already (moved between slices): neither a node nor budget
-            if (!_budget.TryTake(depth)) return true;
+            VhProf.T(VhProf.V_Id);
+            var added = _seen.Add(id);
+            VhProf.T(VhProf.V_Seen);
+            if (!added) return false; // read already (moved between slices): neither a node nor budget
+            var took = _budget.TryTake(depth);
+            VhProf.T(VhProf.V_Budget);
+            if (!took) return true;
+            VhProf.Nodes++;
 
             int node;
             Transform transform;
@@ -471,10 +499,13 @@ namespace Bugsee.Internal
             try
             {
                 var name = go.name;
+                VhProf.T(VhProf.V_Name);
                 var className = ReadComponents(go, out transform, out own, out renderer);
                 if (className == null) className = transform is RectTransform ? "RectTransform" : "GameObject";
+                VhProf.T(VhProf.V_CompsLoop);
                 node = _snapshot.Add(parent, id, null, className, name);
                 for (var i = 0; i < NameBuffer.Count; i++) _snapshot.AddComponent(node, NameBuffer[i]);
+                VhProf.T(VhProf.V_SnapAdd);
             }
             catch (Exception)
             {
@@ -485,13 +516,17 @@ namespace Bugsee.Internal
             {
                 if (own != null) canvas = CanvasOf(own, _camera);
                 var rect = transform as RectTransform;
+                VhProf.T(VhProf.V_Canvas);
                 if (rect != null && canvas.Valid)
                 {
+                    VhProf.RectNodes++;
                     ReadWorldCorners(rect);
                     SetBounds(node, Corners, canvas.Camera, canvas.Projected);
+                    VhProf.T(VhProf.V_RectSet);
                 }
                 else if (_camera != null && renderer != null && renderer.enabled)
                 {
+                    VhProf.RendNodes++;
                     var b = renderer.bounds;
                     var c = b.center;
                     var e = b.extents;
@@ -500,10 +535,13 @@ namespace Bugsee.Internal
                     for (var sy = -1; sy <= 1; sy += 2)
                     for (var sz = -1; sz <= 1; sz += 2)
                         BoxCorners[k++] = new Vector3(c.x + sx * e.x, c.y + sy * e.y, c.z + sz * e.z);
+                    VhProf.T(VhProf.V_RendRead);
                     SetBounds(node, BoxCorners, _camera, true);
+                    VhProf.T(VhProf.V_RendSet);
                 }
 
                 if (transform.childCount > 0) Push(new Frame { Transform = transform, Node = node, Depth = depth, Canvas = canvas });
+                VhProf.T(VhProf.V_Push);
             }
             catch (Exception)
             {
@@ -618,6 +656,7 @@ namespace Bugsee.Internal
         bool SceneStep(Func<bool> sliceExpired)
         {
             var scene = _snapshot.Scene;
+            VhProf.T(VhProf.Other);
             if (_scenePhase == 0)
             {
                 ReadCameras(scene);
@@ -633,7 +672,9 @@ namespace Bugsee.Internal
                     return true;
                 }
 
+                VhProf.T(VhProf.Sc_Cameras);
                 SeedUnits();
+                VhProf.T(VhProf.Sc_Seed);
                 _scenePhase = 1;
                 if (sliceExpired()) return false;
             }
@@ -642,7 +683,9 @@ namespace Bugsee.Internal
             {
                 while (_units.Count > 0)
                 {
-                    if (_budget.SceneExpired || scene.ObjectCount >= MaxSceneObjectsRead)
+                    var se = _budget.SceneExpired;
+                    VhProf.T(VhProf.Sc_Budget);
+                    if (se || scene.ObjectCount >= MaxSceneObjectsRead)
                     {
                         // Out of time (or of room) with transforms unread: what was read is a part of the scene.
                         scene.Incomplete = true;
@@ -672,6 +715,7 @@ namespace Bugsee.Internal
                 // The objects were read over several frames: the cameras are read again, so the selection uses where they ended up.
                 try { scene.ClearCameras(); ReadCameras(scene); }
                 catch (Exception) { scene.Incomplete = true; }
+                VhProf.T(VhProf.Sc_Cameras);
 
                 if (_budget.SceneExpired)
                 {
@@ -686,6 +730,7 @@ namespace Bugsee.Internal
                 _canvases = UnityEngine.Object.FindObjectsOfType<Canvas>();
 #endif
                 _canvasIndex = 0;
+                VhProf.T(VhProf.Sc_Canvas);
                 if (sliceExpired()) return false;
             }
 
@@ -697,6 +742,7 @@ namespace Bugsee.Internal
                 if (sliceExpired()) return false;
             }
 
+            VhProf.T(VhProf.Sc_Canvas);
             scene.Seen = _sceneSeen;
             return true;
         }
@@ -738,10 +784,12 @@ namespace Bugsee.Internal
         {
             var r = rect.rect;
             var m = rect.localToWorldMatrix;
+            VhProf.T(VhProf.V_RectRead);
             ManagedViewCorners.World(
                 m.m00, m.m01, m.m02, m.m03, m.m10, m.m11, m.m12, m.m13, m.m20, m.m21, m.m22, m.m23, m.m30, m.m31, m.m32, m.m33,
                 r.x, r.y, r.xMax, r.yMax, CornerValues);
             for (var i = 0; i < 4; i++) Corners[i] = new Vector3(CornerValues[i * 3], CornerValues[i * 3 + 1], CornerValues[i * 3 + 2]);
+            VhProf.T(VhProf.V_RectMath);
         }
 
         static void CopyMatrix(Matrix4x4 m, float[] into)
@@ -783,16 +831,19 @@ namespace Bugsee.Internal
             {
                 // First visit: this transform's own renderer, and how many children it has.
                 scene.ReadUnits++;
-                if (t == null || !t.gameObject.activeInHierarchy) { Pop(); return; }
+                VhProf.Units++;
+                if (t == null || !t.gameObject.activeInHierarchy) { Pop(); VhProf.T(VhProf.Sc_UnitFirst); return; }
                 _next[top] = 0;
-                if (t.TryGetComponent<Renderer>(out var own)) ReadRenderer(scene, own);
+                if (t.TryGetComponent<Renderer>(out var own)) { VhProf.T(VhProf.Sc_UnitFirst); ReadRenderer(scene, own); }
+                VhProf.T(VhProf.Sc_UnitFirst);
                 return;
             }
 
-            if (t == null || _next[top] >= t.childCount) { Pop(); return; }
+            if (t == null || _next[top] >= t.childCount) { Pop(); VhProf.T(VhProf.Sc_UnitChild); return; }
             var child = t.GetChild(_next[top]++);
             _units.Add(child);
             if (_next.Count == _units.Count - 1) _next.Add(-1); else _next[_units.Count - 1] = -1;
+            VhProf.T(VhProf.Sc_UnitChild);
         }
 
         void Pop()
@@ -805,9 +856,13 @@ namespace Bugsee.Internal
         {
             _sceneSeen++;
             scene.ReadRenderers++;
-            if (r == null || !r.isVisible) return; // not drawn last frame (a disabled renderer, a culled one): not in a "visible" scene
+            VhProf.SceneRends++;
+            if (r == null || !r.isVisible) { VhProf.T(VhProf.Sc_RendRead); return; } // not drawn last frame (a disabled renderer, a culled one): not in a "visible" scene
             var go = r.gameObject;
             var kind = KindOf(r.GetType(), out var worldBox);
+            var lay = go.layer;
+            var gid = go.GetInstanceID();
+            VhProf.T(VhProf.Sc_RendRead);
             float cx, cy, cz, sx, sy, sz;
             float[] matrix;
             if (worldBox)
@@ -832,7 +887,9 @@ namespace Bugsee.Internal
                 matrix = Matrix16;
             }
 
-            scene.AddObject(go.GetInstanceID(), kind, go.layer, 0, matrix, cx, cy, cz, sx, sy, sz);
+            VhProf.T(VhProf.Sc_RendGeom);
+            scene.AddObject(gid, kind, lay, 0, matrix, cx, cy, cz, sx, sy, sz);
+            VhProf.T(VhProf.Sc_Add);
         }
 
         // The kind from the renderer's type or the first base type that is known; a type name is matched, so a module that is not part of the
@@ -871,7 +928,7 @@ namespace Bugsee.Internal
         // drawn straight onto the screen and has no position in the world: its elements stay in the tree with their bounds.
         void ReadCanvas(ManagedViewSceneSnapshot scene, Canvas canvas)
         {
-            if (canvas == null || !canvas.isRootCanvas || !canvas.enabled) return;
+            if (canvas == null || !canvas.isRootCanvas || !canvas.enabled) { VhProf.T(VhProf.Sc_Canvas); return; }
             _sceneSeen++;
             var mode = canvas.renderMode;
             var drawnBy = 0;
@@ -900,6 +957,7 @@ namespace Bugsee.Internal
         static string ReadComponents(GameObject go, out Transform transform, out Canvas canvas, out Renderer renderer)
         {
             go.GetComponents(typeof(Component), ComponentBuffer);
+            VhProf.T(VhProf.V_CompsIcall);
             NameBuffer.Clear();
             string first = null;
             transform = null;
