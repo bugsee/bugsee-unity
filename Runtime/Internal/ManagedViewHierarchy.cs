@@ -247,6 +247,7 @@ namespace Bugsee.Internal
     sealed class ManagedViewWalker : IManagedViewSource
     {
         static readonly Vector3[] Corners = new Vector3[4];
+        static readonly float[] CornerValues = new float[12];
         static readonly Vector3[] BoxCorners = new Vector3[8];
         static readonly List<Component> ComponentBuffer = new List<Component>();
         static readonly Dictionary<Type, string> TypeNames = new Dictionary<Type, string>();
@@ -486,7 +487,7 @@ namespace Bugsee.Internal
                 var rect = transform as RectTransform;
                 if (rect != null && canvas.Valid)
                 {
-                    rect.GetWorldCorners(Corners);
+                    ReadWorldCorners(rect);
                     SetBounds(node, Corners, canvas.Camera, canvas.Projected);
                 }
                 else if (_camera != null && renderer != null && renderer.enabled)
@@ -730,6 +731,17 @@ namespace Bugsee.Internal
                     // A camera destroyed under the read: it is not in the scene.
                 }
             }
+        }
+
+        // The same four corners RectTransform.GetWorldCorners gives, without its extra native call (see ManagedViewCorners).
+        static void ReadWorldCorners(RectTransform rect)
+        {
+            var r = rect.rect;
+            var m = rect.localToWorldMatrix;
+            ManagedViewCorners.World(
+                m.m00, m.m01, m.m02, m.m03, m.m10, m.m11, m.m12, m.m13, m.m20, m.m21, m.m22, m.m23, m.m30, m.m31, m.m32, m.m33,
+                r.x, r.y, r.xMax, r.yMax, CornerValues);
+            for (var i = 0; i < 4; i++) Corners[i] = new Vector3(CornerValues[i * 3], CornerValues[i * 3 + 1], CornerValues[i * 3 + 2]);
         }
 
         static void CopyMatrix(Matrix4x4 m, float[] into)
