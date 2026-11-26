@@ -336,7 +336,7 @@ namespace Bugsee.Internal
         {
             if (_finished) return;
             _finished = true;
-            MainThreadDispatcher.PostIfAlive(() => Debug.Log(VhProf.Dump()));
+            MainThreadDispatcher.PostIfAlive(() => { foreach (var line in VhProf.Dump()) Debug.Log(line); });
             SceneManager.sceneLoaded -= OnSceneLoaded;
             SceneManager.sceneUnloaded -= OnSceneUnloaded;
             Array.Clear(_stack, 0, _stack.Length);
@@ -966,16 +966,20 @@ namespace Bugsee.Internal
             for (var i = 0; i < ComponentBuffer.Count; i++)
             {
                 var component = ComponentBuffer[i];
-                if (component == null) continue;
+                var isNull = component == null;
+                VhProf.T(VhProf.CmpNull);
+                if (isNull) continue;
                 if (component is Transform t)
                 {
                     if (transform == null) transform = t;
+                    VhProf.T(VhProf.CmpIs);
                     continue;
                 }
 
-                if (component is CanvasRenderer) continue;
+                if (component is CanvasRenderer) { VhProf.T(VhProf.CmpIs); continue; }
                 if (canvas == null && component is Canvas c) canvas = c;
                 if (renderer == null && component is Renderer r) renderer = r;
+                VhProf.T(VhProf.CmpIs);
                 var type = component.GetType();
                 if (!TypeNames.TryGetValue(type, out var name))
                 {
@@ -985,6 +989,7 @@ namespace Bugsee.Internal
 
                 if (first == null) first = name;
                 if (NameBuffer.Count < ManagedViewSnapshot.MaxShownComponents) NameBuffer.Add(name);
+                VhProf.T(VhProf.CmpName);
             }
 
             ComponentBuffer.Clear();
