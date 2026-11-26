@@ -309,8 +309,35 @@ namespace Bugsee.Sample
 
         static string Id(GameObject go) => go.GetInstanceID().ToString(CultureInfo.InvariantCulture);
 
+        // The walk reads a RectTransform's corners with ManagedViewCorners; they must equal the engine's own
+        // GetWorldCorners (the ids and bounds below are matched against the engine's values).
+        static void CheckEngineReads(Fixture f)
+        {
+            var cornerBad = new List<string>();
+            var corners = new Vector3[4];
+            var own = new float[12];
+            foreach (var go in f.ByName.Values)
+            {
+                if (go == null) continue;
+                if (!(go.transform is RectTransform rt)) continue;
+                rt.GetWorldCorners(corners);
+                var r = rt.rect;
+                var m = rt.localToWorldMatrix;
+                ManagedViewCorners.World(
+                    m.m00, m.m01, m.m02, m.m03, m.m10, m.m11, m.m12, m.m13, m.m20, m.m21, m.m22, m.m23, m.m30, m.m31, m.m32, m.m33,
+                    r.x, r.y, r.xMax, r.yMax, own);
+                for (var i = 0; i < 4; i++)
+                    if (BitConverter.SingleToInt32Bits(corners[i].x) != BitConverter.SingleToInt32Bits(own[i * 3])
+                        || BitConverter.SingleToInt32Bits(corners[i].y) != BitConverter.SingleToInt32Bits(own[i * 3 + 1])
+                        || BitConverter.SingleToInt32Bits(corners[i].z) != BitConverter.SingleToInt32Bits(own[i * 3 + 2])) { cornerBad.Add(go.name); break; }
+            }
+
+            Check("the corner math equals GetWorldCorners bit for bit for every fixture RectTransform", cornerBad.Count == 0, string.Join(",", cornerBad));
+        }
+
         static void CheckScene(Dictionary<string, object> root, string json, Fixture f)
         {
+            CheckEngineReads(f);
             var bounds = root.TryGetValue("bounds", out var b) ? Arr(b) : null;
             Check("the root has positive bounds", bounds != null && bounds.Length == 4 && bounds[2] > 0 && bounds[3] > 0, "bounds=" + (bounds == null ? "none" : string.Join(",", bounds)));
             if (!Check("a scene block is on the root", root.TryGetValue("scene", out var so) && so is Dictionary<string, object>, "no scene")) return;

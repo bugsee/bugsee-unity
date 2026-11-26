@@ -21,13 +21,25 @@ namespace Bugsee.Sample
     /// </summary>
     static class VhScaleE2E
     {
-        static readonly int[] Counts = { 500, 1500, 5000, 20000 };
+        static readonly int[] DefaultCounts = { 500, 1500, 5000, 20000 };
+        static int[] Counts = DefaultCounts;
         const int Runs = 8;
         const int IdleFrames = 300;
         const float AfterReplySeconds = 0.3f;
 
-        public static IEnumerator Run(bool unsliced)
+        /// <summary>Parses the optional object-count list (comma separated, e.g. "1000,5000"); null or unusable gives the default 500, 1500, 5000, 20000.</summary>
+        public static int[] ParseCounts(string list)
         {
+            if (string.IsNullOrEmpty(list)) return DefaultCounts;
+            var parsed = new List<int>();
+            foreach (var part in list.Split(','))
+                if (int.TryParse(part.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n > 0) parsed.Add(n);
+            return parsed.Count == 0 ? DefaultCounts : parsed.ToArray();
+        }
+
+        public static IEnumerator Run(bool unsliced, int[] counts = null)
+        {
+            Counts = counts ?? DefaultCounts;
             Debug.Log("[VHSCALE] start launched=" + Bugsee.IsLaunched + " dev=" + Debug.isDebugBuild + " unity=" + Application.unityVersion
                 + " refresh=" + RefreshHz() + " target=" + Application.targetFrameRate + " vsync=" + QualitySettings.vSyncCount
                 + " screen=" + Screen.width + "x" + Screen.height + " runs=" + Runs + " unsliced=" + unsliced);
@@ -80,6 +92,7 @@ namespace Bugsee.Sample
                                 + " totalMs=" + F(st.TotalMs) + " truncated=" + st.Truncated
                                 + " scene=" + st.Scene + " sceneObjects=" + st.SceneObjects + " sceneCameras=" + st.SceneCameras + " sceneChars=" + st.SceneChars
                                 + " sceneUnits=" + st.SceneUnits + " sceneRenderers=" + st.SceneRenderers + " sceneMainMs=" + F(st.SceneMainMs) + " sceneWorkerMs=" + F(st.SceneWorkerMs) + " sceneTruncated=" + st.SceneTruncated
+                                + " usPerNode=" + (st.Nodes > 0 ? (st.MainMs * 1000.0 / st.Nodes).ToString("F2", CultureInfo.InvariantCulture) : "n/a")
                                 + " frames " + Percentiles(frames));
                             mains.Add(st.MainMs);
                             totals.Add(st.TotalMs);
@@ -171,6 +184,7 @@ namespace Bugsee.Sample
 
             Time("activeInHierarchy", go => sink += go.activeInHierarchy ? 1 : 0);
             Time("GetInstanceID", go => sink += go.GetInstanceID());
+            Time("GetHashCode", go => sink += go.GetHashCode());
             Time("name", go => sink += go.name.Length);
             Time("transform", go => sink += go.transform != null ? 1 : 0);
             Time("GetComponents", go => { go.GetComponents(typeof(Component), comps); sink += comps.Count; comps.Clear(); });
@@ -178,9 +192,11 @@ namespace Bugsee.Sample
             Time("TryGetComponent<Renderer>", go => sink += go.TryGetComponent<Renderer>(out _) ? 1 : 0);
             Time("Renderer.bounds", go => { if (go.TryGetComponent<Renderer>(out var r)) sink += (long)r.bounds.size.x; });
             Time("GetWorldCorners", go => { if (go.transform is RectTransform rt) { rt.GetWorldCorners(Corners4); sink += (long)Corners4[0].x; } });
+            Time("OwnCorners", go => { if (go.transform is RectTransform rt) { OwnCorners(rt, Corners12); sink += (long)Corners12[0]; } });
             Time("childCount", go => sink += go.transform.childCount);
             Time("GetChild", go => { var t = go.transform; if (t.childCount > 0) sink += t.GetChild(0).GetInstanceID(); });
             Time("GetType().Name", go => { if (go.TryGetComponent<Transform>(out var tr)) sink += tr.GetType().Name.Length; });
+            CheckReads(all);
             Debug.Log("[VHSCALE] cost us/call over " + all.Count + " objects: " + string.Join(" ", lines) + " (sink " + sink + ")");
             UnityEngine.Object.Destroy(root);
             yield return null;
@@ -198,6 +214,38 @@ namespace Bugsee.Sample
         }
 
         static readonly Vector3[] Corners4 = new Vector3[4];
+        static readonly float[] Corners12 = new float[12];
+
+        static void OwnCorners(RectTransform rt, float[] into)
+        {
+            var r = rt.rect;
+            var m = rt.localToWorldMatrix;
+            ManagedViewCorners.World(
+                m.m00, m.m01, m.m02, m.m03, m.m10, m.m11, m.m12, m.m13, m.m20, m.m21, m.m22, m.m23, m.m30, m.m31, m.m32, m.m33,
+                r.x, r.y, r.xMax, r.yMax, into);
+        }
+
+        // The four world corners (ManagedViewCorners against RectTransform.GetWorldCorners, compared bit for bit) must match on this device. The id
+        // comparison is informational: GetHashCode is not the instance id in a player.
+        static void CheckReads(List<GameObject> all)
+        {
+            int idDiff = 0, rects = 0, cornerDiff = 0; // idDiff: GetHashCode against GetInstanceID, logged to show they are NOT the same value in a player
+            foreach (var go in all)
+            {
+                if (go.GetHashCode() != go.GetInstanceID()) idDiff++;
+                if (!(go.transform is RectTransform rt)) continue;
+                rects++;
+                rt.GetWorldCorners(Corners4);
+                OwnCorners(rt, Corners12);
+                for (var i = 0; i < 4; i++)
+                    if (BitConverter.SingleToInt32Bits(Corners4[i].x) != BitConverter.SingleToInt32Bits(Corners12[i * 3])
+                        || BitConverter.SingleToInt32Bits(Corners4[i].y) != BitConverter.SingleToInt32Bits(Corners12[i * 3 + 1])
+                        || BitConverter.SingleToInt32Bits(Corners4[i].z) != BitConverter.SingleToInt32Bits(Corners12[i * 3 + 2])) { cornerDiff++; break; }
+            }
+
+            Debug.Log("[VHSCALE] reads check " + (cornerDiff == 0 ? "PASS" : "FAIL") + " objects=" + all.Count + " idMismatches=" + idDiff
+                + " rectTransforms=" + rects + " cornerMismatches=" + cornerDiff);
+        }
 
         static string RefreshHz()
         {

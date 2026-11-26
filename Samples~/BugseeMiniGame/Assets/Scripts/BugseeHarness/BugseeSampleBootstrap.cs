@@ -442,7 +442,7 @@ namespace Bugsee.Sample
                     if (_e2ePhase == 0 && _e2eTimer >= 5f && (Bugsee.IsLaunched || _e2eTimer >= 60f))
                     {
                         _e2ePhase = 99;
-                        StartCoroutine(VhScaleE2E.Run(_e2eScenario == "vhscaleunsliced"));
+                        StartCoroutine(VhScaleE2E.Run(_e2eScenario == "vhscaleunsliced", VhScaleE2E.ParseCounts(ReadE2EValue("bugsee_vh_counts", "BUGSEE_E2E_VH_COUNTS"))));
                     }
                     break;
                 case "vhsecurescale":
