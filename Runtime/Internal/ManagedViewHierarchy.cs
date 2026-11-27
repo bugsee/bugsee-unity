@@ -269,6 +269,8 @@ namespace Bugsee.Internal
             public int Node;              // snapshot index of the node the children hang under
             public int Depth;             // depth of that node
             public CanvasContext Canvas;
+            public int Count;             // children it had when last looked at: fewer now means an earlier sibling went away and the indexes shifted
+            public Scene SceneHandle;     // a scene frame: the scene whose roots are listed
         }
 
         // Node count of the previous capture: the next snapshot and seen-set start at that size (ManagedViewSnapshotSizing).
@@ -282,6 +284,8 @@ namespace Bugsee.Internal
         readonly List<Scene> _scenes = new List<Scene>();
         readonly HashSet<int> _seen; // objects move between slices: one that was read is not read again
         readonly Dictionary<Camera, ManagedViewProjection> _projections = new Dictionary<Camera, ManagedViewProjection>();
+        // What the tree walk hands to the 3D scene read (null when the capture carries no scene): the scene read walks only what the tree did not.
+        readonly ManagedViewSceneFeed<Renderer, Transform> _feed;
         Frame[] _stack = new Frame[32];
         int _sp;
         int _sceneIndex;
@@ -298,7 +302,12 @@ namespace Bugsee.Internal
             _snapshot = new ManagedViewSnapshot(capacity);
             _seen = ManagedViewSnapshotSizing.PresizeSeenSet(capacity) ? new HashSet<int>(capacity) : new HashSet<int>();
             _snapshot.EmitBounds = budget.Level == SceneGraphCapture.All;
-            if (budget.Level == SceneGraphCapture.All) _snapshot.Scene = new ManagedViewSceneSnapshot();
+            if (budget.Level == SceneGraphCapture.All)
+            {
+                _snapshot.Scene = new ManagedViewSceneSnapshot();
+                _feed = new ManagedViewSceneFeed<Renderer, Transform>();
+            }
+
             _width = Screen.width;
             _height = Screen.height;
             _camera = Camera.main;
@@ -374,6 +383,7 @@ namespace Bugsee.Internal
                     {
                         // Destroyed under the walk, a missing script: this object's remaining children are lost, not the tree.
                         _sp--;
+                        if (_feed != null) _feed.MarkBroken(); // the scene read walks them itself
                     }
                 }
                 while (!sliceExpired());
@@ -410,6 +420,7 @@ namespace Bugsee.Internal
                 if (_budget.IsExhausted || !_budget.TryTake(2))
                 {
                     _snapshot.SetTruncated(_root);
+                    FeedCut(null);
                     return false;
                 }
 
@@ -417,13 +428,16 @@ namespace Bugsee.Internal
                 try
                 {
                     var node = _snapshot.Add(_root, scene.handle, "scene-" + scene.handle, "Scene", scene.name);
-                    if (!scene.isLoaded) continue; // unloaded since the walk began: an empty scene node, and the tree is flagged
-                    Push(new Frame { Roots = scene.GetRootGameObjects(), Node = node, Depth = 2 });
+                    if (!scene.isLoaded) { if (_feed != null) _feed.MarkBroken(); continue; } // unloaded since the walk began: an empty scene node, and the tree is flagged
+                    var roots = scene.GetRootGameObjects();
+                    _sceneRoots.Add(roots);
+                    Push(new Frame { Roots = roots, Node = node, Depth = 2, SceneHandle = scene });
                     return true;
                 }
                 catch (Exception)
                 {
                     // The scene went away: nothing below it.
+                    if (_feed != null) _feed.MarkBroken();
                 }
             }
 
@@ -436,25 +450,49 @@ namespace Bugsee.Internal
             _stack[_sp++] = frame;
         }
 
+        static bool SceneRootsUnchanged(Frame f) => SceneRootsUnchanged(f.SceneHandle, f.Roots);
+
+        static bool SceneRootsUnchanged(Scene scene, GameObject[] roots)
+        {
+            try
+            {
+                if (!scene.isLoaded) return true;
+                if (scene.rootCount != roots.Length) return false;
+                for (var i = 0; i < roots.Length; i++) if (roots[i] == null) return false; // one went away and another may have come: the count says nothing
+                return true;
+            }
+            catch (Exception) { return false; }
+        }
+
         // One unit of work on the top frame; false when the frame has no more children.
         bool StepFrame()
         {
             var f = _stack[_sp - 1];
             if (f.Roots != null)
             {
-                if (f.Next >= f.Roots.Length) return false;
+                if (f.Next >= f.Roots.Length)
+                {
+                    // Roots created since the scene was listed are not in this frame: the scene read would find them.
+                    if (_feed != null && !SceneRootsUnchanged(f)) _feed.MarkBroken();
+                    return false;
+                }
+
                 var root = f.Roots[f.Next];
                 if (root != null && _host != null && root == _host.gameObject) { f.Next++; _stack[_sp - 1] = f; return true; }
-                if (_budget.IsExhausted) { _snapshot.SetTruncated(f.Node); return false; }
+                if (_budget.IsExhausted) { _snapshot.SetTruncated(f.Node); FeedCut(null); return false; }
                 f.Next++;
                 _stack[_sp - 1] = f;
                 if (Visit(root, 3, default, f.Node)) _snapshot.SetTruncated(f.Node);
                 return true;
             }
 
-            if (f.Transform == null) { _snapshot.SetTruncated(f.Node); return false; } // destroyed between slices: its other children are lost
-            if (f.Next >= f.Transform.childCount) return false;
-            if (_budget.IsExhausted) { _snapshot.SetTruncated(f.Node); return false; }
+            if (f.Transform == null) { _snapshot.SetTruncated(f.Node); if (_feed != null) _feed.MarkBroken(); return false; } // destroyed between slices: its other children are lost
+            var childCount = f.Transform.childCount;
+            if (_feed != null && childCount < f.Count) _feed.MarkBroken(); // a child went away: the next one is not at the index the walk holds
+            f.Count = childCount;
+            _stack[_sp - 1] = f;
+            if (f.Next >= childCount) return false;
+            if (_budget.IsExhausted) { _snapshot.SetTruncated(f.Node); FeedCut(null); return false; }
             var child = f.Transform.GetChild(f.Next++).gameObject;
             _stack[_sp - 1] = f;
             if (Visit(child, f.Depth + 1, f.Canvas, f.Node)) _snapshot.SetTruncated(f.Node);
@@ -467,9 +505,25 @@ namespace Bugsee.Internal
             if (go == null || !go.activeInHierarchy) return false;
             int id;
             try { id = go.GetInstanceID(); }
-            catch (Exception) { return false; }
-            if (!_seen.Add(id)) return false; // read already (moved between slices): neither a node nor budget
-            if (!_budget.TryTake(depth)) return true;
+            catch (Exception) { if (_feed != null) _feed.MarkBroken(); return false; }
+            if (!_seen.Add(id))
+            {
+                // read already (moved between slices): neither a node nor budget. It moved under the walk, so the feed (what was seen where)
+                // is no longer the tree the scene read would find: the scene read walks it itself.
+                if (_feed != null) _feed.MarkBroken();
+                return false;
+            }
+            if (!_budget.TryTake(depth))
+            {
+                // Out of nodes or time (permanent: the rest of the scene is the scene read's), or below the depth limit (the walk goes on, so
+                // the tree is not a prefix of the scene: the scene read walks it all).
+                if (_feed != null)
+                {
+                    if (_budget.IsExhausted) FeedCut(go); else _feed.MarkBroken();
+                }
+
+                return true;
+            }
 
             int node;
             Transform transform;
@@ -482,9 +536,11 @@ namespace Bugsee.Internal
                 if (className == null) className = transform is RectTransform ? "RectTransform" : "GameObject";
                 node = _snapshot.Add(parent, id, null, className, name);
                 for (var i = 0; i < NameBuffer.Count; i++) _snapshot.AddComponent(node, NameBuffer[i]);
+                if (_feed != null) _feed.Visited(renderer != null, renderer, id, renderer != null ? go.layer : 0);
             }
             catch (Exception)
             {
+                if (_feed != null) _feed.MarkBroken();
                 return false;
             }
 
@@ -510,14 +566,42 @@ namespace Bugsee.Internal
                     SetBounds(node, BoxCorners, _camera, true);
                 }
 
-                if (transform.childCount > 0) Push(new Frame { Transform = transform, Node = node, Depth = depth, Canvas = canvas });
+                var kids = transform.childCount;
+                if (kids > 0) Push(new Frame { Transform = transform, Node = node, Depth = depth, Canvas = canvas, Count = kids });
             }
             catch (Exception)
             {
                 // Keep what this object has; its siblings are read by the caller.
+                if (_feed != null) _feed.MarkBroken(); // (its children may not have been walked)
             }
 
             return false;
+        }
+
+        // The budget stopped the tree: records, for the scene read, everything the tree has not visited, in the order the scene read walks it
+        // (the node that was refused, the rest of each open frame from the innermost out, the scenes not started). Nothing is visited after the cut.
+        void FeedCut(GameObject refused)
+        {
+            if (_feed == null || !_feed.BeginCut(_sceneIndex)) return;
+            if (refused != null) _feed.AddRemaining(refused.transform, -1);
+            for (var i = _sp - 1; i >= 0; i--)
+            {
+                var f = _stack[i];
+                if (f.Roots != null)
+                {
+                    if (!SceneRootsUnchanged(f)) { _feed.MarkBroken(); return; } // a root was created since the scene was listed: the scene read lists them again
+                    for (var k = f.Next; k < f.Roots.Length; k++)
+                    {
+                        var root = f.Roots[k];
+                        if (root == null || (_host != null && root == _host.gameObject)) continue;
+                        _feed.AddRemaining(root.transform, -1);
+                    }
+                }
+                else if (f.Transform != null)
+                {
+                    _feed.AddRemaining(f.Transform, f.Next);
+                }
+            }
         }
 
         // Screen Space - Overlay lays out in screen pixels. Screen Space - Camera with no camera assigned renders as overlay too, so it
@@ -618,6 +702,10 @@ namespace Bugsee.Internal
         Canvas[] _canvases;
         int _canvasIndex;
         bool _sceneDone;
+        readonly List<GameObject[]> _sceneRoots = new List<GameObject[]>(); // the roots of each scene the tree started, by start order (the same index as _scenes while the feed is not broken)
+        bool _useFeed;
+        bool _feedTailChecked;
+        int _feedIndex;
         int _scenePhase; // 0 cameras and seeding, 1 enumerating the units, 2 the canvases
         int _sceneSeen;
 
@@ -627,6 +715,7 @@ namespace Bugsee.Internal
             var scene = _snapshot.Scene;
             if (_scenePhase == 0)
             {
+                ManagedViewDiagnostics.LastSceneFeedUsed = false;
                 ReadCameras(scene);
                 scene.TimeScale = Time.timeScale;
                 scene.Frame = Time.frameCount;
@@ -640,24 +729,40 @@ namespace Bugsee.Internal
                     return true;
                 }
 
-                SeedUnits();
+                SeedUnits(scene);
                 _scenePhase = 1;
                 if (sliceExpired()) return false;
             }
 
             if (_scenePhase == 1)
             {
+                // First the renderers the tree walk already found (no second read of those objects), then the part of the scene the tree
+                // did not reach, walked as before.
+                var fed = _useFeed ? _feed.Renderers : null;
+                while (fed != null && _feedIndex < fed.Count)
+                {
+                    if (SceneLimitReached(scene)) return true;
+                    var entry = fed[_feedIndex++];
+                    try { ReadFed(scene, entry); }
+                    catch (Exception)
+                    {
+                        // A renderer destroyed under the read: it is not in the scene.
+                    }
+
+                    if (sliceExpired()) return false;
+                }
+
+                // (the old walk checked the limits before every step and its own stack was still open after the last object, so a limit reached
+                // by the very last object, or an expired scene time with nothing read, counted too)
+                if (fed != null && !_feedTailChecked)
+                {
+                    _feedTailChecked = true;
+                    if (_units.Count == 0 && SceneLimitReached(scene)) return true;
+                }
+
                 while (_units.Count > 0)
                 {
-                    if (_budget.SceneExpired || scene.ObjectCount >= MaxSceneObjectsRead)
-                    {
-                        // Out of time (or of room) with transforms unread: what was read is a part of the scene.
-                        scene.Incomplete = true;
-                        if (scene.ObjectCount == 0) scene.Skipped = ManagedViewSceneSnapshot.SkippedTimeBudget;
-                        _units.Clear();
-                        _next.Clear();
-                        return true;
-                    }
+                    if (SceneLimitReached(scene)) return true;
 
                     try { ReadUnit(scene); }
                     catch (Exception)
@@ -705,6 +810,17 @@ namespace Bugsee.Internal
             }
 
             scene.Seen = _sceneSeen;
+            return true;
+        }
+
+        // Out of time (or of room) with objects unread: what was read is a part of the scene.
+        bool SceneLimitReached(ManagedViewSceneSnapshot scene)
+        {
+            if (!_budget.SceneExpired && scene.ObjectCount < MaxSceneObjectsRead) return false;
+            scene.Incomplete = true;
+            if (scene.ObjectCount == 0) scene.Skipped = ManagedViewSceneSnapshot.SkippedTimeBudget;
+            _units.Clear();
+            _next.Clear();
             return true;
         }
 
@@ -758,11 +874,51 @@ namespace Bugsee.Internal
                 into[r * 4 + c] = m[r, c];
         }
 
-        void SeedUnits()
+        void SeedUnits(ManagedViewSceneSnapshot scene)
         {
             _units.Clear();
             _next.Clear();
-            for (var i = _scenes.Count - 1; i >= 0; i--)
+            var feed = _feed;
+            // A tree that is a clean prefix of the scene's walk (complete, or cut by the node count or the deadline) answers for what it
+            // visited; anything else (a level below the depth limit, a read that threw) and the scene is walked in full, as it always was.
+            if (feed != null && !feed.Broken && !ManagedViewDiagnostics.DisableSceneFeed && (feed.Cut || !_budget.Truncated) && StartedScenesUnchanged())
+            {
+                _useFeed = true;
+                ManagedViewDiagnostics.LastSceneFeedUsed = true;
+                scene.ReadUnits += feed.Units;
+                if (feed.Cut)
+                {
+                    SeedScenes(feed.ResumeSceneIndex);
+                    feed.FillResumeStack(_units, _next);
+                }
+
+                return;
+            }
+
+            SeedScenes(0);
+        }
+
+        // A root created or destroyed in a scene the tree already listed (the open frame is checked as it finishes or at the cut): the feed does not have it.
+        bool StartedScenesUnchanged()
+        {
+            try
+            {
+                for (var i = 0; i < _sceneRoots.Count && i < _scenes.Count; i++)
+                {
+                    var scene = _scenes[i];
+                    if (!scene.isLoaded) return false;
+                    if (!SceneRootsUnchanged(scene, _sceneRoots[i])) return false;
+                }
+
+                return true;
+            }
+            catch (Exception) { return false; }
+        }
+
+        // The roots of the loaded scenes from index `from` on, pushed so the first scene's first root is read first.
+        void SeedScenes(int from)
+        {
+            for (var i = _scenes.Count - 1; i >= from; i--)
             {
                 var scene = _scenes[i];
                 if (!scene.isLoaded) continue;
@@ -808,12 +964,27 @@ namespace Bugsee.Internal
             if (_next.Count > _units.Count) _next.RemoveAt(_next.Count - 1);
         }
 
-        void ReadRenderer(ManagedViewSceneSnapshot scene, Renderer r)
+        // A renderer the tree walk found: its object's id and layer were read there.
+        void ReadFed(ManagedViewSceneSnapshot scene, ManagedViewSceneFeed<Renderer, Transform>.Entry entry)
+        {
+            if (entry.Renderer == null) return; // destroyed since the tree read it: the walk would not have found it
+            ReadRenderer(scene, entry.Renderer, entry.Id, entry.Layer);
+        }
+
+        void ReadRenderer(ManagedViewSceneSnapshot scene, Renderer r) => ReadRenderer(scene, r, 0, 0, true);
+
+        void ReadRenderer(ManagedViewSceneSnapshot scene, Renderer r, int id, int layer, bool resolveObject = false)
         {
             _sceneSeen++;
             scene.ReadRenderers++;
             if (r == null || !r.isVisible) return; // not drawn last frame (a disabled renderer, a culled one): not in a "visible" scene
-            var go = r.gameObject;
+            if (resolveObject)
+            {
+                var go = r.gameObject;
+                id = go.GetInstanceID();
+                layer = go.layer;
+            }
+
             var kind = KindOf(r.GetType(), out var worldBox);
             float cx, cy, cz, sx, sy, sz;
             float[] matrix;
@@ -839,7 +1010,7 @@ namespace Bugsee.Internal
                 matrix = Matrix16;
             }
 
-            scene.AddObject(go.GetInstanceID(), kind, go.layer, 0, matrix, cx, cy, cz, sx, sy, sz);
+            scene.AddObject(id, kind, layer, 0, matrix, cx, cy, cz, sx, sy, sz);
         }
 
         // The kind from the renderer's type or the first base type that is known; a type name is matched, so a module that is not part of the

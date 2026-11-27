@@ -106,6 +106,7 @@ namespace Bugsee.Sample
                         + " | mainMs median=" + F(Median(mains)) + " max=" + F(Max(mains)) + " | totalMs median=" + F(Median(totals)) + " max=" + F(Max(totals)));
                     UnityEngine.Object.Destroy(root);
                     yield return null;
+                    if (n <= FeedCompareMaxObjects) yield return FeedCompare(n);
                 }
             }
             finally
@@ -115,6 +116,71 @@ namespace Bugsee.Sample
                 RestoreCamera();
                 Debug.Log("[VHSCALE] done");
             }
+        }
+
+        const int FeedCompareMaxObjects = 5000;
+
+        // The 3D scene read takes the renderers the tree walk found instead of walking every transform again (ManagedViewDiagnostics.DisableSceneFeed
+        // switches that off). On a world that holds still the two must give the same reply: the other root objects are hidden, a fresh synthetic scene
+        // of n objects is built, and five unsliced captures alternate feed on, off, on, off, on (the first is dropped: renderers are only "visible"
+        // after a few frames). Logs `[VHSCALE] feed-compare n=... identical=...` with the reply sizes. The frame counter in the scene block is ignored.
+        static IEnumerator FeedCompare(int n)
+        {
+            var hidden = new List<GameObject>();
+            GameObject root = null;
+            var replies = new List<string>();
+            var feedUsed = new List<bool>();
+            var advanced = true;
+            var savedSlice = ManagedViewDiagnostics.SliceMsOverride;
+            try
+            {
+                var me = UnityEngine.Object.FindObjectOfType<BugseeSampleBootstrap>();
+                var mine = me != null ? me.transform.root.gameObject : null;
+                for (var i = 0; i < UnityEngine.SceneManagement.SceneManager.sceneCount; i++)
+                    foreach (var go in UnityEngine.SceneManagement.SceneManager.GetSceneAt(i).GetRootGameObjects())
+                        if (go != mine && go.activeSelf && go.GetComponentInChildren<Camera>(true) == null && go.GetComponentInChildren<AudioListener>(true) == null)
+                        {
+                            go.SetActive(false);
+                            hidden.Add(go);
+                        }
+
+                root = Build(n);
+                ManagedViewDiagnostics.KeepReplies = true;
+                ManagedViewDiagnostics.SliceMsOverride = 1000;
+                yield return new WaitForSecondsRealtime(2f);
+                for (var run = 1; run <= 5; run++)
+                {
+                    ManagedViewDiagnostics.DisableSceneFeed = run % 2 == 0;
+                    var before = ManagedViewDiagnostics.Count;
+                    Bugsee.CaptureViewHierarchy();
+                    var started = Time.realtimeSinceStartup;
+                    while (ManagedViewDiagnostics.Count == before && Time.realtimeSinceStartup - started < 5f) yield return null;
+                    advanced &= ManagedViewDiagnostics.Count > before;
+                    feedUsed.Add(ManagedViewDiagnostics.LastSceneFeedUsed);
+                    replies.Add(ManagedViewDiagnostics.LastReply);
+                    yield return new WaitForSecondsRealtime(0.5f);
+                }
+            }
+            finally
+            {
+                ManagedViewDiagnostics.DisableSceneFeed = false;
+                ManagedViewDiagnostics.KeepReplies = false;
+                ManagedViewDiagnostics.SliceMsOverride = savedSlice;
+                if (root != null) UnityEngine.Object.Destroy(root);
+                foreach (var go in hidden) if (go != null) go.SetActive(true);
+                RestoreCamera();
+            }
+
+            string Norm(string json) => json == null ? null : System.Text.RegularExpressions.Regex.Replace(json, "\"frame\":\\d+", "\"frame\":0");
+            // the "on" captures (1, 3, 5) really used the feed and the "off" ones (2, 4) did not, and every capture settled: otherwise nothing was compared
+            // a renderer object (mesh, skinned, sprite, particles, line, tilemap or other: any kind but a canvas's "ui") must be in the reply, or nothing was compared
+            var hasRenderers = replies.Count == 5;
+            for (var i = 1; hasRenderers && i < 5; i++)
+                hasRenderers = replies[i] != null && System.Text.RegularExpressions.Regex.IsMatch(replies[i], "\"kind\":\"(?!ui\")");
+            var identical = hasRenderers && advanced && feedUsed[2] && feedUsed[4] && !feedUsed[1] && !feedUsed[3];
+            for (var i = 2; identical && i < 5; i++) identical = Norm(replies[i]) == Norm(replies[1]);
+            Debug.Log("[VHSCALE] feed-compare n=" + n + " identical=" + identical + " captures=" + replies.Count + " inconclusive=" + (replies.Count == 5 && !hasRenderers) + " feedUsed=" + string.Join("/", feedUsed) + " chars="
+                + string.Join("/", replies.ConvertAll(r => r == null ? "null" : r.Length.ToString(CultureInfo.InvariantCulture))));
         }
 
         // The wrapper projects box corners with the camera's matrices copied once (ManagedViewProjection) instead of one

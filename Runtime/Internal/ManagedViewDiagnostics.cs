@@ -19,6 +19,12 @@ namespace Bugsee.Internal
         /// <summary>When above 0, the main thread's per-frame slice of the walk in ms instead of 5% of the frame (the sample compares slicings).</summary>
         public static double SliceMsOverride;
 
+        /// <summary>True: the 3D scene read walks every transform itself instead of using what the tree walk found (the sample's comparison of the two on one scene: the replies must be identical).</summary>
+        public static bool DisableSceneFeed;
+
+        /// <summary>Whether the last 3D scene read used what the tree walk found (true) or walked every transform itself (false: the feed was off, or the tree skipped something it cannot resume from, e.g. a root object appeared during the walk). Written on the main thread.</summary>
+        public static volatile bool LastSceneFeedUsed;
+
         /// <summary>The captures settled so far (replied or answered null).</summary>
         public static int Count => Volatile.Read(ref _count);
 
