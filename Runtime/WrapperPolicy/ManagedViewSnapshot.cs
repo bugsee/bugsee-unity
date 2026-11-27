@@ -26,11 +26,13 @@ namespace Bugsee.WrapperPolicy
         bool[] _hasBounds;
         bool[] _truncated;
         float[] _box; // x, y, width, height per node
-        readonly List<string> _components = new List<string>(256);
+        readonly List<string> _components;
 
         public ManagedViewSnapshot(int capacity = 512)
         {
             if (capacity < 4) capacity = 4;
+            // About two shown names per node: the list starts at what it always did, and at two per node for a snapshot sized for a big scene.
+            _components = new List<string>(capacity > ManagedViewSnapshotSizing.MinCapacity ? capacity * 2 : 256);
             _id = new long[capacity];
             _idText = new string[capacity];
             _parent = new int[capacity];

@@ -271,13 +271,16 @@ namespace Bugsee.Internal
             public CanvasContext Canvas;
         }
 
-        readonly ManagedViewSnapshot _snapshot = new ManagedViewSnapshot();
+        // Node count of the previous capture: the next snapshot and seen-set start at that size (ManagedViewSnapshotSizing).
+        static int _lastNodeCount;
+
+        readonly ManagedViewSnapshot _snapshot;
         readonly ManagedViewBudget _budget;
         int _width, _height; // refreshed each slice (a rotation or a resolution change between slices)
         readonly Camera _camera;
         readonly MainThreadDispatcher _host;
         readonly List<Scene> _scenes = new List<Scene>();
-        readonly HashSet<int> _seen = new HashSet<int>(); // objects move between slices: one that was read is not read again
+        readonly HashSet<int> _seen; // objects move between slices: one that was read is not read again
         readonly Dictionary<Camera, ManagedViewProjection> _projections = new Dictionary<Camera, ManagedViewProjection>();
         Frame[] _stack = new Frame[32];
         int _sp;
@@ -291,6 +294,9 @@ namespace Bugsee.Internal
         public ManagedViewWalker(ManagedViewBudget budget)
         {
             _budget = budget;
+            var capacity = ManagedViewSnapshotSizing.Capacity(_lastNodeCount, ManagedViewBudget.DefaultMaxNodes);
+            _snapshot = new ManagedViewSnapshot(capacity);
+            _seen = ManagedViewSnapshotSizing.PresizeSeenSet(capacity) ? new HashSet<int>(capacity) : new HashSet<int>();
             _snapshot.EmitBounds = budget.Level == SceneGraphCapture.All;
             if (budget.Level == SceneGraphCapture.All) _snapshot.Scene = new ManagedViewSceneSnapshot();
             _width = Screen.width;
@@ -336,6 +342,7 @@ namespace Bugsee.Internal
         {
             if (_finished) return;
             _finished = true;
+            _lastNodeCount = _snapshot.Count;
             SceneManager.sceneLoaded -= OnSceneLoaded;
             SceneManager.sceneUnloaded -= OnSceneUnloaded;
             Array.Clear(_stack, 0, _stack.Length);
