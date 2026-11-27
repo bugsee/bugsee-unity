@@ -7,7 +7,7 @@ namespace Bugsee
     {
         public const string Version = "7.0.0-beta.1";
         public const string Build = "dev";
-        public const string AndroidSdkVersion = "7.6.0";
+        public const string AndroidSdkVersion = "7.6.1";
         public const string AndroidMavenGroup = "com.bugsee";
         public const string AndroidMavenArtifact = "bugsee-android";
         public const string AndroidNdkArtifact = "bugsee-android-ndk";

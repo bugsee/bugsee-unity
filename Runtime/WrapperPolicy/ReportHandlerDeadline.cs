@@ -155,7 +155,7 @@ namespace Bugsee.WrapperPolicy
     /// </summary>
     public sealed class FilterReplyWindow
     {
-        // The Android SDK's FILTER_CALLBACK_TIMEOUT_MS for the log filter, read from the 7.4.1 to 7.6.0 releases. A test
+        // The Android SDK's FILTER_CALLBACK_TIMEOUT_MS for the log filter, read from the 7.4.1 to 7.6.1 releases. A test
         // fails when the pinned Android SDK version changes, so this is checked again on every bump: a longer or absent
         // timeout in a newer SDK would make the wrapper withhold replies the SDK still accepts.
         public const long LogFilterSdkTimeoutMs = 10000;

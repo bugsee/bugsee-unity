@@ -15,10 +15,10 @@ namespace Bugsee.Sample
     ///
     /// Part 1, "RAW": calls the native SDK's <c>Bugsee.relaunch / stop / launch</c> directly (bypassing the wrapper's lifecycle
     /// machine) and logs what the SDK itself answers, so the same scenario run against builds with different SDK versions (7.4.1, 7.4.2,
-    /// 7.5.0, 7.6.0) shows what changed: <c>[Sample] lifecycle RAW name :: ...</c> lines. They are information; PASS/FAIL is judged only when the
+    /// 7.5.0, 7.6.0, 7.6.1) shows what changed: <c>[Sample] lifecycle RAW name :: ...</c> lines. They are information; PASS/FAIL is judged only when the
     /// SDK version the harness reads is in <c>JudgedSdkVersions</c> (the running SDK's <c>Bugsee.getSdkVersion()</c> from 7.6.0, its <c>BuildConfig</c>
     /// before that when it can be read, else the package's pinned version, which the Gradle dependency also follows). Judged: 7.4.2, the version the
-    /// wrapper models, and 7.5.0 and 7.6.0, whose lifecycle scenarios were run on an HONOR WOD-LX1 (Android 14) (7.5.0 also on a Samsung SM-T725,
+    /// wrapper models, and 7.5.0, 7.6.0 and 7.6.1, whose lifecycle scenarios were run on an HONOR WOD-LX1 (Android 14) (7.5.0 also on a Samsung SM-T725,
     /// Android 11) with the 7.4.2 expectations unchanged: 0 failures.
     ///
     /// Part 2: the same sequences through the public facade (the lifecycle machine), judged when the SDK is in <c>JudgedSdkVersions</c>:
@@ -55,7 +55,7 @@ namespace Bugsee.Sample
         }
         // Android SDK versions whose lifecycle behaviour the expectations below were checked against. On any other version the
         // scenarios only log. A policy test (LifecycleE2EJudgedVersionsTests) fails when the pinned SDK is not listed here.
-        static readonly string[] JudgedSdkVersions = { "7.4.2", "7.5.0", "7.6.0" };
+        static readonly string[] JudgedSdkVersions = { "7.4.2", "7.5.0", "7.6.0", "7.6.1" };
         static bool _judge;
         static readonly Stopwatch Clock = Stopwatch.StartNew();
 
