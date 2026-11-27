@@ -55,7 +55,7 @@ namespace Bugsee.Sample
         }
         // Android SDK versions whose lifecycle behaviour the expectations below were checked against. On any other version the
         // scenarios only log. A policy test (LifecycleE2EJudgedVersionsTests) fails when the pinned SDK is not listed here.
-        static readonly string[] JudgedSdkVersions = { "7.4.2", "7.5.0", "7.6.0" };
+        static readonly string[] JudgedSdkVersions = { "7.4.2", "7.5.0", "7.6.0", "7.6.1" };
         static bool _judge;
         static readonly Stopwatch Clock = Stopwatch.StartNew();
 

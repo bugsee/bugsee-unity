@@ -5,7 +5,7 @@ namespace Bugsee.Contracts.Options
     /// <summary>
     /// The fatal signals the native crash reporter intercepts, one bit per signal; combine them to choose which.
     /// Both platforms: the values are the iOS SDK's <c>BugseeCrashSignals</c> and, identically, the constants of the
-    /// Android SDK's <c>CrashSignals</c> class (<c>bugsee-android-ndk</c>, checked in 7.6.0). On Android the key is
+    /// Android SDK's <c>CrashSignals</c> class (<c>bugsee-android-ndk</c>, checked in 7.6.1). On Android the key is
     /// known only once the NDK extension is registered. A value is read slightly differently by the two SDKs:
     /// <see cref="Default"/> means every signal on both, but an Android value that is nonzero, is not <see cref="Default"/> and
     /// selects none of the six signals (for example <c>64</c>) is also taken as every signal, while the iOS header says any other value

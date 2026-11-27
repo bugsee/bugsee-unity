@@ -489,7 +489,7 @@ namespace Bugsee.WrapperPolicy.Tests
 
         // capture.crash-signals is sent to both SDKs, so the CrashSignals enum must mean the same bits on both. iOS: BugseeCrashSignals
         // (7.1.0 header). Android: the constants of com.bugsee.library.contracts.options.CrashSignals in the bugsee-android-ndk
-        // 7.5.0/7.6.0 AAR (javap -constants: NONE 0, ABRT 1, SEGV 2, BUS 4, ILL 8, FPE 16, TRAP 32, ALL 63, DEFAULT 128). The Android
+        // 7.5.0/7.6.0/7.6.1 AAR (javap -constants: NONE 0, ABRT 1, SEGV 2, BUS 4, ILL 8, FPE 16, TRAP 32, ALL 63, DEFAULT 128). The Android
         // class is not in the vendored manifest, so this table is the recorded evidence: re-check it against the AAR on an Android bump.
         [Test]
         public void Crash_signals_enum_matches_the_android_and_ios_bit_sets()

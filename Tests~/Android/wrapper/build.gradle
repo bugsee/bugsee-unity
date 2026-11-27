@@ -27,6 +27,6 @@ android {
 }
 
 dependencies {
-    implementation "com.bugsee:bugsee-android:7.6.0"
+    implementation "com.bugsee:bugsee-android:7.6.1"
     testImplementation "junit:junit:4.13.2"
 }
