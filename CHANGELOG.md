@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [7.0.0-beta.2] - 2026-11-27
+
 ### Added
 
 - **The managed view hierarchy carries the 3D scene: a `scene` block with the cameras and the oriented bounding boxes of the visible objects, chosen by the new Unity-only launch option `CaptureSceneGraph` (`com.bugsee.option.unity.capture-scene-graph`).** Values: `All` (the default when omitted: the tree with names and 2D `bounds` plus the `scene` block), `NamesOnly` (the tree with names and no positions: no `bounds`, no `scene`) and `None` (no managed tree). The `scene` block follows the view-tree-scene spec (glTF axes, metres, quaternions `[x, y, z, w]`, converted from Unity's left-handed space) and holds the enabled cameras, the renderers that were drawn and sit inside a camera's view volume (meshes and sprites as oriented boxes), and the World Space and Screen Space - Camera canvases as planes, as far as the time and size limits allow: a capture can truncate the scene or leave it out when the tree could not be written in time. **With the default an AR app can upload the device pose and the geometry of the AR planes and meshes it renders unless it sets `NamesOnly` or `None`.** The scene is read after the tree in the same 5% slices (the tree keeps its 250 ms window; the scene reads in what it leaves and up to 40 ms more) and is truncated, with counts, rather than late. `bounds` is no longer written on any node under `NamesOnly`. See "Managed view hierarchy" in the documentation.

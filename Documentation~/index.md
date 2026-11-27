@@ -515,7 +515,7 @@ Reading of the table: in a Release IL2CPP build without IL2CPP line information,
 - Worker: MethodMap demangles mangled names; when addresses + symbols + linemap match, **primary LNM** remaps to C# file:line. The SDK sends module-relative offsets (see the address contract above), which the worker uses as is.
 - **`moduleUUID`** is the UUID of the IL2CPP image the player is running (GNU build-id of `libil2cpp.so`, Mach-O UUID of UnityFramework), read at runtime through `il2cpp_native_stack_trace` (from a throwaway thrown exception, probed at launch and kept once found), so it is the UUID of that very build for thrown exceptions, exceptions that were never thrown, and exceptions read from the Unity log alike. A Development build that breaks on all exceptions in a debugger stops once at that probe's throw. It is empty when it cannot be known (Mono, Editor), which the worker treats as missing. No build step writes it into the project: the UUID of a build exists only after the player is built, and an earlier package version's `Assets/Resources/BugseeIl2CppModuleUuids.txt` was therefore one build stale; that file is no longer read and can be deleted. The worker still accepts a CSV.
 
-## Known issues (7.0.0-beta.1)
+## Known issues (7.0.0-beta.2)
 
 - **Handled managed exceptions in a Release IL2CPP build on Android without IL2CPP line information, with Public symbols (symbol table only),** stay unsymbolicated; use Debugging symbols plus the il2cpp-linemap. Development builds send no addresses on Android. See "IL2CPP handled exceptions: what resolves (issue #263)".
 - **Public, then Debugging, for the same `libil2cpp.so` build id** may keep frames raw on the dashboard (open, under investigation, #263); see the same section.

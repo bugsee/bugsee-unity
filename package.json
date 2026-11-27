@@ -1,6 +1,6 @@
 {
   "name": "com.bugsee.unity",
-  "version": "7.0.0-beta.1",
+  "version": "7.0.0-beta.2",
   "displayName": "Bugsee",
   "description": "Bugsee crash and session-replay SDK for Unity (iOS & Android).",
   "unity": "2021.3",

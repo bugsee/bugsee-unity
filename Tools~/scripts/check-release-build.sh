@@ -7,7 +7,7 @@
 # Release checks: C# and Java constants agree; not `dev`; a valid shape; when hash-shaped, that commit is an ANCESTOR of
 # HEAD and HEAD differs from it only in what a release edits (CHANGELOG.md and the build/version lines of the two constant
 # files, package.json and Tools~/versions.env), so the id really names the code that was tagged; the package.json, C#, Java and versions.env versions agree, and the tag is v<that version>
-# (a prerelease tag such as v7.0.0-beta.1 needs package.json "7.0.0-beta.1").
+# (a prerelease tag such as v7.0.0-beta.2 needs package.json "7.0.0-beta.2").
 # Run it before `git push --tags`; the release-check workflow repeats it after the push and can only report.
 set -euo pipefail
 

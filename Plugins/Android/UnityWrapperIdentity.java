@@ -6,7 +6,7 @@ package com.bugsee.unity;
  * "unknown" for a crash recovered before any C# runs.
  */
 final class UnityWrapperIdentity {
-    static final String VERSION = "7.0.0-beta.1";
+    static final String VERSION = "7.0.0-beta.2";
     static final String BUILD = "dev";
 
     private UnityWrapperIdentity() {}

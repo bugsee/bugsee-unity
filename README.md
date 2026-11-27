@@ -7,13 +7,13 @@ UPM package for the Bugsee crash and session-replay SDK on Unity (**2021.3+**).
 
 ## Install
 
-**This is a beta (`7.0.0-beta.1`): it may have rough edges, and it has breaking changes relative to 6.x (see the
+**This is a beta (`7.0.0-beta.2`): it may have rough edges, and it has breaking changes relative to 6.x (see the
 [changelog](CHANGELOG.md)). The minimum Unity version is 2021.3.**
 
 The package is installed from git, pinned to a release tag:
 
 ```
-https://github.com/bugsee/bugsee-unity.git#v7.0.0-beta.1
+https://github.com/bugsee/bugsee-unity.git#v7.0.0-beta.2
 ```
 
 Without `#<tag>` Unity follows the repository's default branch, which is not a release.
@@ -25,7 +25,7 @@ Without `#<tag>` Unity follows the repository's default branch, which is not a r
 ```json
 {
   "dependencies": {
-    "com.bugsee.unity": "https://github.com/bugsee/bugsee-unity.git#v7.0.0-beta.1"
+    "com.bugsee.unity": "https://github.com/bugsee/bugsee-unity.git#v7.0.0-beta.2"
   }
 }
 ```
@@ -34,8 +34,8 @@ Without `#<tag>` Unity follows the repository's default branch, which is not a r
 `git+`; other spellings are rejected as an invalid version. For a clone on disk, or a mirror:
 
 ```
-file:///path/to/bugsee-unity.git#v7.0.0-beta.1
-git+file:///path/to/bugsee-unity#v7.0.0-beta.1
+file:///path/to/bugsee-unity.git#v7.0.0-beta.2
+git+file:///path/to/bugsee-unity#v7.0.0-beta.2
 ```
 
 **From disk.** Package Manager > **+** > **Add package from disk...**, then pick the `package.json` in the root of a
@@ -46,7 +46,7 @@ checkout (the folder that holds `package.json`, `Runtime` and `Editor`); in `man
 top-level `package/` folder (what `npm pack` makes), and rejects an archive without it. From a checkout:
 
 ```
-git archive --format=tar.gz --prefix=package/ -o bugsee-unity-7.0.0-beta.1.tgz v7.0.0-beta.1
+git archive --format=tar.gz --prefix=package/ -o bugsee-unity-7.0.0-beta.2.tgz v7.0.0-beta.2
 ```
 
 Unity rejects an archive whose files are at the top level or under another folder name, which includes GitHub's "Source code" download (its top folder is named after the repository and the tag); use the command above instead. (A tarball also carries `Samples~`, `Tests~`, `Documentation~` and the
